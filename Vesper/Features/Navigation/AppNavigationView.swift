@@ -4,6 +4,7 @@ import UIKit
 struct AppNavigationView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
+    @AppStorage("navigation.allowsHidingTabBar") private var allowsHidingTabBar = true
     @State private var selection: AppSection = .media
     @State private var isExpanded = false
     @State private var mediaPath = NavigationPath()
@@ -14,7 +15,7 @@ struct AppNavigationView: View {
     var body: some View {
         SearchTabContainer(
             selection: $selection, isExpanded: $isExpanded,
-            order: order, hidden: hidden, content: AnyView(selectedContent)
+            order: order, hidden: hidden, allowsHidingTabBar: allowsHidingTabBar, content: AnyView(selectedContent)
         )
         .ignoresSafeArea(edges: .bottom)
     }
@@ -34,7 +35,6 @@ struct AppNavigationView: View {
                 NavigationStack(path: $settingsPath) { SettingsView() }
             }
         }
-        .simultaneousGesture(TapGesture().onEnded { isExpanded = false })
         .background(Color("VesperBackground"))
     }
 }
@@ -46,6 +46,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
     @Binding var isExpanded: Bool
     let order: String
     let hidden: String
+    let allowsHidingTabBar: Bool
     let content: AnyView
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -74,37 +75,28 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
         let ordered = saved + AppSection.allCases.filter { !saved.contains($0) }
         let excluded = Set(hidden.split(separator: ",").map(String.init))
-        let destinations = isExpanded && !coordinator.isSearching ? ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
+        let mayHide = allowsHidingTabBar && !coordinator.isSearching
+        let destinations = (isExpanded || !mayHide) ? ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
             .compactMap { coordinator.destinations[$0] } : []
         let tabs = destinations + [coordinator.searchTab]
         if controller.tabs.map(\.identifier) != tabs.map(\.identifier) {
             controller.setTabs(tabs, animated: false)
         }
-        coordinator.searchTab.viewController?.tabBarItem.accessibilityLabel = "多功能"
-        coordinator.searchTab.viewController?.tabBarItem.accessibilityHint = "轻点展开标签，长按搜索"
-        coordinator.searchTab.viewController?.tabBarItem.accessibilityCustomActions = [
-            UIAccessibilityCustomAction(name: "打开搜索", target: coordinator, selector: #selector(Coordinator.openSearchAccessibility))
-        ]
         if !coordinator.isSearching {
             // The persistent Search host also displays the current page while collapsed.
             controller.selectedTab = coordinator.searchTab
         }
     }
 
-    final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate, UISearchResultsUpdating, UISearchBarDelegate {
+    final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate, UISearchResultsUpdating {
         var parent: SearchTabContainer
         weak var controller: UITabBarController?
         let host = UIHostingController(rootView: AnyView(EmptyView()))
         let searchPage = UIViewController()
         let results = UIHostingController(rootView: AnyView(EmptyView()))
         var isSearching = false
-        var isEditingSearch = false
         lazy var searchController = UISearchController(searchResultsController: results)
-        lazy var searchNavigation: UINavigationController = {
-            let navigation = UINavigationController(rootViewController: host)
-            navigation.setNavigationBarHidden(true, animated: false)
-            return navigation
-        }()
+        lazy var searchNavigation = UINavigationController(rootViewController: searchPage)
         lazy var searchTab: UISearchTab = {
             let tab = UISearchTab { [weak self] _ in
                 guard let self else { return UIViewController() }
@@ -124,21 +116,16 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
             searchPage.title = nil
             searchPage.view.backgroundColor = .systemBackground
             searchController.searchResultsUpdater = self
-            searchController.searchBar.delegate = self
-            searchController.automaticallyShowsCancelButton = true
-            searchController.searchBar.showsCancelButton = true
             searchController.searchBar.placeholder = "搜索当前媒体来源"
             searchPage.navigationItem.searchController = searchController
             searchPage.navigationItem.hidesSearchBarWhenScrolling = false
             searchPage.definesPresentationContext = true
-            searchPage.navigationItem.leftBarButtonItem = nil
             updateSearchResults(for: searchController)
         }
 
         func tabBarController(_ tabBarController: UITabBarController, shouldSelectTab tab: UITab) -> Bool {
             if tab === searchTab {
-                if isSearching { return true }
-                parent.isExpanded.toggle()
+                return true
             } else if let section = AppSection(rawValue: tab.identifier) {
                 parent.selection = section
                 AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
@@ -157,58 +144,9 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         }
 
         @objc func longPress(_ recognizer: UILongPressGestureRecognizer) {
-            guard recognizer.state == .began, let controller else { return }
-            openSearch(in: controller)
-        }
-
-        @objc func openSearchAccessibility() -> Bool {
-            guard let controller else { return false }
-            openSearch(in: controller)
-            return true
-        }
-
-        private func openSearch(in controller: UITabBarController) {
-            isSearching = true
-            parent.isExpanded = false
-            // Remove destination tabs before activating Search, not on the next
-            // SwiftUI update, so no stale group remains during the transition.
-            controller.setTabs([searchTab], animated: false)
-            searchNavigation.setNavigationBarHidden(false, animated: false)
-            searchNavigation.setViewControllers([searchPage], animated: false)
-            controller.selectedTab = searchTab
-            searchController.isActive = true
-            searchController.searchBar.showsCancelButton = true
-            AppLog.info("navigation.search.opened", category: .navigation)
-        }
-
-        func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
-            isEditingSearch = true
-            searchBar.showsCancelButton = true
-        }
-
-        func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
-            isEditingSearch = false
-            if isSearching { searchBar.setShowsCancelButton(true, animated: false) }
-        }
-
-        func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
-            if isEditingSearch || searchBar.searchTextField.isFirstResponder {
-                searchBar.resignFirstResponder()
-                searchBar.searchTextField.resignFirstResponder()
-                isEditingSearch = false
-                searchBar.showsCancelButton = true
-            } else {
-                closeSearch()
-            }
-        }
-
-        func closeSearch() {
-            searchController.isActive = false
-            isSearching = false
-            isEditingSearch = false
-            searchNavigation.setViewControllers([host], animated: false)
-            searchNavigation.setNavigationBarHidden(true, animated: false)
-            controller?.selectedTab = searchTab
+            guard recognizer.state == .began, !isSearching else { return }
+            parent.isExpanded.toggle()
+            AppLog.info("navigation.tabs.long_press_toggled", category: .navigation)
         }
 
         func updateSearchResults(for searchController: UISearchController) {

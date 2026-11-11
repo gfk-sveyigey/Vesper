@@ -47,6 +47,7 @@ private struct AppearanceSettingsView: View {
 struct TabSettingsView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
+    @AppStorage("navigation.allowsHidingTabBar") private var allowsHidingTabBar = true
 
     private var sections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
@@ -55,6 +56,9 @@ struct TabSettingsView: View {
 
     var body: some View {
         List {
+            Section("标签栏") {
+                Toggle("允许隐藏标签栏", isOn: $allowsHidingTabBar)
+            }
             Section {
                 ForEach(sections) { section in
                     Toggle(isOn: Binding(

@@ -138,8 +138,8 @@ Color("VesperPlaybackProgress")
 
 ## Search 角色集成实验
 
-导航容器现改用 `UITabBarController` 与真正的 `UISearchTab`，不再把 `UITabBarItem(.search)` 等同于 Search 角色。入口使用网格 image；轻点通过 delegate 拦截为标签组展开/收起，长按进入带 `UISearchController` 的搜索页面，关闭后返回之前的区域。切换标签集合不启用动画。设置标签不可配置隐藏。VoiceOver 提供打开搜索操作。
+导航容器现改用 `UITabBarController` 与真正的 `UISearchTab`，不再把 `UITabBarItem(.search)` 等同于 Search 角色。入口使用网格 image；单击由 `UISearchTab` 默认激活搜索，长按切换区域标签组。搜索取消交给系统恢复之前区域。切换标签集合不启用动画。设置标签不可配置隐藏。VoiceOver 提供打开搜索操作。
 
 这是在系统 Search 角色上覆盖轻点语义的实验集成，不能直接视为系统默认交互。独立 Search 布局、覆盖图标、标签集合变化时的页面保留、长按及搜索激活需在 iOS 26 真机验收；编译成功不代表这些交互已通过。
 
-搜索打开前立即移除目的地标签组；搜索页顶部不显示标题或关闭按钮。搜索栏右侧取消按钮持续显示，使用 `UISearchBarDelegate` 区分状态：输入时点击先退出键盘输入；非输入时点击关闭搜索并恢复此前页面。该双阶段行为及 iOS 26 搜索栏布局需设备验收。
+不自定义搜索页关闭按钮或搜索栏取消按钮，搜索激活/关闭由 UIKit 默认行为管理。标签栏显隐不随区域选择自动变化；设置项“允许隐藏标签栏”关闭时强制显示全部已启用标签，打开时允许多功能入口长按折叠区域标签。内容点击不再切换标签栏显隐。
