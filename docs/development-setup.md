@@ -9,7 +9,6 @@
 ## 在 macOS 上构建
 
 ```bash
-python3 scripts/validate_project.py
 xcodebuild -project Vesper.xcodeproj -scheme Vesper \
   -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
@@ -21,24 +20,24 @@ CI 沿用 `.github/workflows/build-dev.yml`，推送 dev 后在 macOS 26/Xcode 2
 ## 当前原型范围
 
 - 媒体、来源、记录、设置四个区域及各自的导航路径。
-- 右下方多功能入口使用 `square.grid.2x2`，点击后向左展开标签，选择后收起。采用原生 Button 与 glass 样式组合，不是系统 Tab Bar。
-- 导航栏背景隐藏；底部导航容器无背景，按钮采用原生材质。安全区保留可操作空间；后续真实媒体网格需要再次验证栏下内容延伸。
+- 主区域使用原生 `TabView` / `Tab`，同时展示媒体、来源、记录、设置，由系统管理标签选择与布局。单入口展开方案暂缓。
+- 导航栏和系统标签栏使用公开 API 隐藏背景；安全区和标签布局交由系统处理。真实媒体接入后仍需验证栏下内容和对比度。
 - 媒体、来源和记录暂为明确的空状态。设置提供可访问的外观说明；没有伪造来源、播放历史、账号连接或无效开关。
 - 原型没有接入 KSPlayer、PiP、真实媒体来源或服务账号。来源选择与幕墙属于后续阶段。
 
 ## 验证状态与手动检查
 
-本地环境是 Linux，无 Swift/Xcode；Python 资源/引用/文档链接校验通过。提交 `2b9dd4b` 已通过 [GitHub Actions](https://github.com/gfk-sveyigey/Vesper/actions/runs/42965416845) 的 Xcode 26 编译、无签名 IPA 打包、产物检查与上传。尚未执行模拟器/真机交互和无障碍验收，阶段一尚未达到全部退出条件。
+本地环境是 Linux，无 Swift/Xcode；本地资源/引用/文档链接校验通过；校验脚本只保留在本地，不进入 Git。提交 `2b9dd4b` 已通过 [GitHub Actions](https://github.com/gfk-sveyigey/Vesper/actions/runs/42965416845) 的 Xcode 26 编译、无签名 IPA 打包、产物检查与上传。尚未执行模拟器/真机交互和无障碍验收，阶段一尚未达到全部退出条件。
 
 在 macOS 上至少检查：
 
 - iPhone 窄屏、横屏、不同 iPhone 屏幕宽度下，四个标签均可触达且不溢出。
-- Light/Dark、较大动态字体、VoiceOver 和 Reduce Motion 下，入口名称、当前标签、展开与收起状态可理解。
-- 选择标签后选择器收起；设置详情返回正常；跨区域切换时各区域导航路径保留。
-- 外接键盘的 Tab/激活和 `Command-Shift-M` 展开行为；必要时根据平台实测补充焦点控制。
+- Light/Dark、较大动态字体、VoiceOver 和 Reduce Motion 下，标签名称、当前标签和可操作状态可理解。
+- 设置详情返回正常；跨标签切换时各区域导航路径保留。
+- 外接键盘的焦点移动和标签激活行为遵循系统。
 - 设置页滚动、透明栏对比度、安全区、点击目标尺寸。来源与媒体真实内容接入后重新检查滚动边缘效果。
 
-原生材质和标签展开动画是待验证的实现，不视为已经达到设备验收要求。
+原生标签栏布局与无障碍效果仍需设备验收。
 
 ## 日志
 
