@@ -60,6 +60,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         controller.tabBar.tintColor = UIColor(named: "VesperAccent")
         let press = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.longPress(_:)))
         press.delaysTouchesBegan = true
+        press.cancelsTouchesInView = true
         press.delegate = coordinator
         controller.tabBar.addGestureRecognizer(press)
         return controller
@@ -96,6 +97,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         var parent: SearchTabContainer
         weak var controller: UITabBarController?
         var isSearching = false
+        var isOpeningSearchByLongPress = false
         let results = UIHostingController(rootView: AnyView(EmptyView()))
         lazy var searchController = UISearchController(searchResultsController: results)
         lazy var searchPage: UIViewController = {
@@ -134,9 +136,22 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
             updateSearchResults(for: searchController)
         }
 
+        func tabBarController(_ tabBarController: UITabBarController, shouldSelectTab tab: UITab) -> Bool {
+            guard tab === searchTab else { return true }
+            if isOpeningSearchByLongPress {
+                isOpeningSearchByLongPress = false
+                return true
+            }
+            guard parent.allowsHidingTabBar else { return false }
+            parent.isExpanded.toggle()
+            AppLog.info("navigation.tabs.toggled", category: .navigation)
+            return false
+        }
+
         func tabBarController(_ tabBarController: UITabBarController, didSelectTab tab: UITab) {
             guard let section = AppSection(rawValue: tab.identifier) else { return }
             parent.selection = section
+            parent.isExpanded = false
             AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
         }
 
@@ -151,18 +166,29 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         }
 
         @objc func longPress(_ recognizer: UILongPressGestureRecognizer) {
-            guard recognizer.state == .began, !isSearching, parent.allowsHidingTabBar else { return }
-            parent.isExpanded.toggle()
-            AppLog.info("navigation.tabs.long_press_toggled", category: .navigation)
+            guard recognizer.state == .began, parent.allowsHidingTabBar else { return }
+            if isSearching {
+                parent.isExpanded.toggle()
+                return
+            }
+            isOpeningSearchByLongPress = true
+            parent.isExpanded = true
+            controller?.selectedTab = searchTab
+            AppLog.info("navigation.search.long_press_opened", category: .navigation)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isSearching else { return }
+                self.searchController.searchBar.searchTextField.becomeFirstResponder()
+            }
         }
 
         func willPresentSearchController(_ searchController: UISearchController) {
             isSearching = true
-            parent.isExpanded = false
+            parent.isExpanded = true
         }
 
         func didDismissSearchController(_ searchController: UISearchController) {
             isSearching = false
+            parent.isExpanded = false
         }
 
         func updateSearchResults(for searchController: UISearchController) {
