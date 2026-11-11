@@ -94,13 +94,16 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         let results = UIHostingController(rootView: AnyView(EmptyView()))
         var isSearching = false
         lazy var searchController = UISearchController(searchResultsController: results)
-        lazy var searchNavigation = UINavigationController(rootViewController: searchPage)
+        lazy var searchNavigation: UINavigationController = {
+            let navigation = UINavigationController(rootViewController: host)
+            navigation.setNavigationBarHidden(true, animated: false)
+            return navigation
+        }()
         lazy var searchTab: UISearchTab = {
             let tab = UISearchTab { [weak self] _ in
                 guard let self else { return UIViewController() }
-                return self.isSearching ? self.searchNavigation : self.host
+                return self.searchNavigation
             }
-            tab.identifier = "multifunction.search"
             tab.image = UIImage(systemName: "square.grid.2x2")
             tab.automaticallyActivatesSearch = false
             return tab
@@ -150,7 +153,8 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
             parent.isExpanded = false
             // Assigning the search controller explicitly avoids a cached provider
             // returning the normal page after its first use.
-            searchTab.viewController = searchNavigation
+            searchNavigation.setNavigationBarHidden(false, animated: false)
+            searchNavigation.setViewControllers([searchPage], animated: false)
             controller.selectedTab = searchTab
             searchController.isActive = true
             AppLog.info("navigation.search.opened", category: .navigation)
@@ -159,7 +163,8 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         func closeSearch() {
             searchController.isActive = false
             isSearching = false
-            searchTab.viewController = host
+            searchNavigation.setViewControllers([host], animated: false)
+            searchNavigation.setNavigationBarHidden(true, animated: false)
             controller?.selectedTab = searchTab
         }
 
