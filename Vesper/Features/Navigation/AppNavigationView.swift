@@ -84,9 +84,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         for section in AppSection.allCases {
             coordinator.hosts[section]?.rootView = dismissingContent(pages[section] ?? AnyView(EmptyView()))
         }
-        coordinator.contentHost.rootView = isSearchPresented
-            ? AnyView(SearchPage(isPresented: $isSearchPresented))
-            : dismissingContent(pages[selection] ?? AnyView(EmptyView()))
+        coordinator.searchHost.rootView = AnyView(SearchPage(isPresented: $isSearchPresented))
 
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
         let ordered = saved + AppSection.allCases.filter { !saved.contains($0) }
@@ -107,6 +105,18 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
            controller.selectedTab !== desiredTab {
             controller.selectedTab = desiredTab
         }
+
+        // A section owns exactly one NavigationStack, regardless of tab visibility.
+        // Move its host between containers instead of creating a second stack
+        // with the same NavigationPath binding.
+        if isSearchPresented {
+            coordinator.embed(coordinator.searchHost, in: coordinator.contentHost)
+        } else if let host = coordinator.hosts[selection] {
+            let container = showGroup && enabled.contains(selection)
+                ? coordinator.destinationContainers[selection] ?? coordinator.contentHost
+                : coordinator.contentHost
+            coordinator.embed(host, in: container)
+        }
     }
 
     private func dismissingContent(_ content: AnyView) -> AnyView {
@@ -118,7 +128,33 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
     final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate {
         var parent: SearchTabContainer
         weak var controller: UITabBarController?
-        let contentHost = UIHostingController(rootView: AnyView(EmptyView()))
+        let contentHost = UIViewController()
+        let searchHost = UIHostingController(rootView: AnyView(EmptyView()))
+        let destinationContainers: [AppSection: UIViewController] = Dictionary(
+            uniqueKeysWithValues: AppSection.allCases.map { ($0, UIViewController()) }
+        )
+
+        func embed(_ child: UIViewController, in container: UIViewController) {
+            guard child.parent !== container else { return }
+            for previous in container.children {
+                previous.willMove(toParent: nil)
+                previous.view.removeFromSuperview()
+                previous.removeFromParent()
+            }
+            child.willMove(toParent: nil)
+            child.viewIfLoaded?.removeFromSuperview()
+            child.removeFromParent()
+            container.addChild(child)
+            child.view.translatesAutoresizingMaskIntoConstraints = false
+            container.view.addSubview(child.view)
+            NSLayoutConstraint.activate([
+                child.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
+                child.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
+                child.view.topAnchor.constraint(equalTo: container.view.topAnchor),
+                child.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
+            ])
+            child.didMove(toParent: container)
+        }
 
         lazy var multifunctionTab: UISearchTab = {
             let tab = UISearchTab { [weak self] _ in
@@ -143,7 +179,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
                     identifier: section.rawValue
                 ) { [weak self] _ in
                     guard let self else { return UIViewController() }
-                    return self.hosts[section] ?? UIViewController()
+                    return self.destinationContainers[section] ?? UIViewController()
                 })
             }
         )
@@ -170,13 +206,13 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         }
 
         private func closeSearch() {
+            guard parent.isSearchPresented else { return }
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
             withTransaction(transaction) { parent.isSearchPresented = false }
             UIView.performWithoutAnimation {
                 controller?.view.endEditing(true)
-                contentHost.rootView = parent.pages[parent.selection] ?? AnyView(EmptyView())
-                contentHost.viewIfLoaded?.layoutIfNeeded()
+                searchHost.viewIfLoaded?.endEditing(true)
             }
         }
 
