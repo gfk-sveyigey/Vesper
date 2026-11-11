@@ -12,112 +12,102 @@ struct AppNavigationView: View {
     @AppStorage("navigation.allowsHidingTabBar") private var allowsHidingTabBar = true
     @AppStorage("navigation.gestureOrder") private var gestures = "tap,longPress"
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
-    @State private var selection: AppSection = .media
+    @State private var currentPage: AppSection = .media
+    @State private var tabSelection: NavigationTab = .multifunction
     @State private var isExpanded = false
-    @State private var isInitializingSelection = true
     @State private var isSearchPresented = false
+    @State private var tabBarHeight: CGFloat = 80
     @State private var hosts = SectionHosts()
 
     private var enabledSections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
         let ordered = saved + AppSection.allCases.filter { !saved.contains($0) }
         let excluded = Set(hidden.split(separator: ",").map(String.init))
-        return ordered.filter {
-            $0 == .settings || (isInitializingSelection && $0 == selection)
-                || !excluded.contains($0.rawValue)
-        }
+        return ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
     }
 
-    private var showPrimaryTabs: Bool { isInitializingSelection || !allowsHidingTabBar || isExpanded }
-
-    private var tabSelection: Binding<NavigationTab> {
-        Binding(
-            get: {
-                // A hidden tab cannot display content. The multifunction tab
-                // carries the same section host while its entry is hidden.
-                showPrimaryTabs && !isSearchPresented && enabledSections.contains(selection)
-                    ? .section(selection) : .multifunction
-            },
-            set: { tab in
-                // Search-role selection alone must not activate search. Its
-                // tap/long-press actions are handled separately below.
-                guard case let .section(section) = tab else { return }
-                isSearchPresented = false
-                selection = section
-                AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
-            }
-        )
-    }
+    private var showPrimaryTabs: Bool { !allowsHidingTabBar || isExpanded }
 
     var body: some View {
-        TabView(selection: tabSelection) {
-            primaryTabs
-
-            Tab("多功能", systemImage: "square.grid.2x2", value: NavigationTab.multifunction, role: .search) {
-                if isSearchPresented {
-                    SearchPage(isPresented: $isSearchPresented)
-                } else {
-                    SectionHostSlot(
-                        host: hosts.controller(for: selection, openSources: openSources),
-                        active: !showPrimaryTabs || !enabledSections.contains(selection)
-                    )
+        ZStack {
+            TabView(selection: $tabSelection) {
+                primaryTabs
+                Tab("多功能", systemImage: "square.grid.2x2", value: NavigationTab.multifunction, role: .search) {
+                    if isSearchPresented {
+                        SearchPage(isPresented: $isSearchPresented)
+                    } else {
+                        Color.clear
+                    }
                 }
             }
+            .toolbarBackground(.hidden, for: .tabBar)
+            .background(MultifunctionGestures(
+                tap: { performGesture("tap") },
+                longPress: { performGesture("longPress") },
+                reportHeight: { height in
+                    if tabBarHeight != height { tabBarHeight = height }
+                }
+            ))
+
+            // This sibling owns the ordinary pages, independently of TabView.
+            // Reserve the native bar's measured area so it remains interactive.
+            ContentHost(hosts: hosts, currentPage: currentPage, openSources: openSources)
+                .padding(.bottom, tabBarHeight)
+                .opacity(isSearchPresented ? 0 : 1)
+                .allowsHitTesting(!isSearchPresented)
+                .accessibilityHidden(isSearchPresented)
         }
         .tint(Color("VesperAccent"))
-        .toolbarBackground(.hidden, for: .tabBar)
-        .background(MultifunctionGestures(
-            tap: { performGesture("tap") },
-            longPress: { performGesture("longPress") }
-        ))
         .transaction { $0.animation = nil }
+        .onAppear { synchronizeTabSelection() }
+        .onChange(of: tabSelection) { _, tab in
+            guard case let .section(section) = tab else { return }
+            currentPage = section
+            isSearchPresented = false
+            AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
+        }
+        .onChange(of: showPrimaryTabs) { _, _ in synchronizeTabSelection() }
+        .onChange(of: enabledSections) { _, _ in synchronizeTabSelection() }
+        .onChange(of: isSearchPresented) { _, _ in synchronizeTabSelection() }
     }
 
     private var primaryTabs: some TabContent<NavigationTab> {
         TabSection("主要功能") {
             ForEach(enabledSections) { section in
                 Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
-                    SectionHostSlot(
-                        host: hosts.controller(for: section, openSources: openSources),
-                        active: showPrimaryTabs && !isSearchPresented && selection == section,
-                        onVisible: { finishInitialSelection(for: section) }
-                    )
+                    Color.clear
                 }
             }
         }
         .hidden(!showPrimaryTabs)
     }
 
-    private func finishInitialSelection(for section: AppSection) {
-        guard isInitializingSelection, selection == section else { return }
-        isInitializingSelection = false
-        AppLog.info("navigation.initialSelection.ready", category: .navigation)
+    private func synchronizeTabSelection() {
+        tabSelection = showPrimaryTabs && !isSearchPresented && enabledSections.contains(currentPage)
+            ? .section(currentPage) : .multifunction
     }
 
     private func openSources() {
-        isInitializingSelection = false
+        currentPage = .sources
         isSearchPresented = false
-        selection = .sources
+        synchronizeTabSelection()
     }
 
     private func performGesture(_ gesture: String) {
         let gestureValues = gestures.split(separator: ",").map(String.init)
         let actionValues = actions.split(separator: ",").map(String.init)
         guard let index = gestureValues.firstIndex(of: gesture), actionValues.indices.contains(index) else { return }
-        // An explicit action takes precedence over startup auto-collapse.
-        isInitializingSelection = false
         if actionValues[index] == "tabs" {
             if allowsHidingTabBar { isExpanded.toggle() }
         } else {
             if allowsHidingTabBar { isExpanded = true }
             isSearchPresented = true
         }
+        synchronizeTabSelection()
     }
 }
 
-/// A section has one hosting controller and one locally owned NavigationStack.
-/// The current section stays visible in the multifunction slot when the
-/// primary group is hidden. Its hosting controller and navigation stack persist.
+/// Four persistent hosts, each with its own NavigationStack.
 @MainActor
 private final class SectionHosts {
     private var controllers: [AppSection: UIHostingController<AnyView>] = [:]
@@ -137,62 +127,35 @@ private final class SectionHosts {
     }
 }
 
-private struct SectionHostSlot: UIViewControllerRepresentable {
-    let host: UIViewController
-    let active: Bool
-    var onVisible: () -> Void = {}
+private struct ContentHost: UIViewControllerRepresentable {
+    let hosts: SectionHosts
+    let currentPage: AppSection
+    let openSources: () -> Void
 
-    func makeUIViewController(context: Context) -> SlotController { SlotController() }
-
-    func updateUIViewController(_ container: SlotController, context: Context) {
-        container.onVisible = active ? onVisible : {}
-        container.reportVisibilityIfReady()
-        guard active, host.parent !== container else { return }
-        for previous in container.children {
-            previous.willMove(toParent: nil)
-            previous.view.removeFromSuperview()
-            previous.removeFromParent()
+    func makeUIViewController(context: Context) -> UIViewController {
+        let container = UIViewController()
+        for section in AppSection.allCases {
+            let host = hosts.controller(for: section, openSources: openSources)
+            container.addChild(host)
+            host.view.translatesAutoresizingMaskIntoConstraints = false
+            container.view.addSubview(host.view)
+            NSLayoutConstraint.activate([
+                host.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
+                host.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
+                host.view.topAnchor.constraint(equalTo: container.view.topAnchor),
+                host.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
+            ])
+            host.view.isHidden = section != currentPage
+            host.didMove(toParent: container)
         }
-        if host.parent != nil {
-            host.willMove(toParent: nil)
-            host.viewIfLoaded?.removeFromSuperview()
-            host.removeFromParent()
-        }
-        container.addChild(host)
-        host.view.translatesAutoresizingMaskIntoConstraints = false
-        container.view.addSubview(host.view)
-        NSLayoutConstraint.activate([
-            host.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
-            host.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
-            host.view.topAnchor.constraint(equalTo: container.view.topAnchor),
-            host.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
-        ])
-        host.didMove(toParent: container)
+        return container
     }
 
-    final class SlotController: UIViewController {
-        var onVisible: () -> Void = {}
-        private var appeared = false
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            appeared = true
-            reportVisibilityIfReady()
-        }
-
-        override func viewWillDisappear(_ animated: Bool) {
-            appeared = false
-            super.viewWillDisappear(animated)
-        }
-
-        func reportVisibilityIfReady() {
-            guard appeared else { return }
-            // Complete startup after UIKit's appearance callback, not during
-            // a representable update. No fixed delay or search-entry staging.
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.appeared else { return }
-                self.onVisible()
-            }
+    func updateUIViewController(_ container: UIViewController, context: Context) {
+        for section in AppSection.allCases {
+            let host = hosts.controller(for: section, openSources: openSources)
+            host.view.isHidden = section != currentPage
+            host.view.accessibilityElementsHidden = section != currentPage
         }
     }
 }
@@ -202,14 +165,16 @@ private struct SectionHostSlot: UIViewControllerRepresentable {
 private struct MultifunctionGestures: UIViewControllerRepresentable {
     let tap: () -> Void
     let longPress: () -> Void
+    let reportHeight: (CGFloat) -> Void
 
     func makeUIViewController(context: Context) -> GestureController {
-        GestureController(tap: tap, longPress: longPress)
+        GestureController(tap: tap, longPress: longPress, reportHeight: reportHeight)
     }
 
     func updateUIViewController(_ controller: GestureController, context: Context) {
         controller.tapAction = tap
         controller.longPressAction = longPress
+        controller.reportHeight = reportHeight
         controller.installWhenReady()
     }
 
@@ -220,11 +185,13 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     final class GestureController: UIViewController, UIGestureRecognizerDelegate {
         var tapAction: () -> Void
         var longPressAction: () -> Void
+        var reportHeight: (CGFloat) -> Void
         private weak var installedBar: UITabBar?
         private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
         private lazy var pressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
 
-        init(tap: @escaping () -> Void, longPress: @escaping () -> Void) {
+        init(tap: @escaping () -> Void, longPress: @escaping () -> Void, reportHeight: @escaping (CGFloat) -> Void) {
+            self.reportHeight = reportHeight
             tapAction = tap
             longPressAction = longPress
             super.init(nibName: nil, bundle: nil)
@@ -247,6 +214,10 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
                 }
             }
             let bar = controller.tabBar
+            let height = max(0, bar.bounds.height - controller.view.safeAreaInsets.bottom)
+            if height > 0 {
+                DispatchQueue.main.async { [weak self] in self?.reportHeight(height) }
+            }
             guard installedBar !== bar else { return }
             uninstall()
             installedBar = bar
