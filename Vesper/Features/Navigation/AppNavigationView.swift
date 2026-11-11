@@ -29,9 +29,9 @@ struct AppNavigationView: View {
     private var tabSelection: Binding<NavigationTab> {
         Binding(
             get: {
-                // Startup selects media even when the primary entries are hidden.
-                // Group visibility must not select the Search-role tab.
-                !isSearchPresented && enabledSections.contains(selection)
+                // A hidden tab cannot display content. The multifunction tab
+                // carries the same section host while its entry is hidden.
+                showPrimaryTabs && !isSearchPresented && enabledSections.contains(selection)
                     ? .section(selection) : .multifunction
             },
             set: { tab in
@@ -55,7 +55,7 @@ struct AppNavigationView: View {
                 } else {
                     SectionHostSlot(
                         host: hosts.controller(for: selection, openSources: openSources),
-                        active: !enabledSections.contains(selection)
+                        active: !showPrimaryTabs || !enabledSections.contains(selection)
                     )
                 }
             }
@@ -75,7 +75,7 @@ struct AppNavigationView: View {
                 Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
                     SectionHostSlot(
                         host: hosts.controller(for: section, openSources: openSources),
-                        active: !isSearchPresented && selection == section
+                        active: showPrimaryTabs && !isSearchPresented && selection == section
                     )
                 }
             }
@@ -102,8 +102,8 @@ struct AppNavigationView: View {
 }
 
 /// A section has one hosting controller and one locally owned NavigationStack.
-/// TabSection.hidden controls entry visibility independently of selection.
-/// Normal pages keep their section selected; only search selects multifunction.
+/// The current section stays visible in the multifunction slot when the
+/// primary group is hidden. Its hosting controller and navigation stack persist.
 @MainActor
 private final class SectionHosts {
     private var controllers: [AppSection: UIHostingController<AnyView>] = [:]
