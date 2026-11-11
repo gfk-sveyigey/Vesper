@@ -2,7 +2,7 @@
 
 ## 临时构建基线
 
-当前原型暂按 iOS（iPhone）、最低 iOS 26、Swift 6 建立；这是基于已讨论的 iOS 26 原生材质体验采用的可调整基线，尚未替代待决事项中的正式平台确认。需要包含 iOS 26 SDK 的 Xcode 26 或更新版本。
+当前原型暂按 iOS（iPhone）、最低 iOS 26、Swift 6 建立；首发仅考虑 iOS（iPhone），不包含 iPadOS/macOS/tvOS；iOS 26 是当前构建基线。需要包含 iOS 26 SDK 的 Xcode 26 或更新版本。
 
 `Vesper.xcodeproj` 是提交到仓库的原生工程，包含共享 `Vesper` scheme。当前没有第三方代码依赖，因此没有待锁定的 Package 版本；未来引入 KSPlayer 时须固定版本/commit 并提交解析结果。Bundle Identifier 为 `com.aholic.vesper`；真机签名和分发前需要配置团队。
 
@@ -16,7 +16,7 @@ xcodebuild -project Vesper.xcodeproj -scheme Vesper \
 open Vesper.xcodeproj
 ```
 
-CI 沿用 `.github/workflows/build-dev.yml`，推送 dev 后在 macOS 26/Xcode 26 上构建无签名 iOS IPA 并上传工件，不发布 Release。所有开发提交仅推送到 dev；不推送工作区临时分支。首次远端运行前不能视为构建已通过。
+CI 沿用 `.github/workflows/build-dev.yml`，推送 dev 后在 macOS 26/Xcode 26 上构建无签名 iOS IPA 并上传工件，不发布 Release。所有开发提交仅推送到 dev；不推送工作区临时分支。已通过 dev 的 Actions 编译、无签名 IPA 打包及产物 smoke check。
 
 ## 当前原型范围
 
@@ -28,7 +28,7 @@ CI 沿用 `.github/workflows/build-dev.yml`，推送 dev 后在 macOS 26/Xcode 2
 
 ## 验证状态与手动检查
 
-当前开发环境是 Linux，无 Swift/Xcode；已运行 Python 资源/引用/文档链接校验，尚未运行 Apple 编译和模拟器/真机测试。阶段一尚未达到退出条件。
+本地环境是 Linux，无 Swift/Xcode；Python 资源/引用/文档链接校验通过。提交 `2b9dd4b` 已通过 [GitHub Actions](https://github.com/gfk-sveyigey/Vesper/actions/runs/42965416845) 的 Xcode 26 编译、无签名 IPA 打包、产物检查与上传。尚未执行模拟器/真机交互和无障碍验收，阶段一尚未达到全部退出条件。
 
 在 macOS 上至少检查：
 
