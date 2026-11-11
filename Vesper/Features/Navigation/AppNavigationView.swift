@@ -77,12 +77,8 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         let ordered = saved + AppSection.allCases.filter { !saved.contains($0) }
         let excluded = Set(hidden.split(separator: ",").map(String.init))
         let enabled = ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
-        let visible: [AppSection]
-        if allowsHidingTabBar && !isExpanded {
-            visible = enabled.contains(selection) ? [selection] : [.settings]
-        } else {
-            visible = enabled
-        }
+        let mayCollapse = allowsHidingTabBar && !isExpanded && !coordinator.isSearching
+        let visible = mayCollapse ? [] : enabled
         let tabs = visible.compactMap { coordinator.destinations[$0] } + [coordinator.searchTab]
         if controller.tabs.map(\.identifier) != tabs.map(\.identifier) {
             controller.setTabs(tabs, animated: false)
@@ -166,17 +162,13 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         }
 
         @objc func longPress(_ recognizer: UILongPressGestureRecognizer) {
-            guard recognizer.state == .began, parent.allowsHidingTabBar else { return }
-            if isSearching {
-                parent.isExpanded.toggle()
-                return
-            }
-            isOpeningSearchByLongPress = true
+            guard recognizer.state == .began else { return }
             parent.isExpanded = true
+            isOpeningSearchByLongPress = true
             controller?.selectedTab = searchTab
             AppLog.info("navigation.search.long_press_opened", category: .navigation)
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.isSearching else { return }
+                guard let self else { return }
                 self.searchController.searchBar.searchTextField.becomeFirstResponder()
             }
         }
@@ -184,6 +176,9 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         func willPresentSearchController(_ searchController: UISearchController) {
             isSearching = true
             parent.isExpanded = true
+            DispatchQueue.main.async { [weak searchController] in
+                searchController?.searchBar.searchTextField.becomeFirstResponder()
+            }
         }
 
         func didDismissSearchController(_ searchController: UISearchController) {
