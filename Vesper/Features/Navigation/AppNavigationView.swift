@@ -1,7 +1,8 @@
 import SwiftUI
+import UIKit
 
 struct AppNavigationView: View {
-    @State private var isTabBarVisible = false
+    @State private var isExpanded = false
     @State private var selection: AppSection = .media
     @State private var mediaPath = NavigationPath()
     @State private var sourcesPath = NavigationPath()
@@ -9,71 +10,103 @@ struct AppNavigationView: View {
     @State private var settingsPath = NavigationPath()
 
     var body: some View {
-        TabView(selection: $selection) {
-            Tab(AppSection.media.title, systemImage: AppSection.media.symbol, value: AppSection.media) {
-                NavigationStack(path: $mediaPath) {
-                    MediaView(openSources: { selection = .sources })
+        selectedContent
+            .overlay {
+                if isExpanded {
+                    Button { isExpanded = false } label: {
+                        Color.clear.contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("收起区域标签")
                 }
-                .modifier(TabBarPresentation(isVisible: $isTabBarVisible))
             }
-            Tab(AppSection.sources.title, systemImage: AppSection.sources.symbol, value: AppSection.sources) {
-                NavigationStack(path: $sourcesPath) { SourcesView() }
-                    .modifier(TabBarPresentation(isVisible: $isTabBarVisible))
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                NativeTabBar(selection: $selection, isExpanded: $isExpanded)
+                    .frame(height: 49)
             }
-            Tab(AppSection.history.title, systemImage: AppSection.history.symbol, value: AppSection.history) {
-                NavigationStack(path: $historyPath) { HistoryView() }
-                    .modifier(TabBarPresentation(isVisible: $isTabBarVisible))
+            .background(Color("VesperBackground"))
+            .accessibilityAction(.escape) { isExpanded = false }
+            .onChange(of: selection) { _, section in
+                AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
             }
-            Tab(AppSection.settings.title, systemImage: AppSection.settings.symbol, value: AppSection.settings) {
-                NavigationStack(path: $settingsPath) { SettingsView() }
-                    .modifier(TabBarPresentation(isVisible: $isTabBarVisible))
+            .onChange(of: isExpanded) { _, expanded in
+                AppLog.debug("navigation.tabs.toggled", category: .navigation,
+                             detail: "expanded=\(expanded)")
             }
-        }
-        .background(Color("VesperBackground"))
-        // This host stays alive even when the system tab bar or navigation bar is hidden.
-        .safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
-            Button {
-                isTabBarVisible.toggle()
-                AppLog.debug("navigation.tabs.toggled", category: .navigation)
-            } label: {
-                Image(systemName: "square.grid.2x2")
-                    .frame(minWidth: 44, minHeight: 44)
+    }
+
+    @ViewBuilder private var selectedContent: some View {
+        switch selection {
+        case .media:
+            NavigationStack(path: $mediaPath) {
+                MediaView(openSources: { selection = .sources })
             }
-            .buttonStyle(.glass)
-            .accessibilityLabel("多功能")
-            .accessibilityValue(isTabBarVisible ? "标签栏已显示" : "标签栏已隐藏")
-            .accessibilityHint("显示或隐藏媒体、来源、记录和设置标签")
-            .keyboardShortcut("m", modifiers: [.command, .shift])
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
-        .onChange(of: selection) { _, section in
-            AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
+        case .sources:
+            NavigationStack(path: $sourcesPath) { SourcesView() }
+        case .history:
+            NavigationStack(path: $historyPath) { HistoryView() }
+        case .settings:
+            NavigationStack(path: $settingsPath) { SettingsView() }
         }
     }
 }
 
-/// The system owns the tab bar. This modifier only controls its visibility.
-private struct TabBarPresentation: ViewModifier {
-    @Binding var isVisible: Bool
+/// UIKit owns every item, its rendering, hit testing and accessibility.
+/// The persistent action item is not a destination, so TabView selection is not used.
+private struct NativeTabBar: UIViewRepresentable {
+    @Binding var selection: AppSection
+    @Binding var isExpanded: Bool
 
-    func body(content: Content) -> some View {
-        content
-            .overlay {
-                if isVisible {
-                    Button {
-                        isVisible = false
-                        AppLog.debug("navigation.tabs.dismissed", category: .navigation)
-                    } label: {
-                        Color.clear.contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("收起标签栏")
-                    .accessibilityHint("收起后可继续操作当前页面")
-                }
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeUIView(context: Context) -> UITabBar {
+        let bar = UITabBar()
+        let appearance = UITabBarAppearance()
+        appearance.configureWithTransparentBackground()
+        bar.standardAppearance = appearance
+        bar.scrollEdgeAppearance = appearance
+        bar.tintColor = UIColor(named: "VesperAccent")
+        bar.delegate = context.coordinator
+        return bar
+    }
+
+    func updateUIView(_ bar: UITabBar, context: Context) {
+        context.coordinator.parent = self
+        let coordinator = context.coordinator
+        let items = isExpanded ? coordinator.sections + [coordinator.action] : [coordinator.action]
+        if bar.items?.map(\.tag) != items.map(\.tag) {
+            bar.setItems(items, animated: false)
+        }
+        coordinator.action.accessibilityValue = isExpanded ? "已展开" : "已收起"
+        bar.selectedItem = isExpanded
+            ? coordinator.sections[AppSection.allCases.firstIndex(of: selection) ?? 0]
+            : nil
+    }
+
+    final class Coordinator: NSObject, UITabBarDelegate {
+        var parent: NativeTabBar
+        let sections: [UITabBarItem] = AppSection.allCases.enumerated().map { index, section in
+            UITabBarItem(title: section.title, image: UIImage(systemName: section.symbol), tag: index)
+        }
+        let action: UITabBarItem = {
+            let item = UITabBarItem(title: "多功能", image: UIImage(systemName: "square.grid.2x2"), tag: 100)
+            item.accessibilityLabel = "多功能"
+            item.accessibilityHint = "显示或隐藏媒体、来源、记录和设置标签"
+            return item
+        }()
+
+        init(parent: NativeTabBar) { self.parent = parent }
+
+        func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+            if item.tag == action.tag {
+                parent.isExpanded.toggle()
+            } else if AppSection.allCases.indices.contains(item.tag) {
+                parent.selection = AppSection.allCases[item.tag]
             }
-            .toolbar(isVisible ? .visible : .hidden, for: .tabBar)
-            .toolbarBackground(.hidden, for: .tabBar)
-            .accessibilityAction(.escape) { isVisible = false }
+            // The action never becomes the selected destination.
+            tabBar.selectedItem = parent.isExpanded
+                ? sections[AppSection.allCases.firstIndex(of: parent.selection) ?? 0]
+                : nil
+        }
     }
 }

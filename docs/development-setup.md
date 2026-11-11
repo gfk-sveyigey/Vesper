@@ -45,3 +45,7 @@ CI 沿用 `.github/workflows/build-dev.yml`，推送 dev 后在 macOS 26/Xcode 2
 使用 Apple Unified Logging（`OSLog.Logger`），通过 `AppLog` 统一分类。开发时在 Xcode Console 或 macOS Console 按 subsystem `com.aholic.vesper` 和 category 过滤。默认记录启动与关键状态变化；Debug 补充导航诊断。日志采用简短事件名，不重复打印时间戳和长堆栈。系统负责日志保留，不额外创建无界日志文件。当前没有日志导出界面。
 
 多功能按钮始终可见，挂载在应用根级安全区，不属于可隐藏的系统标签栏，也不被内容区域的收起遮罩覆盖。隐藏标签栏只影响四个系统标签，不隐藏该按钮。
+
+## 原生标签栏实现更新
+
+当前使用 UIViewRepresentable 包装 UIKit 原生 UITabBar，媒体/来源/记录/设置四个原生 UITabBarItem 条件加入 items，多功能 UITabBarItem 始终保留。已移除独立悬浮按钮及整条标签栏的隐藏逻辑。应用负责页面导航，系统负责标签项渲染；布局与点击行为仍需设备验收。此前 TabView/右下角独立按钮说明已被本节替代。
