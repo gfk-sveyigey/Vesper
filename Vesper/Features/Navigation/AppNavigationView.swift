@@ -89,7 +89,7 @@ private struct NativeTabBar: UIViewRepresentable {
             UITabBarItem(title: section.title, image: UIImage(systemName: section.symbol), tag: index)
         }
         let action: UITabBarItem = {
-            let item = UITabBarItem(title: "多功能", image: UIImage(systemName: "square.grid.2x2"), tag: 100)
+            let item = UITabBarItem(tabBarSystemItem: .search, tag: 100)
             item.accessibilityLabel = "多功能"
             item.accessibilityHint = "显示或隐藏媒体、来源、记录和设置标签"
             return item
