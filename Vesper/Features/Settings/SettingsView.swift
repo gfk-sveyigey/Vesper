@@ -86,24 +86,3 @@ struct TabSettingsView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
-
-struct SearchView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
-
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView {
-                Label(query.isEmpty ? "搜索媒体" : "暂无可搜索内容", systemImage: "magnifyingglass")
-            } description: {
-                Text("搜索范围为当前媒体来源。真实媒体来源尚未接入，暂时无法返回结果。")
-            }
-            .searchable(text: $query, prompt: "搜索当前来源")
-            .navigationTitle("搜索")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-
-            }
-        }
-    }
-}

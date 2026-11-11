@@ -80,6 +80,11 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         if controller.tabs.map(\.identifier) != tabs.map(\.identifier) {
             controller.setTabs(tabs, animated: false)
         }
+        coordinator.searchTab.viewController?.tabBarItem.accessibilityLabel = "多功能"
+        coordinator.searchTab.viewController?.tabBarItem.accessibilityHint = "轻点展开标签，长按搜索"
+        coordinator.searchTab.viewController?.tabBarItem.accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: "打开搜索", target: coordinator, selector: #selector(Coordinator.openSearchAccessibility))
+        ]
         if !coordinator.isSearching {
             // The persistent Search host also displays the current page while collapsed.
             controller.selectedTab = coordinator.searchTab
@@ -149,6 +154,16 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
 
         @objc func longPress(_ recognizer: UILongPressGestureRecognizer) {
             guard recognizer.state == .began, let controller else { return }
+            openSearch(in: controller)
+        }
+
+        @objc func openSearchAccessibility() -> Bool {
+            guard let controller else { return false }
+            openSearch(in: controller)
+            return true
+        }
+
+        private func openSearch(in controller: UITabBarController) {
             isSearching = true
             parent.isExpanded = false
             // Assigning the search controller explicitly avoids a cached provider
