@@ -45,17 +45,7 @@ struct AppNavigationView: View {
 
     var body: some View {
         TabView(selection: tabSelection) {
-            TabSection("主要功能") {
-                ForEach(enabledSections) { section in
-                    Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
-                        SectionHostSlot(
-                            host: hosts.controller(for: section, openSources: openSources),
-                            active: showPrimaryTabs && !isSearchPresented && selection == section
-                        )
-                    }
-                }
-            }
-            .hidden(!showPrimaryTabs)
+            primaryTabs
 
             Tab("多功能", systemImage: "square.grid.2x2", value: NavigationTab.multifunction, role: .search) {
                 if isSearchPresented {
@@ -75,6 +65,20 @@ struct AppNavigationView: View {
             longPress: { performGesture("longPress") }
         ))
         .transaction { $0.animation = nil }
+    }
+
+    private var primaryTabs: some TabContent<NavigationTab> {
+    TabSection("主要功能") {
+        ForEach(enabledSections) { section in
+            Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
+                SectionHostSlot(
+                    host: hosts.controller(for: section, openSources: openSources),
+                    active: showPrimaryTabs && !isSearchPresented && selection == section
+                )
+            }
+        }
+    }
+    .hidden(!showPrimaryTabs)
     }
 
     private func openSources() {
