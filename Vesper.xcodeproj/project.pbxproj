@@ -1,0 +1,49 @@
+// !$*UTF8*$!
+{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
+3B61161996AE19CD4A8AF215 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/App/VesperApp.swift"; sourceTree = SOURCE_ROOT; };
+ED8021FD7B1820769E42B71B = { isa = PBXBuildFile; fileRef = 3B61161996AE19CD4A8AF215; };
+7D4BFF35CA76ECCE15BC43E3 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Features/History/HistoryView.swift"; sourceTree = SOURCE_ROOT; };
+7DB9E0EA6A5230326FF08D92 = { isa = PBXBuildFile; fileRef = 7D4BFF35CA76ECCE15BC43E3; };
+8ACB6CD7DFE444ED3415D338 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Features/Media/MediaView.swift"; sourceTree = SOURCE_ROOT; };
+0E3FA22FD5D7B23F55572CFC = { isa = PBXBuildFile; fileRef = 8ACB6CD7DFE444ED3415D338; };
+6E85E87AE8E694F3C5B8AACB = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Features/Navigation/AppNavigationView.swift"; sourceTree = SOURCE_ROOT; };
+85BEDA6665684C05B12372A7 = { isa = PBXBuildFile; fileRef = 6E85E87AE8E694F3C5B8AACB; };
+0968EA69BE87D628C6015667 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Features/Navigation/AppSection.swift"; sourceTree = SOURCE_ROOT; };
+F0AB4C00F18658038019822C = { isa = PBXBuildFile; fileRef = 0968EA69BE87D628C6015667; };
+C86CB24BAE19C93A1E242DDE = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Features/Settings/SettingsView.swift"; sourceTree = SOURCE_ROOT; };
+DC2A5832F8D5315D30011575 = { isa = PBXBuildFile; fileRef = C86CB24BAE19C93A1E242DDE; };
+6BF9E09A86973787E16DE5F3 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Features/Sources/SourcesView.swift"; sourceTree = SOURCE_ROOT; };
+8073E27F6D74BEAAA73348B8 = { isa = PBXBuildFile; fileRef = 6BF9E09A86973787E16DE5F3; };
+8B775A26B7F05CD1C88AE7FA = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Infrastructure/Logging/AppLog.swift"; sourceTree = SOURCE_ROOT; };
+1424BF349CD72B549963FE90 = { isa = PBXBuildFile; fileRef = 8B775A26B7F05CD1C88AE7FA; };
+3685E330EC5277A9DD5661C6 = { isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Vesper/Resources/Assets.xcassets; sourceTree = SOURCE_ROOT; };
+CF8A4D27E1C506A7C75A76BE = { isa = PBXBuildFile; fileRef = 3685E330EC5277A9DD5661C6; };
+7D1043473D55BFA90E8530D3 = { isa = PBXFileReference; explicitFileType = wrapper.application; path = Vesper.app; sourceTree = BUILT_PRODUCTS_DIR; };
+FBDC4F23F93125BBEEAE800C = { isa = PBXGroup; children = (7D1043473D55BFA90E8530D3,); name = Products; sourceTree = "<group>"; };
+64292B1C2B2E13EAD8788FC8 = { isa = PBXGroup; children = (3B61161996AE19CD4A8AF215,7D4BFF35CA76ECCE15BC43E3,8ACB6CD7DFE444ED3415D338,6E85E87AE8E694F3C5B8AACB,0968EA69BE87D628C6015667,C86CB24BAE19C93A1E242DDE,6BF9E09A86973787E16DE5F3,8B775A26B7F05CD1C88AE7FA,3685E330EC5277A9DD5661C6,FBDC4F23F93125BBEEAE800C,); sourceTree = "<group>"; };
+BCE16DD0260827ECF338C787 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (ED8021FD7B1820769E42B71B,7DB9E0EA6A5230326FF08D92,0E3FA22FD5D7B23F55572CFC,85BEDA6665684C05B12372A7,F0AB4C00F18658038019822C,DC2A5832F8D5315D30011575,8073E27F6D74BEAAA73348B8,1424BF349CD72B549963FE90,); runOnlyForDeploymentPostprocessing = 0; };
+0189424A5A60FED329FA868E = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (CF8A4D27E1C506A7C75A76BE,); runOnlyForDeploymentPostprocessing = 0; };
+7561BFB015D8F536760CB671 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+89E1FD6268CC0F221A2BE178 = { isa = XCBuildConfiguration; name = Debug; buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 26.0; CLANG_ENABLE_MODULES = YES; }; };
+7082CC0B6FC1282FCEABD07A = { isa = XCBuildConfiguration; name = Debug; buildSettings = {
+ PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = com.aholic.vesper;
+ SWIFT_VERSION = 6.0; SWIFT_STRICT_CONCURRENCY = complete;
+ INFOPLIST_FILE = Info.plist; GENERATE_INFOPLIST_FILE = NO;
+ CURRENT_PROJECT_VERSION = 1; MARKETING_VERSION = 0.1.0;
+ TARGETED_DEVICE_FAMILY = 1; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+ SUPPORTS_MACCATALYST = NO; SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+ CODE_SIGN_STYLE = Automatic; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; };
+E6DE6C99132752C914FEF632 = { isa = XCBuildConfiguration; name = Release; buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 26.0; CLANG_ENABLE_MODULES = YES; }; };
+639A7CA24D39909E713B47F7 = { isa = XCBuildConfiguration; name = Release; buildSettings = {
+ PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = com.aholic.vesper;
+ SWIFT_VERSION = 6.0; SWIFT_STRICT_CONCURRENCY = complete;
+ INFOPLIST_FILE = Info.plist; GENERATE_INFOPLIST_FILE = NO;
+ CURRENT_PROJECT_VERSION = 1; MARKETING_VERSION = 0.1.0;
+ TARGETED_DEVICE_FAMILY = 1; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+ SUPPORTS_MACCATALYST = NO; SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+ CODE_SIGN_STYLE = Automatic; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; };
+01DF1D3A7F02866ECA6BB742 = { isa = XCConfigurationList; buildConfigurations = (89E1FD6268CC0F221A2BE178,E6DE6C99132752C914FEF632,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+8D8B67C81BE4F695571BC034 = { isa = XCConfigurationList; buildConfigurations = (7082CC0B6FC1282FCEABD07A,639A7CA24D39909E713B47F7,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+0E8A3AD980EC179856012B7E = { isa = PBXNativeTarget; buildConfigurationList = 8D8B67C81BE4F695571BC034; buildPhases = (BCE16DD0260827ECF338C787,7561BFB015D8F536760CB671,0189424A5A60FED329FA868E,); buildRules = (); dependencies = (); name = Vesper; productName = Vesper; productReference = 7D1043473D55BFA90E8530D3; productType = "com.apple.product-type.application"; };
+98F54143AB4E86B28C3AFEE0 = { isa = PBXProject; attributes = { LastUpgradeCheck = 2600; }; buildConfigurationList = 01DF1D3A7F02866ECA6BB742; compatibilityVersion = "Xcode 14.0"; developmentRegion = zh-Hans; knownRegions = ("zh-Hans",Base,); mainGroup = 64292B1C2B2E13EAD8788FC8; productRefGroup = FBDC4F23F93125BBEEAE800C; projectDirPath = ""; projectRoot = ""; targets = (0E8A3AD980EC179856012B7E,); };
+}; rootObject = 98F54143AB4E86B28C3AFEE0; }
