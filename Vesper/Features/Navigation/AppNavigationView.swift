@@ -82,7 +82,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         let coordinator = context.coordinator
         coordinator.parent = self
         for section in AppSection.allCases {
-            coordinator.hosts[section]?.rootView = dismissingContent(pages[section] ?? AnyView(EmptyView()))
+            coordinator.hosts[section]?.rootView = pages[section] ?? AnyView(EmptyView())
         }
         coordinator.searchHost.rootView = AnyView(SearchPage(isPresented: $isSearchPresented))
 
@@ -117,12 +117,6 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
                 : coordinator.contentHost
             coordinator.embed(host, in: container)
         }
-    }
-
-    private func dismissingContent(_ content: AnyView) -> AnyView {
-        AnyView(content.simultaneousGesture(TapGesture().onEnded {
-            if allowsHidingTabBar { isExpanded = false }
-        }))
     }
 
     final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate {
