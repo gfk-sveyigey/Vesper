@@ -168,6 +168,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
 
         private func closeSearch() {
             parent.isSearchPresented = false
+            controller?.view.endEditing(true)
             contentHost.viewIfLoaded?.endEditing(true)
         }
 
@@ -211,6 +212,10 @@ private struct SearchPage: View {
             DispatchQueue.main.async {
                 searchFocused = true
             }
+        }
+        .onDisappear {
+            isPresented = false
+            searchFocused = false
         }
     }
 }
