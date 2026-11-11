@@ -1,12 +1,16 @@
 import SwiftUI
 
+private enum SettingsRoute: Hashable {
+    case tabs, gestures, appearance
+}
+
 struct SettingsView: View {
     var body: some View {
         List {
             Section("应用") {
-                NavigationLink("标签显示与顺序") { TabSettingsView() }
-                NavigationLink("多功能按钮手势与动作") { GestureActionSettingsView() }
-                NavigationLink("外观") { AppearanceSettingsView() }
+                NavigationLink("标签显示与顺序", value: SettingsRoute.tabs)
+                NavigationLink("多功能按钮手势与动作", value: SettingsRoute.gestures)
+                NavigationLink("外观", value: SettingsRoute.appearance)
             }
             Section {
                 LabeledContent("播放器偏好", value: "尚未接入")
@@ -22,6 +26,13 @@ struct SettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
+        .navigationDestination(for: SettingsRoute.self) { route in
+            switch route {
+            case .tabs: TabSettingsView()
+            case .gestures: GestureActionSettingsView()
+            case .appearance: AppearanceSettingsView()
+            }
+        }
         .navigationTitle("设置")
         .toolbarBackground(.hidden, for: .navigationBar)
     }
