@@ -80,18 +80,13 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         if controller.tabs.map(\.identifier) != tabs.map(\.identifier) {
             controller.setTabs(tabs, animated: false)
         }
-        coordinator.searchTab.viewController?.tabBarItem.accessibilityLabel = "多功能"
-        coordinator.searchTab.viewController?.tabBarItem.accessibilityHint = "轻点展开标签，长按搜索"
-        coordinator.searchTab.viewController?.tabBarItem.accessibilityCustomActions = [
-            UIAccessibilityCustomAction(name: "打开搜索", target: coordinator, selector: #selector(Coordinator.openSearchAccessibility))
-        ]
         if !coordinator.isSearching {
             // The persistent Search host also displays the current page while collapsed.
             controller.selectedTab = coordinator.searchTab
         }
     }
 
-    final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate, UISearchResultsUpdating, UISearchBarDelegate {
+    final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate, UISearchResultsUpdating {
         var parent: SearchTabContainer
         weak var controller: UITabBarController?
         let host = UIHostingController(rootView: AnyView(EmptyView()))
@@ -110,8 +105,6 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
                 guard let self else { return UIViewController() }
                 return self.searchNavigation
             }
-            tab.image = UIImage(systemName: "square.grid.2x2")
-            tab.automaticallyActivatesSearch = false
             return tab
         }()
         lazy var destinations: [AppSection: UITab] = Dictionary(uniqueKeysWithValues: AppSection.allCases.map { section in
@@ -124,21 +117,20 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
             searchPage.title = nil
             searchPage.view.backgroundColor = .systemBackground
             searchController.searchResultsUpdater = self
-            searchController.searchBar.delegate = self
-            searchController.automaticallyShowsCancelButton = true
-            searchController.searchBar.showsCancelButton = true
             searchController.searchBar.placeholder = "搜索当前媒体来源"
             searchPage.navigationItem.searchController = searchController
             searchPage.navigationItem.hidesSearchBarWhenScrolling = false
             searchPage.definesPresentationContext = true
-            searchPage.navigationItem.leftBarButtonItem = nil
             updateSearchResults(for: searchController)
         }
 
         func tabBarController(_ tabBarController: UITabBarController, shouldSelectTab tab: UITab) -> Bool {
             if tab === searchTab {
-                if isSearching { return true }
-                parent.isExpanded.toggle()
+                // UISearchTab owns tap and cancellation lifecycle. Its provider
+                // activates the native search controller and restores the prior tab.
+                parent.isExpanded = false
+                isSearching = true
+                return true
             } else if let section = AppSection(rawValue: tab.identifier) {
                 parent.selection = section
                 AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
@@ -157,58 +149,10 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         }
 
         @objc func longPress(_ recognizer: UILongPressGestureRecognizer) {
-            guard recognizer.state == .began, let controller else { return }
-            openSearch(in: controller)
-        }
-
-        @objc func openSearchAccessibility() -> Bool {
-            guard let controller else { return false }
-            openSearch(in: controller)
-            return true
-        }
-
-        private func openSearch(in controller: UITabBarController) {
-            isSearching = true
-            parent.isExpanded = false
-            // Remove destination tabs before activating Search, not on the next
-            // SwiftUI update, so no stale group remains during the transition.
-            controller.setTabs([searchTab], animated: false)
-            searchNavigation.setNavigationBarHidden(false, animated: false)
-            searchNavigation.setViewControllers([searchPage], animated: false)
-            controller.selectedTab = searchTab
-            searchController.isActive = true
-            searchController.searchBar.showsCancelButton = true
-            AppLog.info("navigation.search.opened", category: .navigation)
-        }
-
-        func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
-            isEditingSearch = true
-            searchBar.showsCancelButton = true
-        }
-
-        func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
-            isEditingSearch = false
-            if isSearching { searchBar.setShowsCancelButton(true, animated: false) }
-        }
-
-        func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
-            if isEditingSearch || searchBar.searchTextField.isFirstResponder {
-                searchBar.resignFirstResponder()
-                searchBar.searchTextField.resignFirstResponder()
-                isEditingSearch = false
-                searchBar.showsCancelButton = true
-            } else {
-                closeSearch()
-            }
-        }
-
-        func closeSearch() {
-            searchController.isActive = false
+            guard recognizer.state == .began else { return }
             isSearching = false
-            isEditingSearch = false
-            searchNavigation.setViewControllers([host], animated: false)
-            searchNavigation.setNavigationBarHidden(true, animated: false)
-            controller?.selectedTab = searchTab
+            parent.isExpanded.toggle()
+            AppLog.info("navigation.tabs.long_press_toggled", category: .navigation)
         }
 
         func updateSearchResults(for searchController: UISearchController) {
