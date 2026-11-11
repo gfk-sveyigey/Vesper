@@ -14,15 +14,11 @@ struct AppNavigationView: View {
 
     var body: some View {
         selectedContent
-            .overlay {
-                if isExpanded {
-                    Button { isExpanded = false } label: {
-                        Color.clear.contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("收起区域标签")
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    if isExpanded { isExpanded = false }
                 }
-            }
+            )
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 NativeTabBar(selection: $selection, isExpanded: $isExpanded, visibleSections: visibleSections, openSearch: {
                     isExpanded = false
