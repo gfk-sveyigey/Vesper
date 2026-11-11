@@ -15,6 +15,7 @@ struct AppNavigationView: View {
     @State private var selection: AppSection = .media
     @State private var isExpanded = false
     @State private var isSearchPresented = false
+    @State private var pendingSearch = false
     @State private var hosts = SectionHosts()
 
     private var enabledSections: [AppSection] {
@@ -68,20 +69,31 @@ struct AppNavigationView: View {
     }
 
     private var primaryTabs: some TabContent<NavigationTab> {
-    TabSection("主要功能") {
-        ForEach(enabledSections) { section in
-            Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
-                SectionHostSlot(
-                    host: hosts.controller(for: section, openSources: openSources),
-                    active: showPrimaryTabs && !isSearchPresented && selection == section
-                )
+        TabSection("主要功能") {
+            ForEach(enabledSections) { section in
+                Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
+                    SectionHostSlot(
+                        host: hosts.controller(for: section, openSources: openSources),
+                        active: showPrimaryTabs && !isSearchPresented && selection == section,
+                        onVisible: { finishSearchPreparation(for: section) }
+                    )
+                }
             }
         }
+        .hidden(!showPrimaryTabs)
     }
-    .hidden(!showPrimaryTabs)
+
+    private func finishSearchPreparation(for section: AppSection) {
+        guard pendingSearch, section == selection, showPrimaryTabs else { return }
+        // The normal tab must appear first so UIKit records it as the Search
+        // tab's return destination, including on a cold launch.
+        pendingSearch = false
+        isSearchPresented = true
+        AppLog.info("navigation.search.presented", category: .navigation)
     }
 
     private func openSources() {
+        pendingSearch = false
         isSearchPresented = false
         selection = .sources
     }
@@ -91,10 +103,17 @@ struct AppNavigationView: View {
         let actionValues = actions.split(separator: ",").map(String.init)
         guard let index = gestureValues.firstIndex(of: gesture), actionValues.indices.contains(index) else { return }
         if actionValues[index] == "tabs" {
+            pendingSearch = false
             if allowsHidingTabBar { isExpanded.toggle() }
         } else {
+            guard !isSearchPresented, !pendingSearch else { return }
+            // If the current section's entry is individually hidden, use an
+            // available normal tab rather than entering Search from itself.
+            if !enabledSections.contains(selection) {
+                selection = enabledSections.first ?? .settings
+            }
+            pendingSearch = true
             if allowsHidingTabBar { isExpanded = true }
-            isSearchPresented = true
         }
     }
 }
@@ -124,10 +143,13 @@ private final class SectionHosts {
 private struct SectionHostSlot: UIViewControllerRepresentable {
     let host: UIViewController
     let active: Bool
+    var onVisible: () -> Void = {}
 
-    func makeUIViewController(context: Context) -> UIViewController { UIViewController() }
+    func makeUIViewController(context: Context) -> SlotController { SlotController() }
 
-    func updateUIViewController(_ container: UIViewController, context: Context) {
+    func updateUIViewController(_ container: SlotController, context: Context) {
+        container.onVisible = active ? onVisible : {}
+        container.reportVisibilityIfReady()
         guard active, host.parent !== container else { return }
         for previous in container.children {
             previous.willMove(toParent: nil)
@@ -149,6 +171,31 @@ private struct SectionHostSlot: UIViewControllerRepresentable {
             host.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
         ])
         host.didMove(toParent: container)
+    }
+
+    final class SlotController: UIViewController {
+        var onVisible: () -> Void = {}
+        private var appeared = false
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            appeared = true
+            reportVisibilityIfReady()
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            appeared = false
+            super.viewWillDisappear(animated)
+        }
+
+        func reportVisibilityIfReady() {
+            guard appeared else { return }
+            // Defer state writes until the UIKit/SwiftUI update has completed.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.appeared else { return }
+                self.onVisible()
+            }
+        }
     }
 }
 
