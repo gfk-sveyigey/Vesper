@@ -111,7 +111,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
                 return self.searchNavigation
             }
             tab.image = UIImage(systemName: "square.grid.2x2")
-            tab.automaticallyActivatesSearch = false
+            tab.automaticallyActivatesSearch = true
             return tab
         }()
         lazy var destinations: [AppSection: UITab] = Dictionary(uniqueKeysWithValues: AppSection.allCases.map { section in
