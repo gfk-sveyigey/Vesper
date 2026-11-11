@@ -77,11 +77,11 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         let coordinator = context.coordinator
         coordinator.parent = self
         for section in AppSection.allCases {
-            coordinator.hosts[section]?.rootView = pages[section] ?? AnyView(EmptyView())
+            coordinator.hosts[section]?.rootView = dismissingContent(pages[section] ?? AnyView(EmptyView()))
         }
         coordinator.contentHost.rootView = isSearchPresented
             ? AnyView(SearchPage(isPresented: $isSearchPresented))
-            : pages[selection] ?? AnyView(EmptyView())
+            : dismissingContent(pages[selection] ?? AnyView(EmptyView()))
 
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
         let ordered = saved + AppSection.allCases.filter { !saved.contains($0) }
@@ -102,6 +102,12 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
            controller.selectedTab !== desiredTab {
             controller.selectedTab = desiredTab
         }
+    }
+
+    private func dismissingContent(_ content: AnyView) -> AnyView {
+        AnyView(content.simultaneousGesture(TapGesture().onEnded {
+            if allowsHidingTabBar { isExpanded = false }
+        }))
     }
 
     final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate {
@@ -152,7 +158,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
             return false
         }
 
-        func tabBarController(_ tabBarController: UITabBarController, didSelectTab tab: UITab) {
+        func tabBarController(_ tabBarController: UITabBarController, didSelectTab tab: UITab, previousTab: UITab?) {
             guard let section = AppSection(rawValue: tab.identifier) else { return }
             closeSearch()
             parent.selection = section
