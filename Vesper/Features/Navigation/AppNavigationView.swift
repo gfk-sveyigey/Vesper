@@ -5,6 +5,8 @@ struct AppNavigationView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.allowsHidingTabBar") private var allowsHidingTabBar = true
+    @AppStorage("navigation.gestureOrder") private var gestures = "tap,longPress"
+    @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
     @State private var selection: AppSection = .media
     @State private var isExpanded = false
     @State private var isSearchPresented = false
@@ -21,6 +23,7 @@ struct AppNavigationView: View {
             order: order,
             hidden: hidden,
             allowsHidingTabBar: allowsHidingTabBar,
+            gestures: gestures, actions: actions,
             pages: pages
         )
         .ignoresSafeArea(edges: .bottom)
@@ -49,6 +52,8 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
     let order: String
     let hidden: String
     let allowsHidingTabBar: Bool
+    let gestures: String
+    let actions: String
     let pages: [AppSection: AnyView]
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -152,9 +157,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
                 closeSearch()
                 return true
             }
-            guard parent.allowsHidingTabBar else { return false }
-            parent.isExpanded.toggle()
-            AppLog.info("navigation.tabs.toggled", category: .navigation)
+            performGesture("tap")
             return false
         }
 
@@ -167,9 +170,14 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         }
 
         private func closeSearch() {
-            parent.isSearchPresented = false
-            controller?.view.endEditing(true)
-            contentHost.viewIfLoaded?.endEditing(true)
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { parent.isSearchPresented = false }
+            UIView.performWithoutAnimation {
+                controller?.view.endEditing(true)
+                contentHost.rootView = parent.pages[parent.selection] ?? AnyView(EmptyView())
+                contentHost.viewIfLoaded?.layoutIfNeeded()
+            }
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -182,11 +190,21 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
             return point.x >= tabBar.bounds.width - 88
         }
 
+        private func performGesture(_ gesture: String) {
+            let gestures = parent.gestures.split(separator: ",").map(String.init)
+            let actions = parent.actions.split(separator: ",").map(String.init)
+            guard let index = gestures.firstIndex(of: gesture), actions.indices.contains(index) else { return }
+            if actions[index] == "tabs" {
+                if parent.allowsHidingTabBar { parent.isExpanded.toggle() }
+            } else {
+                if parent.allowsHidingTabBar { parent.isExpanded = true }
+                parent.isSearchPresented = true
+            }
+        }
+
         @objc func longPress(_ recognizer: UILongPressGestureRecognizer) {
-            guard recognizer.state == .began, parent.allowsHidingTabBar else { return }
-            parent.isExpanded = true
-            parent.isSearchPresented = true
-            AppLog.info("navigation.search.long_press_opened", category: .navigation)
+            guard recognizer.state == .began else { return }
+            performGesture("longPress")
         }
     }
 }
@@ -195,6 +213,7 @@ private struct SearchPage: View {
     @Binding var isPresented: Bool
     @State private var query = ""
     @FocusState private var searchFocused: Bool
+    @State private var inputActive = false
 
     var body: some View {
         NavigationStack {
@@ -205,16 +224,26 @@ private struct SearchPage: View {
             )
             .toolbarBackground(.hidden, for: .navigationBar)
         }
-        .searchable(text: $query, isPresented: $isPresented, prompt: "搜索当前媒体来源")
+        .searchable(text: $query, isPresented: $inputActive, prompt: "搜索当前媒体来源")
         .searchFocused($searchFocused)
-        .onAppear {
-            isPresented = true
-            DispatchQueue.main.async {
-                searchFocused = true
+        .task {
+            await Task.yield()
+            guard !Task.isCancelled, isPresented else { return }
+            inputActive = true
+            searchFocused = true
+        }
+        .onChange(of: isPresented) { _, presented in
+            if !presented {
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    inputActive = false
+                    searchFocused = false
+                }
             }
         }
         .onDisappear {
-            isPresented = false
+            inputActive = false
             searchFocused = false
         }
     }

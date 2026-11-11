@@ -5,6 +5,7 @@ struct SettingsView: View {
         List {
             Section("应用") {
                 NavigationLink("标签显示与顺序") { TabSettingsView() }
+                NavigationLink("多功能按钮手势与动作") { GestureActionSettingsView() }
                 NavigationLink("外观") { AppearanceSettingsView() }
             }
             Section {
@@ -88,5 +89,50 @@ struct TabSettingsView: View {
         .environment(\.editMode, .constant(.active))
         .navigationTitle("标签显示与顺序")
         .toolbarBackground(.hidden, for: .navigationBar)
+    }
+}
+
+
+private struct GestureActionSettingsView: View {
+    @AppStorage("navigation.gestureOrder") private var gestureOrder = "tap,longPress"
+    @AppStorage("navigation.actionOrder") private var actionOrder = "tabs,search"
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("手势").frame(maxWidth: .infinity)
+                Text("动作").frame(maxWidth: .infinity)
+            }
+            .font(.headline)
+            .padding()
+            HStack(spacing: 0) {
+                column($gestureOrder, names: ["tap": "单击", "longPress": "长按"])
+                column($actionOrder, names: ["tabs": "展开标签栏", "search": "进入搜索"])
+            }
+            Text("分别拖动两列项目，同一行的手势与动作配对并自动保存。关闭允许隐藏标签栏时，展开动作无效；进入搜索仍可使用。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding()
+        }
+        .environment(\.editMode, .constant(.active))
+        .navigationTitle("手势与动作")
+        .toolbarBackground(.hidden, for: .navigationBar)
+    }
+
+    private func column(_ storage: Binding<String>, names: [String: String]) -> some View {
+        let values = storage.wrappedValue.split(separator: ",").map(String.init)
+        return List {
+            ForEach(values, id: \.self) { value in
+                Text(names[value] ?? value)
+                    .frame(minHeight: 44)
+                    .accessibilityHint("拖动调整配对顺序")
+            }
+            .onMove { offsets, destination in
+                var updated = values
+                updated.move(fromOffsets: offsets, toOffset: destination)
+                storage.wrappedValue = updated.joined(separator: ",")
+            }
+        }
+        .listStyle(.plain)
     }
 }
