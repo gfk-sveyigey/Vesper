@@ -14,6 +14,7 @@ struct AppNavigationView: View {
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
     @State private var selection: AppSection = .media
     @State private var isExpanded = false
+    @State private var isInitializingSelection = true
     @State private var isSearchPresented = false
     @State private var hosts = SectionHosts()
 
@@ -21,10 +22,13 @@ struct AppNavigationView: View {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
         let ordered = saved + AppSection.allCases.filter { !saved.contains($0) }
         let excluded = Set(hidden.split(separator: ",").map(String.init))
-        return ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
+        return ordered.filter {
+            $0 == .settings || (isInitializingSelection && $0 == selection)
+                || !excluded.contains($0.rawValue)
+        }
     }
 
-    private var showPrimaryTabs: Bool { !allowsHidingTabBar || isExpanded }
+    private var showPrimaryTabs: Bool { isInitializingSelection || !allowsHidingTabBar || isExpanded }
 
     private var tabSelection: Binding<NavigationTab> {
         Binding(
@@ -75,7 +79,8 @@ struct AppNavigationView: View {
                 Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
                     SectionHostSlot(
                         host: hosts.controller(for: section, openSources: openSources),
-                        active: showPrimaryTabs && !isSearchPresented && selection == section
+                        active: showPrimaryTabs && !isSearchPresented && selection == section,
+                        onVisible: { finishInitialSelection(for: section) }
                     )
                 }
             }
@@ -83,7 +88,14 @@ struct AppNavigationView: View {
         .hidden(!showPrimaryTabs)
     }
 
+    private func finishInitialSelection(for section: AppSection) {
+        guard isInitializingSelection, selection == section else { return }
+        isInitializingSelection = false
+        AppLog.info("navigation.initialSelection.ready", category: .navigation)
+    }
+
     private func openSources() {
+        isInitializingSelection = false
         isSearchPresented = false
         selection = .sources
     }
@@ -92,6 +104,8 @@ struct AppNavigationView: View {
         let gestureValues = gestures.split(separator: ",").map(String.init)
         let actionValues = actions.split(separator: ",").map(String.init)
         guard let index = gestureValues.firstIndex(of: gesture), actionValues.indices.contains(index) else { return }
+        // An explicit action takes precedence over startup auto-collapse.
+        isInitializingSelection = false
         if actionValues[index] == "tabs" {
             if allowsHidingTabBar { isExpanded.toggle() }
         } else {
@@ -126,10 +140,13 @@ private final class SectionHosts {
 private struct SectionHostSlot: UIViewControllerRepresentable {
     let host: UIViewController
     let active: Bool
+    var onVisible: () -> Void = {}
 
-    func makeUIViewController(context: Context) -> UIViewController { UIViewController() }
+    func makeUIViewController(context: Context) -> SlotController { SlotController() }
 
-    func updateUIViewController(_ container: UIViewController, context: Context) {
+    func updateUIViewController(_ container: SlotController, context: Context) {
+        container.onVisible = active ? onVisible : {}
+        container.reportVisibilityIfReady()
         guard active, host.parent !== container else { return }
         for previous in container.children {
             previous.willMove(toParent: nil)
@@ -151,6 +168,32 @@ private struct SectionHostSlot: UIViewControllerRepresentable {
             host.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
         ])
         host.didMove(toParent: container)
+    }
+
+    final class SlotController: UIViewController {
+        var onVisible: () -> Void = {}
+        private var appeared = false
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            appeared = true
+            reportVisibilityIfReady()
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            appeared = false
+            super.viewWillDisappear(animated)
+        }
+
+        func reportVisibilityIfReady() {
+            guard appeared else { return }
+            // Complete startup after UIKit's appearance callback, not during
+            // a representable update. No fixed delay or search-entry staging.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.appeared else { return }
+                self.onVisible()
+            }
+        }
     }
 }
 
