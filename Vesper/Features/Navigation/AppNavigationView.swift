@@ -4,165 +4,170 @@ import UIKit
 struct AppNavigationView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
-    @State private var showsSearch = false
-    @State private var isExpanded = false
     @State private var selection: AppSection = .media
+    @State private var isExpanded = false
     @State private var mediaPath = NavigationPath()
     @State private var sourcesPath = NavigationPath()
     @State private var historyPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
 
     var body: some View {
-        selectedContent
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    if isExpanded { isExpanded = false }
-                }
-            )
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                NativeTabBar(selection: $selection, isExpanded: $isExpanded, visibleSections: visibleSections, openSearch: {
-                    isExpanded = false
-                    showsSearch = true
-                })
-                    .frame(height: 49)
-            }
-            .sheet(isPresented: $showsSearch) { SearchView() }
-            .background(Color("VesperBackground"))
-            .accessibilityAction(.escape) { isExpanded = false }
-            .onChange(of: selection) { _, section in
-                AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
-            }
-            .onChange(of: isExpanded) { _, expanded in
-                AppLog.debug("navigation.tabs.toggled", category: .navigation,
-                             detail: "expanded=\(expanded)")
-            }
-    }
-
-    private var visibleSections: [AppSection] {
-        let ordered = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
-        let complete = ordered + AppSection.allCases.filter { !ordered.contains($0) }
-        let excluded = Set(hidden.split(separator: ",").map(String.init))
-        return complete.filter { ($0 == .settings || !excluded.contains($0.rawValue)) }
+        SearchTabContainer(
+            selection: $selection, isExpanded: $isExpanded,
+            order: order, hidden: hidden, content: AnyView(selectedContent)
+        )
+        .ignoresSafeArea(edges: .bottom)
     }
 
     @ViewBuilder private var selectedContent: some View {
-        switch selection {
-        case .media:
-            NavigationStack(path: $mediaPath) {
-                MediaView(openSources: { selection = .sources })
+        Group {
+            switch selection {
+            case .media:
+                NavigationStack(path: $mediaPath) {
+                    MediaView(openSources: { selection = .sources })
+                }
+            case .sources:
+                NavigationStack(path: $sourcesPath) { SourcesView() }
+            case .history:
+                NavigationStack(path: $historyPath) { HistoryView() }
+            case .settings:
+                NavigationStack(path: $settingsPath) { SettingsView() }
             }
-        case .sources:
-            NavigationStack(path: $sourcesPath) { SourcesView() }
-        case .history:
-            NavigationStack(path: $historyPath) { HistoryView() }
-        case .settings:
-            NavigationStack(path: $settingsPath) { SettingsView() }
         }
+        .simultaneousGesture(TapGesture().onEnded { isExpanded = false })
+        .background(Color("VesperBackground"))
     }
 }
 
-/// UIKit owns every item, its rendering, hit testing and accessibility.
-/// The persistent action item is not a destination, so TabView selection is not used.
-private struct NativeTabBar: UIViewRepresentable {
+/// Experimental integration: Search retains its native role; a tap is an action,
+/// while a long press explicitly selects the Search destination.
+private struct SearchTabContainer: UIViewControllerRepresentable {
     @Binding var selection: AppSection
     @Binding var isExpanded: Bool
-
-    let visibleSections: [AppSection]
-    let openSearch: () -> Void
+    let order: String
+    let hidden: String
+    let content: AnyView
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
-    func makeUIView(context: Context) -> UITabBar {
-        let bar = UITabBar()
+    func makeUIViewController(context: Context) -> UITabBarController {
+        let controller = UITabBarController()
+        let coordinator = context.coordinator
+        controller.delegate = coordinator
+        coordinator.controller = controller
         let appearance = UITabBarAppearance()
         appearance.configureWithTransparentBackground()
-        bar.standardAppearance = appearance
-        bar.scrollEdgeAppearance = appearance
-        bar.tintColor = UIColor(named: "VesperAccent")
-        bar.delegate = context.coordinator
-        bar.itemPositioning = .fill
-        let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.longPress(_:)))
-        longPress.delegate = context.coordinator
-        // Do not let the native item's touch-down action replace the item group
-        // before the long-press recognizer has had a chance to recognize.
-        longPress.delaysTouchesBegan = true
-        longPress.cancelsTouchesInView = true
-        bar.addGestureRecognizer(longPress)
-        context.coordinator.action.accessibilityCustomActions = [
-            UIAccessibilityCustomAction(name: "打开搜索", target: context.coordinator, selector: #selector(Coordinator.searchAccessibility))
-        ]
-        return bar
+        controller.tabBar.standardAppearance = appearance
+        controller.tabBar.scrollEdgeAppearance = appearance
+        controller.tabBar.tintColor = UIColor(named: "VesperAccent")
+        let press = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.longPress(_:)))
+        press.delaysTouchesBegan = true
+        press.delegate = coordinator
+        controller.tabBar.addGestureRecognizer(press)
+        return controller
     }
 
-    func updateUIView(_ bar: UITabBar, context: Context) {
-        context.coordinator.parent = self
+    func updateUIViewController(_ controller: UITabBarController, context: Context) {
         let coordinator = context.coordinator
-        let items = isExpanded ? visibleSections.map { coordinator.item(for: $0) } + [coordinator.action] : [coordinator.action]
-        if bar.items?.map(\.tag) != items.map(\.tag) {
-            bar.setItems(items, animated: false)
+        coordinator.parent = self
+        coordinator.host.rootView = content
+        let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
+        let ordered = saved + AppSection.allCases.filter { !saved.contains($0) }
+        let excluded = Set(hidden.split(separator: ",").map(String.init))
+        let destinations = isExpanded ? ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
+            .compactMap { coordinator.destinations[$0] } : []
+        let tabs = destinations + [coordinator.searchTab]
+        if controller.tabs.map(\.identifier) != tabs.map(\.identifier) {
+            controller.setTabs(tabs, animated: false)
         }
-        coordinator.action.accessibilityValue = isExpanded ? "已展开" : "已收起"
-        bar.selectedItem = isExpanded
-            ? coordinator.sections.first { $0.tag == AppSection.allCases.firstIndex(of: selection) && items.contains($0) }
-            : nil
+        if !coordinator.isSearching {
+            // The persistent Search host also displays the current page while collapsed.
+            controller.selectedTab = coordinator.searchTab
+        }
     }
 
-    final class Coordinator: NSObject, UITabBarDelegate, UIGestureRecognizerDelegate {
-        var parent: NativeTabBar
-        let sections: [UITabBarItem] = AppSection.allCases.enumerated().map { index, section in
-            UITabBarItem(title: section.title, image: UIImage(systemName: section.symbol), tag: index)
-        }
-        let action: UITabBarItem = {
-            let item = UITabBarItem(tabBarSystemItem: .search, tag: 100)
-            item.image = UIImage(systemName: "square.grid.2x2")
-            item.selectedImage = UIImage(systemName: "square.grid.2x2.fill")
-            item.accessibilityLabel = "多功能"
-            item.accessibilityHint = "轻点显示或隐藏标签，长按打开搜索"
-            return item
+    final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate, UISearchResultsUpdating {
+        var parent: SearchTabContainer
+        weak var controller: UITabBarController?
+        let host = UIHostingController(rootView: AnyView(EmptyView()))
+        let searchPage = UIViewController()
+        let results = UIHostingController(rootView: AnyView(EmptyView()))
+        var isSearching = false
+        lazy var searchController = UISearchController(searchResultsController: results)
+        lazy var searchNavigation = UINavigationController(rootViewController: searchPage)
+        lazy var searchTab: UISearchTab = {
+            let tab = UISearchTab { [weak self] _ in
+                guard let self else { return UIViewController() }
+                return self.isSearching ? self.searchNavigation : self.host
+            }
+            tab.identifier = "multifunction.search"
+            tab.image = UIImage(systemName: "square.grid.2x2")
+            tab.automaticallyActivatesSearch = false
+            return tab
         }()
+        lazy var destinations: [AppSection: UITab] = Dictionary(uniqueKeysWithValues: AppSection.allCases.map { section in
+            (section, UITab(title: section.title, image: UIImage(systemName: section.symbol), identifier: section.rawValue) { _ in UIViewController() })
+        })
 
-        init(parent: NativeTabBar) { self.parent = parent }
-
-        func item(for section: AppSection) -> UITabBarItem {
-            sections[AppSection.allCases.firstIndex(of: section)!]
+        init(parent: SearchTabContainer) {
+            self.parent = parent
+            super.init()
+            searchPage.title = "搜索"
+            searchPage.view.backgroundColor = .systemBackground
+            searchController.searchResultsUpdater = self
+            searchController.searchBar.placeholder = "搜索当前媒体来源"
+            searchPage.navigationItem.searchController = searchController
+            searchPage.navigationItem.hidesSearchBarWhenScrolling = false
+            searchPage.definesPresentationContext = true
+            searchPage.navigationItem.leftBarButtonItem = UIBarButtonItem(title: "关闭", primaryAction: UIAction { [weak self] _ in self?.closeSearch() })
+            updateSearchResults(for: searchController)
         }
 
-        @objc func searchAccessibility() -> Bool {
-            parent.openSearch()
-            return true
+        func tabBarController(_ tabBarController: UITabBarController, shouldSelectTab tab: UITab) -> Bool {
+            if tab === searchTab {
+                if isSearching { return true }
+                parent.isExpanded.toggle()
+            } else if let section = AppSection(rawValue: tab.identifier) {
+                parent.selection = section
+                AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
+            }
+            return false
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            guard let bar = gestureRecognizer.view as? UITabBar,
-                  let items = bar.items, !items.isEmpty else { return false }
-            // Use the actual accessibility frame when UIKit exposes it, rather
-            // than assuming Search has the same width as grouped destinations.
-            let frame = action.accessibilityFrame
-            if !frame.isEmpty {
-                let point = bar.convert(gestureRecognizer.location(in: bar), to: nil)
-                return frame.contains(point)
-            }
+            guard let bar = controller?.tabBar else { return false }
+            // Search can have a separate system frame. Prefer the native item's
+            // accessibility geometry, never UIKit private class names or KVC.
+            let frame = searchTab.viewController?.tabBarItem.accessibilityFrame ?? .zero
             let point = gestureRecognizer.location(in: bar)
-            let slot = bar.bounds.width / CGFloat(items.count)
-            return point.x >= bar.bounds.maxX - slot
+            if !frame.isEmpty { return frame.contains(bar.convert(point, to: nil)) }
+            return point.x >= bar.bounds.width - 88
         }
 
         @objc func longPress(_ recognizer: UILongPressGestureRecognizer) {
-            guard recognizer.state == .began else { return }
-            AppLog.info("navigation.search.long_press", category: .navigation)
-            parent.openSearch()
+            guard recognizer.state == .began, let controller else { return }
+            isSearching = true
+            parent.isExpanded = false
+            // Assigning the search controller explicitly avoids a cached provider
+            // returning the normal page after its first use.
+            searchTab.viewController = searchNavigation
+            controller.selectedTab = searchTab
+            searchController.isActive = true
+            AppLog.info("navigation.search.opened", category: .navigation)
         }
 
-        func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
-            if item.tag == action.tag {
-                parent.isExpanded.toggle()
-            } else if AppSection.allCases.indices.contains(item.tag) {
-                parent.selection = AppSection.allCases[item.tag]
-            }
-            // The action never becomes the selected destination.
-            tabBar.selectedItem = parent.isExpanded
-                ? tabBar.items?.first { $0.tag == AppSection.allCases.firstIndex(of: parent.selection) }
-                : nil
+        func closeSearch() {
+            searchController.isActive = false
+            isSearching = false
+            searchTab.viewController = host
+            controller?.selectedTab = searchTab
+        }
+
+        func updateSearchResults(for searchController: UISearchController) {
+            results.rootView = AnyView(ContentUnavailableView(
+                "暂无可搜索内容", systemImage: "magnifyingglass",
+                description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入，暂时无法返回结果。")
+            ))
         }
     }
 }
