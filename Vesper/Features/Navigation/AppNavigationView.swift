@@ -46,7 +46,7 @@ struct AppNavigationView: View {
         let ordered = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
         let complete = ordered + AppSection.allCases.filter { !ordered.contains($0) }
         let excluded = Set(hidden.split(separator: ",").map(String.init))
-        return complete.filter { !excluded.contains($0.rawValue) }
+        return complete.filter { ($0 == .settings || !excluded.contains($0.rawValue)) }
     }
 
     @ViewBuilder private var selectedContent: some View {
@@ -87,6 +87,10 @@ private struct NativeTabBar: UIViewRepresentable {
         bar.itemPositioning = .fill
         let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.longPress(_:)))
         longPress.delegate = context.coordinator
+        // Do not let the native item's touch-down action replace the item group
+        // before the long-press recognizer has had a chance to recognize.
+        longPress.delaysTouchesBegan = true
+        longPress.cancelsTouchesInView = true
         bar.addGestureRecognizer(longPress)
         context.coordinator.action.accessibilityCustomActions = [
             UIAccessibilityCustomAction(name: "打开搜索", target: context.coordinator, selector: #selector(Coordinator.searchAccessibility))
@@ -113,7 +117,9 @@ private struct NativeTabBar: UIViewRepresentable {
             UITabBarItem(title: section.title, image: UIImage(systemName: section.symbol), tag: index)
         }
         let action: UITabBarItem = {
-            let item = UITabBarItem(title: "多功能", image: UIImage(systemName: "square.grid.2x2"), tag: 100)
+            let item = UITabBarItem(tabBarSystemItem: .search, tag: 100)
+            item.image = UIImage(systemName: "square.grid.2x2")
+            item.selectedImage = UIImage(systemName: "square.grid.2x2.fill")
             item.accessibilityLabel = "多功能"
             item.accessibilityHint = "轻点显示或隐藏标签，长按打开搜索"
             return item
@@ -133,12 +139,21 @@ private struct NativeTabBar: UIViewRepresentable {
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let bar = gestureRecognizer.view as? UITabBar,
                   let items = bar.items, !items.isEmpty else { return false }
-            // .fill gives each native item an equal-width slot; only the final action slot handles long press.
-            return gestureRecognizer.location(in: bar).x >= bar.bounds.width * CGFloat(items.count - 1) / CGFloat(items.count)
+            // Use the actual accessibility frame when UIKit exposes it, rather
+            // than assuming Search has the same width as grouped destinations.
+            let frame = action.accessibilityFrame
+            if !frame.isEmpty {
+                let point = bar.convert(gestureRecognizer.location(in: bar), to: nil)
+                return frame.contains(point)
+            }
+            let point = gestureRecognizer.location(in: bar)
+            let slot = bar.bounds.width / CGFloat(items.count)
+            return point.x >= bar.bounds.maxX - slot
         }
 
         @objc func longPress(_ recognizer: UILongPressGestureRecognizer) {
             guard recognizer.state == .began else { return }
+            AppLog.info("navigation.search.long_press", category: .navigation)
             parent.openSearch()
         }
 

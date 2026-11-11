@@ -58,13 +58,15 @@ struct TabSettingsView: View {
             Section {
                 ForEach(sections) { section in
                     Toggle(isOn: Binding(
-                        get: { !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
+                        get: { section == .settings || !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
                         set: { visible in
+                            guard section != .settings else { return }
                             var values = Set(hidden.split(separator: ",").map(String.init))
                             if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
                             hidden = values.sorted().joined(separator: ",")
                         }
                     )) { Label(section.title, systemImage: section.symbol) }
+                    .disabled(section == .settings)
                 }
                 .onMove { offsets, destination in
                     var values = sections
@@ -72,7 +74,7 @@ struct TabSettingsView: View {
                     order = values.map(\.rawValue).joined(separator: ",")
                 }
             } footer: {
-                Text("拖动调整顺序。关闭只隐藏入口，不清除页面数据。多功能入口始终显示；长按进入搜索后，也可打开本设置恢复标签。")
+                Text("拖动调整顺序。关闭只隐藏入口，不清除页面数据。多功能入口始终保留，设置标签不允许隐藏，但可调整顺序。")
             }
             Button("恢复默认") {
                 order = "media,sources,history,settings"
@@ -100,11 +102,7 @@ struct SearchView: View {
             .navigationTitle("搜索")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink { TabSettingsView() } label: {
-                        Label("标签设置", systemImage: "gearshape")
-                    }
-                }
+
             }
         }
     }
