@@ -30,6 +30,23 @@ struct AppNavigationView: View {
             }
         }
         .background(Color("VesperBackground"))
+        // This host stays alive even when the system tab bar or navigation bar is hidden.
+        .safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
+            Button {
+                isTabBarVisible.toggle()
+                AppLog.debug("navigation.tabs.toggled", category: .navigation)
+            } label: {
+                Image(systemName: "square.grid.2x2")
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .buttonStyle(.glass)
+            .accessibilityLabel("多功能")
+            .accessibilityValue(isTabBarVisible ? "标签栏已显示" : "标签栏已隐藏")
+            .accessibilityHint("显示或隐藏媒体、来源、记录和设置标签")
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
         .onChange(of: selection) { _, section in
             AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
         }
@@ -53,20 +70,6 @@ private struct TabBarPresentation: ViewModifier {
                     .buttonStyle(.plain)
                     .accessibilityLabel("收起标签栏")
                     .accessibilityHint("收起后可继续操作当前页面")
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isVisible.toggle()
-                        AppLog.debug("navigation.tabs.toggled", category: .navigation)
-                    } label: {
-                        Image(systemName: "square.grid.2x2")
-                    }
-                    .accessibilityLabel("多任务")
-                    .accessibilityValue(isVisible ? "标签栏已显示" : "标签栏已隐藏")
-                    .accessibilityHint("显示或隐藏媒体、来源、记录和设置标签")
-                    .keyboardShortcut("m", modifiers: [.command, .shift])
                 }
             }
             .toolbar(isVisible ? .visible : .hidden, for: .tabBar)
