@@ -24,6 +24,9 @@ struct AppNavigationView: View {
             pages: pages
         )
         .ignoresSafeArea(edges: .bottom)
+        .onChange(of: selection) { _, _ in
+            isSearchPresented = false
+        }
     }
 
     private var pages: [AppSection: AnyView] {
@@ -139,7 +142,10 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         }
 
         func tabBarController(_ tabBarController: UITabBarController, shouldSelectTab tab: UITab) -> Bool {
-            guard tab === multifunctionTab else { return true }
+            guard tab === multifunctionTab else {
+                closeSearch()
+                return true
+            }
             guard parent.allowsHidingTabBar else { return false }
             parent.isExpanded.toggle()
             AppLog.info("navigation.tabs.toggled", category: .navigation)
@@ -148,9 +154,15 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
 
         func tabBarController(_ tabBarController: UITabBarController, didSelectTab tab: UITab) {
             guard let section = AppSection(rawValue: tab.identifier) else { return }
+            closeSearch()
             parent.selection = section
             parent.isExpanded = false
             AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
+        }
+
+        private func closeSearch() {
+            parent.isSearchPresented = false
+            contentHost.viewIfLoaded?.endEditing(true)
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
