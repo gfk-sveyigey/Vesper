@@ -125,8 +125,8 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
             searchPage.view.backgroundColor = .systemBackground
             searchController.searchResultsUpdater = self
             searchController.searchBar.delegate = self
-            searchController.automaticallyShowsCancelButton = false
-            searchController.searchBar.setShowsCancelButton(true, animated: false)
+            searchController.automaticallyShowsCancelButton = true
+            searchController.searchBar.showsCancelButton = true
             searchController.searchBar.placeholder = "搜索当前媒体来源"
             searchPage.navigationItem.searchController = searchController
             searchPage.navigationItem.hidesSearchBarWhenScrolling = false
@@ -177,13 +177,13 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
             searchNavigation.setViewControllers([searchPage], animated: false)
             controller.selectedTab = searchTab
             searchController.isActive = true
-            searchController.searchBar.setShowsCancelButton(true, animated: false)
+            searchController.searchBar.showsCancelButton = true
             AppLog.info("navigation.search.opened", category: .navigation)
         }
 
         func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
             isEditingSearch = true
-            searchBar.setShowsCancelButton(true, animated: false)
+            searchBar.showsCancelButton = true
         }
 
         func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
@@ -196,7 +196,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
                 searchBar.resignFirstResponder()
                 searchBar.searchTextField.resignFirstResponder()
                 isEditingSearch = false
-                searchBar.setShowsCancelButton(true, animated: false)
+                searchBar.showsCancelButton = true
             } else {
                 closeSearch()
             }
