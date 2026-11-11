@@ -75,7 +75,7 @@ private struct NativeTabBar: UIViewRepresentable {
         let coordinator = context.coordinator
         let items = isExpanded ? coordinator.sections + [coordinator.action] : [coordinator.action]
         if bar.items?.map(\.tag) != items.map(\.tag) {
-            bar.setItems(items, animated: false)
+            bar.setItems(items, animated: true)
         }
         coordinator.action.accessibilityValue = isExpanded ? "已展开" : "已收起"
         bar.selectedItem = isExpanded
