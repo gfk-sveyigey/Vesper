@@ -193,6 +193,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
 private struct SearchPage: View {
     @Binding var isPresented: Bool
     @State private var query = ""
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -204,5 +205,12 @@ private struct SearchPage: View {
             .toolbarBackground(.hidden, for: .navigationBar)
         }
         .searchable(text: $query, isPresented: $isPresented, prompt: "搜索当前媒体来源")
+        .searchFocused($searchFocused)
+        .onAppear {
+            isPresented = true
+            DispatchQueue.main.async {
+                searchFocused = true
+            }
+        }
     }
 }
