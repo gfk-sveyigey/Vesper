@@ -36,8 +36,6 @@ struct AppNavigationView: View {
     }
 }
 
-/// Each destination owns its controller. UISearchTab is only a search destination;
-/// selecting a regular tab never selects Search as a side effect.
 private struct SearchTabContainer: UIViewControllerRepresentable {
     @Binding var selection: AppSection
     @Binding var isExpanded: Bool
@@ -51,14 +49,19 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UITabBarController {
         let controller = UITabBarController()
         let coordinator = context.coordinator
-        controller.delegate = coordinator
         coordinator.controller = controller
+        controller.delegate = coordinator
+
         let appearance = UITabBarAppearance()
         appearance.configureWithTransparentBackground()
         controller.tabBar.standardAppearance = appearance
         controller.tabBar.scrollEdgeAppearance = appearance
         controller.tabBar.tintColor = UIColor(named: "VesperAccent")
-        let press = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.longPress(_:)))
+
+        let press = UILongPressGestureRecognizer(
+            target: coordinator,
+            action: #selector(Coordinator.longPress(_:))
+        )
         press.delaysTouchesBegan = true
         press.cancelsTouchesInView = true
         press.delegate = coordinator
@@ -69,59 +72,80 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UITabBarController, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
-        for section in AppSection.allCases {
-            coordinator.hosts[section]?.rootView = pages[section] ?? AnyView(EmptyView())
-        }
+        coordinator.contentHost.rootView = pages[selection] ?? AnyView(EmptyView())
 
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
         let ordered = saved + AppSection.allCases.filter { !saved.contains($0) }
         let excluded = Set(hidden.split(separator: ",").map(String.init))
         let enabled = ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
-        let mayCollapse = allowsHidingTabBar && !isExpanded && !coordinator.isSearching
-        let visible = mayCollapse ? [] : enabled
-        let tabs = visible.compactMap { coordinator.destinations[$0] } + [coordinator.searchTab]
+        let shouldShowGroup = !allowsHidingTabBar || isExpanded || coordinator.isSearching
+        let destinations = shouldShowGroup
+            ? enabled.compactMap { coordinator.destinations[$0] }
+            : []
+        let tabs = destinations + [coordinator.searchTab]
+
         if controller.tabs.map(\.identifier) != tabs.map(\.identifier) {
             controller.setTabs(tabs, animated: false)
         }
-        if !coordinator.isSearching,
-           let selected = coordinator.destinations[selection], controller.selectedTab !== selected {
-            controller.selectedTab = selected
+
+        if !coordinator.isSearching, controller.selectedTab !== coordinator.searchTab {
+            controller.selectedTab = coordinator.searchTab
         }
     }
 
-    final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate, UISearchResultsUpdating, UISearchControllerDelegate {
+    final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate,
+        UISearchResultsUpdating, UISearchControllerDelegate {
         var parent: SearchTabContainer
         weak var controller: UITabBarController?
         var isSearching = false
-        var isOpeningSearchByLongPress = false
+        var isLongPressSearch = false
+
+        let contentHost = UIHostingController(rootView: AnyView(EmptyView()))
         let results = UIHostingController(rootView: AnyView(EmptyView()))
         lazy var searchController = UISearchController(searchResultsController: results)
-        lazy var searchPage: UIViewController = {
-            let page = UIViewController()
-            page.title = nil
-            page.view.backgroundColor = .systemBackground
-            page.navigationItem.searchController = searchController
-            page.navigationItem.hidesSearchBarWhenScrolling = false
-            page.definesPresentationContext = true
-            return page
+
+        lazy var homeController: UIViewController = {
+            let viewController = UIViewController()
+            viewController.view.backgroundColor = .systemBackground
+            viewController.addChild(contentHost)
+            contentHost.view.translatesAutoresizingMaskIntoConstraints = false
+            viewController.view.addSubview(contentHost.view)
+            NSLayoutConstraint.activate([
+                contentHost.view.leadingAnchor.constraint(equalTo: viewController.view.leadingAnchor),
+                contentHost.view.trailingAnchor.constraint(equalTo: viewController.view.trailingAnchor),
+                contentHost.view.topAnchor.constraint(equalTo: viewController.view.topAnchor),
+                contentHost.view.bottomAnchor.constraint(equalTo: viewController.view.bottomAnchor)
+            ])
+            contentHost.didMove(toParent: viewController)
+            viewController.navigationItem.searchController = searchController
+            viewController.navigationItem.hidesSearchBarWhenScrolling = false
+            viewController.definesPresentationContext = true
+            return viewController
         }()
-        lazy var searchNavigation = UINavigationController(rootViewController: searchPage)
+
+        lazy var searchNavigation = UINavigationController(rootViewController: homeController)
+
         lazy var searchTab: UISearchTab = {
             let tab = UISearchTab { [weak self] _ in
                 self?.searchNavigation ?? UIViewController()
             }
             tab.image = UIImage(systemName: "square.grid.2x2")
-            tab.automaticallyActivatesSearch = true
+            tab.automaticallyActivatesSearch = false
             return tab
         }()
-        lazy var hosts: [AppSection: UIHostingController<AnyView>] = Dictionary(uniqueKeysWithValues: AppSection.allCases.map { section in
-            (section, UIHostingController(rootView: AnyView(EmptyView())))
-        })
-        lazy var destinations: [AppSection: UITab] = Dictionary(uniqueKeysWithValues: AppSection.allCases.map { section in
-            (section, UITab(title: section.title, image: UIImage(systemName: section.symbol), identifier: section.rawValue) { [weak self] _ in
-                self?.hosts[section] ?? UIViewController()
-            })
-        })
+
+        lazy var destinations: [AppSection: UITab] = Dictionary(
+            uniqueKeysWithValues: AppSection.allCases.map { section in
+                (section, UITab(
+                    title: section.title,
+                    image: UIImage(systemName: section.symbol),
+                    identifier: section.rawValue
+                ) { [weak self] _ in
+                    guard let self else { return UIViewController() }
+                    return UIHostingController(rootView: self.parent.pages[section] ?? AnyView(EmptyView()))
+                })
+            }
+        )
 
         init(parent: SearchTabContainer) {
             self.parent = parent
@@ -134,10 +158,6 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
 
         func tabBarController(_ tabBarController: UITabBarController, shouldSelectTab tab: UITab) -> Bool {
             guard tab === searchTab else { return true }
-            if isOpeningSearchByLongPress {
-                isOpeningSearchByLongPress = false
-                return true
-            }
             guard parent.allowsHidingTabBar else { return false }
             parent.isExpanded.toggle()
             AppLog.info("navigation.tabs.toggled", category: .navigation)
@@ -152,24 +172,29 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            guard let bar = controller?.tabBar else { return false }
-            let point = gestureRecognizer.location(in: bar)
-            let searchFrame = searchTab.viewController?.tabBarItem.accessibilityFrame ?? .zero
-            if !searchFrame.isEmpty {
-                return searchFrame.contains(bar.convert(point, to: nil))
+            guard let tabBar = controller?.tabBar else { return false }
+            let frame = searchTab.viewController?.tabBarItem.accessibilityFrame ?? .zero
+            let point = gestureRecognizer.location(in: tabBar)
+            if !frame.isEmpty {
+                return frame.contains(tabBar.convert(point, to: nil))
             }
-            return point.x >= bar.bounds.width - 88
+            return point.x >= tabBar.bounds.width - 88
         }
 
         @objc func longPress(_ recognizer: UILongPressGestureRecognizer) {
-            guard recognizer.state == .began else { return }
+            guard recognizer.state == .began,
+                  parent.allowsHidingTabBar,
+                  let controller else { return }
+
+            isLongPressSearch = true
+            isSearching = true
             parent.isExpanded = true
-            isOpeningSearchByLongPress = true
-            controller?.selectedTab = searchTab
+            controller.selectedTab = searchTab
+            searchController.isActive = true
             AppLog.info("navigation.search.long_press_opened", category: .navigation)
+
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.searchController.searchBar.searchTextField.becomeFirstResponder()
+                self?.searchController.searchBar.searchTextField.becomeFirstResponder()
             }
         }
 
@@ -183,12 +208,14 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
 
         func didDismissSearchController(_ searchController: UISearchController) {
             isSearching = false
+            isLongPressSearch = false
             parent.isExpanded = false
         }
 
         func updateSearchResults(for searchController: UISearchController) {
             results.rootView = AnyView(ContentUnavailableView(
-                "暂无可搜索内容", systemImage: "magnifyingglass",
+                "暂无可搜索内容",
+                systemImage: "magnifyingglass",
                 description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入，暂时无法返回结果。")
             ))
         }
