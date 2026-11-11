@@ -4,6 +4,7 @@ struct SettingsView: View {
     var body: some View {
         List {
             Section("应用") {
+                NavigationLink("标签显示与顺序") { TabSettingsView() }
                 NavigationLink("外观") { AppearanceSettingsView() }
             }
             Section {
@@ -39,5 +40,72 @@ private struct AppearanceSettingsView: View {
         .scrollContentBackground(.hidden)
         .navigationTitle("外观")
         .toolbarBackground(.hidden, for: .navigationBar)
+    }
+}
+
+
+struct TabSettingsView: View {
+    @AppStorage("navigation.order") private var order = "media,sources,history,settings"
+    @AppStorage("navigation.hidden") private var hidden = ""
+
+    private var sections: [AppSection] {
+        let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
+        return saved + AppSection.allCases.filter { !saved.contains($0) }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(sections) { section in
+                    Toggle(isOn: Binding(
+                        get: { !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
+                        set: { visible in
+                            var values = Set(hidden.split(separator: ",").map(String.init))
+                            if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
+                            hidden = values.sorted().joined(separator: ",")
+                        }
+                    )) { Label(section.title, systemImage: section.symbol) }
+                }
+                .onMove { offsets, destination in
+                    var values = sections
+                    values.move(fromOffsets: offsets, toOffset: destination)
+                    order = values.map(\.rawValue).joined(separator: ",")
+                }
+            } footer: {
+                Text("拖动调整顺序。关闭只隐藏入口，不清除页面数据。多功能入口始终显示；长按进入搜索后，也可打开本设置恢复标签。")
+            }
+            Button("恢复默认") {
+                order = "media,sources,history,settings"
+                hidden = ""
+            }
+        }
+        .environment(\.editMode, .constant(.active))
+        .navigationTitle("标签显示与顺序")
+        .toolbarBackground(.hidden, for: .navigationBar)
+    }
+}
+
+struct SearchView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView {
+                Label(query.isEmpty ? "搜索媒体" : "暂无可搜索内容", systemImage: "magnifyingglass")
+            } description: {
+                Text("搜索范围为当前媒体来源。真实媒体来源尚未接入，暂时无法返回结果。")
+            }
+            .searchable(text: $query, prompt: "搜索当前来源")
+            .navigationTitle("搜索")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink { TabSettingsView() } label: {
+                        Label("标签设置", systemImage: "gearshape")
+                    }
+                }
+            }
+        }
     }
 }
