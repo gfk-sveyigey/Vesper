@@ -98,7 +98,6 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         var parent: SearchTabContainer
         weak var controller: UITabBarController?
         var isSearching = false
-        var isLongPressSearch = false
 
         let contentHost = UIHostingController(rootView: AnyView(EmptyView()))
         let results = UIHostingController(rootView: AnyView(EmptyView()))
@@ -186,7 +185,6 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
                   parent.allowsHidingTabBar,
                   let controller else { return }
 
-            isLongPressSearch = true
             isSearching = true
             parent.isExpanded = true
             controller.selectedTab = searchTab
@@ -208,8 +206,6 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
 
         func didDismissSearchController(_ searchController: UISearchController) {
             isSearching = false
-            isLongPressSearch = false
-            parent.isExpanded = false
         }
 
         func updateSearchResults(for searchController: UISearchController) {
