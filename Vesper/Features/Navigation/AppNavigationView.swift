@@ -74,7 +74,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
         let ordered = saved + AppSection.allCases.filter { !saved.contains($0) }
         let excluded = Set(hidden.split(separator: ",").map(String.init))
-        let destinations = isExpanded ? ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
+        let destinations = isExpanded && !coordinator.isSearching ? ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
             .compactMap { coordinator.destinations[$0] } : []
         let tabs = destinations + [coordinator.searchTab]
         if controller.tabs.map(\.identifier) != tabs.map(\.identifier) {
@@ -91,13 +91,14 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate, UISearchResultsUpdating {
+    final class Coordinator: NSObject, UITabBarControllerDelegate, UIGestureRecognizerDelegate, UISearchResultsUpdating, UISearchBarDelegate {
         var parent: SearchTabContainer
         weak var controller: UITabBarController?
         let host = UIHostingController(rootView: AnyView(EmptyView()))
         let searchPage = UIViewController()
         let results = UIHostingController(rootView: AnyView(EmptyView()))
         var isSearching = false
+        var isEditingSearch = false
         lazy var searchController = UISearchController(searchResultsController: results)
         lazy var searchNavigation: UINavigationController = {
             let navigation = UINavigationController(rootViewController: host)
@@ -120,14 +121,17 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         init(parent: SearchTabContainer) {
             self.parent = parent
             super.init()
-            searchPage.title = "搜索"
+            searchPage.title = nil
             searchPage.view.backgroundColor = .systemBackground
             searchController.searchResultsUpdater = self
+            searchController.searchBar.delegate = self
+            searchController.automaticallyShowsCancelButton = false
+            searchController.searchBar.setShowsCancelButton(true, animated: false)
             searchController.searchBar.placeholder = "搜索当前媒体来源"
             searchPage.navigationItem.searchController = searchController
             searchPage.navigationItem.hidesSearchBarWhenScrolling = false
             searchPage.definesPresentationContext = true
-            searchPage.navigationItem.leftBarButtonItem = UIBarButtonItem(title: "关闭", primaryAction: UIAction { [weak self] _ in self?.closeSearch() })
+            searchPage.navigationItem.leftBarButtonItem = nil
             updateSearchResults(for: searchController)
         }
 
@@ -166,18 +170,42 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
         private func openSearch(in controller: UITabBarController) {
             isSearching = true
             parent.isExpanded = false
-            // Assigning the search controller explicitly avoids a cached provider
-            // returning the normal page after its first use.
+            // Remove destination tabs before activating Search, not on the next
+            // SwiftUI update, so no stale group remains during the transition.
+            controller.setTabs([searchTab], animated: false)
             searchNavigation.setNavigationBarHidden(false, animated: false)
             searchNavigation.setViewControllers([searchPage], animated: false)
             controller.selectedTab = searchTab
             searchController.isActive = true
+            searchController.searchBar.setShowsCancelButton(true, animated: false)
             AppLog.info("navigation.search.opened", category: .navigation)
+        }
+
+        func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
+            isEditingSearch = true
+            searchBar.setShowsCancelButton(true, animated: false)
+        }
+
+        func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
+            isEditingSearch = false
+            if isSearching { searchBar.setShowsCancelButton(true, animated: false) }
+        }
+
+        func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
+            if isEditingSearch || searchBar.searchTextField.isFirstResponder {
+                searchBar.resignFirstResponder()
+                searchBar.searchTextField.resignFirstResponder()
+                isEditingSearch = false
+                searchBar.setShowsCancelButton(true, animated: false)
+            } else {
+                closeSearch()
+            }
         }
 
         func closeSearch() {
             searchController.isActive = false
             isSearching = false
+            isEditingSearch = false
             searchNavigation.setViewControllers([host], animated: false)
             searchNavigation.setNavigationBarHidden(true, animated: false)
             controller?.selectedTab = searchTab
