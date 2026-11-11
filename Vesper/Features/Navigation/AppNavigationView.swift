@@ -116,8 +116,6 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
                 contentHost.view.bottomAnchor.constraint(equalTo: viewController.view.bottomAnchor)
             ])
             contentHost.didMove(toParent: viewController)
-            viewController.navigationItem.searchController = searchController
-            viewController.navigationItem.hidesSearchBarWhenScrolling = false
             viewController.definesPresentationContext = true
             return viewController
         }()
@@ -187,6 +185,8 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
 
             isSearching = true
             parent.isExpanded = true
+            homeController.navigationItem.searchController = searchController
+            homeController.navigationItem.hidesSearchBarWhenScrolling = false
             controller.selectedTab = searchTab
             searchController.isActive = true
             AppLog.info("navigation.search.long_press_opened", category: .navigation)
@@ -206,6 +206,7 @@ private struct SearchTabContainer: UIViewControllerRepresentable {
 
         func didDismissSearchController(_ searchController: UISearchController) {
             isSearching = false
+            homeController.navigationItem.searchController = nil
         }
 
         func updateSearchResults(for searchController: UISearchController) {
