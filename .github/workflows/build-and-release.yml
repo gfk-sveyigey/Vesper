@@ -98,6 +98,7 @@ jobs:
             MARKETING_VERSION='${{ steps.version.outputs.raw }}' \
             CURRENT_PROJECT_VERSION='${{ github.run_number }}' \
             PRODUCT_BUNDLE_IDENTIFIER=com.aholic.vesper \
+            IPHONEOS_DEPLOYMENT_TARGET=26.0 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             build
@@ -112,6 +113,8 @@ jobs:
           test -d "$APP"
           BUNDLE_ID=$(plutil -extract CFBundleIdentifier raw "$APP/Info.plist")
           test "$BUNDLE_ID" = com.aholic.vesper || { echo "::error::Unexpected bundle identifier: $BUNDLE_ID"; exit 1; }
+          MINIMUM_OS=$(plutil -extract MinimumOSVersion raw "$APP/Info.plist")
+          test "$MINIMUM_OS" = 26.0 || { echo "::error::MinimumOSVersion must be 26.0, got: $MINIMUM_OS"; exit 1; }
 
           rm -rf build/Payload "$IPA"
           mkdir -p build/Payload
