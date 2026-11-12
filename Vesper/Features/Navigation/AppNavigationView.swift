@@ -9,16 +9,16 @@ private enum NavigationTab: Hashable {
 struct AppNavigationView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
-    @AppStorage("navigation.allowsHidingTabBar") private var allowsHidingTabBar = true
+    @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
     @AppStorage("navigation.gestureOrder") private var gestures = "tap,longPress"
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
-    @AppStorage("navigation.searchPageDelayMilliseconds") private var searchPageDelay = 300
     @State private var currentPage: AppSection = .media
     @State private var tabSelection: NavigationTab = .multifunction
     @State private var isExpanded = false
     @State private var isSearchPresented = false
     @State private var isPreparingSearch = false
     @State private var searchQuery = ""
+    @State private var searchStartedWithHiddenTabs = false
     @State private var tabBarHeight: CGFloat = 80
     @State private var hosts = SectionHosts()
 
@@ -29,7 +29,7 @@ struct AppNavigationView: View {
         return ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
     }
 
-    private var showPrimaryTabs: Bool { isPreparingSearch || isSearchPresented || !allowsHidingTabBar || isExpanded }
+    private var showPrimaryTabs: Bool { isPreparingSearch || isSearchPresented || !multifunctionEnabled || isExpanded }
 
     var body: some View {
         ZStack {
@@ -38,8 +38,8 @@ struct AppNavigationView: View {
                 set: { selectTab($0) }
             )) {
                 primaryTabs
-                Tab(isSearchPresented ? "搜索" : "多功能",
-                    systemImage: isSearchPresented ? "magnifyingglass" : "square.grid.2x2",
+                Tab(isSearchPresented || !multifunctionEnabled ? "搜索" : "多功能",
+                    systemImage: isSearchPresented || !multifunctionEnabled ? "magnifyingglass" : "square.grid.2x2",
                     value: NavigationTab.multifunction, role: .search) {
                     if isSearchPresented {
                         SearchPage(query: searchQuery)
@@ -55,7 +55,7 @@ struct AppNavigationView: View {
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
                 enabled: !isSearchPresented && !isPreparingSearch,
-                searchMode: isSearchPresented,
+                searchMode: isSearchPresented || !multifunctionEnabled,
                 reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
                 }
@@ -67,7 +67,7 @@ struct AppNavigationView: View {
                 .padding(.bottom, tabBarHeight + 24)
                 .clipped()
                 .simultaneousGesture(TapGesture().onEnded {
-                    guard allowsHidingTabBar, !isSearchPresented, !isPreparingSearch else { return }
+                    guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
                     isExpanded = false
                     synchronizeTabSelection()
                 })
@@ -83,7 +83,7 @@ struct AppNavigationView: View {
             // The only timed delay: wait after requesting group expansion before
             // switching icon, selecting Search and presenting its page.
             do {
-                try await Task.sleep(for: .milliseconds(min(2000, max(0, searchPageDelay))))
+                try await Task.sleep(for: .milliseconds(100))
             } catch { return }
             guard !Task.isCancelled, isPreparingSearch else { return }
             isSearchPresented = true
@@ -92,6 +92,10 @@ struct AppNavigationView: View {
         }
         .onAppear { synchronizeTabSelection() }
         .onChange(of: showPrimaryTabs) { _, _ in synchronizeTabSelection() }
+        .onChange(of: multifunctionEnabled) { _, enabled in
+            if !enabled { isExpanded = true }
+            synchronizeTabSelection()
+        }
         .onChange(of: enabledSections) { _, _ in synchronizeTabSelection() }
         .onChange(of: isSearchPresented) { _, _ in synchronizeTabSelection() }
 
@@ -140,11 +144,16 @@ struct AppNavigationView: View {
     }
 
     private func performGesture(_ gesture: String) {
+        guard !isSearchPresented, !isPreparingSearch else { return }
+        if !multifunctionEnabled {
+            if gesture == "tap" { openSearch() }
+            return
+        }
         let gestureValues = gestures.split(separator: ",").map(String.init)
         let actionValues = actions.split(separator: ",").map(String.init)
         guard let index = gestureValues.firstIndex(of: gesture), actionValues.indices.contains(index) else { return }
         if actionValues[index] == "tabs" {
-            if allowsHidingTabBar { isExpanded.toggle() }
+            isExpanded.toggle()
         } else {
             openSearch()
         }
@@ -154,7 +163,13 @@ struct AppNavigationView: View {
     private func openSearch() {
         guard !isSearchPresented, !isPreparingSearch else { return }
         searchQuery = ""
-        isPreparingSearch = true
+        searchStartedWithHiddenTabs = !showPrimaryTabs
+        if searchStartedWithHiddenTabs {
+            isExpanded = true
+            isPreparingSearch = true
+        } else {
+            isSearchPresented = true
+        }
         synchronizeTabSelection()
         AppLog.info("navigation.search.preparing", category: .navigation)
     }
@@ -163,7 +178,8 @@ struct AppNavigationView: View {
         guard isSearchPresented || isPreparingSearch else { return }
         isPreparingSearch = false
         isSearchPresented = false
-        isExpanded = true
+        if searchStartedWithHiddenTabs { isExpanded = true }
+        searchStartedWithHiddenTabs = false
         AppLog.info("navigation.search.closed", category: .navigation)
     }
 

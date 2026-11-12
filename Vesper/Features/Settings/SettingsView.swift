@@ -5,7 +5,6 @@ private enum SettingsRoute: Hashable {
 }
 
 struct SettingsView: View {
-    @AppStorage("navigation.searchPageDelayMilliseconds") private var searchPageDelay = 300
 
     var body: some View {
         List {
@@ -22,15 +21,6 @@ struct SettingsView: View {
                 Text("后续功能")
             } footer: {
                 Text("播放器和外部服务将在对应阶段接入，当前不会提供无效的开关或连接按钮。")
-            }
-            Section {
-                Stepper(value: $searchPageDelay, in: 0...2000, step: 50) {
-                    LabeledContent("搜索页面展开延迟", value: "\(searchPageDelay) ms")
-                }
-            } header: {
-                Text("搜索")
-            } footer: {
-                Text("展开标签组后等待此间隔再打开搜索页面。默认 300 ms，范围 0–2000 ms，修改自动保存，下次搜索生效。")
             }
             Section("关于") {
                 LabeledContent("Vesper", value: "导航原型")
@@ -70,7 +60,7 @@ private struct AppearanceSettingsView: View {
 struct TabSettingsView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
-    @AppStorage("navigation.allowsHidingTabBar") private var allowsHidingTabBar = true
+    @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
 
     private var sections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
@@ -80,7 +70,7 @@ struct TabSettingsView: View {
     var body: some View {
         List {
             Section("标签栏") {
-                Toggle("允许隐藏标签栏", isOn: $allowsHidingTabBar)
+                Toggle("启用多功能按钮", isOn: $multifunctionEnabled)
             }
             Section {
                 ForEach(sections) { section in
@@ -131,7 +121,7 @@ private struct GestureActionSettingsView: View {
                 column($gestureOrder, names: ["tap": "单击", "longPress": "长按"])
                 column($actionOrder, names: ["tabs": "展开标签栏", "search": "进入搜索"])
             }
-            Text("分别拖动两列项目，同一行的手势与动作配对并自动保存。关闭允许隐藏标签栏时，展开动作无效；进入搜索仍可使用。")
+            Text("分别拖动两列项目，同一行的手势与动作配对并自动保存。启用多功能按钮时使用此映射；关闭时单击搜索按钮进入搜索，长按无动作。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .padding()
