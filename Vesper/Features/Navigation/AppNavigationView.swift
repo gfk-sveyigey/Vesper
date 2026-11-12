@@ -39,9 +39,7 @@ struct AppNavigationView: View {
                 set: { selectTab($0) }
             )) {
                 primaryTabs
-                Tab(isSearchPresented || !multifunctionEnabled ? "搜索" : "多功能",
-                    systemImage: isSearchPresented || !multifunctionEnabled ? "magnifyingglass" : "square.grid.2x2",
-                    value: NavigationTab.multifunction, role: .prominent) {
+                multifunctionTab
                     // Keep the search controller alive while UIKit completes
                     // its cancel/collapse transition.
                     SearchPage(query: searchQuery)
@@ -101,6 +99,14 @@ struct AppNavigationView: View {
         .onChange(of: enabledSections) { _, _ in synchronizeTabSelection() }
         .onChange(of: isSearchPresented) { _, _ in synchronizeTabSelection() }
 
+    }
+
+    private var multifunctionTab: some TabContent<NavigationTab> {
+        let title = (isSearchPresented || !multifunctionEnabled) ? "搜索" : "多功能"
+        let symbol = (isSearchPresented || !multifunctionEnabled) ? "magnifyingglass" : "square.grid.2x2"
+        return Tab(title, systemImage: symbol, value: NavigationTab.multifunction, role: .prominent) {
+            SearchPage(query: searchQuery)
+        }
     }
 
     private var primaryTabs: some TabContent<NavigationTab> {
