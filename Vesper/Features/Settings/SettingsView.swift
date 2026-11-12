@@ -61,6 +61,7 @@ struct TabSettingsView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
+    @AppStorage("navigation.systemSearchSelection") private var systemSearchSelection = false
 
     private var sections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
@@ -71,6 +72,7 @@ struct TabSettingsView: View {
         List {
             Section("标签栏") {
                 Toggle("启用多功能按钮", isOn: $multifunctionEnabled)
+                Toggle("使用系统 Search Tab 联动", isOn: $systemSearchSelection)
             }
             Section {
                 ForEach(sections) { section in
