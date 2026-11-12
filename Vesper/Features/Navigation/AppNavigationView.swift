@@ -129,7 +129,9 @@ struct AppNavigationView: View {
         } else if showPrimaryTabs {
             tabSelection = .section(enabledSections.contains(currentPage) ? currentPage : enabledSections.first ?? .settings)
         } else {
-            tabSelection = .multifunction
+            // Never select the Search-role tab just to collapse primary tabs:
+            // doing so activates the system search field on a fresh launch.
+            tabSelection = .section(enabledSections.contains(currentPage) ? currentPage : enabledSections.first ?? .settings)
         }
     }
 
