@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 
 private enum SettingsRoute: Hashable {
     case tabs, gestures, appearance, logs
@@ -50,30 +52,79 @@ struct SettingsView: View {
 
 private struct RuntimeLogsView: View {
     @ObservedObject private var store: RuntimeLogEntries
+    @AppStorage("runtimeLogs.retentionDays") private var retentionDays = 7
+    @AppStorage("runtimeLogs.maximumCount") private var maximumCount = 500
+    @State private var isExporting = false
 
     init() { store = AppLog.runtimeEntries }
 
     var body: some View {
-        Group {
-            if store.entries.isEmpty {
-                ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
-            } else {
-                List(store.entries.reversed(), id: \.self) { entry in
-                    Text(entry)
-                        .font(.system(.footnote, design: .monospaced))
-                        .textSelection(.enabled)
+        List {
+            Section("保留规则") {
+                Stepper("保留时间：\(retentionDays) 天", value: $retentionDays, in: 1...90)
+                Picker("最多保留条数", selection: $maximumCount) {
+                    ForEach([100, 250, 500, 1_000, 2_000, 5_000], id: \.self) { count in
+                        Text("\(count) 条").tag(count)
+                    }
                 }
-                .listStyle(.plain)
+            }
+            Section("日志（\(store.entries.count)）") {
+                if store.entries.isEmpty {
+                    ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
+                } else {
+                    ForEach(store.entries.reversed()) { entry in
+                        Text(entry.message)
+                            .font(.system(.footnote, design: .monospaced))
+                            .textSelection(.enabled)
+                            .contextMenu {
+                                Button("复制日志", systemImage: "doc.on.doc") {
+                                    UIPasteboard.general.string = entry.message
+                                }
+                            }
+                    }
+                }
             }
         }
+        .listStyle(.plain)
         .navigationTitle("运行日志")
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("清空", systemImage: "trash") { store.clear() }
-                    .disabled(store.entries.isEmpty)
+                Menu {
+                    Button("导出全部日志", systemImage: "square.and.arrow.up") { isExporting = true }
+                        .disabled(store.entries.isEmpty)
+                    Button("清空日志", systemImage: "trash", role: .destructive) { store.clear() }
+                        .disabled(store.entries.isEmpty)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("日志操作")
             }
         }
+        .onAppear { store.setRetention(days: retentionDays, count: maximumCount) }
+        .onChange(of: retentionDays) { _, _ in store.setRetention(days: retentionDays, count: maximumCount) }
+        .onChange(of: maximumCount) { _, _ in store.setRetention(days: retentionDays, count: maximumCount) }
+        .fileExporter(
+            isPresented: $isExporting,
+            document: RuntimeLogDocument(text: store.exportText),
+            contentType: .plainText,
+            defaultFilename: "Vesper-运行日志.txt"
+        ) { _ in }
+    }
+}
+
+private struct RuntimeLogDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.plainText] }
+    let text: String
+
+    init(text: String) { self.text = text }
+
+    init(configuration: ReadConfiguration) throws {
+        text = String(decoding: configuration.file.regularFileContents ?? Data(), as: UTF8.self)
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: Data(text.utf8))
     }
 }
 

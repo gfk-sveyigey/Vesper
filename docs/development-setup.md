@@ -42,7 +42,7 @@ CI 沿用 `.github/workflows/build-dev.yml`，推送 dev 后在 macOS 26/Xcode 2
 
 ## 日志
 
-使用 Apple Unified Logging（`OSLog.Logger`），通过 `AppLog` 统一分类。开发时在 Xcode Console 或 macOS Console 按 subsystem `com.aholic.vesper` 和 category 过滤。默认记录启动与关键状态变化；Debug 补充导航诊断。日志采用简短事件名，不重复打印时间戳和长堆栈。系统负责日志保留，不额外创建无界日志文件。当前没有日志导出界面。
+使用 Apple Unified Logging（`OSLog.Logger`），通过 `AppLog` 统一分类。导航诊断 trace 保存在 App 内“设置 > 运行日志”，不会输出到 Xcode Console；最多保留 90 天且数量上限可配置，默认 7 天/500 条，超出任一条件的旧日志会清理。日志存于应用偏好数据，运行日志页可整体导出为纯文本或复制单条日志。其他类别仍使用系统日志，避免把敏感 URL、路径或凭据写入 App 内日志。
 
 多功能按钮始终可见，挂载在应用根级安全区，不属于可隐藏的系统标签栏，也不被内容区域的收起遮罩覆盖。隐藏标签栏只影响四个系统标签，不隐藏该按钮。
 

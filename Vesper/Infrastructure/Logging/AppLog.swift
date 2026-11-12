@@ -40,12 +40,70 @@ enum AppLog {
 
 @MainActor
 final class RuntimeLogEntries: ObservableObject {
-    @Published private(set) var entries: [String] = []
+    @Published private(set) var entries: [RuntimeLogEntry]
+    private let entriesKey = "runtimeLogs.entries"
+    private var retentionDays = 7
+    private var maximumCount = 500
 
-    func append(_ entry: String) {
-        entries.append(entry)
-        if entries.count > 500 { entries.removeFirst(entries.count - 500) }
+    init() {
+        if let data = UserDefaults.standard.data(forKey: entriesKey),
+           let saved = try? JSONDecoder().decode([RuntimeLogEntry].self, from: data) {
+            entries = saved
+        } else {
+            entries = []
+        }
+        retentionDays = max(1, UserDefaults.standard.integer(forKey: "runtimeLogs.retentionDays").nonzeroOr(7))
+        maximumCount = max(1, UserDefaults.standard.integer(forKey: "runtimeLogs.maximumCount").nonzeroOr(500))
+        pruneAndPersist()
     }
 
-    func clear() { entries.removeAll() }
+    func append(_ entry: String) {
+        entries.append(RuntimeLogEntry(timestamp: Date(), message: entry))
+        pruneAndPersist()
+    }
+
+    func setRetention(days: Int, count: Int) {
+        retentionDays = max(1, days)
+        maximumCount = max(1, count)
+        UserDefaults.standard.set(retentionDays, forKey: "runtimeLogs.retentionDays")
+        UserDefaults.standard.set(maximumCount, forKey: "runtimeLogs.maximumCount")
+        pruneAndPersist()
+    }
+
+    func clear() {
+        entries.removeAll()
+        persist()
+    }
+
+    var exportText: String { entries.map(\.message).joined(separator: "\n") }
+
+    private func pruneAndPersist() {
+        let cutoff = Date().addingTimeInterval(-Double(retentionDays) * 86_400)
+        entries.removeAll { $0.timestamp < cutoff }
+        if entries.count > maximumCount {
+            entries.removeFirst(entries.count - maximumCount)
+        }
+        persist()
+    }
+
+    private func persist() {
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        UserDefaults.standard.set(data, forKey: entriesKey)
+    }
+}
+
+struct RuntimeLogEntry: Codable, Identifiable {
+    let id: UUID
+    let timestamp: Date
+    let message: String
+
+    init(id: UUID = UUID(), timestamp: Date, message: String) {
+        self.id = id
+        self.timestamp = timestamp
+        self.message = message
+    }
+}
+
+private extension Int {
+    func nonzeroOr(_ fallback: Int) -> Int { self == 0 ? fallback : self }
 }
