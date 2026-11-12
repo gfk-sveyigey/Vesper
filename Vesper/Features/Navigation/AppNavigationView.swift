@@ -18,7 +18,10 @@ struct AppNavigationView: View {
     @State private var didInitializeNavigation = false
     @State private var isSearchPresented = false
     @State private var isPreparingSearch = false
+    @State private var searchInputActive = false
     @State private var searchQuery = ""
+    @FocusState private var searchFocused: Bool
+    @State private var searchReturnState: SearchReturnState?
     @State private var searchStartedWithHiddenTabs = false
     @State private var tabBarHeight: CGFloat = 80
     @State private var hosts = SectionHosts()
@@ -40,16 +43,21 @@ struct AppNavigationView: View {
             )) {
                 primaryTabs
                 Tab(multifunctionTitle, systemImage: multifunctionSymbol, value: NavigationTab.multifunction, role: .search) {
-                    SearchPage(query: searchQuery)
+                    if isSearchPresented {
+                        SearchPage(query: searchQuery, activate: activateSearchInput)
+                    } else {
+                        Color.clear
+                    }
                 }
             }
-            .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
+            .searchable(text: $searchQuery, isPresented: $searchInputActive, prompt: "搜索当前媒体来源")
+            .searchFocused($searchFocused)
             .toolbarBackground(.hidden, for: .tabBar)
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
-                enabled: !isSearchPresented && !isPreparingSearch,
-                searchMode: isSearchPresented || !multifunctionEnabled,
+                enabled: !isSearchPresented,
+                searchMode: isSearchPresented,
                 reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
                 }
@@ -96,6 +104,9 @@ struct AppNavigationView: View {
         }
         .onChange(of: enabledSections) { _, _ in synchronizeTabSelection() }
         .onChange(of: isSearchPresented) { _, _ in synchronizeTabSelection() }
+        .onChange(of: searchInputActive) { old, active in
+            if old && !active && isSearchPresented { closeSearch() }
+        }
 
     }
 
@@ -127,7 +138,7 @@ struct AppNavigationView: View {
         // SwiftUI can write the currently selected normal tab back while
         // expanding the group. This is not a request to cancel preparation.
         if isPreparingSearch && section == currentPage { return }
-        if isSearchPresented || isPreparingSearch { closeSearch() }
+        if isSearchPresented { closeSearch() }
         currentPage = section
         synchronizeTabSelection()
         AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
@@ -170,10 +181,17 @@ struct AppNavigationView: View {
         synchronizeTabSelection()
     }
 
+    private struct SearchReturnState {
+        let page: AppSection
+        let expanded: Bool
+        let tab: NavigationTab
+    }
+
     private func openSearch() {
         guard !isSearchPresented, !isPreparingSearch else { return }
+        searchReturnState = SearchReturnState(page: currentPage, expanded: isExpanded, tab: tabSelection)
         searchQuery = ""
-        searchStartedWithHiddenTabs = !showPrimaryTabs
+        searchStartedWithHiddenTabs = multifunctionEnabled && !showPrimaryTabs
         if searchStartedWithHiddenTabs {
             isExpanded = true
             isPreparingSearch = true
@@ -181,15 +199,30 @@ struct AppNavigationView: View {
             isSearchPresented = true
         }
         synchronizeTabSelection()
-        AppLog.info("navigation.search.preparing", category: .navigation)
+        AppLog.info("navigation.search.opened", category: .navigation)
+    }
+
+    private func activateSearchInput() {
+        guard isSearchPresented, tabSelection == .multifunction else { return }
+        searchInputActive = true
+        searchFocused = true
+        AppLog.info("navigation.search.manuallyActivated", category: .navigation)
     }
 
     private func closeSearch() {
         guard isSearchPresented || isPreparingSearch else { return }
         isPreparingSearch = false
+        searchFocused = false
+        searchInputActive = false
         isSearchPresented = false
-        if searchStartedWithHiddenTabs { isExpanded = true }
+        if let previous = searchReturnState {
+            currentPage = previous.page
+            isExpanded = searchStartedWithHiddenTabs ? true : previous.expanded
+            tabSelection = searchStartedWithHiddenTabs ? .section(previous.page) : previous.tab
+        }
+        searchReturnState = nil
         searchStartedWithHiddenTabs = false
+        synchronizeTabSelection()
         AppLog.info("navigation.search.closed", category: .navigation)
     }
 
@@ -392,6 +425,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
 /// Activation and cancellation are linked to selection by the system.
 private struct SearchPage: View {
     let query: String
+    let activate: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -401,6 +435,11 @@ private struct SearchPage: View {
                 description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入。")
             )
             .toolbarBackground(.hidden, for: .navigationBar)
+        }
+        .task {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            activate()
         }
     }
 }

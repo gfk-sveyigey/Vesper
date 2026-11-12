@@ -149,4 +149,6 @@ Color("VesperPlaybackProgress")
 
 冷启动时即使主要标签组默认收起，TabView selection 仍指向媒体（或当前可用的普通区域），绝不为了显示收起后的页面而选中 Search 角色；否则系统会在启动时展开搜索栏。
 
-多功能入口改用 `TabRole.prominent`，不承担系统 Search Tab 角色或自动搜索联动；搜索页面仍由 App 搜索手势显式打开并继续使用页面内 searchable。
+当前 iOS 26 继续使用 Search Tab role，但关闭其自动搜索联动；搜索由 App 显式控制。
+
+搜索恢复为 App 手动控制：Search Tab 不自动激活；进入时保存页面、标签组和 selection，显示 Search 页面后通过 searchable(isPresented:) 与 searchFocused 请求激活和焦点；取消搜索或切换普通标签时由 App 清理输入状态并恢复快照。
