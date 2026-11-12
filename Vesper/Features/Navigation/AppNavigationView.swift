@@ -39,7 +39,9 @@ struct AppNavigationView: View {
                 set: { selectTab($0) }
             )) {
                 primaryTabs
-                multifunctionTab
+                Tab(multifunctionTitle, systemImage: multifunctionSymbol, value: NavigationTab.multifunction, role: .search) {
+                    SearchPage(query: searchQuery)
+                }
             }
             .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
             .toolbarBackground(.hidden, for: .tabBar)
@@ -97,19 +99,12 @@ struct AppNavigationView: View {
 
     }
 
-    @ViewBuilder
-    private var multifunctionTab: some TabContent<NavigationTab> {
-        let title = (isSearchPresented || !multifunctionEnabled) ? "搜索" : "多功能"
-        let symbol = (isSearchPresented || !multifunctionEnabled) ? "magnifyingglass" : "square.grid.2x2"
-        if #available(iOS 27.0, *) {
-            Tab(title, systemImage: symbol, value: NavigationTab.multifunction, role: .prominent) {
-                SearchPage(query: searchQuery)
-            }
-        } else {
-            Tab(title, systemImage: symbol, value: NavigationTab.multifunction, role: .search) {
-                SearchPage(query: searchQuery)
-            }
-        }
+    private var multifunctionTitle: String {
+        isSearchPresented || !multifunctionEnabled ? "搜索" : "多功能"
+    }
+
+    private var multifunctionSymbol: String {
+        isSearchPresented || !multifunctionEnabled ? "magnifyingglass" : "square.grid.2x2"
     }
 
     private var primaryTabs: some TabContent<NavigationTab> {
