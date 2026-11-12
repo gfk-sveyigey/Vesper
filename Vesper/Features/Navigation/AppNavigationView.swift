@@ -453,6 +453,8 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var searchMode = false
         var trace: (String) -> Void = { _ in }
         private var lastNativeSelection: String?
+        private weak var configuredSearchTab: UISearchTab?
+        private var configuredSearchSymbol: String?
         private weak var installedBar: UITabBar?
         private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
         private lazy var pressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
@@ -489,10 +491,12 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
                     // App gestures own search activation, including when this tab is
                     // selected to keep the primary group collapsed.
                     search.automaticallyActivatesSearch = false
-                    let image = UIImage(systemName: searchMode ? "magnifyingglass" : "square.grid.2x2")
-                    if search.image != image {
-                        trace("UIKit.searchIcon.update symbol=\(searchMode ? "magnifyingglass" : "square.grid.2x2")")
-                        search.image = image
+                    let symbol = searchMode ? "magnifyingglass" : "square.grid.2x2"
+                    if configuredSearchTab !== search || configuredSearchSymbol != symbol {
+                        configuredSearchTab = search
+                        configuredSearchSymbol = symbol
+                        trace("UIKit.searchIcon.update symbol=\(symbol)")
+                        search.image = UIImage(systemName: symbol)
                     }
                 }
             }

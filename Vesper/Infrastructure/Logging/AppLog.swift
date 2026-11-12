@@ -44,6 +44,8 @@ final class RuntimeLogEntries: ObservableObject {
     private let entriesKey = "runtimeLogs.entries"
     private var retentionDays = 7
     private var maximumCount = 500
+    private var pending: [RuntimeLogEntry] = []
+    private var flushScheduled = false
 
     init() {
         if let data = UserDefaults.standard.data(forKey: entriesKey),
@@ -58,8 +60,17 @@ final class RuntimeLogEntries: ObservableObject {
     }
 
     func append(_ entry: String) {
-        entries.append(RuntimeLogEntry(timestamp: Date(), message: entry))
-        pruneAndPersist()
+        pending.append(RuntimeLogEntry(timestamp: Date(), message: entry))
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        // Never publish ObservableObject changes inside a UIKit layout/update callback.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.flushScheduled = false
+            self.entries.append(contentsOf: self.pending)
+            self.pending.removeAll(keepingCapacity: true)
+            self.pruneAndPersist()
+        }
     }
 
     func setRetention(days: Int, count: Int) {
@@ -71,6 +82,7 @@ final class RuntimeLogEntries: ObservableObject {
     }
 
     func clear() {
+        pending.removeAll()
         entries.removeAll()
         persist()
     }
