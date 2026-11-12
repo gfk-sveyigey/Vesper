@@ -3,6 +3,7 @@ import OSLog
 import Combine
 
 /// Unified Logging owns timestamps, levels and persistence; avoid duplicate file logs.
+@MainActor
 enum AppLog {
     enum Category: String {
         case lifecycle, navigation, sources, media, playback, services
@@ -11,7 +12,6 @@ enum AppLog {
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.aholic.vesper"
     static let runtimeEntries = RuntimeLogEntries()
 
-    @MainActor
     static func trace(_ event: String, detail: String) {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
