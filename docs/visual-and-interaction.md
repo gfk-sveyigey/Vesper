@@ -137,20 +137,10 @@ Color("VesperPlaybackProgress")
 
 多功能项始终留在原生标签栏中；仅四个目的地标签作为一组隐藏。
 
-## App 管理的原生 Search Tab 搜索
+## 系统 Search Tab 联动
 
-普通页面由外部 ContentHost 管理。Search Tab 只承载搜索页面，不隐藏该项；进入搜索时主要标签组展开，多功能网格图标切换为 magnifyingglass。App 保存进入前的 currentPage、tabSelection 和组显隐状态。
+使用 `.searchable(text:prompt:)` 和 `.tabViewSearchActivation(.searchTabSelection)`，由系统负责选择 Search 后激活输入，以及取消后恢复上一普通标签。移除手动输入激活、焦点请求与自定义返回页面快照。非搜索状态使用 `.automatic`，避免收起标签组而选中多功能入口时激活搜索。
 
-TabView 上配置 `.searchable(text:isPresented:prompt:)` 与 `.searchFocused`，由系统提供内嵌标签栏的搜索布局。App 先选中 Search Tab 并显示搜索页面，再由搜索页 task 手动设置输入激活和焦点；不启用 automaticallyActivatesSearch 或 searchTabSelection 自动返回联动。
+保留手势动作映射：搜索动作先展开标签组并选中当前普通标签，等待设置中的搜索页面展开延迟（默认 300ms），随后切换搜索图标、显示 Search 页面并选中 Search，由系统完成后续联动。退出后组保持展开，普通内容点击可收起组。普通页面持续保留在外部 ContentHost，导航栈不重建。
 
-系统取消搜索后 App 结束搜索并恢复此前页面、导航状态、标签组显隐与网格图标。选择普通标签也退出搜索并前往该区域。不提供独立关闭按钮，不再自行布局 UISearchBar。
-
-普通内容在标签栏上方预留 24pt 外扩空间，避免遮挡长按反馈。需真机验证手动激活是否呈现底部内嵌搜索、首次搜索左侧图标、取消与焦点、标签切换及长按反馈；编译成功不表示交互已验收。
-
-
-
-
-
-
-
-搜索时序仅由延迟控制，不检测标签栏就绪：请求展开标签组后等待设置中的“搜索页面展开延迟”，默认 300ms、范围 0–2000ms、步长 50ms，随后显示搜索页面、切换图标和选中 Search，页面挂载后立即激活输入和焦点。退出会取消等待，标签组保持展开；点击普通页面内容时，在正常执行原操作的同时收起标签组（受允许隐藏开关控制）。
+需真机验证首次搜索、系统取消返回、输入焦点及手势映射。编译通过不等于交互通过。
