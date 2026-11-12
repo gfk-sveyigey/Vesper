@@ -148,5 +148,3 @@ Color("VesperPlaybackProgress")
 需真机验收两种模式、两种初始显隐状态、取消返回、二级导航及点击穿透；编译不代替交互验收。
 
 冷启动时即使主要标签组默认收起，TabView selection 仍指向媒体（或当前可用的普通区域），绝不为了显示收起后的页面而选中 Search 角色；否则系统会在启动时展开搜索栏。
-
-设置 > 标签显示与顺序 > 调试：暂停图标更新会冻结 Search Tab 标题和图标状态（包含 SwiftUI Tab 声明及 UIKit 布局回调）；关闭暂停后同步至当前搜索/按钮模式。“暂停 ContentHost 切换”仅冻结搜索期间外部内容的可见性、命中测试和无障碍状态。“暂停额外 selection 同步”启用系统 searchTabSelection，并停止 App 的主动 selection 同步。
