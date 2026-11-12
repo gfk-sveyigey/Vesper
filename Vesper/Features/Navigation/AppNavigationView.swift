@@ -120,6 +120,9 @@ struct AppNavigationView: View {
 
     private func selectTab(_ tab: NavigationTab) {
         guard case let .section(section) = tab else { return }
+        // SwiftUI can write the currently selected normal tab back while
+        // expanding the group. This is not a request to cancel preparation.
+        if isPreparingSearch && section == currentPage { return }
         if isSearchPresented || isPreparingSearch { closeSearch() }
         currentPage = section
         synchronizeTabSelection()
@@ -156,13 +159,11 @@ struct AppNavigationView: View {
 
     private struct SearchReturnState {
         let page: AppSection
-        let expanded: Bool
-        let tab: NavigationTab
     }
 
     private func openSearch() {
         guard !isSearchPresented, !isPreparingSearch else { return }
-        searchReturnState = SearchReturnState(page: currentPage, expanded: isExpanded, tab: tabSelection)
+        searchReturnState = SearchReturnState(page: currentPage)
         searchQuery = ""
         searchContentVisible = false
         searchPageReady = false
@@ -189,10 +190,10 @@ struct AppNavigationView: View {
         isSearchPresented = false
         if let previous = searchReturnState {
             currentPage = previous.page
-            isExpanded = previous.expanded
-            tabSelection = previous.tab
         }
+        isExpanded = true
         searchReturnState = nil
+        synchronizeTabSelection()
         AppLog.info("navigation.search.closed", category: .navigation)
     }
 
@@ -275,9 +276,11 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         controller.waitingForTabs = waitingForTabs
         controller.reportSearchReady = reportSearchReady
         controller.installWhenReady()
+        controller.monitorReadiness()
     }
 
     static func dismantleUIViewController(_ controller: GestureController, coordinator: ()) {
+        controller.stopMonitoring()
         controller.uninstall()
     }
 
@@ -289,7 +292,51 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var searchMode = false
         var waitingForTabs = false
         var reportSearchReady: () -> Void = {}
+        private var readinessLink: CADisplayLink?
+        private var stableLayoutFrames = 0
+        private var previousBarBounds = CGRect.zero
         private weak var installedBar: UITabBar?
+
+        func monitorReadiness() {
+            guard waitingForTabs else { stopMonitoring(); return }
+            guard readinessLink == nil else { return }
+            stableLayoutFrames = 0
+            previousBarBounds = .zero
+            let link = CADisplayLink(target: self, selector: #selector(checkReadiness))
+            link.add(to: .main, forMode: .common)
+            readinessLink = link
+        }
+
+        func stopMonitoring() {
+            readinessLink?.invalidate()
+            readinessLink = nil
+            stableLayoutFrames = 0
+        }
+
+        @objc private func checkReadiness() {
+            guard waitingForTabs else { stopMonitoring(); return }
+            guard let bar = installedBar, let controller = barController(),
+                  !bar.isHidden, bar.window != nil,
+                  bar.bounds.width > 0, bar.bounds.height > 0,
+                  (bar.items?.count ?? 0) > 1 else {
+                stableLayoutFrames = 0
+                return
+            }
+            controller.view.layoutIfNeeded()
+            if bar.bounds == previousBarBounds { stableLayoutFrames += 1 }
+            else { stableLayoutFrames = 0 }
+            previousBarBounds = bar.bounds
+            guard stableLayoutFrames >= 2 else { return }
+            stopMonitoring()
+            AppLog.info("navigation.search.tabBarReady", category: .navigation)
+            reportSearchReady()
+        }
+
+        private func barController() -> UITabBarController? {
+            var root: UIViewController = self
+            while let parent = root.parent { root = parent }
+            return findTabController(in: root)
+        }
         private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
         private lazy var pressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
 
@@ -322,16 +369,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
                 }
             }
             let bar = controller.tabBar
-            if waitingForTabs {
-                // Wait until the expanded group's native items have actually
-                // reached the bar, not merely until SwiftUI state changes.
-                if !bar.isHidden, bar.window != nil, (bar.items?.count ?? 0) > 1 {
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self, self.waitingForTabs else { return }
-                        self.reportSearchReady()
-                    }
-                }
-            }
             let height = max(0, bar.bounds.height - controller.view.safeAreaInsets.bottom)
             if height > 0 {
                 DispatchQueue.main.async { [weak self] in self?.reportHeight(height) }
