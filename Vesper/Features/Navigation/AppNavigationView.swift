@@ -66,8 +66,7 @@ struct AppNavigationView: View {
                 currentPage: currentPage,
                 openSources: openSources,
                 isSearchPresented: isSearchPresented,
-                searchQuery: searchQuery,
-                activateSearchInput: activateSearchInput
+                searchQuery: searchQuery
             ) {
                 guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
                 isExpanded = false
@@ -75,9 +74,6 @@ struct AppNavigationView: View {
             }
                 .padding(.bottom, tabBarHeight + 24)
                 .clipped()
-                .opacity(isSearchPresented ? 0 : 1)
-                .allowsHitTesting(!isSearchPresented)
-                .accessibilityHidden(isSearchPresented)
 
         }
         .tint(Color("VesperAccent"))
@@ -107,6 +103,12 @@ struct AppNavigationView: View {
         }
         .onChange(of: enabledSections) { _, _ in synchronizeTabSelection() }
         .onChange(of: isSearchPresented) { _, _ in synchronizeTabSelection() }
+        .task(id: isSearchPresented) {
+            guard isSearchPresented else { return }
+            await Task.yield()
+            guard !Task.isCancelled, isSearchPresented else { return }
+            activateSearchInput()
+        }
         .onChange(of: searchInputActive) { old, active in
             if old && !active && isSearchPresented { closeSearch() }
         }
@@ -259,7 +261,6 @@ private struct ContentHost: UIViewControllerRepresentable {
     let openSources: () -> Void
     let isSearchPresented: Bool
     let searchQuery: String
-    let activateSearchInput: () -> Void
     let contentTapped: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(contentTapped: contentTapped) }
@@ -287,7 +288,7 @@ private struct ContentHost: UIViewControllerRepresentable {
             host.didMove(toParent: container)
         }
         let searchHost = UIHostingController(rootView: AnyView(
-            SearchPage(query: searchQuery, activate: activateSearchInput)
+            SearchPage(query: searchQuery)
         ))
         searchHost.view.accessibilityIdentifier = "search-page-host"
         container.addChild(searchHost)
@@ -312,7 +313,7 @@ private struct ContentHost: UIViewControllerRepresentable {
             host.view.accessibilityElementsHidden = isSearchPresented || section != currentPage
         }
         if let searchHost = container.children.first(where: { $0 is UIHostingController<AnyView> && $0.view.accessibilityIdentifier == "search-page-host" }) as? UIHostingController<AnyView> {
-            searchHost.rootView = AnyView(SearchPage(query: searchQuery, activate: activateSearchInput))
+            searchHost.rootView = AnyView(SearchPage(query: searchQuery))
             searchHost.view.isHidden = !isSearchPresented
             searchHost.view.accessibilityElementsHidden = !isSearchPresented
         }
@@ -453,7 +454,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
 /// Activation and cancellation are linked to selection by the system.
 private struct SearchPage: View {
     let query: String
-    let activate: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -463,11 +463,6 @@ private struct SearchPage: View {
                 description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入。")
             )
             .toolbarBackground(.hidden, for: .navigationBar)
-        }
-        .task {
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            activate()
         }
     }
 }
