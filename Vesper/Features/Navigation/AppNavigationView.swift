@@ -12,11 +12,11 @@ struct AppNavigationView: View {
     @AppStorage("navigation.allowsHidingTabBar") private var allowsHidingTabBar = true
     @AppStorage("navigation.gestureOrder") private var gestures = "tap,longPress"
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
-    @AppStorage("navigation.searchActivationDelayMilliseconds") private var searchActivationDelay = 300
     @State private var currentPage: AppSection = .media
     @State private var tabSelection: NavigationTab = .multifunction
     @State private var isExpanded = false
     @State private var isSearchPresented = false
+    @State private var isPreparingSearch = false
     @State private var searchInputActive = false
     @State private var searchContentVisible = false
     @State private var searchQuery = ""
@@ -34,7 +34,7 @@ struct AppNavigationView: View {
         return ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
     }
 
-    private var showPrimaryTabs: Bool { isSearchPresented || !allowsHidingTabBar || isExpanded }
+    private var showPrimaryTabs: Bool { isPreparingSearch || isSearchPresented || !allowsHidingTabBar || isExpanded }
 
     var body: some View {
         ZStack {
@@ -59,9 +59,10 @@ struct AppNavigationView: View {
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
-                enabled: !isSearchPresented,
+                enabled: !isSearchPresented && !isPreparingSearch,
                 searchMode: isSearchPresented,
-                reportSearchReady: { if isSearchPresented { searchTabsReady = true } },
+                waitingForTabs: isPreparingSearch,
+                reportSearchReady: { if isPreparingSearch { searchTabsReady = true } },
                 reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
                 }
@@ -79,26 +80,22 @@ struct AppNavigationView: View {
         }
         .tint(Color("VesperAccent"))
         .transaction { $0.animation = nil }
-        .task(id: isSearchPresented && searchTabsReady) {
-            guard isSearchPresented, searchTabsReady else { return }
-            // Do not select the Search-role tab while preparing the tab bar:
-            // selection itself can start the system search-field transition.
+        .task(id: isPreparingSearch && searchTabsReady) {
+            guard isPreparingSearch, searchTabsReady else { return }
+            // The only timed delay: allow the expanded bar to settle before
+            // switching icon, selecting Search and presenting its page.
+            do {
+                try await Task.sleep(for: .milliseconds(300))
+            } catch { return }
+            guard !Task.isCancelled, isPreparingSearch, searchTabsReady else { return }
+            isSearchPresented = true
+            isPreparingSearch = false
             searchContentVisible = true
             synchronizeTabSelection()
         }
         .task(id: isSearchPresented && searchContentVisible && searchPageReady) {
             guard isSearchPresented, searchContentVisible, searchPageReady else { return }
-            // Let the now-visible search page commit before input activation.
-            await Task.yield()
-            do {
-                try await Task.sleep(for: .milliseconds(min(2000, max(0, searchActivationDelay))))
-            } catch { return }
-            guard !Task.isCancelled, isSearchPresented, searchPageReady, searchTabsReady else { return }
             activateSearchInput()
-            do {
-                try await Task.sleep(for: .milliseconds(180))
-            } catch { return }
-            guard !Task.isCancelled, isSearchPresented, searchInputActive else { return }
             searchFocused = true
         }
         .onAppear { synchronizeTabSelection() }
@@ -123,7 +120,7 @@ struct AppNavigationView: View {
 
     private func selectTab(_ tab: NavigationTab) {
         guard case let .section(section) = tab else { return }
-        if isSearchPresented { closeSearch() }
+        if isSearchPresented || isPreparingSearch { closeSearch() }
         currentPage = section
         synchronizeTabSelection()
         AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
@@ -164,13 +161,13 @@ struct AppNavigationView: View {
     }
 
     private func openSearch() {
-        guard !isSearchPresented else { return }
+        guard !isSearchPresented, !isPreparingSearch else { return }
         searchReturnState = SearchReturnState(page: currentPage, expanded: isExpanded, tab: tabSelection)
         searchQuery = ""
         searchContentVisible = false
         searchPageReady = false
         searchTabsReady = false
-        isSearchPresented = true
+        isPreparingSearch = true
         synchronizeTabSelection()
         AppLog.info("navigation.search.opened", category: .navigation)
     }
@@ -182,7 +179,8 @@ struct AppNavigationView: View {
     }
 
     private func closeSearch() {
-        guard isSearchPresented else { return }
+        guard isSearchPresented || isPreparingSearch else { return }
+        isPreparingSearch = false
         searchContentVisible = false
         searchPageReady = false
         searchTabsReady = false
@@ -260,6 +258,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     let longPress: () -> Void
     let enabled: Bool
     let searchMode: Bool
+    let waitingForTabs: Bool
     let reportSearchReady: () -> Void
     let reportHeight: (CGFloat) -> Void
 
@@ -273,6 +272,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         controller.reportHeight = reportHeight
         controller.gesturesEnabled = enabled
         controller.searchMode = searchMode
+        controller.waitingForTabs = waitingForTabs
         controller.reportSearchReady = reportSearchReady
         controller.installWhenReady()
     }
@@ -287,6 +287,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var reportHeight: (CGFloat) -> Void
         var gesturesEnabled = true
         var searchMode = false
+        var waitingForTabs = false
         var reportSearchReady: () -> Void = {}
         private weak var installedBar: UITabBar?
         private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
@@ -321,12 +322,12 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
                 }
             }
             let bar = controller.tabBar
-            if searchMode {
+            if waitingForTabs {
                 // Wait until the expanded group's native items have actually
                 // reached the bar, not merely until SwiftUI state changes.
                 if !bar.isHidden, bar.window != nil, (bar.items?.count ?? 0) > 1 {
                     DispatchQueue.main.async { [weak self] in
-                        guard let self, self.searchMode else { return }
+                        guard let self, self.waitingForTabs else { return }
                         self.reportSearchReady()
                     }
                 }
