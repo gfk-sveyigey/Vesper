@@ -43,7 +43,12 @@ struct AppNavigationView: View {
             )) {
                 primaryTabs
                 Tab(multifunctionTitle, systemImage: multifunctionSymbol, value: NavigationTab.multifunction, role: .search) {
-                    Color.clear
+                    // Keep a navigation context for the native bottom search bar.
+                    // Search results remain in the independent ContentHost.
+                    NavigationStack {
+                        Color.clear
+                            .toolbarBackground(.hidden, for: .navigationBar)
+                    }
                 }
             }
             .searchable(text: $searchQuery, isPresented: $searchInputActive, prompt: "搜索当前媒体来源")
@@ -208,8 +213,7 @@ struct AppNavigationView: View {
     }
 
     private func activateSearchInput() {
-        // SearchPage is only hosted by the multifunction tab. Avoid requiring
-        // the selection binding to have propagated before its appearance task.
+        // The Search Tab owns the native search control; ContentHost owns results.
         guard isSearchPresented else { return }
         searchInputActive = true
         searchFocused = true
@@ -451,7 +455,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     }
 }
 
-/// Activation and cancellation are linked to selection by the system.
+/// Search results hosted independently of the native search control.
 private struct SearchPage: View {
     let query: String
 
