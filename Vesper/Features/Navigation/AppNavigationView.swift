@@ -18,6 +18,7 @@ struct AppNavigationView: View {
     @State private var isExpanded = false
     @State private var isSearchPresented = false
     @State private var searchInputActive = false
+    @State private var searchContentVisible = false
     @State private var searchQuery = ""
     @State private var searchPageReady = false
     @State private var searchTabsReady = false
@@ -46,7 +47,7 @@ struct AppNavigationView: View {
                     systemImage: isSearchPresented ? "magnifyingglass" : "square.grid.2x2",
                     value: NavigationTab.multifunction, role: .search) {
                     if isSearchPresented {
-                        SearchPage(query: searchQuery, activate: { searchPageReady = true })
+                        SearchPage(query: searchQuery, showsContent: searchContentVisible, activate: { searchPageReady = true })
                     } else {
                         Color.clear
                     }
@@ -71,9 +72,9 @@ struct AppNavigationView: View {
             ContentHost(hosts: hosts, currentPage: currentPage, openSources: openSources)
                 .padding(.bottom, tabBarHeight + 24)
                 .clipped()
-                .opacity(isSearchPresented ? 0 : 1)
-                .allowsHitTesting(!isSearchPresented)
-                .accessibilityHidden(isSearchPresented)
+                .opacity(searchContentVisible ? 0 : 1)
+                .allowsHitTesting(!searchContentVisible)
+                .accessibilityHidden(searchContentVisible)
 
         }
         .tint(Color("VesperAccent"))
@@ -90,6 +91,9 @@ struct AppNavigationView: View {
             } catch { return }
             guard !Task.isCancelled, isSearchPresented, searchInputActive else { return }
             searchFocused = true
+            await Task.yield()
+            guard !Task.isCancelled, isSearchPresented, searchInputActive else { return }
+            searchContentVisible = true
         }
         .onAppear { synchronizeTabSelection() }
         .onChange(of: showPrimaryTabs) { _, _ in synchronizeTabSelection() }
@@ -157,6 +161,7 @@ struct AppNavigationView: View {
         guard !isSearchPresented else { return }
         searchReturnState = SearchReturnState(page: currentPage, expanded: isExpanded, tab: tabSelection)
         searchQuery = ""
+        searchContentVisible = false
         searchPageReady = false
         searchTabsReady = false
         isSearchPresented = true
@@ -172,6 +177,7 @@ struct AppNavigationView: View {
 
     private func closeSearch() {
         guard isSearchPresented else { return }
+        searchContentVisible = false
         searchPageReady = false
         searchTabsReady = false
         searchFocused = false
@@ -372,6 +378,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
 /// Search layout is owned by the native Search Tab; activation remains app-owned.
 private struct SearchPage: View {
     let query: String
+    let showsContent: Bool
     let activate: () -> Void
 
     var body: some View {
@@ -383,6 +390,9 @@ private struct SearchPage: View {
             )
             .toolbarBackground(.hidden, for: .navigationBar)
         }
+        .opacity(showsContent ? 1 : 0)
+        .allowsHitTesting(showsContent)
+        .accessibilityHidden(!showsContent)
         .task {
             await Task.yield()
             guard !Task.isCancelled else { return }
