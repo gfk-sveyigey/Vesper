@@ -41,18 +41,25 @@ enum AppLog {
 @MainActor
 final class RuntimeLogEntries: ObservableObject {
     @Published private(set) var entries: [RuntimeLogEntry]
-    private let entriesKey = "runtimeLogs.entries"
+    private static var fileURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Logs", isDirectory: true).appendingPathComponent("Vesper.log")
+    }
+    @Published private(set) var storageError: String?
+    private let writer = DispatchQueue(label: "com.aholic.vesper.log-writer", qos: .utility)
     private var retentionDays = 7
     private var maximumCount = 500
     private var pending: [RuntimeLogEntry] = []
     private var flushScheduled = false
 
     init() {
-        if let data = UserDefaults.standard.data(forKey: entriesKey),
-           let saved = try? JSONDecoder().decode([RuntimeLogEntry].self, from: data) {
-            entries = saved
-        } else {
-            entries = []
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let text = (try? String(contentsOf: Self.fileURL, encoding: .utf8)) ?? ""
+        entries = text.split(separator: "\n").compactMap { line in
+            guard let firstSpace = line.firstIndex(of: " "),
+                  let date = formatter.date(from: String(line[..<firstSpace])) else { return nil }
+            return RuntimeLogEntry(timestamp: date, message: String(line))
         }
         retentionDays = max(1, UserDefaults.standard.integer(forKey: "runtimeLogs.retentionDays").nonzeroOr(7))
         maximumCount = max(1, UserDefaults.standard.integer(forKey: "runtimeLogs.maximumCount").nonzeroOr(500))
@@ -99,9 +106,20 @@ final class RuntimeLogEntries: ObservableObject {
     }
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        UserDefaults.standard.set(data, forKey: entriesKey)
+        let text = exportText
+        let url = Self.fileURL
+        writer.async { [weak self] in
+            do {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try text.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                Task { @MainActor [weak self] in
+                    self?.storageError = "日志文件写入失败。"
+                }
+            }
+        }
     }
+
 }
 
 struct RuntimeLogEntry: Codable, Identifiable {

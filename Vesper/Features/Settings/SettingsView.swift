@@ -63,6 +63,7 @@ private struct RuntimeLogsView: View {
 
     var body: some View {
         List {
+            if let error = store.storageError { Text(error).foregroundStyle(.red) }
             Section("保留规则") {
                 Stepper("保留时间：\(retentionDays) 天", value: $retentionDays, in: 1...90)
                 Picker("最多保留条数", selection: $maximumCount) {
@@ -117,8 +118,8 @@ private struct RuntimeLogsView: View {
         .fileExporter(
             isPresented: $isExporting,
             document: RuntimeLogDocument(text: exportSnapshot),
-            contentType: .plainText,
-            defaultFilename: "Vesper-运行日志.txt"
+            contentType: RuntimeLogDocument.logType,
+            defaultFilename: "Vesper-运行日志.log"
         ) { result in
             if case .failure = result { exportError = "日志导出失败，请重试。" }
         }
@@ -131,7 +132,8 @@ private struct RuntimeLogsView: View {
 }
 
 private struct RuntimeLogDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.plainText] }
+    static var logType: UTType { UTType(filenameExtension: "log", conformingTo: .plainText) ?? .plainText }
+    static var readableContentTypes: [UTType] { [logType] }
     let text: String
 
     init(text: String) { self.text = text }

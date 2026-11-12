@@ -143,7 +143,7 @@ struct AppNavigationView: View {
     private func traceNavigation(_ event: String, selection: NavigationTab? = nil) {
         let selected = selection ?? tabSelection
         let selectedName = tabName(selected)
-        AppLog.trace("navigation.trace.\(event)", detail: "selection=\(selectedName) isSearchPresented=\(isSearchPresented) tabGroupVisible=\(showPrimaryTabs) currentPage=\(currentPage.rawValue)")
+        AppLog.trace("navigation.trace.\(event)", detail: "uptime=\(ProcessInfo.processInfo.systemUptime) selection=\(selectedName) isSearchPresented=\(isSearchPresented) tabGroupVisible=\(showPrimaryTabs) currentPage=\(currentPage.rawValue)")
     }
 
     private func tabName(_ tab: NavigationTab) -> String {
@@ -452,6 +452,8 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var searchMode = false
         var trace: (String) -> Void = { _ in }
         private var lastNativeSelection: String?
+        private var touchSequence = 0
+        private var lastTouchTime: TimeInterval?
         private weak var configuredSearchTab: UISearchTab?
         private var configuredSearchSymbol: String?
         private weak var installedBar: UITabBar?
@@ -483,7 +485,8 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             let nativeSelection = "index=\(controller.selectedIndex) tab=\(controller.selectedTab?.identifier ?? "none") item=\(controller.tabBar.selectedItem?.title ?? "none")"
             if nativeSelection != lastNativeSelection {
                 lastNativeSelection = nativeSelection
-                trace("UIKit.selection \(nativeSelection)")
+                let elapsed = lastTouchTime.map { Int((ProcessInfo.processInfo.systemUptime - $0) * 1000) } ?? -1
+                trace("UIKit.selection touchID=\(touchSequence) sinceTouchMs=\(elapsed) \(nativeSelection)")
             }
             for tab in controller.tabs {
                 if let search = tab as? UISearchTab {
@@ -508,7 +511,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             installedBar = bar
             tapRecognizer.delegate = self
             pressRecognizer.delegate = self
-            tapRecognizer.cancelsTouchesInView = false
+            tapRecognizer.cancelsTouchesInView = true
             pressRecognizer.cancelsTouchesInView = true
             tapRecognizer.require(toFail: pressRecognizer)
             bar.addGestureRecognizer(tapRecognizer)
@@ -540,7 +543,9 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
                 hitsItem = touch.location(in: bar).x >= bar.bounds.width - 88
             }
             if hitsItem, gestureRecognizer === tapRecognizer {
-                trace("SearchTab.touch.received nativeItem=\(bar.selectedItem?.title ?? "none") touchTime=\(touch.timestamp)")
+                touchSequence += 1
+                lastTouchTime = ProcessInfo.processInfo.systemUptime
+                trace("SearchTab.touch.received id=\(touchSequence) cancelsTouches=\(tapRecognizer.cancelsTouchesInView) nativeItem=\(bar.selectedItem?.title ?? "none") touchTime=\(touch.timestamp)")
             }
             return hitsItem
         }
@@ -549,8 +554,14 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
                                shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
 
         @objc private func tapped() {
-            trace("SearchTab.tap.recognized")
+            trace("SearchTab.tap.recognized id=\(touchSequence) nativeItem=\(installedBar?.selectedItem?.title ?? "none")")
             tapAction()
+            trace("SearchTab.tap.actionReturned id=\(touchSequence)")
+            let sequence = touchSequence
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.trace("SearchTab.tap.nextRunLoop id=\(sequence) nativeItem=\(self.installedBar?.selectedItem?.title ?? "none")")
+            }
         }
         @objc private func pressed(_ recognizer: UILongPressGestureRecognizer) {
             if recognizer.state == .began {
