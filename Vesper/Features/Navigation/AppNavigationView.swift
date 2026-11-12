@@ -55,6 +55,8 @@ struct AppNavigationView: View {
                         }
                         .searchable(text: $searchQuery, isPresented: $searchInputActive, prompt: "搜索当前媒体来源")
                         .searchFocused($searchFocused)
+                        .onAppear { traceNavigation("searchControl.mounted") }
+                        .onDisappear { traceNavigation("searchControl.unmounted") }
                         .task {
                             await Task.yield()
                             guard !Task.isCancelled else { return }
@@ -71,6 +73,7 @@ struct AppNavigationView: View {
                 longPress: { performGesture("longPress") },
                 enabled: !isSearchPresented,
                 searchMode: isSearchPresented || !multifunctionEnabled,
+                trace: { event in traceNavigation(event) },
                 reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
                 }
@@ -421,6 +424,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     let longPress: () -> Void
     let enabled: Bool
     let searchMode: Bool
+    let trace: (String) -> Void
     let reportHeight: (CGFloat) -> Void
 
     func makeUIViewController(context: Context) -> GestureController {
@@ -428,6 +432,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: GestureController, context: Context) {
+        controller.trace = trace
         controller.tapAction = tap
         controller.longPressAction = longPress
         controller.reportHeight = reportHeight
@@ -446,6 +451,8 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var reportHeight: (CGFloat) -> Void
         var gesturesEnabled = true
         var searchMode = false
+        var trace: (String) -> Void = { _ in }
+        private var lastNativeSelection: String?
         private weak var installedBar: UITabBar?
         private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
         private lazy var pressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
@@ -472,13 +479,21 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             var root: UIViewController = self
             while let parent = root.parent { root = parent }
             guard let controller = findTabController(in: root) else { return }
+            let nativeSelection = "index=\(controller.selectedIndex) tab=\(controller.selectedTab?.identifier ?? "none") item=\(controller.tabBar.selectedItem?.title ?? "none")"
+            if nativeSelection != lastNativeSelection {
+                lastNativeSelection = nativeSelection
+                trace("UIKit.selection \(nativeSelection)")
+            }
             for tab in controller.tabs {
                 if let search = tab as? UISearchTab {
                     // App gestures own search activation, including when this tab is
                     // selected to keep the primary group collapsed.
                     search.automaticallyActivatesSearch = false
                     let image = UIImage(systemName: searchMode ? "magnifyingglass" : "square.grid.2x2")
-                    if search.image != image { search.image = image }
+                    if search.image != image {
+                        trace("UIKit.searchIcon.update symbol=\(searchMode ? "magnifyingglass" : "square.grid.2x2")")
+                        search.image = image
+                    }
                 }
             }
             let bar = controller.tabBar

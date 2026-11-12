@@ -55,6 +55,9 @@ private struct RuntimeLogsView: View {
     @AppStorage("runtimeLogs.retentionDays") private var retentionDays = 7
     @AppStorage("runtimeLogs.maximumCount") private var maximumCount = 500
     @State private var isExporting = false
+    @State private var loadedCount = 100
+    @State private var exportSnapshot = ""
+    @State private var exportError: String?
 
     init() { store = AppLog.runtimeEntries }
 
@@ -72,7 +75,7 @@ private struct RuntimeLogsView: View {
                 if store.entries.isEmpty {
                     ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
                 } else {
-                    ForEach(store.entries.reversed()) { entry in
+                    ForEach(store.entries.suffix(loadedCount).reversed()) { entry in
                         Text(entry.message)
                             .font(.system(.footnote, design: .monospaced))
                             .contextMenu {
@@ -80,6 +83,11 @@ private struct RuntimeLogsView: View {
                                     UIPasteboard.general.string = entry.message
                                 }
                             }
+                    }
+                    if loadedCount < store.entries.count {
+                        Button("加载更早的日志（已显示 \(min(loadedCount, store.entries.count)) 条）") {
+                            loadedCount += 100
+                        }
                     }
                 }
             }
@@ -90,7 +98,10 @@ private struct RuntimeLogsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("导出全部日志", systemImage: "square.and.arrow.up") { isExporting = true }
+                    Button("导出全部日志", systemImage: "square.and.arrow.up") {
+                        exportSnapshot = store.exportText
+                        isExporting = true
+                    }
                         .disabled(store.entries.isEmpty)
                     Button("清空日志", systemImage: "trash", role: .destructive) { store.clear() }
                         .disabled(store.entries.isEmpty)
@@ -105,10 +116,17 @@ private struct RuntimeLogsView: View {
         .onChange(of: maximumCount) { _, _ in store.setRetention(days: retentionDays, count: maximumCount) }
         .fileExporter(
             isPresented: $isExporting,
-            document: RuntimeLogDocument(text: store.exportText),
+            document: RuntimeLogDocument(text: exportSnapshot),
             contentType: .plainText,
             defaultFilename: "Vesper-运行日志.txt"
-        ) { _ in }
+        ) { result in
+            if case .failure = result { exportError = "日志导出失败，请重试。" }
+        }
+        .alert("导出失败", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button("好", role: .cancel) { exportError = nil }
+        } message: {
+            Text(exportError ?? "")
+        }
     }
 }
 
