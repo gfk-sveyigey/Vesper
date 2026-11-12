@@ -79,11 +79,17 @@ struct AppNavigationView: View {
         }
         .tint(Color("VesperAccent"))
         .transaction { $0.animation = nil }
-        .task(id: isSearchPresented && searchPageReady && searchTabsReady) {
-            guard isSearchPresented, searchPageReady, searchTabsReady else { return }
-            // Show search content once the expanded native bar is ready,
-            // before waiting to activate input or request keyboard focus.
+        .task(id: isSearchPresented && searchTabsReady) {
+            guard isSearchPresented, searchTabsReady else { return }
+            // Do not select the Search-role tab while preparing the tab bar:
+            // selection itself can start the system search-field transition.
             searchContentVisible = true
+            synchronizeTabSelection()
+        }
+        .task(id: isSearchPresented && searchContentVisible && searchPageReady) {
+            guard isSearchPresented, searchContentVisible, searchPageReady else { return }
+            // Let the now-visible search page commit before input activation.
+            await Task.yield()
             do {
                 try await Task.sleep(for: .milliseconds(min(2000, max(0, searchActivationDelay))))
             } catch { return }
@@ -124,7 +130,7 @@ struct AppNavigationView: View {
     }
 
     private func synchronizeTabSelection() {
-        if isSearchPresented {
+        if isSearchPresented && searchContentVisible {
             tabSelection = .multifunction
         } else if showPrimaryTabs {
             tabSelection = .section(enabledSections.contains(currentPage) ? currentPage : enabledSections.first ?? .settings)
