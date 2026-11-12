@@ -54,13 +54,14 @@ struct AppNavigationView: View {
             // This sibling owns the ordinary pages, independently of TabView.
             // Reserve the native bar's measured area so it remains interactive.
             ContentHost(hosts: hosts, currentPage: currentPage, openSources: openSources)
-                .padding(.bottom, tabBarHeight)
+                .padding(.bottom, tabBarHeight + 24)
+                .clipped()
                 .opacity(isSearchPresented ? 0 : 1)
                 .allowsHitTesting(!isSearchPresented)
                 .accessibilityHidden(isSearchPresented)
 
             if isSearchPresented {
-                SearchPage(close: closeSearch)
+                SearchPage()
                     .padding(.bottom, tabBarHeight)
             }
         }
@@ -305,34 +306,25 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     }
 }
 
-/// App-owned search surface. UISearchBar is deliberately independent of
-/// TabView.searchable and UISearchTab activation/return behavior.
+/// App-owned search uses native controls without Search Tab activation.
 private struct SearchPage: View {
-    let close: () -> Void
     @State private var query = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                SearchInput(query: $query)
-                Button {
-                    close()
-                } label: {
-                    Image(systemName: "xmark")
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel("关闭搜索")
-            }
-            .padding(.horizontal)
-            ContentUnavailableView(
-                query.isEmpty ? "搜索媒体" : "暂无搜索结果",
-                systemImage: "magnifyingglass",
-                description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入。")
-            )
-        }
+        ContentUnavailableView(
+            query.isEmpty ? "搜索媒体" : "暂无搜索结果",
+            systemImage: "magnifyingglass",
+            description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入。")
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color("VesperBackground"))
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            SearchInput(query: $query)
+                .frame(height: 52)
+                .glassEffect(.regular, in: .capsule)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+        }
     }
 }
 
