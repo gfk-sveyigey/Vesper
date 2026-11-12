@@ -16,6 +16,7 @@ struct AppNavigationView: View {
     @State private var tabSelection: NavigationTab = .multifunction
     @State private var isExpanded = false
     @State private var isSearchPresented = false
+    @State private var searchReturnState: SearchReturnState?
     @State private var tabBarHeight: CGFloat = 80
     @State private var hosts = SectionHosts()
 
@@ -26,24 +27,25 @@ struct AppNavigationView: View {
         return ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
     }
 
-    private var showPrimaryTabs: Bool { !allowsHidingTabBar || isExpanded }
+    private var showPrimaryTabs: Bool { isSearchPresented || !allowsHidingTabBar || isExpanded }
 
     var body: some View {
         ZStack {
-            TabView(selection: $tabSelection) {
+            TabView(selection: Binding(
+                get: { tabSelection },
+                set: { selectTab($0) }
+            )) {
                 primaryTabs
                 Tab("多功能", systemImage: "square.grid.2x2", value: NavigationTab.multifunction, role: .search) {
-                    if isSearchPresented {
-                        SearchPage(isPresented: $isSearchPresented)
-                    } else {
-                        Color.clear
-                    }
+                    Color.clear
                 }
+                .hidden(isSearchPresented)
             }
             .toolbarBackground(.hidden, for: .tabBar)
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
+                enabled: !isSearchPresented,
                 reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
                 }
@@ -56,16 +58,15 @@ struct AppNavigationView: View {
                 .opacity(isSearchPresented ? 0 : 1)
                 .allowsHitTesting(!isSearchPresented)
                 .accessibilityHidden(isSearchPresented)
+
+            if isSearchPresented {
+                SearchPage(close: closeSearch)
+                    .padding(.bottom, tabBarHeight)
+            }
         }
         .tint(Color("VesperAccent"))
         .transaction { $0.animation = nil }
         .onAppear { synchronizeTabSelection() }
-        .onChange(of: tabSelection) { _, tab in
-            guard case let .section(section) = tab else { return }
-            currentPage = section
-            isSearchPresented = false
-            AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
-        }
         .onChange(of: showPrimaryTabs) { _, _ in synchronizeTabSelection() }
         .onChange(of: enabledSections) { _, _ in synchronizeTabSelection() }
         .onChange(of: isSearchPresented) { _, _ in synchronizeTabSelection() }
@@ -82,9 +83,20 @@ struct AppNavigationView: View {
         .hidden(!showPrimaryTabs)
     }
 
+    private func selectTab(_ tab: NavigationTab) {
+        guard case let .section(section) = tab else { return }
+        if isSearchPresented { closeSearch() }
+        currentPage = section
+        synchronizeTabSelection()
+        AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
+    }
+
     private func synchronizeTabSelection() {
-        tabSelection = showPrimaryTabs && !isSearchPresented && enabledSections.contains(currentPage)
-            ? .section(currentPage) : .multifunction
+        if showPrimaryTabs {
+            tabSelection = .section(enabledSections.contains(currentPage) ? currentPage : enabledSections.first ?? .settings)
+        } else {
+            tabSelection = .multifunction
+        }
     }
 
     private func openSources() {
@@ -100,11 +112,37 @@ struct AppNavigationView: View {
         if actionValues[index] == "tabs" {
             if allowsHidingTabBar { isExpanded.toggle() }
         } else {
-            if allowsHidingTabBar { isExpanded = true }
-            isSearchPresented = true
+            openSearch()
         }
         synchronizeTabSelection()
     }
+
+    private struct SearchReturnState {
+        let page: AppSection
+        let expanded: Bool
+        let tab: NavigationTab
+    }
+
+    private func openSearch() {
+        guard !isSearchPresented else { return }
+        searchReturnState = SearchReturnState(page: currentPage, expanded: isExpanded, tab: tabSelection)
+        isSearchPresented = true
+        synchronizeTabSelection()
+        AppLog.info("navigation.search.opened", category: .navigation)
+    }
+
+    private func closeSearch() {
+        guard isSearchPresented else { return }
+        isSearchPresented = false
+        if let previous = searchReturnState {
+            currentPage = previous.page
+            isExpanded = previous.expanded
+            tabSelection = previous.tab
+        }
+        searchReturnState = nil
+        AppLog.info("navigation.search.closed", category: .navigation)
+    }
+
 }
 
 /// Four persistent hosts, each with its own NavigationStack.
@@ -165,6 +203,7 @@ private struct ContentHost: UIViewControllerRepresentable {
 private struct MultifunctionGestures: UIViewControllerRepresentable {
     let tap: () -> Void
     let longPress: () -> Void
+    let enabled: Bool
     let reportHeight: (CGFloat) -> Void
 
     func makeUIViewController(context: Context) -> GestureController {
@@ -175,6 +214,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         controller.tapAction = tap
         controller.longPressAction = longPress
         controller.reportHeight = reportHeight
+        controller.gesturesEnabled = enabled
         controller.installWhenReady()
     }
 
@@ -186,6 +226,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var tapAction: () -> Void
         var longPressAction: () -> Void
         var reportHeight: (CGFloat) -> Void
+        var gesturesEnabled = true
         private weak var installedBar: UITabBar?
         private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
         private lazy var pressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
@@ -245,7 +286,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard let bar = installedBar else { return false }
+            guard gesturesEnabled, let bar = installedBar else { return false }
             // The independent search-role item occupies the trailing platter.
             // Use the public item's accessibility frame when UIKit supplies it.
             if let frame = bar.items?.last?.accessibilityFrame, !frame.isEmpty {
@@ -264,42 +305,77 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     }
 }
 
+/// App-owned search surface. UISearchBar is deliberately independent of
+/// TabView.searchable and UISearchTab activation/return behavior.
 private struct SearchPage: View {
-    @Binding var isPresented: Bool
+    let close: () -> Void
     @State private var query = ""
-    @FocusState private var searchFocused: Bool
-    @State private var inputActive = false
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                SearchInput(query: $query)
+                Button {
+                    close()
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("关闭搜索")
+            }
+            .padding(.horizontal)
             ContentUnavailableView(
                 query.isEmpty ? "搜索媒体" : "暂无搜索结果",
                 systemImage: "magnifyingglass",
                 description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入。")
             )
-            .toolbarBackground(.hidden, for: .navigationBar)
         }
-        .searchable(text: $query, isPresented: $inputActive, prompt: "搜索当前媒体来源")
-        .searchFocused($searchFocused)
-        .task {
-            await Task.yield()
-            guard !Task.isCancelled, isPresented else { return }
-            inputActive = true
-            searchFocused = true
-        }
-        .onChange(of: isPresented) { _, presented in
-            if !presented {
-                var transaction = Transaction(animation: nil)
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    inputActive = false
-                    searchFocused = false
-                }
+        .background(Color("VesperBackground"))
+    }
+}
+
+private struct SearchInput: UIViewRepresentable {
+    @Binding var query: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(query: $query) }
+
+    func makeUIView(context: Context) -> UISearchBar {
+        let bar = UISearchBar()
+        bar.searchBarStyle = .minimal
+        bar.placeholder = "搜索当前媒体来源"
+        bar.delegate = context.coordinator
+        bar.showsCancelButton = false
+        return bar
+    }
+
+    func updateUIView(_ bar: UISearchBar, context: Context) {
+        context.coordinator.query = $query
+        if bar.text != query { bar.text = query }
+        if !context.coordinator.requestedFocus {
+            context.coordinator.requestedFocus = true
+            DispatchQueue.main.async { [weak bar] in
+                guard let bar, bar.window != nil else { return }
+                bar.becomeFirstResponder()
             }
         }
-        .onDisappear {
-            inputActive = false
-            searchFocused = false
+    }
+
+    static func dismantleUIView(_ bar: UISearchBar, coordinator: Coordinator) {
+        bar.resignFirstResponder()
+        bar.delegate = nil
+    }
+
+    final class Coordinator: NSObject, UISearchBarDelegate {
+        var query: Binding<String>
+        var requestedFocus = false
+        init(query: Binding<String>) { self.query = query }
+        func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+            query.wrappedValue = searchText
+        }
+        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+            searchBar.resignFirstResponder()
         }
     }
 }
