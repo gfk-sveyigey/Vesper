@@ -203,7 +203,9 @@ struct AppNavigationView: View {
     }
 
     private func activateSearchInput() {
-        guard isSearchPresented, tabSelection == .multifunction else { return }
+        // SearchPage is only hosted by the multifunction tab. Avoid requiring
+        // the selection binding to have propagated before its appearance task.
+        guard isSearchPresented else { return }
         searchInputActive = true
         searchFocused = true
         AppLog.info("navigation.search.manuallyActivated", category: .navigation)
