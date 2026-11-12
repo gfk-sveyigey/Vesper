@@ -51,14 +51,21 @@ struct AppNavigationView: View {
                     }
                 }
             }
-            .searchable(text: $searchQuery, isPresented: $searchInputActive, prompt: "搜索当前媒体来源")
+            .searchable(text: $searchQuery, isPresented: Binding(
+                get: { searchInputActive },
+                set: { active in
+                    // Only App-managed search sessions may present the input.
+                    guard !active || isSearchPresented else { return }
+                    searchInputActive = active
+                }
+            ), prompt: "搜索当前媒体来源")
             .searchFocused($searchFocused)
             .toolbarBackground(.hidden, for: .tabBar)
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
                 enabled: !isSearchPresented,
-                searchMode: isSearchPresented,
+                searchMode: isSearchPresented || !multifunctionEnabled,
                 reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
                 }
@@ -399,7 +406,9 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             guard let controller = findTabController(in: root) else { return }
             for tab in controller.tabs {
                 if let search = tab as? UISearchTab {
-                    // SwiftUI tabViewSearchActivation owns activation and return behavior.
+                    // App gestures own search activation, including when this tab is
+                    // selected to keep the primary group collapsed.
+                    search.automaticallyActivatesSearch = false
                     let image = UIImage(systemName: searchMode ? "magnifyingglass" : "square.grid.2x2")
                     if search.image != image { search.image = image }
                 }
