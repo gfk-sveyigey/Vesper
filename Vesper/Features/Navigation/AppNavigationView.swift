@@ -15,6 +15,7 @@ struct AppNavigationView: View {
     @State private var currentPage: AppSection = .media
     @State private var tabSelection: NavigationTab = .section(.media)
     @State private var isExpanded = false
+    @State private var didInitializeNavigation = false
     @State private var isSearchPresented = false
     @State private var isPreparingSearch = false
     @State private var searchQuery = ""
@@ -86,7 +87,13 @@ struct AppNavigationView: View {
             isPreparingSearch = false
             synchronizeTabSelection()
         }
-        .onAppear { synchronizeTabSelection() }
+        .onAppear {
+            if !didInitializeNavigation {
+                didInitializeNavigation = true
+                if multifunctionEnabled && !isSearchPresented { isExpanded = false }
+            }
+            synchronizeTabSelection()
+        }
         .onChange(of: showPrimaryTabs) { _, _ in synchronizeTabSelection() }
         .onChange(of: multifunctionEnabled) { _, enabled in
             if !enabled { isExpanded = true }
@@ -129,9 +136,9 @@ struct AppNavigationView: View {
         } else if showPrimaryTabs {
             tabSelection = .section(enabledSections.contains(currentPage) ? currentPage : enabledSections.first ?? .settings)
         } else if multifunctionEnabled {
-            // Keep the active page in currentPage/ContentHost while moving
-            // selection out of the hidden TabSection.
-            tabSelection = .multifunction
+            // On startup keep media selected without revealing the hidden group.
+            // After an explicit collapse, move selection outside the hidden tabs.
+            tabSelection = didInitializeNavigation ? .multifunction : .section(.media)
         } else {
             tabSelection = .section(enabledSections.contains(currentPage) ? currentPage : enabledSections.first ?? .settings)
         }
