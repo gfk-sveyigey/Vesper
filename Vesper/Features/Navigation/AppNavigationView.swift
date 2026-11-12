@@ -41,15 +41,13 @@ struct AppNavigationView: View {
                 Tab(isSearchPresented || !multifunctionEnabled ? "搜索" : "多功能",
                     systemImage: isSearchPresented || !multifunctionEnabled ? "magnifyingglass" : "square.grid.2x2",
                     value: NavigationTab.multifunction, role: .search) {
-                    if isSearchPresented {
-                        SearchPage(query: searchQuery)
-                    } else {
-                        Color.clear
-                    }
+                    // Keep the search controller alive while UIKit completes
+                    // its cancel/collapse transition.
+                    SearchPage(query: searchQuery)
                 }
             }
             .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
-            .tabViewSearchActivation(isSearchPresented ? .searchTabSelection : .automatic)
+            .tabViewSearchActivation(!multifunctionEnabled || isSearchPresented ? .searchTabSelection : .automatic)
             .toolbarBackground(.hidden, for: .tabBar)
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
@@ -76,7 +74,6 @@ struct AppNavigationView: View {
 
         }
         .tint(Color("VesperAccent"))
-        .transaction { $0.animation = nil }
         .task(id: isPreparingSearch) {
             guard isPreparingSearch else { return }
             // The only timed delay: wait after requesting group expansion before
@@ -323,7 +320,8 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             for tab in controller.tabs {
                 if let search = tab as? UISearchTab {
                     // SwiftUI tabViewSearchActivation owns activation and return behavior.
-                    search.image = UIImage(systemName: searchMode ? "magnifyingglass" : "square.grid.2x2")
+                    let image = UIImage(systemName: searchMode ? "magnifyingglass" : "square.grid.2x2")
+                    if search.image != image { search.image = image }
                 }
             }
             let bar = controller.tabBar
