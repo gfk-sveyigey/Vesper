@@ -12,6 +12,7 @@ struct AppNavigationView: View {
     @AppStorage("navigation.allowsHidingTabBar") private var allowsHidingTabBar = true
     @AppStorage("navigation.gestureOrder") private var gestures = "tap,longPress"
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
+    @AppStorage("navigation.searchActivationDelayMilliseconds") private var searchActivationDelay = 300
     @State private var currentPage: AppSection = .media
     @State private var tabSelection: NavigationTab = .multifunction
     @State private var isExpanded = false
@@ -79,6 +80,10 @@ struct AppNavigationView: View {
         .transaction { $0.animation = nil }
         .task(id: isSearchPresented && searchPageReady && searchTabsReady) {
             guard isSearchPresented, searchPageReady, searchTabsReady else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(min(2000, max(0, searchActivationDelay))))
+            } catch { return }
+            guard !Task.isCancelled, isSearchPresented, searchPageReady, searchTabsReady else { return }
             activateSearchInput()
             do {
                 try await Task.sleep(for: .milliseconds(180))
