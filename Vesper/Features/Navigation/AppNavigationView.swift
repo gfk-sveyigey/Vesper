@@ -42,14 +42,13 @@ struct AppNavigationView: View {
                     systemImage: isSearchPresented || !multifunctionEnabled ? "magnifyingglass" : "square.grid.2x2",
                     value: NavigationTab.multifunction, role: .search) {
                     ZStack {
-                        SearchPage(query: searchQuery)
+                        SearchPage(query: $searchQuery)
                         if multifunctionEnabled && !showPrimaryTabs && !isSearchPresented {
                             pageSlot(currentPage, active: true)
                         }
                     }
                 }
             }
-            .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
             .tabViewSearchActivation(!multifunctionEnabled || isSearchPresented ? .searchTabSelection : .automatic)
             .toolbarBackground(.hidden, for: .tabBar)
             .background(MultifunctionGestures(
@@ -377,7 +376,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
 
 /// Activation and cancellation are linked to selection by the system.
 private struct SearchPage: View {
-    let query: String
+    @Binding var query: String
 
     var body: some View {
         NavigationStack {
@@ -388,5 +387,6 @@ private struct SearchPage: View {
             )
             .toolbarBackground(.hidden, for: .navigationBar)
         }
+        .searchable(text: $query, prompt: "搜索当前媒体来源")
     }
 }
