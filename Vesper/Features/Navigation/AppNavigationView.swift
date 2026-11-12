@@ -10,7 +10,6 @@ struct AppNavigationView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
-    @AppStorage("navigation.systemSearchSelection") private var systemSearchSelection = false
     @AppStorage("navigation.gestureOrder") private var gestures = "tap,longPress"
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
     @State private var currentPage: AppSection = .media
@@ -36,14 +35,7 @@ struct AppNavigationView: View {
         ZStack {
             TabView(selection: Binding(
                 get: { tabSelection },
-                set: { tab in
-                    if systemSearchSelection {
-                        tabSelection = tab
-                        if case let .section(section) = tab { currentPage = section }
-                    } else {
-                        selectTab(tab)
-                    }
-                }
+                set: { selectTab($0) }
             )) {
                 primaryTabs
                 Tab(isSearchPresented || !multifunctionEnabled ? "搜索" : "多功能",
@@ -55,14 +47,14 @@ struct AppNavigationView: View {
                 }
             }
             .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
-            .tabViewSearchActivation(systemSearchSelection ? .searchTabSelection : .automatic)
+            .tabViewSearchActivation(!multifunctionEnabled || isSearchPresented ? .searchTabSelection : .automatic)
             .toolbarBackground(.hidden, for: .tabBar)
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
                 enabled: !isSearchPresented && !isPreparingSearch,
-                searchMode: searchIconActive,
-                                reportHeight: { height in
+                searchMode: isSearchPresented || !multifunctionEnabled,
+                reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
                 }
             ))
@@ -94,25 +86,14 @@ struct AppNavigationView: View {
             isPreparingSearch = false
             synchronizeTabSelection()
         }
-        .onAppear {
-            if !systemSearchSelection { synchronizeTabSelection() }
-        }
-        .onChange(of: showPrimaryTabs) { _, _ in
-            if !systemSearchSelection { synchronizeTabSelection() }
-        }
-        .onChange(of: enabledSections) { _, _ in
-            if !systemSearchSelection { synchronizeTabSelection() }
-        }
-        .onChange(of: isSearchPresented) { _, _ in
-            if !systemSearchSelection { synchronizeTabSelection() }
-        }
+        .onAppear { synchronizeTabSelection() }
+        .onChange(of: showPrimaryTabs) { _, _ in synchronizeTabSelection() }
         .onChange(of: multifunctionEnabled) { _, enabled in
             if !enabled { isExpanded = true }
-            if !systemSearchSelection { synchronizeTabSelection() }
+            synchronizeTabSelection()
         }
-        .onChange(of: systemSearchSelection) { _, enabled in
-            if !enabled { synchronizeTabSelection() }
-        }
+        .onChange(of: enabledSections) { _, _ in synchronizeTabSelection() }
+        .onChange(of: isSearchPresented) { _, _ in synchronizeTabSelection() }
 
     }
 
