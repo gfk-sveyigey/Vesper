@@ -5,6 +5,7 @@ private enum SettingsRoute: Hashable {
 }
 
 struct SettingsView: View {
+    @AppStorage("navigation.searchPageDelayMilliseconds") private var searchPageDelay = 300
 
     var body: some View {
         List {
@@ -21,6 +22,15 @@ struct SettingsView: View {
                 Text("后续功能")
             } footer: {
                 Text("播放器和外部服务将在对应阶段接入，当前不会提供无效的开关或连接按钮。")
+            }
+            Section {
+                Stepper(value: $searchPageDelay, in: 0...2000, step: 50) {
+                    LabeledContent("搜索页面展开延迟", value: "\(searchPageDelay) ms")
+                }
+            } header: {
+                Text("搜索")
+            } footer: {
+                Text("展开标签组后等待此间隔再打开搜索页面。默认 300 ms，范围 0–2000 ms，修改自动保存，下次搜索生效。")
             }
             Section("关于") {
                 LabeledContent("Vesper", value: "导航原型")
