@@ -41,9 +41,12 @@ struct AppNavigationView: View {
                 Tab(isSearchPresented || !multifunctionEnabled ? "搜索" : "多功能",
                     systemImage: isSearchPresented || !multifunctionEnabled ? "magnifyingglass" : "square.grid.2x2",
                     value: NavigationTab.multifunction, role: .search) {
-                    // Keep the search controller alive while UIKit completes
-                    // its cancel/collapse transition.
-                    SearchPage(query: searchQuery)
+                    ZStack {
+                        SearchPage(query: searchQuery)
+                        if multifunctionEnabled && !showPrimaryTabs && !isSearchPresented {
+                            pageSlot(currentPage, active: true)
+                        }
+                    }
                 }
             }
             .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
@@ -59,18 +62,6 @@ struct AppNavigationView: View {
                 }
             ))
 
-            // This sibling owns the ordinary pages, independently of TabView.
-            // Reserve the native bar's measured area so it remains interactive.
-            ContentHost(hosts: hosts, currentPage: currentPage, openSources: openSources) {
-                guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
-                isExpanded = false
-                synchronizeTabSelection()
-            }
-                .padding(.bottom, tabBarHeight + 24)
-                .clipped()
-                .opacity(isSearchPresented ? 0 : 1)
-                .allowsHitTesting(!isSearchPresented)
-                .accessibilityHidden(isSearchPresented)
 
         }
         .tint(Color("VesperAccent"))
@@ -101,11 +92,19 @@ struct AppNavigationView: View {
         TabSection("主要功能") {
             ForEach(enabledSections) { section in
                 Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
-                    Color.clear
+                    pageSlot(section, active: showPrimaryTabs && !isSearchPresented && currentPage == section)
                 }
             }
         }
         .hidden(!showPrimaryTabs)
+    }
+
+    private func pageSlot(_ section: AppSection, active: Bool) -> some View {
+        SectionHostSlot(host: hosts.controller(for: section, openSources: openSources), active: active) {
+            guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
+            isExpanded = false
+            synchronizeTabSelection()
+        }
     }
 
     private func selectTab(_ tab: NavigationTab) {
@@ -201,10 +200,9 @@ private final class SectionHosts {
     }
 }
 
-private struct ContentHost: UIViewControllerRepresentable {
-    let hosts: SectionHosts
-    let currentPage: AppSection
-    let openSources: () -> Void
+private struct SectionHostSlot: UIViewControllerRepresentable {
+    let host: UIViewController
+    let active: Bool
     let contentTapped: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(contentTapped: contentTapped) }
@@ -217,30 +215,32 @@ private struct ContentHost: UIViewControllerRepresentable {
         tap.delaysTouchesEnded = false
         tap.delegate = context.coordinator
         container.view.addGestureRecognizer(tap)
-        for section in AppSection.allCases {
-            let host = hosts.controller(for: section, openSources: openSources)
-            container.addChild(host)
-            host.view.translatesAutoresizingMaskIntoConstraints = false
-            container.view.addSubview(host.view)
-            NSLayoutConstraint.activate([
-                host.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
-                host.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
-                host.view.topAnchor.constraint(equalTo: container.view.topAnchor),
-                host.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
-            ])
-            host.view.isHidden = section != currentPage
-            host.didMove(toParent: container)
-        }
         return container
     }
 
     func updateUIViewController(_ container: UIViewController, context: Context) {
         context.coordinator.contentTapped = contentTapped
-        for section in AppSection.allCases {
-            let host = hosts.controller(for: section, openSources: openSources)
-            host.view.isHidden = section != currentPage
-            host.view.accessibilityElementsHidden = section != currentPage
+        guard active, host.parent !== container else { return }
+        for previous in container.children {
+            previous.willMove(toParent: nil)
+            previous.view.removeFromSuperview()
+            previous.removeFromParent()
         }
+        if host.parent != nil {
+            host.willMove(toParent: nil)
+            host.viewIfLoaded?.removeFromSuperview()
+            host.removeFromParent()
+        }
+        container.addChild(host)
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        container.view.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
+            host.view.topAnchor.constraint(equalTo: container.view.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
+        ])
+        host.didMove(toParent: container)
     }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {

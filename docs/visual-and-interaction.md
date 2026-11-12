@@ -146,3 +146,5 @@ Color("VesperPlaybackProgress")
 搜索前记录标签组是否隐藏。已显示则立即打开搜索；隐藏则先展开、选中当前普通标签，再固定等待 100ms 打开搜索。移除延迟设置与就绪检测。搜索使用系统 `.searchTabSelection` 联动，普通页面由外部 ContentHost 保持导航状态；任意途径退出搜索后，原先隐藏的标签组也保持显示。
 
 需真机验收两种模式、两种初始显隐状态、取消返回、二级导航及点击穿透；编译不代替交互验收。
+
+当前容器实验：移除 TabView 外部 ContentHost 及其 opacity/交互切换。展开时普通页面 Host 放在对应 Tab 的 SectionHostSlot，收起时同一个 Host 移到 Search Tab 内。Search 页面保持在 Search Tab 中，搜索时不覆盖外部普通页面。SectionHosts 持久保存四个控制器及导航栈，页面不复制。用于验证取消搜索按钮残影是否由外部容器覆盖造成，需真机确认。
