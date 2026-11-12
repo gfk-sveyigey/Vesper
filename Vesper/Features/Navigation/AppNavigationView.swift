@@ -11,12 +11,15 @@ struct AppNavigationView: View {
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
     @AppStorage("navigation.systemSearchSelection") private var systemSearchSelection = false
+    @AppStorage("navigation.debug.pauseSearchIconUpdates") private var pauseSearchIconUpdates = false
+    @AppStorage("navigation.debug.pauseSearchContentSwitch") private var pauseSearchContentSwitch = false
     @AppStorage("navigation.gestureOrder") private var gestures = "tap,longPress"
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
     @State private var currentPage: AppSection = .media
     @State private var tabSelection: NavigationTab = .section(.media)
     @State private var isExpanded = false
     @State private var isSearchPresented = false
+    @State private var searchIconActive = false
     @State private var isPreparingSearch = false
     @State private var searchQuery = ""
     @State private var searchStartedWithHiddenTabs = false
@@ -46,8 +49,8 @@ struct AppNavigationView: View {
                 }
             )) {
                 primaryTabs
-                Tab(isSearchPresented || !multifunctionEnabled ? "搜索" : "多功能",
-                    systemImage: isSearchPresented || !multifunctionEnabled ? "magnifyingglass" : "square.grid.2x2",
+                Tab(searchIconActive ? "搜索" : "多功能",
+                    systemImage: searchIconActive ? "magnifyingglass" : "square.grid.2x2",
                     value: NavigationTab.multifunction, role: .search) {
                     // Keep the search controller alive while UIKit completes
                     // its cancel/collapse transition.
@@ -61,7 +64,8 @@ struct AppNavigationView: View {
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
                 enabled: !isSearchPresented && !isPreparingSearch,
-                searchMode: isSearchPresented || !multifunctionEnabled,
+                searchMode: searchIconActive,
+                pauseIconUpdates: pauseSearchIconUpdates,
                 reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
                 }
@@ -76,9 +80,9 @@ struct AppNavigationView: View {
             }
                 .padding(.bottom, tabBarHeight + 24)
                 .clipped()
-                .opacity(isSearchPresented ? 0 : 1)
-                .allowsHitTesting(!isSearchPresented)
-                .accessibilityHidden(isSearchPresented)
+                .opacity(isSearchPresented && !pauseSearchContentSwitch ? 0 : 1)
+                .allowsHitTesting(!isSearchPresented || pauseSearchContentSwitch)
+                .accessibilityHidden(isSearchPresented && !pauseSearchContentSwitch)
 
         }
         .tint(Color("VesperAccent"))
@@ -96,12 +100,9 @@ struct AppNavigationView: View {
         }
         .onAppear {
             if !systemSearchSelection { synchronizeTabSelection() }
+            synchronizeSearchIcon()
         }
         .onChange(of: showPrimaryTabs) { _, _ in
-            if !systemSearchSelection { synchronizeTabSelection() }
-        }
-        .onChange(of: multifunctionEnabled) { _, enabled in
-            if !enabled { isExpanded = true }
             if !systemSearchSelection { synchronizeTabSelection() }
         }
         .onChange(of: enabledSections) { _, _ in
@@ -109,6 +110,15 @@ struct AppNavigationView: View {
         }
         .onChange(of: isSearchPresented) { _, _ in
             if !systemSearchSelection { synchronizeTabSelection() }
+            synchronizeSearchIcon()
+        }
+        .onChange(of: multifunctionEnabled) { _, enabled in
+            if !enabled { isExpanded = true }
+            if !systemSearchSelection { synchronizeTabSelection() }
+            synchronizeSearchIcon()
+        }
+        .onChange(of: pauseSearchIconUpdates) { _, paused in
+            if !paused { synchronizeSearchIcon() }
         }
         .onChange(of: systemSearchSelection) { _, enabled in
             if !enabled { synchronizeTabSelection() }
@@ -140,6 +150,11 @@ struct AppNavigationView: View {
         currentPage = section
         synchronizeTabSelection()
         AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
+    }
+
+    private func synchronizeSearchIcon() {
+        guard !pauseSearchIconUpdates else { return }
+        searchIconActive = isSearchPresented || !multifunctionEnabled
     }
 
     private func synchronizeTabSelection() {
@@ -287,6 +302,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     let longPress: () -> Void
     let enabled: Bool
     let searchMode: Bool
+    let pauseIconUpdates: Bool
     let reportHeight: (CGFloat) -> Void
 
     func makeUIViewController(context: Context) -> GestureController {
@@ -299,6 +315,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         controller.reportHeight = reportHeight
         controller.gesturesEnabled = enabled
         controller.searchMode = searchMode
+        controller.pauseIconUpdates = pauseIconUpdates
         controller.installWhenReady()
     }
 
@@ -312,6 +329,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var reportHeight: (CGFloat) -> Void
         var gesturesEnabled = true
         var searchMode = false
+        var pauseIconUpdates = false
         private weak var installedBar: UITabBar?
         private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
         private lazy var pressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
@@ -339,7 +357,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             while let parent = root.parent { root = parent }
             guard let controller = findTabController(in: root) else { return }
             for tab in controller.tabs {
-                if let search = tab as? UISearchTab {
+                if let search = tab as? UISearchTab, !pauseIconUpdates {
                     // SwiftUI tabViewSearchActivation owns activation and return behavior.
                     let image = UIImage(systemName: searchMode ? "magnifyingglass" : "square.grid.2x2")
                     if search.image != image { search.image = image }

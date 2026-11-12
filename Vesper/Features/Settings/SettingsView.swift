@@ -62,6 +62,8 @@ struct TabSettingsView: View {
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
     @AppStorage("navigation.systemSearchSelection") private var systemSearchSelection = false
+    @AppStorage("navigation.debug.pauseSearchIconUpdates") private var pauseSearchIconUpdates = false
+    @AppStorage("navigation.debug.pauseSearchContentSwitch") private var pauseSearchContentSwitch = false
 
     private var sections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
@@ -72,7 +74,11 @@ struct TabSettingsView: View {
         List {
             Section("标签栏") {
                 Toggle("启用多功能按钮", isOn: $multifunctionEnabled)
-                Toggle("使用系统 Search Tab 联动", isOn: $systemSearchSelection)
+            }
+            Section("调试") {
+                Toggle("暂停图标更新", isOn: $pauseSearchIconUpdates)
+                Toggle("暂停 ContentHost 切换", isOn: $pauseSearchContentSwitch)
+                Toggle("暂停额外 selection 同步", isOn: $systemSearchSelection)
             }
             Section {
                 ForEach(sections) { section in
