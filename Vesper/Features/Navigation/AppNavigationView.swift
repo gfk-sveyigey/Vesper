@@ -73,6 +73,7 @@ struct AppNavigationView: View {
                 longPress: { performGesture("longPress") },
                 enabled: !isSearchPresented,
                 searchMode: isSearchPresented || !multifunctionEnabled,
+                searchPresented: isSearchPresented,
                 trace: { event in traceNavigation(event) },
                 reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
@@ -424,6 +425,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     let longPress: () -> Void
     let enabled: Bool
     let searchMode: Bool
+    let searchPresented: Bool
     let trace: (String) -> Void
     let reportHeight: (CGFloat) -> Void
 
@@ -439,9 +441,11 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         controller.gesturesEnabled = enabled
         controller.searchMode = searchMode
         controller.installWhenReady()
+        controller.trackSearchSession(searchPresented)
     }
 
     static func dismantleUIViewController(_ controller: GestureController, coordinator: ()) {
+        controller.stopTracking()
         controller.uninstall()
     }
 
@@ -453,6 +457,9 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var searchMode = false
         var trace: (String) -> Void = { _ in }
         private var lastNativeSelection: String?
+        private var previousSearchPresented = false
+        private var samplingTask: Task<Void, Never>?
+        private var layoutCount = 0
         private weak var configuredSearchTab: UISearchTab?
         private var configuredSearchSymbol: String?
         private weak var installedBar: UITabBar?
@@ -474,6 +481,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
 
         override func viewDidLayoutSubviews() {
             super.viewDidLayoutSubviews()
+            layoutCount += 1
             installWhenReady()
         }
 
@@ -515,6 +523,53 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             tapRecognizer.require(toFail: pressRecognizer)
             bar.addGestureRecognizer(tapRecognizer)
             bar.addGestureRecognizer(pressRecognizer)
+        }
+
+        func stopTracking() {
+            samplingTask?.cancel()
+            samplingTask = nil
+        }
+
+        func trackSearchSession(_ presented: Bool) {
+            guard previousSearchPresented != presented else { return }
+            let wasPresented = previousSearchPresented
+            previousSearchPresented = presented
+            samplingTask?.cancel()
+            guard wasPresented, !presented else { return }
+            let started = ProcessInfo.processInfo.systemUptime
+            samplingTask = Task { @MainActor [weak self] in
+                // Bounded observations only; never trigger layout or alter selection.
+                for tick in 0...20 {
+                    if tick > 0 {
+                        do { try await Task.sleep(for: .milliseconds(100)) }
+                        catch { return }
+                    }
+                    guard !Task.isCancelled, let self else { return }
+                    self.sampleAfterSearch(elapsed: ProcessInfo.processInfo.systemUptime - started)
+                }
+            }
+        }
+
+        private func sampleAfterSearch(elapsed: TimeInterval) {
+            var root: UIViewController = self
+            while let parent = root.parent { root = parent }
+            guard let tabs = findTabController(in: root) else { return }
+            let bar = tabs.tabBar
+            let searchTab = tabs.tabs.first { $0 is UISearchTab }
+            let image = searchTab?.image
+            let imageID = image.map { String(describing: ObjectIdentifier($0)) } ?? "none"
+            let presentationFrame = bar.layer.presentation()?.frame ?? bar.frame
+            var searchStates: [String] = []
+            collectSearchStates(in: root, states: &searchStates)
+            trace("UIKit.afterSearch elapsedMs=\(Int(elapsed * 1000)) index=\(tabs.selectedIndex) tab=\(tabs.selectedTab?.identifier ?? "none") item=\(bar.selectedItem?.title ?? "none") iconID=\(imageID) iconSize=\(String(describing: image?.size)) configuredSymbol=\(configuredSearchSymbol ?? "none") frame=\(bar.frame) presentationFrame=\(presentationFrame) hidden=\(bar.isHidden) alpha=\(bar.alpha) animations=\(bar.layer.animationKeys() ?? []) layouts=\(layoutCount) searches=\(searchStates)")
+        }
+
+        private func collectSearchStates(in controller: UIViewController, states: inout [String]) {
+            if let search = controller.navigationItem.searchController {
+                let bar = search.searchBar
+                states.append("active=\(search.isActive),window=\(bar.window != nil),hidden=\(bar.isHidden),alpha=\(bar.alpha),frame=\(bar.frame),focus=\(bar.searchTextField.isFirstResponder)")
+            }
+            for child in controller.children { collectSearchStates(in: child, states: &states) }
         }
 
         private func findTabController(in controller: UIViewController) -> UITabBarController? {
