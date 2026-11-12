@@ -1,10 +1,14 @@
 import SwiftUI
 
 private enum SettingsRoute: Hashable {
-    case tabs, gestures, appearance
+    case tabs, gestures, appearance, logs
 }
 
 struct SettingsView: View {
+
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
 
     var body: some View {
         List {
@@ -12,6 +16,7 @@ struct SettingsView: View {
                 NavigationLink("标签显示与顺序", value: SettingsRoute.tabs)
                 NavigationLink("多功能按钮手势与动作", value: SettingsRoute.gestures)
                 NavigationLink("外观", value: SettingsRoute.appearance)
+                NavigationLink("运行日志", value: SettingsRoute.logs)
             }
             Section {
                 LabeledContent("播放器偏好", value: "尚未接入")
@@ -22,8 +27,11 @@ struct SettingsView: View {
             } footer: {
                 Text("播放器和外部服务将在对应阶段接入，当前不会提供无效的开关或连接按钮。")
             }
-            Section("关于") {
-                LabeledContent("Vesper", value: "导航原型")
+            Section {
+                EmptyView()
+            } footer: {
+                Text("Vesper \(version) · Aholic")
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .scrollContentBackground(.hidden)
@@ -32,6 +40,10 @@ struct SettingsView: View {
             case .tabs: TabSettingsView()
             case .gestures: GestureActionSettingsView()
             case .appearance: AppearanceSettingsView()
+            case .logs:
+                ContentUnavailableView("运行日志", systemImage: "doc.text", description: Text("功能暂未开放。"))
+                    .navigationTitle("运行日志")
+                    .toolbarBackground(.hidden, for: .navigationBar)
             }
         }
         .navigationTitle("设置")

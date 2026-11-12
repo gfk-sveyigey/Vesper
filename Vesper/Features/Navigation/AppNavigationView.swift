@@ -43,23 +43,25 @@ struct AppNavigationView: View {
             )) {
                 primaryTabs
                 Tab(multifunctionTitle, systemImage: multifunctionSymbol, value: NavigationTab.multifunction, role: .search) {
-                    // Keep a navigation context for the native bottom search bar.
-                    // Search results remain in the independent ContentHost.
-                    NavigationStack {
+                    // Do not register a native search control outside an App search
+                    // session: selecting the multifunction tab must not reveal input.
+                    if isSearchPresented {
+                        NavigationStack {
+                            Color.clear
+                                .toolbarBackground(.hidden, for: .navigationBar)
+                        }
+                        .searchable(text: $searchQuery, isPresented: $searchInputActive, prompt: "搜索当前媒体来源")
+                        .searchFocused($searchFocused)
+                        .task {
+                            await Task.yield()
+                            guard !Task.isCancelled else { return }
+                            activateSearchInput()
+                        }
+                    } else {
                         Color.clear
-                            .toolbarBackground(.hidden, for: .navigationBar)
                     }
                 }
             }
-            .searchable(text: $searchQuery, isPresented: Binding(
-                get: { searchInputActive },
-                set: { active in
-                    // Only App-managed search sessions may present the input.
-                    guard !active || isSearchPresented else { return }
-                    searchInputActive = active
-                }
-            ), prompt: "搜索当前媒体来源")
-            .searchFocused($searchFocused)
             .toolbarBackground(.hidden, for: .tabBar)
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
@@ -115,12 +117,6 @@ struct AppNavigationView: View {
         }
         .onChange(of: enabledSections) { _, _ in synchronizeTabSelection() }
         .onChange(of: isSearchPresented) { _, _ in synchronizeTabSelection() }
-        .task(id: isSearchPresented) {
-            guard isSearchPresented else { return }
-            await Task.yield()
-            guard !Task.isCancelled, isSearchPresented else { return }
-            activateSearchInput()
-        }
         .onChange(of: searchInputActive) { old, active in
             if old && !active && isSearchPresented { closeSearch() }
         }
