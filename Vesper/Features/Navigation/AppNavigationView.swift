@@ -40,7 +40,7 @@ struct AppNavigationView: View {
             TabView(selection: Binding(
                 get: { tabSelection },
                 set: {
-                    traceNavigation("selection", selection: $0)
+                    traceNavigation("selection.writeback requested=\(tabName($0))")
                     selectTab($0)
                 }
             )) {
@@ -55,8 +55,6 @@ struct AppNavigationView: View {
                         }
                         .searchable(text: $searchQuery, isPresented: $searchInputActive, prompt: "搜索当前媒体来源")
                         .searchFocused($searchFocused)
-                        .onAppear { traceNavigation("searchControl.mounted") }
-                        .onDisappear { traceNavigation("searchControl.unmounted") }
                         .task {
                             await Task.yield()
                             guard !Task.isCancelled else { return }
@@ -73,7 +71,6 @@ struct AppNavigationView: View {
                 longPress: { performGesture("longPress") },
                 enabled: !isSearchPresented,
                 searchMode: isSearchPresented || !multifunctionEnabled,
-                searchPresented: isSearchPresented,
                 trace: { event in traceNavigation(event) },
                 reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
@@ -91,8 +88,7 @@ struct AppNavigationView: View {
                 searchQuery: searchQuery
             ) {
                 guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
-                isExpanded = false
-                synchronizeTabSelection()
+                collapsePrimaryTabs()
             }
                 .padding(.bottom, tabBarHeight + 24)
                 .clipped()
@@ -128,7 +124,6 @@ struct AppNavigationView: View {
             traceNavigation("selection.onChange old=\(tabName(old))", selection: new)
         }
         .onChange(of: isSearchPresented) { _, _ in
-            traceNavigation("isSearchPresented.onChange")
             synchronizeTabSelection()
         }
         .onChange(of: searchInputActive) { old, active in
@@ -170,7 +165,6 @@ struct AppNavigationView: View {
     }
 
     private func selectTab(_ tab: NavigationTab) {
-        traceNavigation("selectTab", selection: tab)
         guard case let .section(section) = tab else {
             // System search selection is accepted only in the search session.
             if isSearchPresented { tabSelection = tab }
@@ -186,7 +180,6 @@ struct AppNavigationView: View {
     }
 
     private func synchronizeTabSelection() {
-        traceNavigation("synchronizeTabSelection.begin")
         if isSearchPresented {
             tabSelection = .multifunction
         } else if showPrimaryTabs {
@@ -198,12 +191,16 @@ struct AppNavigationView: View {
         } else {
             tabSelection = .section(enabledSections.contains(currentPage) ? currentPage : enabledSections.first ?? .settings)
         }
-        traceNavigation("synchronizeTabSelection.end")
     }
 
     private func openSources() {
         currentPage = .sources
         isSearchPresented = false
+        synchronizeTabSelection()
+    }
+
+    private func collapsePrimaryTabs() {
+        isExpanded = false
         synchronizeTabSelection()
     }
 
@@ -217,7 +214,12 @@ struct AppNavigationView: View {
         let actionValues = actions.split(separator: ",").map(String.init)
         guard let index = gestureValues.firstIndex(of: gesture), actionValues.indices.contains(index) else { return }
         if actionValues[index] == "tabs" {
-            isExpanded.toggle()
+            if isExpanded {
+                // Use the same deferred collapse path as content gestures.
+                DispatchQueue.main.async { collapsePrimaryTabs() }
+                return
+            }
+            isExpanded = true
         } else {
             openSearch()
         }
@@ -231,7 +233,6 @@ struct AppNavigationView: View {
     }
 
     private func openSearch() {
-        traceNavigation("openSearch.begin")
         guard !isSearchPresented, !isPreparingSearch else { return }
         searchReturnState = SearchReturnState(page: currentPage, expanded: isExpanded, tab: tabSelection)
         searchQuery = ""
@@ -243,7 +244,6 @@ struct AppNavigationView: View {
             isSearchPresented = true
         }
         synchronizeTabSelection()
-        traceNavigation("openSearch.end")
         AppLog.info("navigation.search.opened", category: .navigation)
     }
 
@@ -256,7 +256,6 @@ struct AppNavigationView: View {
     }
 
     private func closeSearch() {
-        traceNavigation("closeSearch.begin")
         guard isSearchPresented || isPreparingSearch else { return }
         isPreparingSearch = false
         searchFocused = false
@@ -270,7 +269,6 @@ struct AppNavigationView: View {
         searchReturnState = nil
         searchStartedWithHiddenTabs = false
         synchronizeTabSelection()
-        traceNavigation("closeSearch.end")
         AppLog.info("navigation.search.closed", category: .navigation)
     }
 
@@ -425,7 +423,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     let longPress: () -> Void
     let enabled: Bool
     let searchMode: Bool
-    let searchPresented: Bool
     let trace: (String) -> Void
     let reportHeight: (CGFloat) -> Void
 
@@ -441,11 +438,9 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         controller.gesturesEnabled = enabled
         controller.searchMode = searchMode
         controller.installWhenReady()
-        controller.trackSearchSession(searchPresented)
     }
 
     static func dismantleUIViewController(_ controller: GestureController, coordinator: ()) {
-        controller.stopTracking()
         controller.uninstall()
     }
 
@@ -457,9 +452,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var searchMode = false
         var trace: (String) -> Void = { _ in }
         private var lastNativeSelection: String?
-        private var previousSearchPresented = false
-        private var samplingTask: Task<Void, Never>?
-        private var layoutCount = 0
         private weak var configuredSearchTab: UISearchTab?
         private var configuredSearchSymbol: String?
         private weak var installedBar: UITabBar?
@@ -481,7 +473,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
 
         override func viewDidLayoutSubviews() {
             super.viewDidLayoutSubviews()
-            layoutCount += 1
             installWhenReady()
         }
 
@@ -503,7 +494,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
                     if configuredSearchTab !== search || configuredSearchSymbol != symbol {
                         configuredSearchTab = search
                         configuredSearchSymbol = symbol
-                        trace("UIKit.searchIcon.update symbol=\(symbol)")
                         search.image = UIImage(systemName: symbol)
                     }
                 }
@@ -525,53 +515,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             bar.addGestureRecognizer(pressRecognizer)
         }
 
-        func stopTracking() {
-            samplingTask?.cancel()
-            samplingTask = nil
-        }
-
-        func trackSearchSession(_ presented: Bool) {
-            guard previousSearchPresented != presented else { return }
-            let wasPresented = previousSearchPresented
-            previousSearchPresented = presented
-            samplingTask?.cancel()
-            guard wasPresented, !presented else { return }
-            let started = ProcessInfo.processInfo.systemUptime
-            samplingTask = Task { @MainActor [weak self] in
-                // Bounded observations only; never trigger layout or alter selection.
-                for tick in 0...20 {
-                    if tick > 0 {
-                        do { try await Task.sleep(for: .milliseconds(100)) }
-                        catch { return }
-                    }
-                    guard !Task.isCancelled, let self else { return }
-                    self.sampleAfterSearch(elapsed: ProcessInfo.processInfo.systemUptime - started)
-                }
-            }
-        }
-
-        private func sampleAfterSearch(elapsed: TimeInterval) {
-            var root: UIViewController = self
-            while let parent = root.parent { root = parent }
-            guard let tabs = findTabController(in: root) else { return }
-            let bar = tabs.tabBar
-            let searchTab = tabs.tabs.first { $0 is UISearchTab }
-            let image = searchTab?.image
-            let imageID = image.map { String(describing: ObjectIdentifier($0)) } ?? "none"
-            let presentationFrame = bar.layer.presentation()?.frame ?? bar.frame
-            var searchStates: [String] = []
-            collectSearchStates(in: root, states: &searchStates)
-            trace("UIKit.afterSearch elapsedMs=\(Int(elapsed * 1000)) index=\(tabs.selectedIndex) tab=\(tabs.selectedTab?.identifier ?? "none") item=\(bar.selectedItem?.title ?? "none") iconID=\(imageID) iconSize=\(String(describing: image?.size)) configuredSymbol=\(configuredSearchSymbol ?? "none") frame=\(bar.frame) presentationFrame=\(presentationFrame) hidden=\(bar.isHidden) alpha=\(bar.alpha) animations=\(bar.layer.animationKeys() ?? []) layouts=\(layoutCount) searches=\(searchStates)")
-        }
-
-        private func collectSearchStates(in controller: UIViewController, states: inout [String]) {
-            if let search = controller.navigationItem.searchController {
-                let bar = search.searchBar
-                states.append("active=\(search.isActive),window=\(bar.window != nil),hidden=\(bar.isHidden),alpha=\(bar.alpha),frame=\(bar.frame),focus=\(bar.searchTextField.isFirstResponder)")
-            }
-            for child in controller.children { collectSearchStates(in: child, states: &states) }
-        }
-
         private func findTabController(in controller: UIViewController) -> UITabBarController? {
             if let tabs = controller as? UITabBarController { return tabs }
             for child in controller.children {
@@ -590,18 +533,30 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             guard gesturesEnabled, let bar = installedBar else { return false }
             // The independent search-role item occupies the trailing platter.
             // Use the public item's accessibility frame when UIKit supplies it.
+            let hitsItem: Bool
             if let frame = bar.items?.last?.accessibilityFrame, !frame.isEmpty {
-                return frame.contains(touch.location(in: nil))
+                hitsItem = frame.contains(touch.location(in: nil))
+            } else {
+                hitsItem = touch.location(in: bar).x >= bar.bounds.width - 88
             }
-            return touch.location(in: bar).x >= bar.bounds.width - 88
+            if hitsItem, gestureRecognizer === tapRecognizer {
+                trace("SearchTab.touch.received nativeItem=\(bar.selectedItem?.title ?? "none") touchTime=\(touch.timestamp)")
+            }
+            return hitsItem
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
 
-        @objc private func tapped() { tapAction() }
+        @objc private func tapped() {
+            trace("SearchTab.tap.recognized")
+            tapAction()
+        }
         @objc private func pressed(_ recognizer: UILongPressGestureRecognizer) {
-            if recognizer.state == .began { longPressAction() }
+            if recognizer.state == .began {
+                trace("SearchTab.longPress.recognized")
+                longPressAction()
+            }
         }
     }
 }

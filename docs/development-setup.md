@@ -50,4 +50,4 @@ CI 沿用 `.github/workflows/build-dev.yml`，推送 dev 后在 macOS 26/Xcode 2
 
 当前使用 UIViewRepresentable 包装 UIKit 原生 UITabBar，媒体/来源/记录/设置四个原生 UITabBarItem 条件加入 items，多功能 UITabBarItem 始终保留。已移除独立悬浮按钮及整条标签栏的隐藏逻辑。应用负责页面导航，系统负责标签项渲染；布局与点击行为仍需设备验收。此前 TabView/右下角独立按钮说明已被本节替代。
 
-运行日志页首次呈现最近 100 条，可按每批 100 条加载更早记录；整体导出不受页面加载数量限制。导航诊断增加 UIKit 实际 selection（布局采样，仅状态变化时输出）、Search Tab 图标更新以及搜索控件挂载/移除事件；布局采样不保证捕获同一帧内的每个 UIKit 中间状态。
+运行日志页首次呈现最近 100 条，可按每批 100 条加载更早记录；整体导出不受页面加载数量限制。当前导航诊断仅记录 Search Tab 触摸与手势、TabView selection Binding 写回、App selection 变化和 UIKit 布局采样的实际选中变化。旧的搜索关闭定时采样已移除。
