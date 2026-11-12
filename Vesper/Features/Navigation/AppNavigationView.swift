@@ -13,7 +13,7 @@ struct AppNavigationView: View {
     @AppStorage("navigation.gestureOrder") private var gestures = "tap,longPress"
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
     @State private var currentPage: AppSection = .media
-    @State private var tabSelection: NavigationTab = .multifunction
+    @State private var tabSelection: NavigationTab = .section(.media)
     @State private var isExpanded = false
     @State private var isSearchPresented = false
     @State private var isPreparingSearch = false
