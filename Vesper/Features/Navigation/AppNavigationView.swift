@@ -41,14 +41,13 @@ struct AppNavigationView: View {
                 primaryTabs
                 Tab(isSearchPresented || !multifunctionEnabled ? "搜索" : "多功能",
                     systemImage: isSearchPresented || !multifunctionEnabled ? "magnifyingglass" : "square.grid.2x2",
-                    value: NavigationTab.multifunction, role: .search) {
+                    value: NavigationTab.multifunction, role: .prominent) {
                     // Keep the search controller alive while UIKit completes
                     // its cancel/collapse transition.
                     SearchPage(query: searchQuery)
                 }
             }
             .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
-            .tabViewSearchActivation(!multifunctionEnabled || isSearchPresented ? .searchTabSelection : .automatic)
             .toolbarBackground(.hidden, for: .tabBar)
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
