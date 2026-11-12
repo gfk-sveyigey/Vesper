@@ -18,6 +18,8 @@ struct AppNavigationView: View {
     @State private var isSearchPresented = false
     @State private var searchInputActive = false
     @State private var searchQuery = ""
+    @State private var searchPageReady = false
+    @State private var searchTabsReady = false
     @FocusState private var searchFocused: Bool
     @State private var searchReturnState: SearchReturnState?
     @State private var tabBarHeight: CGFloat = 80
@@ -43,7 +45,7 @@ struct AppNavigationView: View {
                     systemImage: isSearchPresented ? "magnifyingglass" : "square.grid.2x2",
                     value: NavigationTab.multifunction, role: .search) {
                     if isSearchPresented {
-                        SearchPage(query: searchQuery, activate: activateSearchInput)
+                        SearchPage(query: searchQuery, activate: { searchPageReady = true })
                     } else {
                         Color.clear
                     }
@@ -57,6 +59,7 @@ struct AppNavigationView: View {
                 longPress: { performGesture("longPress") },
                 enabled: !isSearchPresented,
                 searchMode: isSearchPresented,
+                reportSearchReady: { if isSearchPresented { searchTabsReady = true } },
                 reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
                 }
@@ -74,6 +77,15 @@ struct AppNavigationView: View {
         }
         .tint(Color("VesperAccent"))
         .transaction { $0.animation = nil }
+        .task(id: isSearchPresented && searchPageReady && searchTabsReady) {
+            guard isSearchPresented, searchPageReady, searchTabsReady else { return }
+            activateSearchInput()
+            do {
+                try await Task.sleep(for: .milliseconds(180))
+            } catch { return }
+            guard !Task.isCancelled, isSearchPresented, searchInputActive else { return }
+            searchFocused = true
+        }
         .onAppear { synchronizeTabSelection() }
         .onChange(of: showPrimaryTabs) { _, _ in synchronizeTabSelection() }
         .onChange(of: enabledSections) { _, _ in synchronizeTabSelection() }
@@ -140,6 +152,8 @@ struct AppNavigationView: View {
         guard !isSearchPresented else { return }
         searchReturnState = SearchReturnState(page: currentPage, expanded: isExpanded, tab: tabSelection)
         searchQuery = ""
+        searchPageReady = false
+        searchTabsReady = false
         isSearchPresented = true
         synchronizeTabSelection()
         AppLog.info("navigation.search.opened", category: .navigation)
@@ -148,12 +162,13 @@ struct AppNavigationView: View {
     private func activateSearchInput() {
         guard isSearchPresented, tabSelection == .multifunction else { return }
         searchInputActive = true
-        searchFocused = true
         AppLog.info("navigation.search.manuallyActivated", category: .navigation)
     }
 
     private func closeSearch() {
         guard isSearchPresented else { return }
+        searchPageReady = false
+        searchTabsReady = false
         searchFocused = false
         searchInputActive = false
         isSearchPresented = false
@@ -228,6 +243,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     let longPress: () -> Void
     let enabled: Bool
     let searchMode: Bool
+    let reportSearchReady: () -> Void
     let reportHeight: (CGFloat) -> Void
 
     func makeUIViewController(context: Context) -> GestureController {
@@ -240,6 +256,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         controller.reportHeight = reportHeight
         controller.gesturesEnabled = enabled
         controller.searchMode = searchMode
+        controller.reportSearchReady = reportSearchReady
         controller.installWhenReady()
     }
 
@@ -253,6 +270,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var reportHeight: (CGFloat) -> Void
         var gesturesEnabled = true
         var searchMode = false
+        var reportSearchReady: () -> Void = {}
         private weak var installedBar: UITabBar?
         private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
         private lazy var pressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
@@ -270,6 +288,11 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             installWhenReady()
         }
 
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            installWhenReady()
+        }
+
         func installWhenReady() {
             var root: UIViewController = self
             while let parent = root.parent { root = parent }
@@ -281,6 +304,16 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
                 }
             }
             let bar = controller.tabBar
+            if searchMode {
+                // Wait until the expanded group's native items have actually
+                // reached the bar, not merely until SwiftUI state changes.
+                if !bar.isHidden, bar.window != nil, (bar.items?.count ?? 0) > 1 {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.searchMode else { return }
+                        self.reportSearchReady()
+                    }
+                }
+            }
             let height = max(0, bar.bounds.height - controller.view.safeAreaInsets.bottom)
             if height > 0 {
                 DispatchQueue.main.async { [weak self] in self?.reportHeight(height) }
