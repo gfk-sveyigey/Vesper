@@ -152,3 +152,5 @@ Color("VesperPlaybackProgress")
 当前 iOS 26 继续使用 Search Tab role，但关闭其自动搜索联动；搜索由 App 显式控制。
 
 搜索恢复为 App 手动控制：Search Tab 不自动激活；进入时保存页面、标签组和 selection，显示 Search 页面后通过 searchable(isPresented:) 与 searchFocused 请求激活和焦点；取消搜索或切换普通标签时由 App 清理输入状态并恢复快照。
+
+搜索页面容器实验：Search Tab 内容固定为 Color.clear；ContentHost 同级管理四个普通页面及独立 SearchPage hosting controller。搜索状态仅切换 ContentHost 内部子视图可见性，不替换 Search Tab 页面内容。用于验证系统取消搜索期间页面变化是否导致标签栏闪烁。

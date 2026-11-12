@@ -43,11 +43,7 @@ struct AppNavigationView: View {
             )) {
                 primaryTabs
                 Tab(multifunctionTitle, systemImage: multifunctionSymbol, value: NavigationTab.multifunction, role: .search) {
-                    if isSearchPresented {
-                        SearchPage(query: searchQuery, activate: activateSearchInput)
-                    } else {
-                        Color.clear
-                    }
+                    Color.clear
                 }
             }
             .searchable(text: $searchQuery, isPresented: $searchInputActive, prompt: "搜索当前媒体来源")
@@ -65,7 +61,14 @@ struct AppNavigationView: View {
 
             // This sibling owns the ordinary pages, independently of TabView.
             // Reserve the native bar's measured area so it remains interactive.
-            ContentHost(hosts: hosts, currentPage: currentPage, openSources: openSources) {
+            ContentHost(
+                hosts: hosts,
+                currentPage: currentPage,
+                openSources: openSources,
+                isSearchPresented: isSearchPresented,
+                searchQuery: searchQuery,
+                activateSearchInput: activateSearchInput
+            ) {
                 guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
                 isExpanded = false
                 synchronizeTabSelection()
@@ -254,6 +257,9 @@ private struct ContentHost: UIViewControllerRepresentable {
     let hosts: SectionHosts
     let currentPage: AppSection
     let openSources: () -> Void
+    let isSearchPresented: Bool
+    let searchQuery: String
+    let activateSearchInput: () -> Void
     let contentTapped: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(contentTapped: contentTapped) }
@@ -277,9 +283,24 @@ private struct ContentHost: UIViewControllerRepresentable {
                 host.view.topAnchor.constraint(equalTo: container.view.topAnchor),
                 host.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
             ])
-            host.view.isHidden = section != currentPage
+            host.view.isHidden = isSearchPresented || section != currentPage
             host.didMove(toParent: container)
         }
+        let searchHost = UIHostingController(rootView: AnyView(
+            SearchPage(query: searchQuery, activate: activateSearchInput)
+        ))
+        searchHost.view.accessibilityIdentifier = "search-page-host"
+        container.addChild(searchHost)
+        searchHost.view.translatesAutoresizingMaskIntoConstraints = false
+        container.view.addSubview(searchHost.view)
+        NSLayoutConstraint.activate([
+            searchHost.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
+            searchHost.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
+            searchHost.view.topAnchor.constraint(equalTo: container.view.topAnchor),
+            searchHost.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
+        ])
+        searchHost.view.isHidden = !isSearchPresented
+        searchHost.didMove(toParent: container)
         return container
     }
 
@@ -287,8 +308,13 @@ private struct ContentHost: UIViewControllerRepresentable {
         context.coordinator.contentTapped = contentTapped
         for section in AppSection.allCases {
             let host = hosts.controller(for: section, openSources: openSources)
-            host.view.isHidden = section != currentPage
-            host.view.accessibilityElementsHidden = section != currentPage
+            host.view.isHidden = isSearchPresented || section != currentPage
+            host.view.accessibilityElementsHidden = isSearchPresented || section != currentPage
+        }
+        if let searchHost = container.children.first(where: { $0 is UIHostingController<AnyView> && $0.view.accessibilityIdentifier == "search-page-host" }) as? UIHostingController<AnyView> {
+            searchHost.rootView = AnyView(SearchPage(query: searchQuery, activate: activateSearchInput))
+            searchHost.view.isHidden = !isSearchPresented
+            searchHost.view.accessibilityElementsHidden = !isSearchPresented
         }
     }
 
