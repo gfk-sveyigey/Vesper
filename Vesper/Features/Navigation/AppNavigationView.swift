@@ -97,11 +97,18 @@ struct AppNavigationView: View {
 
     }
 
+    @ViewBuilder
     private var multifunctionTab: some TabContent<NavigationTab> {
         let title = (isSearchPresented || !multifunctionEnabled) ? "搜索" : "多功能"
         let symbol = (isSearchPresented || !multifunctionEnabled) ? "magnifyingglass" : "square.grid.2x2"
-        return Tab(title, systemImage: symbol, value: NavigationTab.multifunction, role: .prominent) {
-            SearchPage(query: searchQuery)
+        if #available(iOS 27.0, *) {
+            Tab(title, systemImage: symbol, value: NavigationTab.multifunction, role: .prominent) {
+                SearchPage(query: searchQuery)
+            }
+        } else {
+            Tab(title, systemImage: symbol, value: NavigationTab.multifunction, role: .search) {
+                SearchPage(query: searchQuery)
+            }
         }
     }
 
