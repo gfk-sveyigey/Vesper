@@ -39,7 +39,10 @@ struct AppNavigationView: View {
         ZStack {
             TabView(selection: Binding(
                 get: { tabSelection },
-                set: { selectTab($0) }
+                set: {
+                    traceNavigation("selection", selection: $0)
+                    selectTab($0)
+                }
             )) {
                 primaryTabs
                 Tab(multifunctionTitle, systemImage: multifunctionSymbol, value: NavigationTab.multifunction, role: .search) {
@@ -116,7 +119,13 @@ struct AppNavigationView: View {
             synchronizeTabSelection()
         }
         .onChange(of: enabledSections) { _, _ in synchronizeTabSelection() }
-        .onChange(of: isSearchPresented) { _, _ in synchronizeTabSelection() }
+        .onChange(of: tabSelection) { old, new in
+            traceNavigation("selection.onChange old=\(tabName(old))", selection: new)
+        }
+        .onChange(of: isSearchPresented) { _, _ in
+            traceNavigation("isSearchPresented.onChange")
+            synchronizeTabSelection()
+        }
         .onChange(of: searchInputActive) { old, active in
             if old && !active && isSearchPresented { closeSearch() }
         }
@@ -131,6 +140,26 @@ struct AppNavigationView: View {
         isSearchPresented || !multifunctionEnabled ? "magnifyingglass" : "square.grid.2x2"
     }
 
+    private func traceNavigation(_ event: String, selection: NavigationTab? = nil) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let instant = formatter.string(from: Date())
+        let selected = selection ?? tabSelection
+        let selectedName = tabName(selected)
+        AppLog.info(
+            "navigation.trace.\(event)",
+            category: .navigation,
+            detail: "timestamp=\(instant) selection=\(selectedName) isSearchPresented=\(isSearchPresented) tabGroupVisible=\(showPrimaryTabs) currentPage=\(currentPage.rawValue)"
+        )
+    }
+
+    private func tabName(_ tab: NavigationTab) -> String {
+        switch tab {
+        case let .section(section): return section.rawValue
+        case .multifunction: return "multifunction"
+        }
+    }
+
     private var primaryTabs: some TabContent<NavigationTab> {
         TabSection("主要功能") {
             ForEach(enabledSections) { section in
@@ -143,6 +172,7 @@ struct AppNavigationView: View {
     }
 
     private func selectTab(_ tab: NavigationTab) {
+        traceNavigation("selectTab", selection: tab)
         guard case let .section(section) = tab else {
             // System search selection is accepted only in the search session.
             if isSearchPresented { tabSelection = tab }
@@ -158,6 +188,7 @@ struct AppNavigationView: View {
     }
 
     private func synchronizeTabSelection() {
+        traceNavigation("synchronizeTabSelection.begin")
         if isSearchPresented {
             tabSelection = .multifunction
         } else if showPrimaryTabs {
@@ -169,6 +200,7 @@ struct AppNavigationView: View {
         } else {
             tabSelection = .section(enabledSections.contains(currentPage) ? currentPage : enabledSections.first ?? .settings)
         }
+        traceNavigation("synchronizeTabSelection.end")
     }
 
     private func openSources() {
@@ -201,6 +233,7 @@ struct AppNavigationView: View {
     }
 
     private func openSearch() {
+        traceNavigation("openSearch.begin")
         guard !isSearchPresented, !isPreparingSearch else { return }
         searchReturnState = SearchReturnState(page: currentPage, expanded: isExpanded, tab: tabSelection)
         searchQuery = ""
@@ -212,6 +245,7 @@ struct AppNavigationView: View {
             isSearchPresented = true
         }
         synchronizeTabSelection()
+        traceNavigation("openSearch.end")
         AppLog.info("navigation.search.opened", category: .navigation)
     }
 
@@ -224,6 +258,7 @@ struct AppNavigationView: View {
     }
 
     private func closeSearch() {
+        traceNavigation("closeSearch.begin")
         guard isSearchPresented || isPreparingSearch else { return }
         isPreparingSearch = false
         searchFocused = false
@@ -237,6 +272,7 @@ struct AppNavigationView: View {
         searchReturnState = nil
         searchStartedWithHiddenTabs = false
         synchronizeTabSelection()
+        traceNavigation("closeSearch.end")
         AppLog.info("navigation.search.closed", category: .navigation)
     }
 
