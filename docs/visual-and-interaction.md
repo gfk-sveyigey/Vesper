@@ -137,16 +137,12 @@ Color("VesperPlaybackProgress")
 
 多功能项始终留在原生标签栏中；仅四个目的地标签作为一组隐藏。
 
-## App 管理的独立搜索
+## App 管理的原生 Search Tab 搜索
 
-搜索状态、展示与退出完全由 App 管理，不依赖 UISearchTab 自动激活、返回标签记录或 TabView 的搜索联动。多功能项保留独立 Search 角色外观，但只作为手势入口，不承载页面。
+普通页面由外部 ContentHost 管理。Search Tab 只承载搜索页面，不隐藏该项；进入搜索时主要标签组展开，多功能网格图标切换为 magnifyingglass。App 保存进入前的 currentPage、tabSelection 和组显隐状态。
 
-进入搜索前保存 currentPage、tabSelection 和主要功能组显隐状态。独立搜索页面与 ContentHost、TabView 同级；搜索期间强制展开主要功能组、隐藏多功能项，普通 ContentHost 保留原页面及 NavigationStack，但隐藏并禁用交互与无障碍访问。
+TabView 上配置 `.searchable(text:isPresented:prompt:)` 与 `.searchFocused`，由系统提供内嵌标签栏的搜索布局。App 先选中 Search Tab 并显示搜索页面，再由搜索页 task 手动设置输入激活和焦点；不启用 automaticallyActivatesSearch 或 searchTabSelection 自动返回联动。
 
-搜索页在底部靠近标签栏的位置使用原生 UISearchBar 和系统 Liquid Glass 背景，不提供独立关闭按钮。输入框自动获得焦点；键盘 Search 键结束输入，通过选择普通标签退出搜索。该搜索输入是 App 自行布局的底部输入区域，不是系统 Search Tab 内嵌搜索联动。多功能项随退出恢复显示。选择普通标签也退出搜索，然后切换到所选区域。
+系统取消搜索后 App 结束搜索并恢复此前页面、导航状态、标签组显隐与网格图标。选择普通标签也退出搜索并前往该区域。不提供独立关闭按钮，不再自行布局 UISearchBar。
 
-不使用系统 Search Tab 的自动返回按钮，不依赖其记录。手势映射继续由设置保存。ContentHost 固定管理四个页面 Host，不因搜索和标签显隐移动或重建。
-
-需在 iOS 26 真机验收冷启动搜索、退出后恢复二级页面、展开和收起状态恢复、键盘焦点，以及搜索期间普通标签切换；编译通过不代表交互已验收。
-
-普通内容容器在原生标签栏上方额外预留 24pt 的交互外扩空间，并裁剪超出区域的内容，避免覆盖多功能项长按时放大的顶部；需真机检查不同屏幕及 Dynamic Type 下的覆盖范围。
+普通内容在标签栏上方预留 24pt 外扩空间，避免遮挡长按反馈。需真机验证手动激活是否呈现底部内嵌搜索、首次搜索左侧图标、取消与焦点、标签切换及长按反馈；编译成功不表示交互已验收。
