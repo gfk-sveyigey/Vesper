@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import Combine
 
 /// Unified Logging owns timestamps, levels and persistence; avoid duplicate file logs.
 enum AppLog {
@@ -8,6 +9,14 @@ enum AppLog {
     }
 
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.aholic.vesper"
+    static let runtimeEntries = RuntimeLogEntries()
+
+    @MainActor
+    static func trace(_ event: String, detail: String) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        runtimeEntries.append("\(formatter.string(from: Date())) \(event) \(detail)")
+    }
 
     static func info(_ event: String, category: Category, detail: String = "") {
         Logger(subsystem: subsystem, category: category.rawValue)
@@ -27,4 +36,16 @@ enum AppLog {
         Logger(subsystem: subsystem, category: category.rawValue)
             .error("\(event, privacy: .public) domain=\(underlying.domain, privacy: .private) code=\(underlying.code)")
     }
+}
+
+@MainActor
+final class RuntimeLogEntries: ObservableObject {
+    @Published private(set) var entries: [String] = []
+
+    func append(_ entry: String) {
+        entries.append(entry)
+        if entries.count > 500 { entries.removeFirst(entries.count - 500) }
+    }
+
+    func clear() { entries.removeAll() }
 }

@@ -83,6 +83,7 @@ struct AppNavigationView: View {
                 currentPage: currentPage,
                 openSources: openSources,
                 isSearchPresented: isSearchPresented,
+                showPrimaryTabs: showPrimaryTabs,
                 searchQuery: searchQuery
             ) {
                 guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
@@ -141,16 +142,9 @@ struct AppNavigationView: View {
     }
 
     private func traceNavigation(_ event: String, selection: NavigationTab? = nil) {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let instant = formatter.string(from: Date())
         let selected = selection ?? tabSelection
         let selectedName = tabName(selected)
-        AppLog.info(
-            "navigation.trace.\(event)",
-            category: .navigation,
-            detail: "timestamp=\(instant) selection=\(selectedName) isSearchPresented=\(isSearchPresented) tabGroupVisible=\(showPrimaryTabs) currentPage=\(currentPage.rawValue)"
-        )
+        AppLog.trace("navigation.trace.\(event)", detail: "selection=\(selectedName) isSearchPresented=\(isSearchPresented) tabGroupVisible=\(showPrimaryTabs) currentPage=\(currentPage.rawValue)")
     }
 
     private func tabName(_ tab: NavigationTab) -> String {
@@ -303,6 +297,7 @@ private struct ContentHost: UIViewControllerRepresentable {
     let currentPage: AppSection
     let openSources: () -> Void
     let isSearchPresented: Bool
+    let showPrimaryTabs: Bool
     let searchQuery: String
     let contentTapped: () -> Void
 
@@ -316,6 +311,17 @@ private struct ContentHost: UIViewControllerRepresentable {
         tap.delaysTouchesEnded = false
         tap.delegate = context.coordinator
         container.view.addGestureRecognizer(tap)
+        let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.longPressed(_:)))
+        longPress.cancelsTouchesInView = false
+        longPress.delegate = context.coordinator
+        container.view.addGestureRecognizer(longPress)
+        for direction: UISwipeGestureRecognizer.Direction in [.left, .right, .up, .down] {
+            let swipe = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.swiped(_:)))
+            swipe.direction = direction
+            swipe.cancelsTouchesInView = false
+            swipe.delegate = context.coordinator
+            container.view.addGestureRecognizer(swipe)
+        }
         for section in AppSection.allCases {
             let host = hosts.controller(for: section, openSources: openSources)
             container.addChild(host)
@@ -345,11 +351,15 @@ private struct ContentHost: UIViewControllerRepresentable {
         ])
         searchHost.view.isHidden = !isSearchPresented
         searchHost.didMove(toParent: container)
+        context.coordinator.isSearchPresented = isSearchPresented
+        context.coordinator.showPrimaryTabs = showPrimaryTabs
         return container
     }
 
     func updateUIViewController(_ container: UIViewController, context: Context) {
         context.coordinator.contentTapped = contentTapped
+        context.coordinator.isSearchPresented = isSearchPresented
+        context.coordinator.showPrimaryTabs = showPrimaryTabs
         for section in AppSection.allCases {
             let host = hosts.controller(for: section, openSources: openSources)
             host.view.isHidden = isSearchPresented || section != currentPage
@@ -364,6 +374,8 @@ private struct ContentHost: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var contentTapped: () -> Void
+        var isSearchPresented = false
+        var showPrimaryTabs = false
         init(contentTapped: @escaping () -> Void) { self.contentTapped = contentTapped }
 
         @objc func tapped() {
@@ -372,8 +384,32 @@ private struct ContentHost: UIViewControllerRepresentable {
             DispatchQueue.main.async { [weak self] in self?.contentTapped() }
         }
 
+        @objc func longPressed(_ recognizer: UILongPressGestureRecognizer) {
+            guard recognizer.state == .began else { return }
+            collapseAfterGesture()
+        }
+
+        @objc func swiped(_ recognizer: UISwipeGestureRecognizer) {
+            collapseAfterGesture()
+        }
+
+        private func collapseAfterGesture() {
+            DispatchQueue.main.async { [weak self] in self?.contentTapped() }
+        }
+
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard !isSearchPresented, showPrimaryTabs else { return false }
+            var candidate = touch.view
+            while let current = candidate {
+                if current is UIControl || current is UITextField || current is UITextView { return false }
+                if current.accessibilityTraits.contains(.button) { return false }
+                candidate = current.superview
+            }
+            return true
+        }
     }
 
 }

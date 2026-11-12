@@ -40,14 +40,40 @@ struct SettingsView: View {
             case .tabs: TabSettingsView()
             case .gestures: GestureActionSettingsView()
             case .appearance: AppearanceSettingsView()
-            case .logs:
-                ContentUnavailableView("运行日志", systemImage: "doc.text", description: Text("功能暂未开放。"))
-                    .navigationTitle("运行日志")
-                    .toolbarBackground(.hidden, for: .navigationBar)
+            case .logs: RuntimeLogsView()
             }
         }
         .navigationTitle("设置")
         .toolbarBackground(.hidden, for: .navigationBar)
+    }
+}
+
+private struct RuntimeLogsView: View {
+    @ObservedObject private var store: RuntimeLogEntries
+
+    init() { store = AppLog.runtimeEntries }
+
+    var body: some View {
+        Group {
+            if store.entries.isEmpty {
+                ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
+            } else {
+                List(store.entries.reversed(), id: \.self) { entry in
+                    Text(entry)
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle("运行日志")
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("清空", systemImage: "trash") { store.clear() }
+                    .disabled(store.entries.isEmpty)
+            }
+        }
     }
 }
 
