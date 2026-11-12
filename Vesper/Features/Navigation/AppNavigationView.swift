@@ -40,10 +40,6 @@ struct AppNavigationView: View {
             )) {
                 primaryTabs
                 multifunctionTab
-                    // Keep the search controller alive while UIKit completes
-                    // its cancel/collapse transition.
-                    SearchPage(query: searchQuery)
-                }
             }
             .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
             .toolbarBackground(.hidden, for: .tabBar)
