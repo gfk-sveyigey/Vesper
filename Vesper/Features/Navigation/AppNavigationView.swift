@@ -63,14 +63,13 @@ struct AppNavigationView: View {
 
             // This sibling owns the ordinary pages, independently of TabView.
             // Reserve the native bar's measured area so it remains interactive.
-            ContentHost(hosts: hosts, currentPage: currentPage, openSources: openSources)
+            ContentHost(hosts: hosts, currentPage: currentPage, openSources: openSources) {
+                guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
+                isExpanded = false
+                synchronizeTabSelection()
+            }
                 .padding(.bottom, tabBarHeight + 24)
                 .clipped()
-                .simultaneousGesture(TapGesture().onEnded {
-                    guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
-                    isExpanded = false
-                    synchronizeTabSelection()
-                })
                 .opacity(isSearchPresented ? 0 : 1)
                 .allowsHitTesting(!isSearchPresented)
                 .accessibilityHidden(isSearchPresented)
@@ -209,9 +208,18 @@ private struct ContentHost: UIViewControllerRepresentable {
     let hosts: SectionHosts
     let currentPage: AppSection
     let openSources: () -> Void
+    let contentTapped: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(contentTapped: contentTapped) }
 
     func makeUIViewController(context: Context) -> UIViewController {
         let container = UIViewController()
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
+        tap.cancelsTouchesInView = false
+        tap.delaysTouchesBegan = false
+        tap.delaysTouchesEnded = false
+        tap.delegate = context.coordinator
+        container.view.addGestureRecognizer(tap)
         for section in AppSection.allCases {
             let host = hosts.controller(for: section, openSources: openSources)
             container.addChild(host)
@@ -230,12 +238,28 @@ private struct ContentHost: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ container: UIViewController, context: Context) {
+        context.coordinator.contentTapped = contentTapped
         for section in AppSection.allCases {
             let host = hosts.controller(for: section, openSources: openSources)
             host.view.isHidden = section != currentPage
             host.view.accessibilityElementsHidden = section != currentPage
         }
     }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var contentTapped: () -> Void
+        init(contentTapped: @escaping () -> Void) { self.contentTapped = contentTapped }
+
+        @objc func tapped() {
+            // Let the native control finish handling this touch before changing
+            // tab visibility. Never cancel the original control's interaction.
+            DispatchQueue.main.async { [weak self] in self?.contentTapped() }
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+    }
+
 }
 
 /// Only bridges gestures on the system tab bar; does not replace its delegate,
