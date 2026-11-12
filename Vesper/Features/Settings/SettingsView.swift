@@ -75,7 +75,6 @@ private struct RuntimeLogsView: View {
                     ForEach(store.entries.reversed()) { entry in
                         Text(entry.message)
                             .font(.system(.footnote, design: .monospaced))
-                            .textSelection(.enabled)
                             .contextMenu {
                                 Button("复制日志", systemImage: "doc.on.doc") {
                                     UIPasteboard.general.string = entry.message
