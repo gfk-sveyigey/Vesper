@@ -86,7 +86,11 @@ struct AppNavigationView: View {
                 enabled: !isSearchPresented,
                 trace: { event in traceNavigation(event) },
                 reportHeight: { height in
-                    if tabBarHeight != height { tabBarHeight = height }
+                    if tabBarHeight != height {
+                        var transaction = Transaction(animation: nil)
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) { tabBarHeight = height }
+                    }
                 }
             ))
 
@@ -342,6 +346,19 @@ struct AppNavigationView: View {
 
 }
 
+/// UIKit-created hosting roots do not inherit the outer SwiftUI environment.
+private struct HostedPageEnvironment<Content: View>: View {
+    @AppStorage("language.code") private var languageCode = "system"
+    @AppStorage("appearance.accent") private var accent = "vesper"
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+            .environment(\.locale, VesperLocalization.locale(for: languageCode))
+            .tint(VesperTheme.accent(accent))
+    }
+}
+
 /// Four persistent hosts, each with its own NavigationStack.
 @MainActor
 private final class SectionHosts {
@@ -356,7 +373,7 @@ private final class SectionHosts {
         case .history: page = AnyView(NavigationStack { HistoryView() }.background(VesperTheme.background.ignoresSafeArea()))
         case .settings: page = AnyView(NavigationStack { SettingsView() }.background(VesperTheme.background.ignoresSafeArea()))
         }
-        let controller = UIHostingController(rootView: page)
+        let controller = UIHostingController(rootView: AnyView(HostedPageEnvironment { page }))
         controller.view.backgroundColor = .clear
         controllers[section] = controller
         return controller
@@ -409,7 +426,7 @@ private struct ContentHost: UIViewControllerRepresentable {
             host.didMove(toParent: container)
         }
         let searchHost = UIHostingController(rootView: AnyView(
-            SearchPage(query: searchQuery)
+            HostedPageEnvironment { SearchPage(query: searchQuery) }
         ))
         searchHost.view.accessibilityIdentifier = "search-page-host"
         searchHost.view.backgroundColor = .clear
@@ -439,7 +456,7 @@ private struct ContentHost: UIViewControllerRepresentable {
             host.view.accessibilityElementsHidden = isSearchPresented || section != currentPage
         }
         if let searchHost = container.children.first(where: { $0 is UIHostingController<AnyView> && $0.view.accessibilityIdentifier == "search-page-host" }) as? UIHostingController<AnyView> {
-            searchHost.rootView = AnyView(SearchPage(query: searchQuery))
+            searchHost.rootView = AnyView(HostedPageEnvironment { SearchPage(query: searchQuery) })
             searchHost.view.isHidden = !isSearchPresented
             searchHost.view.accessibilityElementsHidden = !isSearchPresented
         }

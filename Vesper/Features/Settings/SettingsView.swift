@@ -19,7 +19,7 @@ struct SettingsView: View {
                 NavigationLink("外观设置", value: SettingsRoute.appearance)
                 NavigationLink("运行日志", value: SettingsRoute.logs)
                 Picker("应用语言", selection: $languageCode) {
-                    Text("系统默认").tag("system")
+                    Text("自动").tag("system")
                     Text("简体中文").tag("zh-Hans")
                     Text("English").tag("en")
                     Text("日本語").tag("ja")
@@ -47,6 +47,7 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
         .vesperTransparentNavigationBar()
         .navigationDestination(for: SettingsRoute.self) { route in
             switch route {
