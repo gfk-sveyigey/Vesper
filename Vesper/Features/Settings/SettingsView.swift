@@ -46,9 +46,8 @@ struct SettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(VesperTheme.background.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
-        .vesperTransparentNavigationBar()
+        .vesperSystemNavigationBar()
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
@@ -111,8 +110,7 @@ private struct RuntimeLogsView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(VesperTheme.background.ignoresSafeArea())
-        .vesperTransparentNavigationBar()
+        .vesperSystemNavigationBar()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -200,8 +198,7 @@ private struct AppearanceSettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(VesperTheme.background.ignoresSafeArea())
-        .vesperTransparentNavigationBar()
+        .vesperSystemNavigationBar()
     }
 }
 
@@ -252,9 +249,8 @@ struct TabSettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(VesperTheme.background.ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
-        .vesperTransparentNavigationBar()
+        .vesperSystemNavigationBar()
     }
 }
 
@@ -280,9 +276,8 @@ private struct GestureActionSettingsView: View {
                 .foregroundStyle(.secondary)
                 .padding()
         }
-        .background(VesperTheme.background.ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
-        .vesperTransparentNavigationBar()
+        .vesperSystemNavigationBar()
     }
 
     private func column(_ storage: Binding<String>, names: [String: String]) -> some View {

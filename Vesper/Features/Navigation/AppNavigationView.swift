@@ -26,7 +26,7 @@ struct AppNavigationView: View {
     @FocusState private var searchFocused: Bool
     @State private var searchReturnState: SearchReturnState?
     @State private var searchStartedWithHiddenTabs = false
-    @State private var tabBarHeight: CGFloat = 80
+    @State private var tabBarFrame: CGRect = .null
     @State private var hosts = SectionHosts()
 
     private var enabledSections: [AppSection] {
@@ -41,61 +41,63 @@ struct AppNavigationView: View {
     var body: some View {
         ZStack {
             VesperTheme.background.ignoresSafeArea()
-            TabView(selection: Binding(
-                get: { tabSelection },
-                set: {
-                    traceNavigation("selection.writeback requested=\(tabName($0))")
-                    selectTab($0)
-                }
-            )) {
-                primaryTabs
-                Tab(multifunctionTitle, systemImage: multifunctionSymbol, value: NavigationTab.multifunction, role: .search) {
-                    // Mount on first preparation and retain the navigation/search
-                    // context when cancelling so native dismissal can finish.
-                    if hasPreparedSearchControl {
-                        NavigationStack {
-                            VesperTheme.background.ignoresSafeArea()
-                        }
-                        .vesperTransparentNavigationBar()
-                        .searchable(text: $searchQuery, isPresented: Binding(
-                            get: { searchInputActive },
-                            set: { active in
-                                guard !active || isSearchPresented else {
-                                    traceNavigation("search.activationIgnored")
-                                    return
-                                }
-                                searchInputActive = active
+            SystemTabLayer {
+                TabView(selection: Binding(
+                    get: { tabSelection },
+                    set: {
+                        traceNavigation("selection.writeback requested=\(tabName($0))")
+                        selectTab($0)
+                    }
+                )) {
+                    primaryTabs
+                    Tab(multifunctionTitle, systemImage: multifunctionSymbol, value: NavigationTab.multifunction, role: .search) {
+                        // Mount on first preparation and retain the navigation/search
+                        // context when cancelling so native dismissal can finish.
+                        if hasPreparedSearchControl {
+                            NavigationStack {
+                                Color.clear
                             }
-                        ), prompt: "搜索当前媒体来源")
-                        .searchFocused($searchFocused)
-                        .task(id: isSearchPresented) {
-                            guard isSearchPresented else { return }
-                            await Task.yield()
-                            guard !Task.isCancelled, isSearchPresented else { return }
-                            activateSearchInput()
+                            .vesperSystemNavigationBar()
+                            .searchable(text: $searchQuery, isPresented: Binding(
+                                get: { searchInputActive },
+                                set: { active in
+                                    guard !active || isSearchPresented else {
+                                        traceNavigation("search.activationIgnored")
+                                        return
+                                    }
+                                    searchInputActive = active
+                                }
+                            ), prompt: "搜索当前媒体来源")
+                            .searchFocused($searchFocused)
+                            .task(id: isSearchPresented) {
+                                guard isSearchPresented else { return }
+                                await Task.yield()
+                                guard !Task.isCancelled, isSearchPresented else { return }
+                                activateSearchInput()
+                            }
+                        } else {
+                            Color.clear
                         }
-                    } else {
-                        VesperTheme.background.ignoresSafeArea()
                     }
                 }
+                .background(MultifunctionGestures(
+                    tap: { performGesture("tap") },
+                    longPress: { performGesture("longPress") },
+                    enabled: !isSearchPresented,
+                    trace: { event in traceNavigation(event) },
+                    reportFrame: { frame in
+                        if tabBarFrame != frame {
+                            var transaction = Transaction(animation: nil)
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { tabBarFrame = frame }
+                        }
+                    }
+                ))
             }
-            .toolbarBackground(.hidden, for: .tabBar)
-            .background(MultifunctionGestures(
-                tap: { performGesture("tap") },
-                longPress: { performGesture("longPress") },
-                enabled: !isSearchPresented,
-                trace: { event in traceNavigation(event) },
-                reportHeight: { height in
-                    if tabBarHeight != height {
-                        var transaction = Transaction(animation: nil)
-                        transaction.disablesAnimations = true
-                        withTransaction(transaction) { tabBarHeight = height }
-                    }
-                }
-            ))
+            .zIndex(1)
 
             // This sibling owns the ordinary pages, independently of TabView.
-            // Constrain page hosts to the unobscured system safe-area viewport.
+            // Hosts fill the viewport; child safe areas reserve the actual native bar.
             ContentHost(
                 hosts: hosts,
                 currentPage: currentPage,
@@ -103,15 +105,14 @@ struct AppNavigationView: View {
                 isSearchPresented: isSearchPresented,
                 showPrimaryTabs: showPrimaryTabs,
                 searchQuery: searchQuery,
-                bottomBarClearance: tabBarHeight + 24
+                tabBarFrame: tabBarFrame
             ) {
                 guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
                 collapsePrimaryTabs()
             }
-            .ignoresSafeArea(.container)
 
         }
-        .background(VesperTheme.background.ignoresSafeArea())
+        .ignoresSafeArea(.container)
         .task(id: isPreparingSearch) {
             guard isPreparingSearch else { return }
             // Yield after mounting the search context, then select its native tab
@@ -182,7 +183,7 @@ struct AppNavigationView: View {
         TabSection("主要功能") {
             ForEach(enabledSections) { section in
                 Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
-                    VesperTheme.background.ignoresSafeArea()
+                    Color.clear
                 }
             }
         }
@@ -380,54 +381,114 @@ private final class SectionHosts {
     }
 }
 
-/// Hosts occupy only the unobscured viewport. Background is supplied by TabView.
-private final class PageContainerController: UIViewController {
-    var bottomBarClearance: CGFloat = 0 {
-        didSet {
-            guard oldValue != bottomBarClearance else { return }
-            for constraint in bottomConstraints { constraint.constant = -bottomBarClearance }
-            viewIfLoaded?.setNeedsLayout()
-        }
+/// Native system controls render above pages, but their empty viewport passes touches through.
+private struct SystemTabLayer<Content: View>: UIViewControllerRepresentable {
+    @Environment(\.locale) private var locale
+    @AppStorage("appearance.accent") private var accent = "vesper"
+    @ViewBuilder let content: () -> Content
+
+    func makeUIViewController(context: Context) -> SystemTabLayerController {
+        SystemTabLayerController(rootView: AnyView(content().environment(\.locale, locale).tint(VesperTheme.accent(accent))))
     }
-    private var bottomConstraints: [NSLayoutConstraint] = []
+
+    func updateUIViewController(_ controller: SystemTabLayerController, context: Context) {
+        controller.host.rootView = AnyView(content().environment(\.locale, locale).tint(VesperTheme.accent(accent)))
+    }
+}
+
+private final class SystemTabLayerController: UIViewController {
+    let host: UIHostingController<AnyView>
+
+    init(rootView: AnyView) {
+        host = UIHostingController(rootView: rootView)
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        view = PageContainerView()
+        view = SystemTabPassthroughView()
+        view.backgroundColor = .clear
+        addChild(host)
+        host.view.backgroundColor = .clear
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.topAnchor.constraint(equalTo: view.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        ])
+        host.didMove(toParent: self)
+    }
+}
+
+private final class SystemTabPassthroughView: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        var ancestor = hit
+        while let candidate = ancestor, candidate !== self {
+            if candidate is UITabBar || candidate is UISearchBar || candidate is UISearchTextField {
+                return hit
+            }
+            ancestor = candidate.superview
+        }
+        return nil
+    }
+}
+
+/// Child bounds always fill the container. Only their content safe area avoids the bar.
+private final class PageContainerController: UIViewController {
+    var tabBarFrame: CGRect = .null {
+        didSet {
+            if oldValue != tabBarFrame { viewIfLoaded?.setNeedsLayout() }
+        }
+    }
+
+    override func loadView() {
+        view = UIView()
         view.backgroundColor = .clear
     }
 
     func install(_ child: UIViewController) {
         addChild(child)
         child.view.translatesAutoresizingMaskIntoConstraints = false
-        child.view.clipsToBounds = true
         view.addSubview(child.view)
-        let bottom = child.view.bottomAnchor.constraint(
-            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -bottomBarClearance
-        )
-        bottomConstraints.append(bottom)
         NSLayoutConstraint.activate([
-            child.view.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
-            child.view.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
-            child.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            bottom
+            child.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            child.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            child.view.topAnchor.constraint(equalTo: view.topAnchor),
+            child.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         child.didMove(toParent: self)
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        (view as? PageContainerView)?.bottomPassthroughHeight =
-            view.safeAreaInsets.bottom + bottomBarClearance
+        updateContentSafeAreas()
     }
-}
 
-private final class PageContainerView: UIView {
-    var bottomPassthroughHeight: CGFloat = 0
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateContentSafeAreas()
+    }
 
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard point.y >= safeAreaInsets.top,
-              point.y < bounds.maxY - bottomPassthroughHeight else { return nil }
-        return super.hitTest(point, with: event)
+    private func updateContentSafeAreas() {
+        guard let window = view.window else { return }
+        let overlap: CGRect
+        if tabBarFrame.isNull || tabBarFrame.isInfinite {
+            overlap = .null
+        } else {
+            overlap = view.bounds.intersection(view.convert(tabBarFrame, from: window))
+        }
+        let bottomInset = overlap.isNull ? 0 : max(0, view.bounds.maxY - overlap.minY - view.safeAreaInsets.bottom)
+        for child in children {
+            var insets = child.additionalSafeAreaInsets
+            if insets.bottom != bottomInset {
+                insets.bottom = bottomInset
+                child.additionalSafeAreaInsets = insets
+            }
+        }
     }
 }
 
@@ -438,14 +499,14 @@ private struct ContentHost: UIViewControllerRepresentable {
     let isSearchPresented: Bool
     let showPrimaryTabs: Bool
     let searchQuery: String
-    let bottomBarClearance: CGFloat
+    let tabBarFrame: CGRect
     let contentTapped: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(contentTapped: contentTapped) }
 
     func makeUIViewController(context: Context) -> PageContainerController {
         let container = PageContainerController()
-        container.bottomBarClearance = bottomBarClearance
+        container.tabBarFrame = tabBarFrame
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
         tap.cancelsTouchesInView = false
         tap.delaysTouchesBegan = false
@@ -481,7 +542,7 @@ private struct ContentHost: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ container: PageContainerController, context: Context) {
-        container.bottomBarClearance = bottomBarClearance
+        container.tabBarFrame = tabBarFrame
         context.coordinator.contentTapped = contentTapped
         context.coordinator.isSearchPresented = isSearchPresented
         context.coordinator.showPrimaryTabs = showPrimaryTabs
@@ -546,17 +607,17 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     let longPress: () -> Void
     let enabled: Bool
     let trace: (String) -> Void
-    let reportHeight: (CGFloat) -> Void
+    let reportFrame: (CGRect) -> Void
 
     func makeUIViewController(context: Context) -> GestureController {
-        GestureController(tap: tap, longPress: longPress, reportHeight: reportHeight)
+        GestureController(tap: tap, longPress: longPress, reportFrame: reportFrame)
     }
 
     func updateUIViewController(_ controller: GestureController, context: Context) {
         controller.trace = trace
         controller.tapAction = tap
         controller.longPressAction = longPress
-        controller.reportHeight = reportHeight
+        controller.reportFrame = reportFrame
         controller.gesturesEnabled = enabled
         controller.installWhenReady()
     }
@@ -568,7 +629,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     final class GestureController: UIViewController, UIGestureRecognizerDelegate {
         var tapAction: () -> Void
         var longPressAction: () -> Void
-        var reportHeight: (CGFloat) -> Void
+        var reportFrame: (CGRect) -> Void
         var gesturesEnabled = true
         var trace: (String) -> Void = { _ in }
         private var lastNativeSelection: String?
@@ -578,8 +639,8 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
         private lazy var pressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
 
-        init(tap: @escaping () -> Void, longPress: @escaping () -> Void, reportHeight: @escaping (CGFloat) -> Void) {
-            self.reportHeight = reportHeight
+        init(tap: @escaping () -> Void, longPress: @escaping () -> Void, reportFrame: @escaping (CGRect) -> Void) {
+            self.reportFrame = reportFrame
             tapAction = tap
             longPressAction = longPress
             super.init(nibName: nil, bundle: nil)
@@ -602,12 +663,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             guard let controller = findTabController(in: root) else { return }
             controller.view.backgroundColor = .clear
             controller.view.isOpaque = false
-            controller.tabBar.backgroundColor = .clear
-            controller.tabBar.isTranslucent = true
-            for child in controller.viewControllers ?? [] {
-                child.view.backgroundColor = .clear
-                child.view.isOpaque = false
-            }
+            for child in controller.children { clearContainerBackgrounds(in: child) }
             let nativeSelection = "index=\(controller.selectedIndex) tab=\(controller.selectedTab?.identifier ?? "none") item=\(controller.tabBar.selectedItem?.title ?? "none")"
             if nativeSelection != lastNativeSelection {
                 lastNativeSelection = nativeSelection
@@ -623,9 +679,9 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
                 }
             }
             let bar = controller.tabBar
-            let height = max(0, bar.bounds.height - controller.view.safeAreaInsets.bottom)
-            if height > 0 {
-                DispatchQueue.main.async { [weak self] in self?.reportHeight(height) }
+            if let window = bar.window, !bar.bounds.isEmpty {
+                let frame = bar.convert(bar.bounds, to: window)
+                DispatchQueue.main.async { [weak self] in self?.reportFrame(frame) }
             }
             guard installedBar !== bar else { return }
             uninstall()
@@ -637,6 +693,12 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             tapRecognizer.require(toFail: pressRecognizer)
             bar.addGestureRecognizer(tapRecognizer)
             bar.addGestureRecognizer(pressRecognizer)
+        }
+
+        private func clearContainerBackgrounds(in controller: UIViewController) {
+            controller.view.backgroundColor = .clear
+            controller.view.isOpaque = false
+            for child in controller.children { clearContainerBackgrounds(in: child) }
         }
 
         private func findTabController(in controller: UIViewController) -> UITabBarController? {
@@ -712,8 +774,7 @@ private struct SearchPage: View {
                 systemImage: "magnifyingglass",
                 description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入。")
             )
-            .background(VesperTheme.background.ignoresSafeArea())
-            .vesperTransparentNavigationBar()
+            .vesperSystemNavigationBar()
         }
     }
 }
