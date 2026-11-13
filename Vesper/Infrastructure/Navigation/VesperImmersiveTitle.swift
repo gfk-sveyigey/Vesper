@@ -75,34 +75,31 @@ private extension EnvironmentValues {
 /// A real scroll-content item, never a fixed overlay. Its layout height stays
 /// stable while its contents animate, so scroll geometry cannot feed back.
 struct VesperLargeTitle: View {
-    let title: LocalizedStringKey
+    let title: String
+    @AppStorage("language.code") private var languageCode = "system"
     @Environment(\.vesperTitleCollapsed) private var isCollapsed
     @Environment(\.vesperTitleBlurProgress) private var blurProgress
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var height: CGFloat = 80
 
-    init(_ title: LocalizedStringKey) { self.title = title }
+    init(_ title: String) { self.title = title }
 
     var body: some View {
-        Text(title)
-            .font(.largeTitle.bold())
-            .foregroundStyle(Color("VesperPrimaryText"))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
-            .background {
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .opacity(blurProgress)
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-            .offset(y: isCollapsed && !reduceMotion ? -height : 0)
-            .opacity(isCollapsed ? 0 : 1)
-            .clipped()
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityHidden(isCollapsed)
-            .allowsHitTesting(false)
+        VesperTitleRendering(
+            title: VesperLocalization.string(title, language: languageCode),
+            scrollProgress: blurProgress,
+            reduceMotion: reduceMotion,
+            height: height,
+            collapseProgress: isCollapsed ? 1 : 0
+        )
+        .frame(maxWidth: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        .clipped()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(LocalizedStringKey(title)))
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityHidden(isCollapsed)
+        .allowsHitTesting(false)
     }
 }
 
@@ -118,27 +115,23 @@ struct VesperStatusBarMaterial: UIViewControllerRepresentable {
     }
 
     final class StatusBarMaterialController: UIViewController {
-        private let material = UIHostingController<AnyView>(rootView: AnyView(
-            Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
-        ))
+        private let material = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
 
         override func loadView() {
             view = UIView()
             view.backgroundColor = .clear
             view.isUserInteractionEnabled = false
-            addChild(material)
-            material.view.backgroundColor = .clear
-            material.view.isUserInteractionEnabled = false
-            view.addSubview(material.view)
-            material.didMove(toParent: self)
+            material.backgroundColor = .clear
+            material.isUserInteractionEnabled = false
+            view.addSubview(material)
         }
 
         override func viewDidLayoutSubviews() {
             super.viewDidLayoutSubviews()
-            guard let window = view.window else { material.view.frame = .zero; return }
+            guard let window = view.window else { material.frame = .zero; return }
             let strip = CGRect(x: window.bounds.minX, y: window.bounds.minY,
                                width: window.bounds.width, height: window.safeAreaInsets.top)
-            material.view.frame = view.convert(strip, from: window)
+            material.frame = view.convert(strip, from: window)
         }
 
         override func viewSafeAreaInsetsDidChange() {
