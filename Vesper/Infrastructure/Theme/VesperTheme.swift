@@ -43,7 +43,7 @@ enum VesperLocalization {
 }
 
 extension View {
-    func vesperNavigationBarMaterial() -> some View {
-        toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+    func vesperTransparentNavigationBar() -> some View {
+        toolbarBackground(.hidden, for: .navigationBar)
     }
 }

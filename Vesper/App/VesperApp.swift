@@ -8,22 +8,21 @@ struct VesperApp: App {
     @AppStorage("language.code") private var languageCode = "system"
 
     init() {
-        configureSystemBarMaterials()
+        configureTransparentBarBackgrounds()
         AppLog.info("app.started", category: .lifecycle)
     }
 
-    private func configureSystemBarMaterials() {
+    private func configureTransparentBarBackgrounds() {
         let navigationAppearance = UINavigationBarAppearance()
         navigationAppearance.configureWithTransparentBackground()
-        navigationAppearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
         navigationAppearance.backgroundColor = .clear
         UINavigationBar.appearance().standardAppearance = navigationAppearance
         UINavigationBar.appearance().scrollEdgeAppearance = navigationAppearance
         UINavigationBar.appearance().compactAppearance = navigationAppearance
+        UINavigationBar.appearance().compactScrollEdgeAppearance = navigationAppearance
 
         let tabAppearance = UITabBarAppearance()
         tabAppearance.configureWithTransparentBackground()
-        tabAppearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
         tabAppearance.backgroundColor = .clear
         UITabBar.appearance().standardAppearance = tabAppearance
         UITabBar.appearance().scrollEdgeAppearance = tabAppearance

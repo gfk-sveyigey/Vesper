@@ -54,9 +54,9 @@ struct AppNavigationView: View {
                     // context when cancelling so native dismissal can finish.
                     if hasPreparedSearchControl {
                         NavigationStack {
-                            Color.clear
+                            VesperTheme.background.ignoresSafeArea()
                         }
-                        .vesperNavigationBarMaterial()
+                        .vesperTransparentNavigationBar()
                         .searchable(text: $searchQuery, isPresented: Binding(
                             get: { searchInputActive },
                             set: { active in
@@ -75,12 +75,11 @@ struct AppNavigationView: View {
                             activateSearchInput()
                         }
                     } else {
-                        Color.clear
+                        VesperTheme.background.ignoresSafeArea()
                     }
                 }
             }
-            .background(.clear)
-            .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+            .toolbarBackground(.hidden, for: .tabBar)
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
@@ -104,7 +103,6 @@ struct AppNavigationView: View {
                 guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
                 collapsePrimaryTabs()
             }
-                .ignoresSafeArea(edges: .top)
                 .padding(.bottom, tabBarHeight + 24)
                 .clipped()
 
@@ -180,7 +178,7 @@ struct AppNavigationView: View {
         TabSection("主要功能") {
             ForEach(enabledSections) { section in
                 Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
-                    Color.clear
+                    VesperTheme.background.ignoresSafeArea()
                 }
             }
         }
@@ -663,7 +661,7 @@ private struct SearchPage: View {
                 description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入。")
             )
             .background(VesperTheme.background.ignoresSafeArea())
-            .vesperNavigationBarMaterial()
+            .vesperTransparentNavigationBar()
         }
     }
 }

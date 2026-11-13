@@ -13,6 +13,6 @@ struct MediaView: View {
                 .buttonStyle(.borderedProminent)
         }
         .background(VesperTheme.background.ignoresSafeArea())
-        .vesperNavigationBarMaterial()
+        .vesperTransparentNavigationBar()
     }
 }

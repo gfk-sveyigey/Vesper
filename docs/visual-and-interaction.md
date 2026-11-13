@@ -25,7 +25,7 @@
 
 | Token | Light Appearance | Dark Appearance | 用途 |
 |---|---|---|---|
-| VesperBackground | `#F5F4F8` | `#111321` | 页面主背景 |
+| VesperBackground | `#F5F4F8` | 系统 `systemBackground` | 页面主背景 |
 | VesperSecondaryBackground | `#EDECF2` | `#191C2D` | 次级背景、分组区域 |
 | VesperSurface | `#FFFFFF` | `#20243A` | 卡片、内容容器 |
 | VesperElevatedSurface | `#FFFFFF` | `#292D45` | 弹出层、悬浮面板 |
@@ -54,7 +54,7 @@
 ### 色彩使用原则
 
 - 使用 Vesper Violet 建立品牌识别；深色外观使用 Vesper Glow 保持强调状态清晰。
-- 页面背景优先使用柔和灰白色，避免大面积纯白；深色背景采用蓝紫倾向，避免纯黑和中性灰。
+- 浅色页面背景使用柔和灰白色；深色页面主背景使用系统 `systemBackground`。
 - 强调色限用于重要交互、选中状态和关键视觉元素，避免大面积铺色造成干扰。
 - 保证文本、图标和交互状态在对应背景上清晰可辨；状态不能只依赖颜色表达。
 - 优先使用 SwiftUI 原生材质和 Liquid Glass；不要自行模拟系统已有的玻璃材质。仅在目标 OS 支持且适合该交互场景时使用，材质不可用时提供清晰的实色背景回退。
@@ -90,6 +90,7 @@ Color("VesperPlaybackProgress")
 - 页面优先采用目标 Apple 平台的原生组件与原生交互逻辑，包括导航、列表、表单、菜单、搜索、确认、焦点和辅助功能行为。
 - 除非原生组件无法满足明确的产品需求，不重新绘制系统控件或复制系统已有交互；自定义样式应基于原生组件能力，并保留平台惯例。
 - 所有界面的导航栏与标签栏背景应透明/无底色，使内容尽可能延伸至栏下方；确保文字和图标在滚动、不同内容背景及浅/深色外观下仍清晰，并正确处理安全区。
+- 安全区不单独绘制色块或模糊层。页面背景延伸至屏幕边缘，交互内容遵守系统安全区；TabView 的占位页使用相同页面背景，避免默认容器底色外露。导航栏及标签栏整栏背景透明，系统按钮材质由系统渲染。
 - 底部使用 SwiftUI 原生 `TabView`；媒体、来源、记录、设置放入 `TabSection("主要功能")`，内部逻辑标识为 `primaryTabs`。多功能项位于组外，使用 `.search` 角色及网格 SF Symbol `square.grid.2x2`，始终保留。
 - 通过 `TabSection.hidden(_:)` 控制整组显隐，不使用 `if` 删除整个分组，也不使用面向自定义布局的 `defaultVisibility` 作为 iPhone 动态显隐开关。
 - 默认仅显示多功能项。默认单击展开或收起主要功能组，长按进入搜索；手势与动作可在设置中通过两列拖动重新配对。点击普通内容不触发收起，选择普通标签也不自动收起。
@@ -153,4 +154,4 @@ Color("VesperPlaybackProgress")
 
 搜索恢复为 App 手动控制：Search Tab 不自动激活；进入时保存页面、标签组和 selection，显示 Search 页面后通过 searchable(isPresented:) 与 searchFocused 请求激活和焦点；取消搜索或切换普通标签时由 App 清理输入状态并恢复快照。
 
-搜索页面容器实验：Search Tab 内容固定为 Color.clear；ContentHost 同级管理四个普通页面及独立 SearchPage hosting controller。搜索状态仅切换 ContentHost 内部子视图可见性，不替换 Search Tab 页面内容。用于验证系统取消搜索期间页面变化是否导致标签栏闪烁。
+搜索页面容器实验：Search Tab 占位内容使用统一页面背景并延伸至安全区；ContentHost 同级管理四个普通页面及独立 SearchPage hosting controller。搜索状态仅切换 ContentHost 内部子视图可见性，不替换 Search Tab 页面内容。用于验证系统取消搜索期间页面变化是否导致标签栏闪烁。

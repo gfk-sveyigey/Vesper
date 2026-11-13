@@ -47,7 +47,7 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background.ignoresSafeArea())
-        .vesperNavigationBarMaterial()
+        .vesperTransparentNavigationBar()
         .navigationDestination(for: SettingsRoute.self) { route in
             switch route {
             case .tabs: TabSettingsView()
@@ -106,7 +106,7 @@ private struct RuntimeLogsView: View {
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background.ignoresSafeArea())
         .navigationTitle("运行日志")
-        .vesperNavigationBarMaterial()
+        .vesperTransparentNavigationBar()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -196,7 +196,7 @@ private struct AppearanceSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background.ignoresSafeArea())
         .navigationTitle("外观设置")
-        .vesperNavigationBarMaterial()
+        .vesperTransparentNavigationBar()
     }
 }
 
@@ -250,7 +250,7 @@ struct TabSettingsView: View {
         .background(VesperTheme.background.ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("标签设置")
-        .vesperNavigationBarMaterial()
+        .vesperTransparentNavigationBar()
     }
 }
 
@@ -279,7 +279,7 @@ private struct GestureActionSettingsView: View {
         .background(VesperTheme.background.ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("手势与动作")
-        .vesperNavigationBarMaterial()
+        .vesperTransparentNavigationBar()
     }
 
     private func column(_ storage: Binding<String>, names: [String: String]) -> some View {
