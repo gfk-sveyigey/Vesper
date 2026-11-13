@@ -87,6 +87,9 @@ Color("VesperPlaybackProgress")
 
 ## 信息层级
 
+- 四个一级页面使用各自 NavigationStack 的原生 Large Title，分别为“媒体”“来源”“观看记录”“设置”。页面内部使用 ScrollView 或 List，由系统随滚动收缩为导航栏标题，不在 ContentHost 外绘制标题，不自定义收缩动画。
+- 标题文字使用动态颜色 VesperPrimaryText；字体、导航栏材质和右侧 Toolbar Button 保持系统行为。页面沿用 VesperBackground，深色主背景保持 systemBackground。搜索页独立处理，不添加重复标题或导航栏。
+
 - 设置的二级及更深页面保留原生 NavigationStack 导航栏与左上角系统返回图标，只隐藏标题文字；保留系统边缘滑动返回。日志导出和清空位于原生导航栏右侧，不在内容区模拟导航栏。
 - ContentHost 及持久页面 Host 四边贴合父视图，不使用缩短高度、额外固定偏移或裁剪来避让系统栏。底部内容安全区根据原生标签栏的实际 window 坐标计算，页面内部仍由 NavigationStack/List/Form 处理安全区。
 

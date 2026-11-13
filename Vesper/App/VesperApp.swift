@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct VesperApp: App {
@@ -7,6 +8,11 @@ struct VesperApp: App {
     @AppStorage("language.code") private var languageCode = "system"
 
     init() {
+        // Customize only the text color; leave fonts, backgrounds and materials native.
+        if let titleColor = UIColor(named: "VesperPrimaryText") {
+            UINavigationBar.appearance().largeTitleTextAttributes = [.foregroundColor: titleColor]
+            UINavigationBar.appearance().titleTextAttributes = [.foregroundColor: titleColor]
+        }
         AppLog.info("app.started", category: .lifecycle)
     }
 

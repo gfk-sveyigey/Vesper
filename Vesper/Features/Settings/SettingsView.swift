@@ -46,7 +46,8 @@ struct SettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("设置")
+        .navigationBarTitleDisplayMode(.large)
         .vesperSystemNavigationBar()
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
