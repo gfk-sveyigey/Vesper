@@ -1,23 +1,40 @@
 import SwiftUI
 
 struct MediaView: View {
-    let openSources: () -> Void
+    var body: some View {
+        VesperEmptyPage(title: "媒体", message: "未选择媒体来源", symbol: "film")
+    }
+}
+
+struct VesperEmptyPage: View {
+    let title: LocalizedStringKey
+    let message: LocalizedStringKey
+    let symbol: String
+    @State private var titleHeight: CGFloat = 80
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                VesperLargeTitle("媒体")
-                ContentUnavailableView {
-                    Label("尚未选择媒体来源", systemImage: "film")
-                } description: {
-                    Text("媒体页只显示当前选定的一个来源。请先前往来源页完成配置。")
-                } actions: {
-                    Button("前往来源", action: openSources)
-                        .buttonStyle(.borderedProminent)
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 0) {
+                    VesperLargeTitle(title)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { titleHeight = $0 }
+                    VStack(spacing: 16) {
+                        Image(systemName: symbol)
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                        Text(message)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(Color("VesperPrimaryText"))
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: max(0, geometry.size.height))
+                    .offset(y: -titleHeight)
+                    .padding(.bottom, -titleHeight)
                 }
-                .frame(maxWidth: .infinity)
             }
+            .vesperImmersiveTitle(title)
         }
-        .vesperImmersiveTitle("媒体")
     }
 }

@@ -13,7 +13,6 @@ struct VesperApp: App {
             UINavigationBar.appearance().largeTitleTextAttributes = [.foregroundColor: titleColor]
             UINavigationBar.appearance().titleTextAttributes = [.foregroundColor: titleColor]
         }
-        AppLog.info("app.started", category: .lifecycle)
     }
 
     var body: some Scene {

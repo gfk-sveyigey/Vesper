@@ -2,13 +2,14 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs
+    case tabs, appearance, logs, icons
 
     var title: LocalizedStringKey {
         switch self {
         case .tabs: "标签设置"
         case .appearance: "外观设置"
         case .logs: "运行日志"
+        case .icons: "更换图标"
         }
     }
 }
@@ -30,24 +31,26 @@ struct SettingsView: View {
             }
             .listSectionMargins([.horizontal, .bottom], 0)
             Section("应用") {
-                NavigationLink("标签设置", value: SettingsRoute.tabs)
-                NavigationLink("外观设置", value: SettingsRoute.appearance)
-                NavigationLink("运行日志", value: SettingsRoute.logs)
-                Picker("应用语言", selection: $languageCode) {
-                    Text("自动").tag("system")
-                    Text("简体中文").tag("zh-Hans")
-                    Text("English").tag("en")
-                    Text("日本語").tag("ja")
-                    Text("한국어").tag("ko")
-                    Text("Español").tag("es")
-                    Text("Français").tag("fr")
-                }
+                NavigationLink(value: SettingsRoute.tabs) { SettingsLabel("标签设置", symbol: "rectangle.3.group") }
+                NavigationLink(value: SettingsRoute.appearance) { SettingsLabel("外观设置", symbol: "paintpalette") }
+                NavigationLink(value: SettingsRoute.logs) { SettingsLabel("运行日志", symbol: "doc.text") }
+                Picker(selection: $languageCode) {
+                    Text("跟随系统").tag("system")
+                    Text(verbatim: "简体中文").tag("zh-Hans")
+                    Text(verbatim: "English").tag("en")
+                    Text(verbatim: "日本語").tag("ja")
+                    Text(verbatim: "한국어").tag("ko")
+                    Text(verbatim: "Español").tag("es")
+                    Text(verbatim: "Français").tag("fr")
+                    Text(verbatim: "Deutsch").tag("de")
+                    Text(verbatim: "繁體中文").tag("zh-Hant")
+                } label: { SettingsLabel("语言设置", symbol: "globe") }
                 .pickerStyle(.menu)
             }
             Section {
-                LabeledContent("播放器偏好", value: "尚未接入")
-                LabeledContent("IMDb", value: "尚未连接")
-                LabeledContent("Trakt", value: "尚未连接")
+                LabeledContent { Text("尚未接入") } label: { SettingsLabel("播放器偏好", symbol: "play.rectangle") }
+                LabeledContent { Text("尚未连接") } label: { SettingsLabel("IMDb", symbol: "film") }
+                LabeledContent { Text("尚未连接") } label: { SettingsLabel("Trakt", symbol: "checkmark.tv") }
             } header: {
                 Text("后续功能")
             } footer: {
@@ -70,6 +73,7 @@ struct SettingsView: View {
                 case .tabs: TabSettingsView()
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()
+                case .icons: AppIconSettingsView()
                 }
             }
             .vesperNavigationTitle(route.title)
@@ -92,12 +96,12 @@ private struct RuntimeLogsView: View {
         List {
             if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
             Section("保留规则") {
-                Picker("保留时间", selection: $retentionDays) {
+                Picker(selection: $retentionDays) {
                     Text("无限制").tag(0)
                     ForEach([1, 3, 7, 14, 30, 90], id: \.self) { days in
                         Text(String(format: VesperLocalization.string("%d 天"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [days])).tag(days)
                     }
-                }
+                } label: { SettingsLabel("保留时间", symbol: "clock") }
                 .pickerStyle(.menu)
             }
             Section(String(format: VesperLocalization.string("日志（%d）"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [store.entries.count])) {
@@ -158,9 +162,7 @@ private struct RuntimeLogsView: View {
             Text("无法准备日志文件，请稍后重试。")
         }
         .sheet(item: $shareFile) { file in
-            RuntimeLogShareSheet(fileURL: file.url) {
-                isShowingExportError = true
-            }
+            RuntimeLogExportSheet(fileURL: file.url)
         }
     }
 }
@@ -170,20 +172,15 @@ private struct SharedLogFile: Identifiable {
     var id: String { url.absoluteString }
 }
 
-private struct RuntimeLogShareSheet: UIViewControllerRepresentable {
+/// Export the full .log file directly; no activity/action list is presented.
+private struct RuntimeLogExportSheet: UIViewControllerRepresentable {
     let fileURL: URL
-    let onError: () -> Void
 
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        let controller = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
-        controller.completionWithItemsHandler = { _, _, _, error in
-            guard error != nil else { return }
-            Task { @MainActor in onError() }
-        }
-        return controller
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        UIDocumentPickerViewController(forExporting: [fileURL], asCopy: true)
     }
 
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) { }
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) { }
 }
 
 private struct AppearanceSettingsView: View {
@@ -193,23 +190,24 @@ private struct AppearanceSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Picker("主题", selection: $appearanceMode) {
-                    Text("自动").tag("system")
+                Picker(selection: $appearanceMode) {
+                    Text("跟随系统").tag("system")
                     Text("深色").tag("dark")
                     Text("浅色").tag("light")
-                }
+                } label: { SettingsLabel("主题", symbol: "sun.max") }
                 .pickerStyle(.menu)
-                ColorPicker("主题色", selection: Binding(
+                ColorPicker(selection: Binding(
                     get: { VesperTheme.accent(accent) },
                     set: { color in
                         if let identifier = VesperTheme.accentIdentifier(for: color) {
                             accent = identifier
                         }
                     }
-                ), supportsOpacity: false)
+                ), supportsOpacity: false) { SettingsLabel("主题色", symbol: "paintpalette") }
                 if accent != "vesper" {
-                    Button("恢复默认颜色") { accent = "vesper" }
+                    Button { accent = "vesper" } label: { SettingsLabel("恢复默认颜色", symbol: "arrow.counterclockwise") }
                 }
+                NavigationLink(value: SettingsRoute.icons) { SettingsLabel("更换图标", symbol: "app") }
             } footer: {
                 Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
             }
@@ -243,7 +241,7 @@ struct TabSettingsView: View {
                             if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
                             hidden = values.sorted().joined(separator: ",")
                         }
-                    )) { Label(section.title, systemImage: section.symbol) }
+                    )) { SettingsLabel(LocalizedStringKey(section.title), symbol: section.symbol) }
                     .disabled(section == .settings)
                 }
                 .onMove { offsets, destination in
@@ -259,7 +257,7 @@ struct TabSettingsView: View {
                     }
                 }
             }
-            Button("恢复默认") { isShowingResetConfirmation = true }
+            Button { isShowingResetConfirmation = true } label: { SettingsLabel("恢复默认", symbol: "arrow.counterclockwise") }
         }
         .scrollContentBackground(.hidden)
         .environment(\.editMode, .constant(.active))
@@ -343,5 +341,49 @@ private struct GestureActionSettingsView: View {
             }
         }
         .listStyle(.plain)
+    }
+}
+
+/// Outline symbols and a consistent accent outline, without a filled icon tile.
+private struct SettingsLabel: View {
+    let title: LocalizedStringKey
+    let symbol: String
+
+    init(_ title: LocalizedStringKey, symbol: String) {
+        self.title = title
+        self.symbol = symbol
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .symbolVariant(.none)
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(.tint)
+                .frame(width: 32, height: 30)
+                .overlay { RoundedRectangle(cornerRadius: 8).stroke(.tint, lineWidth: 1) }
+                .accessibilityHidden(true)
+            Text(title)
+        }
+    }
+}
+
+private struct AppIconSettingsView: View {
+    var body: some View {
+        List {
+            HStack(spacing: 14) {
+                Image("VesperAppIcon")
+                    .resizable()
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .accessibilityHidden(true)
+                Text("默认图标")
+                Spacer()
+                Image(systemName: "checkmark").foregroundStyle(.tint)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isSelected)
+        }
+        .scrollContentBackground(.hidden)
     }
 }

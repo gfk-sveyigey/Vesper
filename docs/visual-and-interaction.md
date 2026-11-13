@@ -170,3 +170,9 @@ Color("VesperPlaybackProgress")
 搜索恢复为 App 手动控制：Search Tab 不自动激活；进入时保存页面、标签组和 selection，显示 Search 页面后通过 searchable(isPresented:) 与 searchFocused 请求激活和焦点；取消搜索或切换普通标签时由 App 清理输入状态并恢复快照。
 
 搜索页面容器实验：Search Tab 占位内容使用统一页面背景并延伸至安全区；ContentHost 同级管理四个普通页面及独立 SearchPage hosting controller。搜索状态仅切换 ContentHost 内部子视图可见性，不替换 Search Tab 页面内容。用于验证系统取消搜索期间页面变化是否导致标签栏闪烁。
+
+## 设置与标签重复点击
+
+- 设置行使用主题色线性 SF Symbol 和圆角矩形描边；语言名称保持自称，不随界面语言转换。
+- 媒体、来源、记录空状态只显示图标及“未选择媒体来源”“未配置来源”“无记录”，整体居中，不显示说明小字或前往来源操作。
+- 再次轻点当前普通标签时，对 ContentHost 中该标签的 NavigationPath 返回一层；根页面不操作，不把程序化 selection 同步识别为点击。各标签 Host 和导航栈保持独立、持续存在，搜索和多功能手势不参与返回。

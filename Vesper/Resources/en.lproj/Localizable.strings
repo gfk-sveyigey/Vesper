@@ -80,3 +80,9 @@
 "将恢复标签的显示状态和排列顺序。" = "Tab visibility and order will be reset.";
 "多功能按钮设置" = "Multifunction Button Settings";
 "完成" = "Done";
+"跟随系统" = "Follow System";
+"更换图标" = "Change App Icon";
+"默认图标" = "Default Icon";
+"未选择媒体来源" = "No Media Source Selected";
+"未配置来源" = "No Sources Configured";
+"无记录" = "No History";

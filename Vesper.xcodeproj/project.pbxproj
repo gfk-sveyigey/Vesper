@@ -26,7 +26,9 @@ CF8A4D27E1C506A7C75A76BE = { isa = PBXBuildFile; fileRef = 3685E330EC5277A9DD566
 4C1D10000000000000000005 = { isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Vesper/Resources/ko.lproj/Localizable.strings"; sourceTree = "<group>"; };
 4C1D10000000000000000006 = { isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Vesper/Resources/es.lproj/Localizable.strings"; sourceTree = "<group>"; };
 4C1D10000000000000000008 = { isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Vesper/Resources/fr.lproj/Localizable.strings"; sourceTree = "<group>"; };
-4C1D10000000000000000007 = { isa = PBXVariantGroup; children = (4C1D10000000000000000002,4C1D10000000000000000003,4C1D10000000000000000004,4C1D10000000000000000005,4C1D10000000000000000006,4C1D10000000000000000008,); name = Localizable.strings; sourceTree = "<group>"; };
+4C1D10000000000000000016 = { isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Vesper/Resources/de.lproj/Localizable.strings"; sourceTree = "<group>"; };
+4C1D10000000000000000017 = { isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Vesper/Resources/zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
+4C1D10000000000000000007 = { isa = PBXVariantGroup; children = (4C1D10000000000000000002,4C1D10000000000000000003,4C1D10000000000000000004,4C1D10000000000000000005,4C1D10000000000000000006,4C1D10000000000000000008,4C1D10000000000000000016,4C1D10000000000000000017,); name = Localizable.strings; sourceTree = "<group>"; };
 4C1D1000000000000000000A = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Infrastructure/Theme/VesperTheme.swift"; sourceTree = SOURCE_ROOT; };
 4C1D10000000000000000010 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Infrastructure/Navigation/ImmersiveTitleState.swift"; sourceTree = SOURCE_ROOT; };
 4C1D10000000000000000011 = { isa = PBXBuildFile; fileRef = 4C1D10000000000000000010; };
@@ -40,6 +42,7 @@ BCE16DD0260827ECF338C787 = { isa = PBXSourcesBuildPhase; buildActionMask = 21474
 7561BFB015D8F536760CB671 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 89E1FD6268CC0F221A2BE178 = { isa = XCBuildConfiguration; name = Debug; buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 26.0; CLANG_ENABLE_MODULES = YES; }; };
 7082CC0B6FC1282FCEABD07A = { isa = XCBuildConfiguration; name = Debug; buildSettings = {
+ ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
  PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = com.aholic.vesper;
  SWIFT_VERSION = 6.0; SWIFT_STRICT_CONCURRENCY = complete;
  INFOPLIST_FILE = Info.plist; GENERATE_INFOPLIST_FILE = NO;
@@ -49,6 +52,7 @@ BCE16DD0260827ECF338C787 = { isa = PBXSourcesBuildPhase; buildActionMask = 21474
  CODE_SIGN_STYLE = Automatic; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; };
 E6DE6C99132752C914FEF632 = { isa = XCBuildConfiguration; name = Release; buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 26.0; CLANG_ENABLE_MODULES = YES; }; };
 639A7CA24D39909E713B47F7 = { isa = XCBuildConfiguration; name = Release; buildSettings = {
+ ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
  PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = com.aholic.vesper;
  SWIFT_VERSION = 6.0; SWIFT_STRICT_CONCURRENCY = complete;
  INFOPLIST_FILE = Info.plist; GENERATE_INFOPLIST_FILE = NO;
@@ -59,5 +63,5 @@ E6DE6C99132752C914FEF632 = { isa = XCBuildConfiguration; name = Release; buildSe
 01DF1D3A7F02866ECA6BB742 = { isa = XCConfigurationList; buildConfigurations = (89E1FD6268CC0F221A2BE178,E6DE6C99132752C914FEF632,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 8D8B67C81BE4F695571BC034 = { isa = XCConfigurationList; buildConfigurations = (7082CC0B6FC1282FCEABD07A,639A7CA24D39909E713B47F7,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 0E8A3AD980EC179856012B7E = { isa = PBXNativeTarget; buildConfigurationList = 8D8B67C81BE4F695571BC034; buildPhases = (BCE16DD0260827ECF338C787,7561BFB015D8F536760CB671,0189424A5A60FED329FA868E,); buildRules = (); dependencies = (); name = Vesper; productName = Vesper; productReference = 7D1043473D55BFA90E8530D3; productType = "com.apple.product-type.application"; };
-98F54143AB4E86B28C3AFEE0 = { isa = PBXProject; attributes = { LastUpgradeCheck = 2600; }; buildConfigurationList = 01DF1D3A7F02866ECA6BB742; compatibilityVersion = "Xcode 14.0"; developmentRegion = zh-Hans; knownRegions = ("zh-Hans",en,ja,ko,es,fr,Base,); mainGroup = 64292B1C2B2E13EAD8788FC8; productRefGroup = FBDC4F23F93125BBEEAE800C; projectDirPath = ""; projectRoot = ""; targets = (0E8A3AD980EC179856012B7E,); };
+98F54143AB4E86B28C3AFEE0 = { isa = PBXProject; attributes = { LastUpgradeCheck = 2600; }; buildConfigurationList = 01DF1D3A7F02866ECA6BB742; compatibilityVersion = "Xcode 14.0"; developmentRegion = zh-Hans; knownRegions = ("zh-Hans",en,ja,ko,es,fr,de,"zh-Hant",Base,); mainGroup = 64292B1C2B2E13EAD8788FC8; productRefGroup = FBDC4F23F93125BBEEAE800C; projectDirPath = ""; projectRoot = ""; targets = (0E8A3AD980EC179856012B7E,); };
 }; rootObject = 98F54143AB4E86B28C3AFEE0; }

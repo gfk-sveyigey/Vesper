@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Combine
 
 private enum NavigationTab: Hashable {
     case section(AppSection)
@@ -44,7 +45,6 @@ struct AppNavigationView: View {
                 TabView(selection: Binding(
                     get: { tabSelection },
                     set: {
-                        traceNavigation("selection.writeback requested=\(tabName($0))")
                         selectTab($0)
                     }
                 )) {
@@ -61,7 +61,6 @@ struct AppNavigationView: View {
                                 get: { searchInputActive },
                                 set: { active in
                                     guard !active || isSearchPresented else {
-                                        traceNavigation("search.activationIgnored")
                                         return
                                     }
                                     searchInputActive = active
@@ -82,7 +81,11 @@ struct AppNavigationView: View {
                     tap: { performGesture("tap") },
                     longPress: { performGesture("longPress") },
                     enabled: !isSearchPresented,
-                    trace: { event in traceNavigation(event) },
+                    reselected: { index in
+                        guard !isSearchPresented, !isPreparingSearch, showPrimaryTabs,
+                              enabledSections.indices.contains(index), enabledSections[index] == currentPage else { return }
+                        hosts.pop(currentPage)
+                    },
                     reportFrame: { frame in
                         if tabBarFrame != frame {
                             var transaction = Transaction(animation: nil)
@@ -99,7 +102,6 @@ struct AppNavigationView: View {
             ContentHost(
                 hosts: hosts,
                 currentPage: currentPage,
-                openSources: openSources,
                 isSearchPresented: isSearchPresented,
                 showPrimaryTabs: showPrimaryTabs,
                 searchQuery: searchQuery,
@@ -122,7 +124,6 @@ struct AppNavigationView: View {
             } catch { return }
             guard !Task.isCancelled, isPreparingSearch else { return }
             tabSelection = .multifunction
-            traceNavigation("search.tabSelected")
             await Task.yield()
             guard !Task.isCancelled, isPreparingSearch else { return }
             isSearchPresented = true
@@ -144,9 +145,6 @@ struct AppNavigationView: View {
             synchronizeTabSelection()
         }
         .onChange(of: enabledSections) { _, _ in synchronizeTabSelection() }
-        .onChange(of: tabSelection) { old, new in
-            traceNavigation("selection.onChange old=\(tabName(old))", selection: new)
-        }
         .onChange(of: isSearchPresented) { _, _ in
             synchronizeTabSelection()
         }
@@ -162,19 +160,6 @@ struct AppNavigationView: View {
 
     private var multifunctionSymbol: String {
         isSearchPresented || !multifunctionEnabled ? "magnifyingglass" : "square.grid.2x2"
-    }
-
-    private func traceNavigation(_ event: String, selection: NavigationTab? = nil) {
-        let selected = selection ?? tabSelection
-        let selectedName = tabName(selected)
-        AppLog.trace("navigation.trace.\(event)", detail: "uptime=\(ProcessInfo.processInfo.systemUptime) selection=\(selectedName) isSearchPresented=\(isSearchPresented) tabGroupVisible=\(showPrimaryTabs) currentPage=\(currentPage.rawValue)")
-    }
-
-    private func tabName(_ tab: NavigationTab) -> String {
-        switch tab {
-        case let .section(section): return section.rawValue
-        case .multifunction: return "multifunction"
-        }
     }
 
     private var primaryTabs: some TabContent<NavigationTab> {
@@ -200,7 +185,6 @@ struct AppNavigationView: View {
         if isSearchPresented { closeSearch() }
         currentPage = section
         synchronizeTabSelection()
-        AppLog.info("navigation.selected.\(section.rawValue)", category: .navigation)
     }
 
     private func synchronizeTabSelection() {
@@ -217,12 +201,6 @@ struct AppNavigationView: View {
         }
     }
 
-    private func openSources() {
-        currentPage = .sources
-        isSearchPresented = false
-        synchronizeTabSelection()
-    }
-
     private func collapsePrimaryTabs() {
         guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch, collapseTask == nil else { return }
         var transaction = Transaction(animation: nil)
@@ -236,7 +214,6 @@ struct AppNavigationView: View {
         }
         let token = UUID()
         collapseToken = token
-        traceNavigation("collapse.inputCleared")
         collapseTask = Task { @MainActor in
             defer {
                 if collapseToken == token {
@@ -250,11 +227,9 @@ struct AppNavigationView: View {
                 var transaction = Transaction(animation: nil)
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { hasPreparedSearchControl = false }
-                traceNavigation("collapse.searchContainerRemoved")
                 try await Task.sleep(for: .milliseconds(0))
                 guard !Task.isCancelled else { return }
                 finishCollapsingPrimaryTabs()
-                traceNavigation("collapse.groupHidden")
             } catch { return }
         }
     }
@@ -312,16 +287,13 @@ struct AppNavigationView: View {
         if searchStartedWithHiddenTabs { isExpanded = true }
         hasPreparedSearchControl = true
         isPreparingSearch = true
-        traceNavigation("search.prepare startedHidden=\(searchStartedWithHiddenTabs)")
         synchronizeTabSelection()
-        AppLog.info("navigation.search.opened", category: .navigation)
     }
 
     private func activateSearchInput() {
         // The Search Tab owns the native search control; ContentHost owns results.
         guard isSearchPresented else { return }
         searchInputActive = true
-        AppLog.info("navigation.search.manuallyActivated", category: .navigation)
     }
 
     private func closeSearch() {
@@ -337,7 +309,6 @@ struct AppNavigationView: View {
         searchReturnState = nil
         searchStartedWithHiddenTabs = false
         synchronizeTabSelection()
-        AppLog.info("navigation.search.closed", category: .navigation)
     }
 
 }
@@ -363,22 +334,42 @@ private struct HostedPageEnvironment<Content: View>: View {
 /// Four persistent hosts, each with its own NavigationStack.
 @MainActor
 private final class SectionHosts {
+    private var histories: [AppSection: PageHistory] = [:]
+
+    func pop(_ section: AppSection) {
+        guard let history = histories[section], !history.path.isEmpty else { return }
+        history.path.removeLast()
+    }
+
     private var controllers: [AppSection: UIHostingController<AnyView>] = [:]
 
-    func controller(for section: AppSection, openSources: @escaping () -> Void) -> UIHostingController<AnyView> {
+    func controller(for section: AppSection) -> UIHostingController<AnyView> {
         if let controller = controllers[section] { return controller }
         let page: AnyView
         switch section {
-        case .media: page = AnyView(NavigationStack { MediaView(openSources: openSources) })
-        case .sources: page = AnyView(NavigationStack { SourcesView() })
-        case .history: page = AnyView(NavigationStack { HistoryView() })
-        case .settings: page = AnyView(NavigationStack { SettingsView() })
+        case .media: page = AnyView(MediaView())
+        case .sources: page = AnyView(SourcesView())
+        case .history: page = AnyView(HistoryView())
+        case .settings: page = AnyView(SettingsView())
         }
-        let controller = UIHostingController(rootView: AnyView(HostedPageEnvironment { page }))
+        let history = PageHistory()
+        histories[section] = history
+        let controller = UIHostingController(rootView: AnyView(HostedPageEnvironment { PageNavigation(history: history, page: page) }))
         controller.view.backgroundColor = .clear
         controllers[section] = controller
         return controller
     }
+}
+
+@MainActor
+private final class PageHistory: ObservableObject {
+    @Published var path = NavigationPath()
+}
+
+private struct PageNavigation: View {
+    @ObservedObject var history: PageHistory
+    let page: AnyView
+    var body: some View { NavigationStack(path: $history.path) { page } }
 }
 
 /// Native system controls render above pages, but their empty viewport passes touches through.
@@ -497,7 +488,6 @@ private final class PageContainerController: UIViewController {
 private struct ContentHost: UIViewControllerRepresentable {
     let hosts: SectionHosts
     let currentPage: AppSection
-    let openSources: () -> Void
     let isSearchPresented: Bool
     let showPrimaryTabs: Bool
     let searchQuery: String
@@ -527,7 +517,7 @@ private struct ContentHost: UIViewControllerRepresentable {
             container.view.addGestureRecognizer(swipe)
         }
         for section in AppSection.allCases {
-            let host = hosts.controller(for: section, openSources: openSources)
+            let host = hosts.controller(for: section)
             container.install(host)
             host.view.isHidden = isSearchPresented || section != currentPage
         }
@@ -549,7 +539,7 @@ private struct ContentHost: UIViewControllerRepresentable {
         context.coordinator.isSearchPresented = isSearchPresented
         context.coordinator.showPrimaryTabs = showPrimaryTabs
         for section in AppSection.allCases {
-            let host = hosts.controller(for: section, openSources: openSources)
+            let host = hosts.controller(for: section)
             host.view.isHidden = isSearchPresented || section != currentPage
             host.view.accessibilityElementsHidden = isSearchPresented || section != currentPage
         }
@@ -608,7 +598,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     let tap: () -> Void
     let longPress: () -> Void
     let enabled: Bool
-    let trace: (String) -> Void
+    let reselected: (Int) -> Void
     let reportFrame: (CGRect) -> Void
 
     func makeUIViewController(context: Context) -> GestureController {
@@ -616,7 +606,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: GestureController, context: Context) {
-        controller.trace = trace
+        controller.reselected = reselected
         controller.tapAction = tap
         controller.longPressAction = longPress
         controller.reportFrame = reportFrame
@@ -633,10 +623,9 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var longPressAction: () -> Void
         var reportFrame: (CGRect) -> Void
         var gesturesEnabled = true
-        var trace: (String) -> Void = { _ in }
-        private var lastNativeSelection: String?
-        private var touchSequence = 0
-        private var lastTouchTime: TimeInterval?
+        var reselected: (Int) -> Void = { _ in }
+        private var reselectedIndex: Int?
+        private lazy var reselectRecognizer = UITapGestureRecognizer(target: self, action: #selector(reselectTapped))
         private weak var installedBar: UITabBar?
         private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
         private lazy var pressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
@@ -666,12 +655,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             controller.view.backgroundColor = .clear
             controller.view.isOpaque = false
             for child in controller.children { clearContainerBackgrounds(in: child) }
-            let nativeSelection = "index=\(controller.selectedIndex) tab=\(controller.selectedTab?.identifier ?? "none") item=\(controller.tabBar.selectedItem?.title ?? "none")"
-            if nativeSelection != lastNativeSelection {
-                lastNativeSelection = nativeSelection
-                let elapsed = lastTouchTime.map { Int((ProcessInfo.processInfo.systemUptime - $0) * 1000) } ?? -1
-                trace("UIKit.selection touchID=\(touchSequence) sinceTouchMs=\(elapsed) \(nativeSelection)")
-            }
             for tab in controller.tabs {
                 if let search = tab as? UISearchTab {
                     // App gestures own search activation, including when this tab is
@@ -688,11 +671,14 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             guard installedBar !== bar else { return }
             uninstall()
             installedBar = bar
+            reselectRecognizer.delegate = self
+            reselectRecognizer.cancelsTouchesInView = false
             tapRecognizer.delegate = self
             pressRecognizer.delegate = self
             tapRecognizer.cancelsTouchesInView = true
             pressRecognizer.cancelsTouchesInView = true
             tapRecognizer.require(toFail: pressRecognizer)
+            bar.addGestureRecognizer(reselectRecognizer)
             bar.addGestureRecognizer(tapRecognizer)
             bar.addGestureRecognizer(pressRecognizer)
         }
@@ -712,13 +698,29 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         }
 
         func uninstall() {
+            installedBar?.removeGestureRecognizer(reselectRecognizer)
             installedBar?.removeGestureRecognizer(tapRecognizer)
             installedBar?.removeGestureRecognizer(pressRecognizer)
             installedBar = nil
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard gesturesEnabled, let bar = installedBar else { return false }
+            guard let bar = installedBar else { return false }
+            if gestureRecognizer === reselectRecognizer {
+                reselectedIndex = nil
+                guard let items = bar.items, items.count > 1 else { return false }
+                let point = touch.location(in: nil)
+                let index = items.firstIndex { !$0.accessibilityFrame.isEmpty && $0.accessibilityFrame.contains(point) }
+                // Liquid Glass keeps Search in its own trailing platter.
+                let localX = touch.location(in: bar).x
+                let primaryWidth = max(1, bar.bounds.width - 88)
+                guard localX < primaryWidth else { return false }
+                let hitIndex = index ?? min(items.count - 2, max(0, Int(localX / primaryWidth * CGFloat(items.count - 1))))
+                guard items[hitIndex] === bar.selectedItem else { return false }
+                reselectedIndex = hitIndex
+                return true
+            }
+            guard gesturesEnabled else { return false }
             // The independent search-role item occupies the trailing platter.
             // Use the public item's accessibility frame when UIKit supplies it.
             let hitsItem: Bool
@@ -727,41 +729,21 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             } else {
                 hitsItem = touch.location(in: bar).x >= bar.bounds.width - 88
             }
-            if hitsItem, gestureRecognizer === tapRecognizer {
-                touchSequence += 1
-                lastTouchTime = ProcessInfo.processInfo.systemUptime
-                trace("SearchTab.touch.received id=\(touchSequence) cancelsTouches=\(tapRecognizer.cancelsTouchesInView) nativeItem=\(bar.selectedItem?.title ?? "none") touchTime=\(touch.timestamp)")
-            }
             return hitsItem
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
 
-        @objc private func tapped() {
-            trace("SearchTab.tap.recognized id=\(touchSequence) nativeItem=\(installedBar?.selectedItem?.title ?? "none")")
-            tapAction()
-            trace("SearchTab.tap.actionReturned id=\(touchSequence)")
-            let sequence = touchSequence
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.trace("SearchTab.tap.nextRunLoop id=\(sequence) nativeItem=\(self.installedBar?.selectedItem?.title ?? "none")")
-            }
+        @objc private func reselectTapped() {
+            guard let index = reselectedIndex else { return }
+            DispatchQueue.main.async { [weak self] in self?.reselected(index) }
         }
+        @objc private func tapped() { tapAction() }
         @objc private func pressed(_ recognizer: UILongPressGestureRecognizer) {
-            switch recognizer.state {
-            case .began:
-                trace("SearchTab.longPress.thresholdReached id=\(touchSequence)")
-            case .ended:
-                trace("SearchTab.longPress.released id=\(touchSequence)")
-                longPressAction()
-                trace("SearchTab.longPress.actionReturned id=\(touchSequence)")
-            case .cancelled, .failed:
-                trace("SearchTab.longPress.cancelled id=\(touchSequence)")
-            default:
-                break
-            }
+            if recognizer.state == .ended { longPressAction() }
         }
+
     }
 }
 
