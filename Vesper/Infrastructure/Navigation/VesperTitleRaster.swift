@@ -17,7 +17,10 @@ struct VesperTitleRendering: View, Animatable {
     }
 
     var body: some View {
-        let progress = min(1, max(0, max(scrollProgress, collapseProgress)))
+        // Continue from the current scroll appearance as soon as collapse starts;
+        // max(scroll, collapse) would otherwise pause blur/fade until it catches up.
+        let scroll = min(1, max(0, scrollProgress))
+        let progress = min(1, max(0, scroll + (1 - scroll) * collapseProgress))
         VesperTitleRaster(title: title, radius: CGFloat(progress) * 12)
             // ScrollView alone supplies natural scroll displacement. This offset
             // is zero throughout dragging and deceleration, until idle collapses.
