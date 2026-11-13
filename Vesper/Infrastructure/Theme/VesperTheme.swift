@@ -35,3 +35,10 @@ enum VesperLocalization {
         return bundle.localizedString(forKey: key, value: key, table: nil)
     }
 }
+
+extension View {
+    func vesperNavigationBarMaterial() -> some View {
+        toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+    }
+}

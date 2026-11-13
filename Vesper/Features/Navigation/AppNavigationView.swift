@@ -56,6 +56,7 @@ struct AppNavigationView: View {
                         NavigationStack {
                             Color.clear
                         }
+                        .vesperNavigationBarMaterial()
                         .searchable(text: $searchQuery, isPresented: Binding(
                             get: { searchInputActive },
                             set: { active in
@@ -78,6 +79,8 @@ struct AppNavigationView: View {
                     }
                 }
             }
+            .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+            .toolbarBackground(.visible, for: .tabBar)
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
@@ -647,6 +650,7 @@ private struct SearchPage: View {
                 description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入。")
             )
             .background(Color("VesperBackground").ignoresSafeArea())
+            .vesperNavigationBarMaterial()
         }
     }
 }

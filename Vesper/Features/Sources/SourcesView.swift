@@ -8,5 +8,6 @@ struct SourcesView: View {
             Text("这里将用于配置本地与在线媒体来源，并选择媒体页显示的来源。来源接入将在后续阶段实现。")
         }
         .background(Color("VesperBackground").ignoresSafeArea())
+        .vesperNavigationBarMaterial()
     }
 }

@@ -47,6 +47,7 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Color("VesperBackground").ignoresSafeArea())
+        .vesperNavigationBarMaterial()
         .navigationDestination(for: SettingsRoute.self) { route in
             switch route {
             case .tabs: TabSettingsView()
@@ -105,6 +106,7 @@ private struct RuntimeLogsView: View {
         .scrollContentBackground(.hidden)
         .background(Color("VesperBackground").ignoresSafeArea())
         .navigationTitle("运行日志")
+        .vesperNavigationBarMaterial()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -194,6 +196,7 @@ private struct AppearanceSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Color("VesperBackground").ignoresSafeArea())
         .navigationTitle("外观设置")
+        .vesperNavigationBarMaterial()
     }
 }
 
@@ -247,6 +250,7 @@ struct TabSettingsView: View {
         .background(Color("VesperBackground").ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("标签设置")
+        .vesperNavigationBarMaterial()
     }
 }
 
@@ -275,6 +279,7 @@ private struct GestureActionSettingsView: View {
         .background(Color("VesperBackground").ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("手势与动作")
+        .vesperNavigationBarMaterial()
     }
 
     private func column(_ storage: Binding<String>, names: [String: String]) -> some View {
