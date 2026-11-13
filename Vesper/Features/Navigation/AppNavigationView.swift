@@ -212,6 +212,11 @@ struct AppNavigationView: View {
     }
 
     private func collapsePrimaryTabs() {
+        // A collapsed group selects the Search-role item. Remove its dormant
+        // search context first so UIKit cannot expand it on that selection.
+        searchFocused = false
+        searchInputActive = false
+        hasPreparedSearchControl = false
         isExpanded = false
         synchronizeTabSelection()
     }
