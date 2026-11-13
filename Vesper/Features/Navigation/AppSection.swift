@@ -7,10 +7,10 @@ enum AppSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .media: "媒体"
-        case .sources: "来源"
-        case .history: "记录"
-        case .settings: "设置"
+        case .media: String(localized: "媒体")
+        case .sources: String(localized: "来源")
+        case .history: String(localized: "记录")
+        case .settings: String(localized: "设置")
         }
     }
 

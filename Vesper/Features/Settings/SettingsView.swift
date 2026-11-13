@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, gestures, appearance, logs, debug
+    case tabs, gestures, appearance, logs
 }
 
 struct SettingsView: View {
@@ -14,11 +14,9 @@ struct SettingsView: View {
     var body: some View {
         List {
             Section("应用") {
-                NavigationLink("标签显示与顺序", value: SettingsRoute.tabs)
-                NavigationLink("多功能按钮手势与动作", value: SettingsRoute.gestures)
-                NavigationLink("外观", value: SettingsRoute.appearance)
+                NavigationLink("标签设置", value: SettingsRoute.tabs)
+                NavigationLink("外观设置", value: SettingsRoute.appearance)
                 NavigationLink("运行日志", value: SettingsRoute.logs)
-                NavigationLink("调试设置", value: SettingsRoute.debug)
             }
             Section {
                 LabeledContent("播放器偏好", value: "尚未接入")
@@ -43,46 +41,11 @@ struct SettingsView: View {
             case .gestures: GestureActionSettingsView()
             case .appearance: AppearanceSettingsView()
             case .logs: RuntimeLogsView()
-            case .debug: DebugSettingsView()
             }
         }
         .navigationTitle("设置")
         .toolbarBackground(.hidden, for: .navigationBar)
     }
-}
-
-private struct DebugSettingsView: View {
-    @AppStorage("debug.searchHiddenDelayMs") private var hiddenDelay = 100
-    @AppStorage("debug.searchVisibleDelayMs") private var visibleDelay = 100
-
-    var body: some View {
-        Form {
-            Section {
-                delaySlider("标签组隐藏时", value: $hiddenDelay)
-                delaySlider("标签组显示时", value: $visibleDelay)
-            } header: {
-                Text("搜索展开延迟")
-            } footer: {
-                Text("从准备搜索控件到打开搜索页面的等待时间。两项独立保存，范围为 0–500 ms，默认均为 100 ms。")
-            }
-
-        }
-        .navigationTitle("调试设置")
-        .toolbarBackground(.hidden, for: .navigationBar)
-    }
-
-    private func delaySlider(_ title: String, value: Binding<Int>, maximum: Double = 500) -> some View {
-        VStack(alignment: .leading) {
-            Text("\(title)：\(value.wrappedValue) ms")
-            Slider(value: Binding(
-                get: { Double(value.wrappedValue) },
-                set: { value.wrappedValue = Int($0.rounded()) }
-            ), in: 0...maximum, step: 1)
-            .accessibilityLabel(title)
-            .accessibilityValue("\(value.wrappedValue) 毫秒")
-        }
-    }
-
 }
 
 private struct RuntimeLogsView: View {
@@ -96,16 +59,24 @@ private struct RuntimeLogsView: View {
 
     var body: some View {
         List {
-            if let error = store.storageError { Text(error).foregroundStyle(.red) }
+            if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
             Section("保留规则") {
-                Stepper("保留时间：\(retentionDays) 天", value: $retentionDays, in: 1...90)
-                Picker("最多保留条数", selection: $maximumCount) {
-                    ForEach([100, 250, 500, 1_000, 2_000, 5_000], id: \.self) { count in
-                        Text("\(count) 条").tag(count)
+                Picker("保留时间", selection: $retentionDays) {
+                    Text("无限制").tag(0)
+                    ForEach([1, 3, 7, 14, 30, 90], id: \.self) { days in
+                        Text(String(format: NSLocalizedString("%d 天", comment: "Log retention days"), days)).tag(days)
                     }
                 }
+                .pickerStyle(.navigationLink)
+                Picker("保留条数", selection: $maximumCount) {
+                    Text("无限制").tag(0)
+                    ForEach([100, 250, 500, 1_000, 2_000, 5_000], id: \.self) { count in
+                        Text(String(format: NSLocalizedString("%d 条", comment: "Log retention count"), count)).tag(count)
+                    }
+                }
+                .pickerStyle(.navigationLink)
             }
-            Section("日志（\(store.entries.count)）") {
+            Section(String(format: NSLocalizedString("日志（%d）", comment: "Runtime log count"), store.entries.count)) {
                 if store.entries.isEmpty {
                     ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
                 } else {
@@ -119,7 +90,7 @@ private struct RuntimeLogsView: View {
                             }
                     }
                     if loadedCount < store.entries.count {
-                        Button("加载更早的日志（已显示 \(min(loadedCount, store.entries.count)) 条）") {
+                        Button(String(format: NSLocalizedString("加载更早的日志（已显示 %d 条）", comment: "Load older logs"), min(loadedCount, store.entries.count))) {
                             loadedCount += 100
                         }
                     }
@@ -156,18 +127,32 @@ private struct RuntimeLogsView: View {
 }
 
 private struct AppearanceSettingsView: View {
+    @AppStorage("appearance.mode") private var appearanceMode = "system"
+    @AppStorage("appearance.accent") private var accent = "vesper"
+
     var body: some View {
         Form {
             Section {
-                LabeledContent("外观", value: "跟随系统")
-                Label("Vesper Violet", systemImage: "circle.fill")
-                    .foregroundStyle(Color("VesperAccent"))
+                Picker("主题", selection: $appearanceMode) {
+                    Text("自动").tag("system")
+                    Text("深色").tag("dark")
+                    Text("浅色").tag("light")
+                }
+                .pickerStyle(.navigationLink)
+                Picker("主题色", selection: $accent) {
+                    Label { Text("薰衣草紫") } icon: { Circle().fill(VesperTheme.accent("vesper")) }.tag("vesper")
+                    Label { Text("海洋蓝") } icon: { Circle().fill(VesperTheme.accent("ocean")) }.tag("ocean")
+                    Label { Text("翡翠绿") } icon: { Circle().fill(VesperTheme.accent("emerald")) }.tag("emerald")
+                    Label { Text("玫瑰粉") } icon: { Circle().fill(VesperTheme.accent("rose")) }.tag("rose")
+                }
+                .pickerStyle(.navigationLink)
+                .tint(VesperTheme.accent(accent))
             } footer: {
-                Text("当前原型自动使用系统的浅色或深色外观。")
+                Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
             }
         }
         .scrollContentBackground(.hidden)
-        .navigationTitle("外观")
+        .navigationTitle("外观设置")
         .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
@@ -187,6 +172,10 @@ struct TabSettingsView: View {
         List {
             Section("标签栏") {
                 Toggle("启用多功能按钮", isOn: $multifunctionEnabled)
+                Text("多功能按钮仍处于试验阶段，可能出现交互或显示问题；如影响使用，请关闭此功能。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                NavigationLink("多功能按钮手势与动作", value: SettingsRoute.gestures)
             }
             Section {
                 ForEach(sections) { section in
@@ -215,7 +204,7 @@ struct TabSettingsView: View {
             }
         }
         .environment(\.editMode, .constant(.active))
-        .navigationTitle("标签显示与顺序")
+        .navigationTitle("标签设置")
         .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
@@ -251,7 +240,7 @@ private struct GestureActionSettingsView: View {
         let values = storage.wrappedValue.split(separator: ",").map(String.init)
         return List {
             ForEach(values, id: \.self) { value in
-                Text(names[value] ?? value)
+                Text(NSLocalizedString(names[value] ?? value, comment: "Multifunction gesture or action"))
                     .frame(minHeight: 44)
                     .accessibilityHint("拖动调整配对顺序")
             }

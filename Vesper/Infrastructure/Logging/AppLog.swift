@@ -61,8 +61,8 @@ final class RuntimeLogEntries: ObservableObject {
                   let date = formatter.date(from: String(line[..<firstSpace])) else { return nil }
             return RuntimeLogEntry(timestamp: date, message: String(line))
         }
-        retentionDays = max(1, UserDefaults.standard.integer(forKey: "runtimeLogs.retentionDays").nonzeroOr(7))
-        maximumCount = max(1, UserDefaults.standard.integer(forKey: "runtimeLogs.maximumCount").nonzeroOr(500))
+        retentionDays = max(0, UserDefaults.standard.object(forKey: "runtimeLogs.retentionDays") as? Int ?? 7)
+        maximumCount = max(0, UserDefaults.standard.object(forKey: "runtimeLogs.maximumCount") as? Int ?? 500)
         pruneAndPersist()
     }
 
@@ -74,15 +74,20 @@ final class RuntimeLogEntries: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.flushScheduled = false
-            self.entries.append(contentsOf: self.pending)
+            let batch = self.pending
+            self.entries.append(contentsOf: batch)
             self.pending.removeAll(keepingCapacity: true)
-            self.pruneAndPersist()
+            if self.prune() {
+                self.persist()
+            } else {
+                self.appendToFile(batch)
+            }
         }
     }
 
     func setRetention(days: Int, count: Int) {
-        retentionDays = max(1, days)
-        maximumCount = max(1, count)
+        retentionDays = max(0, days)
+        maximumCount = max(0, count)
         UserDefaults.standard.set(retentionDays, forKey: "runtimeLogs.retentionDays")
         UserDefaults.standard.set(maximumCount, forKey: "runtimeLogs.maximumCount")
         pruneAndPersist()
@@ -97,16 +102,47 @@ final class RuntimeLogEntries: ObservableObject {
     var exportText: String { entries.map(\.message).joined(separator: "\n") }
 
     private func pruneAndPersist() {
-        let cutoff = Date().addingTimeInterval(-Double(retentionDays) * 86_400)
-        entries.removeAll { $0.timestamp < cutoff }
-        if entries.count > maximumCount {
-            entries.removeFirst(entries.count - maximumCount)
-        }
+        _ = prune()
         persist()
     }
 
+    @discardableResult
+    private func prune() -> Bool {
+        let originalCount = entries.count
+        if retentionDays > 0 {
+            let cutoff = Date().addingTimeInterval(-Double(retentionDays) * 86_400)
+            entries.removeAll { $0.timestamp < cutoff }
+        }
+        if maximumCount > 0, entries.count > maximumCount {
+            entries.removeFirst(entries.count - maximumCount)
+        }
+        return entries.count != originalCount
+    }
+
+    private func appendToFile(_ batch: [RuntimeLogEntry]) {
+        guard !batch.isEmpty else { return }
+        let url = Self.fileURL
+        let text = batch.map(\.message).joined(separator: "\n") + "\n"
+        writer.async { [weak self] in
+            do {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if FileManager.default.fileExists(atPath: url.path) {
+                    let file = try FileHandle(forWritingTo: url)
+                    defer { try? file.close() }
+                    try file.seekToEnd()
+                    try file.write(contentsOf: Data(text.utf8))
+                } else {
+                    try text.write(to: url, atomically: true, encoding: .utf8)
+                }
+            } catch {
+                Task { @MainActor [weak self] in self?.storageError = "日志文件写入失败。" }
+            }
+        }
+    }
+
     private func persist() {
-        let text = exportText
+        let content = exportText
+        let text = content.isEmpty ? "" : content + "\n"
         let url = Self.fileURL
         writer.async { [weak self] in
             do {
@@ -132,8 +168,4 @@ struct RuntimeLogEntry: Codable, Identifiable {
         self.timestamp = timestamp
         self.message = message
     }
-}
-
-private extension Int {
-    func nonzeroOr(_ fallback: Int) -> Int { self == 0 ? fallback : self }
 }

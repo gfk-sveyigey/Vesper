@@ -12,11 +12,8 @@ struct AppNavigationView: View {
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
     @AppStorage("navigation.gestureOrder") private var gestures = "tap,longPress"
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
-    @AppStorage("debug.searchHiddenDelayMs") private var hiddenSearchDelay = 100
-    @AppStorage("debug.searchVisibleDelayMs") private var visibleSearchDelay = 100
     @State private var collapseTask: Task<Void, Never>?
     @State private var collapseToken: UUID?
-    @State private var pendingSearchDelay = 0
     @State private var currentPage: AppSection = .media
     @State private var tabSelection: NavigationTab = .section(.media)
     @State private var isExpanded = false
@@ -109,7 +106,6 @@ struct AppNavigationView: View {
                 .clipped()
 
         }
-        .tint(Color("VesperAccent"))
         .task(id: isPreparingSearch) {
             guard isPreparingSearch else { return }
             // Yield after mounting the search context, then select its native tab
@@ -117,7 +113,7 @@ struct AppNavigationView: View {
             await Task.yield()
             guard !Task.isCancelled, isPreparingSearch else { return }
             do {
-                try await Task.sleep(for: .milliseconds(pendingSearchDelay))
+                try await Task.sleep(for: .milliseconds(0))
             } catch { return }
             guard !Task.isCancelled, isPreparingSearch else { return }
             tabSelection = .multifunction
@@ -156,7 +152,7 @@ struct AppNavigationView: View {
     }
 
     private var multifunctionTitle: String {
-        isSearchPresented || !multifunctionEnabled ? "搜索" : "多功能"
+        isSearchPresented || !multifunctionEnabled ? String(localized: "搜索") : String(localized: "多功能")
     }
 
     private var multifunctionSymbol: String {
@@ -309,11 +305,10 @@ struct AppNavigationView: View {
         searchReturnState = SearchReturnState(page: currentPage, expanded: isExpanded, tab: tabSelection)
         searchQuery = ""
         searchStartedWithHiddenTabs = multifunctionEnabled && !showPrimaryTabs
-        pendingSearchDelay = min(500, max(0, searchStartedWithHiddenTabs ? hiddenSearchDelay : visibleSearchDelay))
         if searchStartedWithHiddenTabs { isExpanded = true }
         hasPreparedSearchControl = true
         isPreparingSearch = true
-        traceNavigation("search.prepare delayMs=\(pendingSearchDelay) startedHidden=\(searchStartedWithHiddenTabs)")
+        traceNavigation("search.prepare startedHidden=\(searchStartedWithHiddenTabs)")
         synchronizeTabSelection()
         AppLog.info("navigation.search.opened", category: .navigation)
     }
