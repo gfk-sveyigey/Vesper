@@ -95,20 +95,21 @@ struct AppNavigationView: View {
             ))
 
             // This sibling owns the ordinary pages, independently of TabView.
-            // Reserve the native bar's measured area so it remains interactive.
+            // Keep navigation controllers full-screen; reserve the tab bar with
+            // child safe-area insets rather than resizing the entire host.
             ContentHost(
                 hosts: hosts,
                 currentPage: currentPage,
                 openSources: openSources,
                 isSearchPresented: isSearchPresented,
                 showPrimaryTabs: showPrimaryTabs,
-                searchQuery: searchQuery
+                searchQuery: searchQuery,
+                bottomBarClearance: tabBarHeight + 24
             ) {
                 guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
                 collapsePrimaryTabs()
             }
-                .padding(.bottom, tabBarHeight + 24)
-                .clipped()
+            .ignoresSafeArea(.container)
 
         }
         .background(VesperTheme.background.ignoresSafeArea())
@@ -380,6 +381,74 @@ private final class SectionHosts {
     }
 }
 
+/// A full-screen viewport keeps the NavigationStack origin stable during pushes.
+/// Content avoids the native tab bar, while background can cover the whole window.
+private final class PageContainerController: UIViewController {
+    var bottomBarClearance: CGFloat = 0 {
+        didSet {
+            guard oldValue != bottomBarClearance, isViewLoaded else { return }
+            updateChildSafeAreas()
+            view.setNeedsLayout()
+        }
+    }
+
+    override func loadView() {
+        view = PageContainerView()
+        view.backgroundColor = .clear
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateChildSafeAreas()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateChildSafeAreas()
+    }
+
+    func updateChildSafeAreas() {
+        for child in children {
+            var insets = child.additionalSafeAreaInsets
+            if insets.bottom != bottomBarClearance {
+                insets.bottom = bottomBarClearance
+                child.additionalSafeAreaInsets = insets
+            }
+        }
+        // Let touches reach the sibling TabView, including the home-indicator area.
+        (view as? PageContainerView)?.bottomPassthroughHeight =
+            view.safeAreaInsets.bottom + bottomBarClearance
+    }
+}
+
+private final class PageContainerView: UIView {
+    private let contentMask = CAShapeLayer()
+    var bottomPassthroughHeight: CGFloat = 0 {
+        didSet {
+            if oldValue != bottomPassthroughHeight { setNeedsLayout() }
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Reveal the sibling tab bar without shrinking the navigation viewport.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        contentMask.frame = bounds
+        contentMask.path = CGPath(rect: CGRect(
+            x: bounds.minX, y: bounds.minY, width: bounds.width,
+            height: max(0, bounds.height - bottomPassthroughHeight)
+        ), transform: nil)
+        layer.mask = contentMask
+        CATransaction.commit()
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard point.y < bounds.maxY - bottomPassthroughHeight else { return nil }
+        return super.hitTest(point, with: event)
+    }
+}
+
 private struct ContentHost: UIViewControllerRepresentable {
     let hosts: SectionHosts
     let currentPage: AppSection
@@ -387,13 +456,14 @@ private struct ContentHost: UIViewControllerRepresentable {
     let isSearchPresented: Bool
     let showPrimaryTabs: Bool
     let searchQuery: String
+    let bottomBarClearance: CGFloat
     let contentTapped: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(contentTapped: contentTapped) }
 
-    func makeUIViewController(context: Context) -> UIViewController {
-        let container = UIViewController()
-        container.view.backgroundColor = .clear
+    func makeUIViewController(context: Context) -> PageContainerController {
+        let container = PageContainerController()
+        container.bottomBarClearance = bottomBarClearance
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
         tap.cancelsTouchesInView = false
         tap.delaysTouchesBegan = false
@@ -441,12 +511,14 @@ private struct ContentHost: UIViewControllerRepresentable {
         ])
         searchHost.view.isHidden = !isSearchPresented
         searchHost.didMove(toParent: container)
+        container.updateChildSafeAreas()
         context.coordinator.isSearchPresented = isSearchPresented
         context.coordinator.showPrimaryTabs = showPrimaryTabs
         return container
     }
 
-    func updateUIViewController(_ container: UIViewController, context: Context) {
+    func updateUIViewController(_ container: PageContainerController, context: Context) {
+        container.bottomBarClearance = bottomBarClearance
         context.coordinator.contentTapped = contentTapped
         context.coordinator.isSearchPresented = isSearchPresented
         context.coordinator.showPrimaryTabs = showPrimaryTabs
