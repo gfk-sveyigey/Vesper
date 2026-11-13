@@ -212,13 +212,22 @@ struct AppNavigationView: View {
     }
 
     private func collapsePrimaryTabs() {
-        // A collapsed group selects the Search-role item. Remove its dormant
-        // search context first so UIKit cannot expand it on that selection.
+        guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
         searchFocused = false
         searchInputActive = false
-        hasPreparedSearchControl = false
-        isExpanded = false
-        synchronizeTabSelection()
+        if hasPreparedSearchControl {
+            // Detach the dormant search context while the normal tab is still
+            // selected; collapse the group in a separate main-queue update.
+            hasPreparedSearchControl = false
+            DispatchQueue.main.async {
+                guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
+                isExpanded = false
+                synchronizeTabSelection()
+            }
+        } else {
+            isExpanded = false
+            synchronizeTabSelection()
+        }
     }
 
     private func performGesture(_ gesture: String) {
