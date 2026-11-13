@@ -46,18 +46,19 @@ struct AppNavigationView: View {
             )) {
                 primaryTabs
                 Tab(multifunctionTitle, systemImage: multifunctionSymbol, value: NavigationTab.multifunction, role: .search) {
-                    // Do not register a native search control outside an App search
-                    // session: selecting the multifunction tab must not reveal input.
-                    if isSearchPresented {
+                    // Mount during preparation alongside group expansion, but only
+                    // activate input once the search page is presented.
+                    if isPreparingSearch || isSearchPresented {
                         NavigationStack {
                             Color.clear
                                 .toolbarBackground(.hidden, for: .navigationBar)
                         }
                         .searchable(text: $searchQuery, isPresented: $searchInputActive, prompt: "搜索当前媒体来源")
                         .searchFocused($searchFocused)
-                        .task {
+                        .task(id: isSearchPresented) {
+                            guard isSearchPresented else { return }
                             await Task.yield()
-                            guard !Task.isCancelled else { return }
+                            guard !Task.isCancelled, isSearchPresented else { return }
                             activateSearchInput()
                         }
                     } else {
