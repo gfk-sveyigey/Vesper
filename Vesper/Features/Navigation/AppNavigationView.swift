@@ -14,8 +14,6 @@ struct AppNavigationView: View {
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
     @AppStorage("debug.searchHiddenDelayMs") private var hiddenSearchDelay = 100
     @AppStorage("debug.searchVisibleDelayMs") private var visibleSearchDelay = 100
-    @AppStorage("debug.collapseInputDelayMs") private var collapseInputDelay = 0
-    @AppStorage("debug.collapseContainerDelayMs") private var collapseContainerDelay = 0
     @State private var collapseTask: Task<Void, Never>?
     @State private var collapseToken: UUID?
     @State private var pendingSearchDelay = 0
@@ -114,10 +112,17 @@ struct AppNavigationView: View {
         .tint(Color("VesperAccent"))
         .task(id: isPreparingSearch) {
             guard isPreparingSearch else { return }
-            // Both paths prepare the search control before selecting Search.
+            // Yield after mounting the search context, then select its native tab
+            // separately from presenting results and requesting input focus.
+            await Task.yield()
+            guard !Task.isCancelled, isPreparingSearch else { return }
             do {
                 try await Task.sleep(for: .milliseconds(pendingSearchDelay))
             } catch { return }
+            guard !Task.isCancelled, isPreparingSearch else { return }
+            tabSelection = .multifunction
+            traceNavigation("search.tabSelected")
+            await Task.yield()
             guard !Task.isCancelled, isPreparingSearch else { return }
             isSearchPresented = true
             isPreparingSearch = false
@@ -229,11 +234,9 @@ struct AppNavigationView: View {
             finishCollapsingPrimaryTabs()
             return
         }
-        let firstDelay = min(2000, max(0, collapseInputDelay))
-        let secondDelay = min(2000, max(0, collapseContainerDelay))
         let token = UUID()
         collapseToken = token
-        traceNavigation("collapse.inputCleared firstDelayMs=\(firstDelay) secondDelayMs=\(secondDelay)")
+        traceNavigation("collapse.inputCleared")
         collapseTask = Task { @MainActor in
             defer {
                 if collapseToken == token {
@@ -242,13 +245,13 @@ struct AppNavigationView: View {
                 }
             }
             do {
-                try await Task.sleep(for: .milliseconds(firstDelay))
+                try await Task.sleep(for: .milliseconds(0))
                 guard !Task.isCancelled, multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
                 var transaction = Transaction(animation: nil)
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { hasPreparedSearchControl = false }
                 traceNavigation("collapse.searchContainerRemoved")
-                try await Task.sleep(for: .milliseconds(secondDelay))
+                try await Task.sleep(for: .milliseconds(0))
                 guard !Task.isCancelled else { return }
                 finishCollapsingPrimaryTabs()
                 traceNavigation("collapse.groupHidden")
