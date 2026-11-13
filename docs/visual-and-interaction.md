@@ -88,15 +88,15 @@ Color("VesperPlaybackProgress")
 ## 信息层级
 
 - 四个一级页面使用各自 NavigationStack 的原生 Large Title，分别为“媒体”“来源”“观看记录”“设置”。页面内部使用 ScrollView 或 List，由系统随滚动收缩为导航栏标题，不在 ContentHost 外绘制标题，不自定义收缩动画。
-- 标题文字使用动态颜色 VesperPrimaryText；字体、导航栏材质和右侧 Toolbar Button 保持系统行为。页面沿用 VesperBackground，深色主背景保持 systemBackground。搜索页独立处理，不添加重复标题或导航栏。
+- 标题文字使用动态颜色 VesperPrimaryText，字体及右侧 Toolbar Button 保持系统行为。普通页面统一使用 VesperNavigationStyle：一级 .large，二级及更深层 .inline；导航栏持续显示，使用系统 regularMaterial，toolbarColorScheme 跟随系统。页面沿用 VesperBackground，深色主背景保持 systemBackground。搜索页独立处理，不添加重复标题或导航栏。
 
-- 设置的二级及更深页面保留原生 NavigationStack 导航栏与左上角系统返回图标，只隐藏标题文字；保留系统边缘滑动返回。日志导出和清空位于原生导航栏右侧，不在内容区模拟导航栏。
+- 二级及更深页面显示当前页面的行内标题与系统自动生成的返回图标，保留系统边缘滑动返回。每个标签的 NavigationStack 独立管理历史，不隐藏系统返回按钮，不通过自定义按钮、固定坐标或安全区偏移模拟返回。原生转场期间不承诺返回图标严格固定于同一屏幕坐标。日志导出和清空位于原生导航栏右侧。
 - ContentHost 及持久页面 Host 四边贴合父视图，不使用缩短高度、额外固定偏移或裁剪来避让系统栏。底部内容安全区根据原生标签栏的实际 window 坐标计算，页面内部仍由 NavigationStack/List/Form 处理安全区。
 
 - 页面优先采用目标 Apple 平台的原生组件与原生交互逻辑，包括导航、列表、表单、菜单、搜索、确认、焦点和辅助功能行为。
 - 除非原生组件无法满足明确的产品需求，不重新绘制系统控件或复制系统已有交互；自定义样式应基于原生组件能力，并保留平台惯例。
-- 所有界面的导航栏与标签栏背景应透明/无底色，使内容尽可能延伸至栏下方；确保文字和图标在滚动、不同内容背景及浅/深色外观下仍清晰，并正确处理安全区。
-- 安全区不单独绘制色块或模糊层。根级提供统一全屏背景，TabView 普通标签使用透明占位；页面内容保持自己的导航栈。独立系统 TabView 层位于页面绘制层上方，空白区域的触摸穿透，仅原生标签栏与搜索控件接收触摸。导航栏和 Liquid Glass 使用系统默认材质，不设置全局 appearance 或整栏模糊覆盖。
+- 普通页面导航栏统一采用系统 regularMaterial；标签栏保留原生 Liquid Glass，不叠加自绘背景或模糊层。确保文字和图标在滚动、不同内容背景及浅/深色外观下清晰，并正确处理安全区。
+- 安全区不单独绘制色块或模糊层。根级提供统一全屏背景，TabView 普通标签使用透明占位；页面内容保持自己的导航栈。独立系统 TabView 层位于页面绘制层上方，空白区域的触摸穿透，仅原生标签栏与搜索控件接收触摸。普通页面导航栏通过共享 Modifier 使用系统 regularMaterial，Liquid Glass 保持系统默认效果，不设置全局背景 appearance 或自绘模糊覆盖。
 - 底部使用 SwiftUI 原生 `TabView`；媒体、来源、记录、设置放入 `TabSection("主要功能")`，内部逻辑标识为 `primaryTabs`。多功能项位于组外，使用 `.search` 角色及网格 SF Symbol `square.grid.2x2`，始终保留。
 - 通过 `TabSection.hidden(_:)` 控制整组显隐，不使用 `if` 删除整个分组，也不使用面向自定义布局的 `defaultVisibility` 作为 iPhone 动态显隐开关。
 - 默认仅显示多功能项。默认单击展开或收起主要功能组，长按进入搜索；手势与动作可在设置中通过两列拖动重新配对。点击普通内容不触发收起，选择普通标签也不自动收起。

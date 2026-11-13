@@ -47,21 +47,17 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .navigationTitle("设置")
-        .navigationBarTitleDisplayMode(.large)
-        .vesperSystemNavigationBar()
+        .vesperNavigationStyle()
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
-                case .tabs: TabSettingsView()
-                case .gestures: GestureActionSettingsView()
-                case .appearance: AppearanceSettingsView()
-                case .logs: RuntimeLogsView()
+                case .tabs: TabSettingsView().navigationTitle("标签设置")
+                case .gestures: GestureActionSettingsView().navigationTitle("手势与动作")
+                case .appearance: AppearanceSettingsView().navigationTitle("外观设置")
+                case .logs: RuntimeLogsView().navigationTitle("运行日志")
                 }
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarRole(.editor)
-            .toolbar(.visible, for: .navigationBar)
+            .vesperNavigationStyle(.inline)
         }
     }
 }
@@ -111,7 +107,6 @@ private struct RuntimeLogsView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .vesperSystemNavigationBar()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -199,7 +194,6 @@ private struct AppearanceSettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .vesperSystemNavigationBar()
     }
 }
 
@@ -251,7 +245,6 @@ struct TabSettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .environment(\.editMode, .constant(.active))
-        .vesperSystemNavigationBar()
     }
 }
 
@@ -278,7 +271,6 @@ private struct GestureActionSettingsView: View {
                 .padding()
         }
         .environment(\.editMode, .constant(.active))
-        .vesperSystemNavigationBar()
     }
 
     private func column(_ storage: Binding<String>, names: [String: String]) -> some View {

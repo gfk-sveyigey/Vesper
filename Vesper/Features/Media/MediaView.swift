@@ -16,7 +16,6 @@ struct MediaView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("媒体")
-        .navigationBarTitleDisplayMode(.large)
-        .vesperSystemNavigationBar()
+        .vesperNavigationStyle()
     }
 }

@@ -11,7 +11,6 @@ struct SourcesView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("来源")
-        .navigationBarTitleDisplayMode(.large)
-        .vesperSystemNavigationBar()
+        .vesperNavigationStyle()
     }
 }

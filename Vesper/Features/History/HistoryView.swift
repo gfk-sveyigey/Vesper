@@ -11,7 +11,6 @@ struct HistoryView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("观看记录")
-        .navigationBarTitleDisplayMode(.large)
-        .vesperSystemNavigationBar()
+        .vesperNavigationStyle()
     }
 }

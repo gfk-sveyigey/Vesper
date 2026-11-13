@@ -42,7 +42,29 @@ enum VesperLocalization {
     }
 }
 
+/// Shared system navigation layout; each NavigationStack still owns its history.
+struct VesperNavigationStyle: ViewModifier {
+    var titleDisplayMode: NavigationBarItem.TitleDisplayMode = .large
+
+    func body(content: Content) -> some View {
+        content
+            .navigationBarTitleDisplayMode(titleDisplayMode)
+            .navigationBarBackButtonHidden(false)
+            .toolbar(.visible, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(.regularMaterial, for: .navigationBar)
+            .toolbarColorScheme(nil, for: .navigationBar)
+            .toolbarRole(.editor)
+    }
+}
+
 extension View {
+    func vesperNavigationStyle(
+        _ titleDisplayMode: NavigationBarItem.TitleDisplayMode = .large
+    ) -> some View {
+        modifier(VesperNavigationStyle(titleDisplayMode: titleDisplayMode))
+    }
+
     func vesperSystemNavigationBar() -> some View {
         toolbarBackground(.automatic, for: .navigationBar)
     }
