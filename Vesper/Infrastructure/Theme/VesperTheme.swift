@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 enum VesperTheme {
     static func accent(_ identifier: String) -> Color {
@@ -16,5 +17,21 @@ enum VesperTheme {
         case "dark": .dark
         default: nil
         }
+    }
+}
+
+enum VesperLocalization {
+    static func locale(for language: String) -> Locale {
+        language == "system" ? .autoupdatingCurrent : Locale(identifier: language)
+    }
+
+    static func string(_ key: String, language: String? = nil) -> String {
+        let code = language ?? UserDefaults.standard.string(forKey: "language.code") ?? "system"
+        guard code != "system",
+              let path = Bundle.main.path(forResource: code, ofType: "lproj"),
+              let bundle = Bundle(path: path) else {
+            return NSLocalizedString(key, comment: "")
+        }
+        return bundle.localizedString(forKey: key, value: key, table: nil)
     }
 }

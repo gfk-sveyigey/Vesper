@@ -48,7 +48,6 @@ final class RuntimeLogEntries: ObservableObject {
     @Published private(set) var storageError: String?
     private let writer = DispatchQueue(label: "com.aholic.vesper.log-writer", qos: .utility)
     private var retentionDays = 7
-    private var maximumCount = 500
     private var pending: [RuntimeLogEntry] = []
     private var flushScheduled = false
 
@@ -62,7 +61,6 @@ final class RuntimeLogEntries: ObservableObject {
             return RuntimeLogEntry(timestamp: date, message: String(line))
         }
         retentionDays = max(0, UserDefaults.standard.object(forKey: "runtimeLogs.retentionDays") as? Int ?? 7)
-        maximumCount = max(0, UserDefaults.standard.object(forKey: "runtimeLogs.maximumCount") as? Int ?? 500)
         pruneAndPersist()
     }
 
@@ -85,11 +83,9 @@ final class RuntimeLogEntries: ObservableObject {
         }
     }
 
-    func setRetention(days: Int, count: Int) {
+    func setRetention(days: Int) {
         retentionDays = max(0, days)
-        maximumCount = max(0, count)
         UserDefaults.standard.set(retentionDays, forKey: "runtimeLogs.retentionDays")
-        UserDefaults.standard.set(maximumCount, forKey: "runtimeLogs.maximumCount")
         pruneAndPersist()
     }
 
@@ -100,6 +96,27 @@ final class RuntimeLogEntries: ObservableObject {
     }
 
     var exportText: String { entries.map(\.message).joined(separator: "\n") }
+
+    func prepareExportFile(completion: @escaping (Result<URL, Error>) -> Void) {
+        if !pending.isEmpty {
+            entries.append(contentsOf: pending)
+            pending.removeAll(keepingCapacity: true)
+            flushScheduled = false
+            _ = prune()
+        }
+        let content = exportText
+        let text = content.isEmpty ? "" : content + "\n"
+        let url = Self.fileURL
+        writer.async {
+            do {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try text.write(to: url, atomically: true, encoding: .utf8)
+                DispatchQueue.main.async { completion(.success(url)) }
+            } catch {
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
 
     private func pruneAndPersist() {
         _ = prune()
@@ -112,9 +129,6 @@ final class RuntimeLogEntries: ObservableObject {
         if retentionDays > 0 {
             let cutoff = Date().addingTimeInterval(-Double(retentionDays) * 86_400)
             entries.removeAll { $0.timestamp < cutoff }
-        }
-        if maximumCount > 0, entries.count > maximumCount {
-            entries.removeFirst(entries.count - maximumCount)
         }
         return entries.count != originalCount
     }

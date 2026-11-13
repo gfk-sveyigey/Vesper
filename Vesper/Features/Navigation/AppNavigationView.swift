@@ -152,7 +152,7 @@ struct AppNavigationView: View {
     }
 
     private var multifunctionTitle: String {
-        isSearchPresented || !multifunctionEnabled ? String(localized: "搜索") : String(localized: "多功能")
+        isSearchPresented || !multifunctionEnabled ? VesperLocalization.string("搜索") : VesperLocalization.string("多功能")
     }
 
     private var multifunctionSymbol: String {

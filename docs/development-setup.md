@@ -42,11 +42,11 @@ CI 沿用 `.github/workflows/build-dev.yml`，推送 dev 后在 macOS 26/Xcode 2
 
 ## 日志
 
-使用 Apple Unified Logging（`OSLog.Logger`），通过 `AppLog` 统一分类。导航诊断 trace 保存在 App 内“设置 > 运行日志”，不会输出到 Xcode Console；时间保留选项为 1/3/7/14/30/90 天或无限制，条数选项为 100/250/500/1000/2000/5000 条或无限制，默认 7 天/500 条，超出任一限制的旧日志会清理。日志以 UTF-8 文本存于 Application Support/Logs/Vesper.log，串行后台写入；追加采用后台 append，清理时才重写文件。运行日志页分批加载，可复制全部日志内容或复制单条日志，不读取旧版偏好数据中的日志。其他类别仍使用系统日志，避免把敏感 URL、路径或凭据写入 App 内日志。
+使用 Apple Unified Logging（`OSLog.Logger`），通过 `AppLog` 统一分类。导航诊断 trace 保存在 App 内“设置 > 运行日志”，不会输出到 Xcode Console；日志仅按时间保留，可选 1/3/7/14/30/90 天或无限制，默认 7 天。日志以 UTF-8 文本存于 Application Support/Logs/Vesper.log，串行后台写入；追加采用后台 append，清理时才重写文件。运行日志页按需分批加载，支持复制单条日志、清空，以及通过系统分享面板导出完整 `.log` 文件。其他类别仍使用系统日志，避免把敏感 URL、路径或凭据写入 App 内日志。
 
 ## 本地化与外观设置
 
-界面依据系统语言自动选择简体中文、英语、日语、韩语、西班牙语或法语；未匹配时回退简体中文。主题模式支持自动、深色和浅色，主题色支持 Vesper Violet、Ocean Blue、Emerald Green 和 Rose，并持久化应用于全局 tint。
+界面默认依据系统语言选择简体中文、英语、日语、韩语、西班牙语或法语；也可在设置中手动选择语言，未匹配时回退简体中文。主题模式支持自动、深色和浅色，主题色支持 Vesper Violet、Ocean Blue、Emerald Green 和 Rose，并持久化应用于全局 tint。
 
 多功能按钮始终可见，挂载在应用根级安全区，不属于可隐藏的系统标签栏，也不被内容区域的收起遮罩覆盖。隐藏标签栏只影响四个系统标签，不隐藏该按钮。
 

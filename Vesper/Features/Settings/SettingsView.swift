@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, gestures, appearance, logs
+    case tabs, gestures, appearance, language, logs
 }
 
 struct SettingsView: View {
@@ -16,6 +16,7 @@ struct SettingsView: View {
             Section("应用") {
                 NavigationLink("标签设置", value: SettingsRoute.tabs)
                 NavigationLink("外观设置", value: SettingsRoute.appearance)
+                NavigationLink("语言设置", value: SettingsRoute.language)
                 NavigationLink("运行日志", value: SettingsRoute.logs)
             }
             Section {
@@ -40,6 +41,7 @@ struct SettingsView: View {
             case .tabs: TabSettingsView()
             case .gestures: GestureActionSettingsView()
             case .appearance: AppearanceSettingsView()
+            case .language: LanguageSettingsView()
             case .logs: RuntimeLogsView()
             }
         }
@@ -51,9 +53,10 @@ struct SettingsView: View {
 private struct RuntimeLogsView: View {
     @ObservedObject private var store: RuntimeLogEntries
     @AppStorage("runtimeLogs.retentionDays") private var retentionDays = 7
-    @AppStorage("runtimeLogs.maximumCount") private var maximumCount = 500
     @State private var loadedCount = 100
-    @State private var didCopyLogs = false
+    @State private var shareFile: SharedLogFile?
+    @State private var isShowingClearConfirmation = false
+    @State private var isShowingExportError = false
 
     init() { store = AppLog.runtimeEntries }
 
@@ -64,19 +67,12 @@ private struct RuntimeLogsView: View {
                 Picker("保留时间", selection: $retentionDays) {
                     Text("无限制").tag(0)
                     ForEach([1, 3, 7, 14, 30, 90], id: \.self) { days in
-                        Text(String(format: NSLocalizedString("%d 天", comment: "Log retention days"), days)).tag(days)
-                    }
-                }
-                .pickerStyle(.navigationLink)
-                Picker("保留条数", selection: $maximumCount) {
-                    Text("无限制").tag(0)
-                    ForEach([100, 250, 500, 1_000, 2_000, 5_000], id: \.self) { count in
-                        Text(String(format: NSLocalizedString("%d 条", comment: "Log retention count"), count)).tag(count)
+                        Text(String(format: VesperLocalization.string("%d 天"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [days])).tag(days)
                     }
                 }
                 .pickerStyle(.navigationLink)
             }
-            Section(String(format: NSLocalizedString("日志（%d）", comment: "Runtime log count"), store.entries.count)) {
+            Section(String(format: VesperLocalization.string("日志（%d）"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [store.entries.count])) {
                 if store.entries.isEmpty {
                     ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
                 } else {
@@ -90,39 +86,95 @@ private struct RuntimeLogsView: View {
                             }
                     }
                     if loadedCount < store.entries.count {
-                        Button(String(format: NSLocalizedString("加载更早的日志（已显示 %d 条）", comment: "Load older logs"), min(loadedCount, store.entries.count))) {
+                        Button(String(format: VesperLocalization.string("加载更早的日志（已显示 %d 条）"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [min(loadedCount, store.entries.count)])) {
                             loadedCount += 100
                         }
                     }
                 }
             }
         }
-        .listStyle(.plain)
+        .listStyle(.insetGrouped)
         .navigationTitle("运行日志")
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("复制全部日志", systemImage: "doc.on.doc") {
-                        UIPasteboard.general.string = store.exportText
-                        didCopyLogs = true
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    store.prepareExportFile { result in
+                        switch result {
+                        case .success(let url): shareFile = SharedLogFile(url: url)
+                        case .failure: isShowingExportError = true
+                        }
                     }
-                        .disabled(store.entries.isEmpty)
-                    Button("清空日志", systemImage: "trash", role: .destructive) { store.clear() }
-                        .disabled(store.entries.isEmpty)
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: "square.and.arrow.up")
                 }
-                .accessibilityLabel("日志操作")
+                .accessibilityLabel("导出日志")
+                .disabled(store.entries.isEmpty)
+                Button(role: .destructive) { isShowingClearConfirmation = true } label: {
+                    Image(systemName: "trash")
+                }
+                .accessibilityLabel("清空日志")
+                .disabled(store.entries.isEmpty)
             }
         }
-        .onAppear { store.setRetention(days: retentionDays, count: maximumCount) }
-        .onChange(of: retentionDays) { _, _ in store.setRetention(days: retentionDays, count: maximumCount) }
-        .onChange(of: maximumCount) { _, _ in store.setRetention(days: retentionDays, count: maximumCount) }
-        .alert("已复制全部日志", isPresented: $didCopyLogs) {
-            Button("好", role: .cancel) { }
+        .onAppear { store.setRetention(days: retentionDays) }
+        .onChange(of: retentionDays) { _, _ in store.setRetention(days: retentionDays) }
+        .confirmationDialog("确定清空所有日志？", isPresented: $isShowingClearConfirmation, titleVisibility: .visible) {
+            Button("清空日志", role: .destructive) { store.clear() }
+            Button("取消", role: .cancel) { }
         }
+        .alert("导出失败", isPresented: $isShowingExportError) {
+            Button("好", role: .cancel) { }
+        } message: {
+            Text("无法准备日志文件，请稍后重试。")
+        }
+        .sheet(item: $shareFile) { file in
+            RuntimeLogShareSheet(fileURL: file.url) {
+                isShowingExportError = true
+            }
+        }
+    }
+}
 
+private struct SharedLogFile: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+private struct RuntimeLogShareSheet: UIViewControllerRepresentable {
+    let fileURL: URL
+    let onError: () -> Void
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, _, _, error in
+            guard error != nil else { return }
+            Task { @MainActor in onError() }
+        }
+        return controller
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) { }
+}
+
+private struct LanguageSettingsView: View {
+    @AppStorage("language.code") private var languageCode = "system"
+
+    var body: some View {
+        Form {
+            Picker("应用语言", selection: $languageCode) {
+                Text("系统默认").tag("system")
+                Text("简体中文").tag("zh-Hans")
+                Text("English").tag("en")
+                Text("日本語").tag("ja")
+                Text("한국어").tag("ko")
+                Text("Español").tag("es")
+                Text("Français").tag("fr")
+            }
+            .pickerStyle(.navigationLink)
+        }
+        .navigationTitle("语言设置")
+        .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
 
