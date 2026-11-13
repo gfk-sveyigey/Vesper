@@ -49,6 +49,10 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
             }
         }
+        // Full-width, unpinned title row shares the same scrolling origin and
+        // transparent background as the other root pages. Keep native list rows.
+        .listStyle(.plain)
+        .contentMargins(.top, 0, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .vesperImmersiveTitle()
         .navigationDestination(for: SettingsRoute.self) { route in

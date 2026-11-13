@@ -40,6 +40,21 @@ struct ImmersiveTitleStateChecks {
         disappearing.complete(pending)
         precondition(disappearing.phase == .collapsed)
         precondition(layout.phase == .expanded) // Page instances remain independent.
+        var shortScroll = ImmersiveTitleState()
+        precondition(shortScroll.blurProgress == 0)
+        precondition(shortScroll.observe(offset: 25, isScrolling: true) == nil)
+        precondition(shortScroll.blurProgress == 0.5)
+        let stop = shortScroll.observe(offset: 25, isScrolling: false, didStop: true)!
+        precondition(shortScroll.phase == .collapsing)
+        shortScroll.complete(stop)
+        precondition(shortScroll.phase == .collapsed)
+        precondition(shortScroll.observe(offset: 10, isScrolling: true) == nil)
+        let top = shortScroll.observe(offset: 0, isScrolling: false)!
+        shortScroll.complete(top)
+        precondition(shortScroll.phase == .expanded && shortScroll.blurProgress == 0)
+        precondition(shortScroll.observe(offset: 0, isScrolling: false, didStop: true) == nil)
+        _ = shortScroll.observe(offset: 500, isScrolling: false)
+        precondition(shortScroll.blurProgress == 1)
         print("Immersive title state checks passed")
     }
 }

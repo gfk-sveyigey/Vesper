@@ -25,14 +25,22 @@ struct ImmersiveTitleState {
         phase == .collapsing || phase == .collapsed
     }
 
-    mutating func observe(offset newOffset: Double, isScrolling: Bool) -> Transition? {
+    var blurProgress: Double {
+        min(1, max(0, (offset - topTolerance) / (collapseThreshold - topTolerance)))
+    }
+
+    mutating func observe(offset newOffset: Double, isScrolling: Bool, didStop: Bool = false) -> Transition? {
         guard newOffset.isFinite else { return nil }
         let previousOffset = offset
         offset = max(0, newOffset)
         if offset <= topTolerance, isCollapsed {
             return begin(isCollapsed: false)
         }
-        if isScrolling, offset >= collapseThreshold, offset > previousOffset, !isCollapsed {
+        // A short scroll also finishes hiding once scrolling actually becomes idle.
+        // Inactive layout observations alone must never collapse the title.
+        let crossedThreshold = isScrolling && offset >= collapseThreshold && offset > previousOffset
+        let stoppedAwayFromTop = didStop && offset > topTolerance
+        if (crossedThreshold || stoppedAwayFromTop), !isCollapsed {
             return begin(isCollapsed: true)
         }
         return nil
