@@ -40,6 +40,7 @@ struct AppNavigationView: View {
 
     var body: some View {
         ZStack {
+            Color("VesperBackground").ignoresSafeArea()
             TabView(selection: Binding(
                 get: { tabSelection },
                 set: {
@@ -647,6 +648,7 @@ private struct SearchPage: View {
                 systemImage: "magnifyingglass",
                 description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入。")
             )
+            .background(Color("VesperBackground").ignoresSafeArea())
             .toolbarBackground(.hidden, for: .navigationBar)
         }
     }

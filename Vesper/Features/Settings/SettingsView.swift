@@ -2,10 +2,11 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, gestures, appearance, language, logs
+    case tabs, gestures, appearance, logs
 }
 
 struct SettingsView: View {
+    @AppStorage("language.code") private var languageCode = "system"
 
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
@@ -16,8 +17,17 @@ struct SettingsView: View {
             Section("应用") {
                 NavigationLink("标签设置", value: SettingsRoute.tabs)
                 NavigationLink("外观设置", value: SettingsRoute.appearance)
-                NavigationLink("语言设置", value: SettingsRoute.language)
                 NavigationLink("运行日志", value: SettingsRoute.logs)
+                Picker("应用语言", selection: $languageCode) {
+                    Text("系统默认").tag("system")
+                    Text("简体中文").tag("zh-Hans")
+                    Text("English").tag("en")
+                    Text("日本語").tag("ja")
+                    Text("한국어").tag("ko")
+                    Text("Español").tag("es")
+                    Text("Français").tag("fr")
+                }
+                .pickerStyle(.menu)
             }
             Section {
                 LabeledContent("播放器偏好", value: "尚未接入")
@@ -36,16 +46,15 @@ struct SettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
+        .background(Color("VesperBackground").ignoresSafeArea())
         .navigationDestination(for: SettingsRoute.self) { route in
             switch route {
             case .tabs: TabSettingsView()
             case .gestures: GestureActionSettingsView()
             case .appearance: AppearanceSettingsView()
-            case .language: LanguageSettingsView()
             case .logs: RuntimeLogsView()
             }
         }
-        .navigationTitle("设置")
         .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
@@ -94,6 +103,8 @@ private struct RuntimeLogsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Color("VesperBackground").ignoresSafeArea())
         .navigationTitle("运行日志")
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
@@ -132,6 +143,8 @@ private struct RuntimeLogsView: View {
             RuntimeLogShareSheet(fileURL: file.url) {
                 isShowingExportError = true
             }
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Color("VesperBackground"))
         }
     }
 }
@@ -155,27 +168,6 @@ private struct RuntimeLogShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) { }
-}
-
-private struct LanguageSettingsView: View {
-    @AppStorage("language.code") private var languageCode = "system"
-
-    var body: some View {
-        Form {
-            Picker("应用语言", selection: $languageCode) {
-                Text("系统默认").tag("system")
-                Text("简体中文").tag("zh-Hans")
-                Text("English").tag("en")
-                Text("日本語").tag("ja")
-                Text("한국어").tag("ko")
-                Text("Español").tag("es")
-                Text("Français").tag("fr")
-            }
-            .pickerStyle(.navigationLink)
-        }
-        .navigationTitle("语言设置")
-        .toolbarBackground(.hidden, for: .navigationBar)
-    }
 }
 
 private struct AppearanceSettingsView: View {
@@ -204,6 +196,7 @@ private struct AppearanceSettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
+        .background(Color("VesperBackground").ignoresSafeArea())
         .navigationTitle("外观设置")
         .toolbarBackground(.hidden, for: .navigationBar)
     }
@@ -255,6 +248,8 @@ struct TabSettingsView: View {
                 hidden = ""
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color("VesperBackground").ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("标签设置")
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -283,6 +278,7 @@ private struct GestureActionSettingsView: View {
                 .foregroundStyle(.secondary)
                 .padding()
         }
+        .background(Color("VesperBackground").ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("手势与动作")
         .toolbarBackground(.hidden, for: .navigationBar)

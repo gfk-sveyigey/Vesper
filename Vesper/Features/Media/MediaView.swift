@@ -12,7 +12,7 @@ struct MediaView: View {
             Button("前往来源", action: openSources)
                 .buttonStyle(.borderedProminent)
         }
-        .navigationTitle("媒体")
+        .background(Color("VesperBackground").ignoresSafeArea())
         .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
