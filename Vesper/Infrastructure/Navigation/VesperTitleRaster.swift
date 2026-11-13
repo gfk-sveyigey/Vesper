@@ -4,7 +4,7 @@ import UIKit
 
 /// Animatable feeds interpolated values into UIViewRepresentable. UIKit does not
 /// automatically interpolate arbitrary Core Image parameters in updateUIView.
-struct VesperTitleRendering: View, Animatable {
+nonisolated struct VesperTitleRendering: View, Animatable {
     let title: String
     let scrollProgress: Double
     let reduceMotion: Bool
@@ -16,7 +16,7 @@ struct VesperTitleRendering: View, Animatable {
         set { collapseProgress = newValue }
     }
 
-    var body: some View {
+    @MainActor var body: some View {
         // Continue from the current scroll appearance as soon as collapse starts;
         // max(scroll, collapse) would otherwise pause blur/fade until it catches up.
         let scroll = min(1, max(0, scrollProgress))
