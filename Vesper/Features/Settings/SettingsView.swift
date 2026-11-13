@@ -55,7 +55,6 @@ struct SettingsView: View {
             case .logs: RuntimeLogsView()
             }
         }
-        .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
 
@@ -79,7 +78,7 @@ private struct RuntimeLogsView: View {
                         Text(String(format: VesperLocalization.string("%d 天"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [days])).tag(days)
                     }
                 }
-                .pickerStyle(.navigationLink)
+                .pickerStyle(.menu)
             }
             Section(String(format: VesperLocalization.string("日志（%d）"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [store.entries.count])) {
                 if store.entries.isEmpty {
@@ -106,7 +105,6 @@ private struct RuntimeLogsView: View {
         .scrollContentBackground(.hidden)
         .background(Color("VesperBackground").ignoresSafeArea())
         .navigationTitle("运行日志")
-        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -143,8 +141,6 @@ private struct RuntimeLogsView: View {
             RuntimeLogShareSheet(fileURL: file.url) {
                 isShowingExportError = true
             }
-            .presentationDragIndicator(.visible)
-            .presentationBackground(Color("VesperBackground"))
         }
     }
 }
@@ -182,14 +178,14 @@ private struct AppearanceSettingsView: View {
                     Text("深色").tag("dark")
                     Text("浅色").tag("light")
                 }
-                .pickerStyle(.navigationLink)
+                .pickerStyle(.menu)
                 Picker("主题色", selection: $accent) {
                     Label { Text("薰衣草紫") } icon: { Circle().fill(VesperTheme.accent("vesper")) }.tag("vesper")
                     Label { Text("海洋蓝") } icon: { Circle().fill(VesperTheme.accent("ocean")) }.tag("ocean")
                     Label { Text("翡翠绿") } icon: { Circle().fill(VesperTheme.accent("emerald")) }.tag("emerald")
                     Label { Text("玫瑰粉") } icon: { Circle().fill(VesperTheme.accent("rose")) }.tag("rose")
                 }
-                .pickerStyle(.navigationLink)
+                .pickerStyle(.menu)
                 .tint(VesperTheme.accent(accent))
             } footer: {
                 Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
@@ -198,7 +194,6 @@ private struct AppearanceSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Color("VesperBackground").ignoresSafeArea())
         .navigationTitle("外观设置")
-        .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
 
@@ -252,7 +247,6 @@ struct TabSettingsView: View {
         .background(Color("VesperBackground").ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("标签设置")
-        .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
 
@@ -281,7 +275,6 @@ private struct GestureActionSettingsView: View {
         .background(Color("VesperBackground").ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("手势与动作")
-        .toolbarBackground(.hidden, for: .navigationBar)
     }
 
     private func column(_ storage: Binding<String>, names: [String: String]) -> some View {

@@ -55,7 +55,6 @@ struct AppNavigationView: View {
                     if hasPreparedSearchControl {
                         NavigationStack {
                             Color.clear
-                                .toolbarBackground(.hidden, for: .navigationBar)
                         }
                         .searchable(text: $searchQuery, isPresented: Binding(
                             get: { searchInputActive },
@@ -79,7 +78,6 @@ struct AppNavigationView: View {
                     }
                 }
             }
-            .toolbarBackground(.hidden, for: .tabBar)
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
@@ -649,7 +647,6 @@ private struct SearchPage: View {
                 description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入。")
             )
             .background(Color("VesperBackground").ignoresSafeArea())
-            .toolbarBackground(.hidden, for: .navigationBar)
         }
     }
 }

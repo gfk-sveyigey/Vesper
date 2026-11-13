@@ -13,6 +13,5 @@ struct MediaView: View {
                 .buttonStyle(.borderedProminent)
         }
         .background(Color("VesperBackground").ignoresSafeArea())
-        .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
