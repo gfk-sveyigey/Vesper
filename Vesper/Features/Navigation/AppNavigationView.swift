@@ -21,6 +21,7 @@ struct AppNavigationView: View {
     @State private var didInitializeNavigation = false
     @State private var isSearchPresented = false
     @State private var isPreparingSearch = false
+    @State private var hasPreparedSearchControl = false
     @State private var searchInputActive = false
     @State private var searchQuery = ""
     @FocusState private var searchFocused: Bool
@@ -49,14 +50,23 @@ struct AppNavigationView: View {
             )) {
                 primaryTabs
                 Tab(multifunctionTitle, systemImage: multifunctionSymbol, value: NavigationTab.multifunction, role: .search) {
-                    // Mount during preparation alongside group expansion, but only
-                    // activate input once the search page is presented.
-                    if isPreparingSearch || isSearchPresented {
+                    // Mount on first preparation and retain the navigation/search
+                    // context when cancelling so native dismissal can finish.
+                    if hasPreparedSearchControl {
                         NavigationStack {
                             Color.clear
                                 .toolbarBackground(.hidden, for: .navigationBar)
                         }
-                        .searchable(text: $searchQuery, isPresented: $searchInputActive, prompt: "搜索当前媒体来源")
+                        .searchable(text: $searchQuery, isPresented: Binding(
+                            get: { searchInputActive },
+                            set: { active in
+                                guard !active || isSearchPresented else {
+                                    traceNavigation("search.activationIgnored")
+                                    return
+                                }
+                                searchInputActive = active
+                            }
+                        ), prompt: "搜索当前媒体来源")
                         .searchFocused($searchFocused)
                         .task(id: isSearchPresented) {
                             guard isSearchPresented else { return }
@@ -74,7 +84,6 @@ struct AppNavigationView: View {
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
                 enabled: !isSearchPresented,
-                searchMode: isSearchPresented || !multifunctionEnabled,
                 trace: { event in traceNavigation(event) },
                 reportHeight: { height in
                     if tabBarHeight != height { tabBarHeight = height }
@@ -242,6 +251,7 @@ struct AppNavigationView: View {
         searchStartedWithHiddenTabs = multifunctionEnabled && !showPrimaryTabs
         pendingSearchDelay = min(500, max(0, searchStartedWithHiddenTabs ? hiddenSearchDelay : visibleSearchDelay))
         if searchStartedWithHiddenTabs { isExpanded = true }
+        hasPreparedSearchControl = true
         isPreparingSearch = true
         traceNavigation("search.prepare delayMs=\(pendingSearchDelay) startedHidden=\(searchStartedWithHiddenTabs)")
         synchronizeTabSelection()
@@ -423,7 +433,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     let tap: () -> Void
     let longPress: () -> Void
     let enabled: Bool
-    let searchMode: Bool
     let trace: (String) -> Void
     let reportHeight: (CGFloat) -> Void
 
@@ -437,7 +446,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         controller.longPressAction = longPress
         controller.reportHeight = reportHeight
         controller.gesturesEnabled = enabled
-        controller.searchMode = searchMode
         controller.installWhenReady()
     }
 
@@ -450,13 +458,10 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var longPressAction: () -> Void
         var reportHeight: (CGFloat) -> Void
         var gesturesEnabled = true
-        var searchMode = false
         var trace: (String) -> Void = { _ in }
         private var lastNativeSelection: String?
         private var touchSequence = 0
         private var lastTouchTime: TimeInterval?
-        private weak var configuredSearchTab: UISearchTab?
-        private var configuredSearchSymbol: String?
         private weak var installedBar: UITabBar?
         private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
         private lazy var pressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
@@ -494,12 +499,7 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
                     // App gestures own search activation, including when this tab is
                     // selected to keep the primary group collapsed.
                     search.automaticallyActivatesSearch = false
-                    let symbol = searchMode ? "magnifyingglass" : "square.grid.2x2"
-                    if configuredSearchTab !== search || configuredSearchSymbol != symbol {
-                        configuredSearchTab = search
-                        configuredSearchSymbol = symbol
-                        search.image = UIImage(systemName: symbol)
-                    }
+
                 }
             }
             let bar = controller.tabBar
