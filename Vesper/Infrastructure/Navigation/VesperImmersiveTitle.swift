@@ -118,9 +118,9 @@ struct VesperStatusBarMaterial: UIViewControllerRepresentable {
     }
 
     final class StatusBarMaterialController: UIViewController {
-        private let material = UIHostingController(rootView:
+        private let material = UIHostingController<AnyView>(rootView: AnyView(
             Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
-        )
+        ))
 
         override func loadView() {
             view = UIView()
