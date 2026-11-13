@@ -54,6 +54,8 @@ struct SettingsView: View {
 private struct DebugSettingsView: View {
     @AppStorage("debug.searchHiddenDelayMs") private var hiddenDelay = 100
     @AppStorage("debug.searchVisibleDelayMs") private var visibleDelay = 100
+    @AppStorage("debug.collapseInputDelayMs") private var inputDelay = 0
+    @AppStorage("debug.collapseContainerDelayMs") private var containerDelay = 0
 
     var body: some View {
         Form {
@@ -65,18 +67,26 @@ private struct DebugSettingsView: View {
             } footer: {
                 Text("从准备搜索控件到打开搜索页面的等待时间。两项独立保存，范围为 0–500 ms，默认均为 100 ms。")
             }
+            Section {
+                delaySlider("清除输入 → 移除搜索容器", value: $inputDelay, maximum: 2000)
+                delaySlider("移除搜索容器 → 隐藏标签组", value: $containerDelay, maximum: 2000)
+            } header: {
+                Text("搜索后收起步骤间隔")
+            } footer: {
+                Text("仅在保留搜索容器时生效。范围为 0–2000 ms，默认均为 0 ms。每一步会记录日志；再次打开搜索时取消待执行的收起。")
+            }
         }
         .navigationTitle("调试设置")
         .toolbarBackground(.hidden, for: .navigationBar)
     }
 
-    private func delaySlider(_ title: String, value: Binding<Int>) -> some View {
+    private func delaySlider(_ title: String, value: Binding<Int>, maximum: Double = 500) -> some View {
         VStack(alignment: .leading) {
             Text("\(title)：\(value.wrappedValue) ms")
             Slider(value: Binding(
                 get: { Double(value.wrappedValue) },
                 set: { value.wrappedValue = Int($0.rounded()) }
-            ), in: 0...500, step: 1)
+            ), in: 0...maximum, step: 1)
             .accessibilityLabel(title)
             .accessibilityValue("\(value.wrappedValue) 毫秒")
         }

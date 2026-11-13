@@ -14,6 +14,10 @@ struct AppNavigationView: View {
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
     @AppStorage("debug.searchHiddenDelayMs") private var hiddenSearchDelay = 100
     @AppStorage("debug.searchVisibleDelayMs") private var visibleSearchDelay = 100
+    @AppStorage("debug.collapseInputDelayMs") private var collapseInputDelay = 0
+    @AppStorage("debug.collapseContainerDelayMs") private var collapseContainerDelay = 0
+    @State private var collapseTask: Task<Void, Never>?
+    @State private var collapseToken: UUID?
     @State private var pendingSearchDelay = 0
     @State private var currentPage: AppSection = .media
     @State private var tabSelection: NavigationTab = .section(.media)
@@ -127,7 +131,9 @@ struct AppNavigationView: View {
             synchronizeTabSelection()
         }
         .onChange(of: showPrimaryTabs) { _, _ in synchronizeTabSelection() }
+        .onDisappear { cancelPendingCollapse() }
         .onChange(of: multifunctionEnabled) { _, enabled in
+            cancelPendingCollapse()
             if !enabled { isExpanded = true }
             synchronizeTabSelection()
         }
@@ -212,20 +218,48 @@ struct AppNavigationView: View {
     }
 
     private func collapsePrimaryTabs() {
-        guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
+        guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch, collapseTask == nil else { return }
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             searchFocused = false
             searchInputActive = false
-            if hasPreparedSearchControl {
-                // Detach the search context before changing the selected item.
-                hasPreparedSearchControl = false
-                DispatchQueue.main.async { finishCollapsingPrimaryTabs() }
-            } else {
-                finishCollapsingPrimaryTabs()
-            }
         }
+        guard hasPreparedSearchControl else {
+            finishCollapsingPrimaryTabs()
+            return
+        }
+        let firstDelay = min(2000, max(0, collapseInputDelay))
+        let secondDelay = min(2000, max(0, collapseContainerDelay))
+        let token = UUID()
+        collapseToken = token
+        traceNavigation("collapse.inputCleared firstDelayMs=\(firstDelay) secondDelayMs=\(secondDelay)")
+        collapseTask = Task { @MainActor in
+            defer {
+                if collapseToken == token {
+                    collapseTask = nil
+                    collapseToken = nil
+                }
+            }
+            do {
+                try await Task.sleep(for: .milliseconds(firstDelay))
+                guard !Task.isCancelled, multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { hasPreparedSearchControl = false }
+                traceNavigation("collapse.searchContainerRemoved")
+                try await Task.sleep(for: .milliseconds(secondDelay))
+                guard !Task.isCancelled else { return }
+                finishCollapsingPrimaryTabs()
+                traceNavigation("collapse.groupHidden")
+            } catch { return }
+        }
+    }
+
+    private func cancelPendingCollapse() {
+        collapseTask?.cancel()
+        collapseTask = nil
+        collapseToken = nil
     }
 
     private func finishCollapsingPrimaryTabs() {
@@ -268,6 +302,7 @@ struct AppNavigationView: View {
 
     private func openSearch() {
         guard !isSearchPresented, !isPreparingSearch else { return }
+        cancelPendingCollapse()
         searchReturnState = SearchReturnState(page: currentPage, expanded: isExpanded, tab: tabSelection)
         searchQuery = ""
         searchStartedWithHiddenTabs = multifunctionEnabled && !showPrimaryTabs
