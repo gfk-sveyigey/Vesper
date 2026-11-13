@@ -106,6 +106,7 @@ private struct RuntimeLogsView: View {
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background.ignoresSafeArea())
         .navigationTitle("运行日志")
+        .navigationBarTitleDisplayMode(.inline)
         .vesperTransparentNavigationBar()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -196,6 +197,7 @@ private struct AppearanceSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background.ignoresSafeArea())
         .navigationTitle("外观设置")
+        .navigationBarTitleDisplayMode(.inline)
         .vesperTransparentNavigationBar()
     }
 }
@@ -250,6 +252,7 @@ struct TabSettingsView: View {
         .background(VesperTheme.background.ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("标签设置")
+        .navigationBarTitleDisplayMode(.inline)
         .vesperTransparentNavigationBar()
     }
 }
@@ -279,6 +282,7 @@ private struct GestureActionSettingsView: View {
         .background(VesperTheme.background.ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("手势与动作")
+        .navigationBarTitleDisplayMode(.inline)
         .vesperTransparentNavigationBar()
     }
 
