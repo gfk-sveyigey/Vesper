@@ -1,11 +1,11 @@
 import SwiftUI
+import UIKit
 
 /// Attach directly to the root ScrollView/List inside its existing NavigationStack.
 private struct VesperImmersiveTitle: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var state = ImmersiveTitleState()
     @State private var isTitleCollapsed = false
-    @State private var isScrolling = false
 
     func body(content: Content) -> some View {
         content
@@ -16,15 +16,16 @@ private struct VesperImmersiveTitle: ViewModifier {
             } action: { _, offset in
                 observe(offset: offset)
             }
-            .onScrollPhaseChange { oldPhase, phase in
-                isScrolling = phase.isScrolling
-                observe(offset: state.offset, didStop: oldPhase.isScrolling && phase == .idle)
+            .onScrollPhaseChange { oldPhase, phase, context in
+                // Read the final geometry here; the last geometry callback may
+                // arrive before or after the phase change.
+                let offset = Double(context.geometry.contentOffset.y + context.geometry.contentInsets.top)
+                observe(offset: offset, didStop: oldPhase.isScrolling && phase == .idle)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
             .onDisappear {
-                isScrolling = false
                 state.settle()
                 var transaction = Transaction(animation: nil)
                 transaction.disablesAnimations = true
@@ -33,7 +34,7 @@ private struct VesperImmersiveTitle: ViewModifier {
     }
 
     private func observe(offset: Double, didStop: Bool = false) {
-        guard let transition = state.observe(offset: offset, isScrolling: isScrolling, didStop: didStop) else { return }
+        guard let transition = state.observe(offset: offset, didStop: didStop) else { return }
         withAnimation(
             .easeInOut(duration: reduceMotion ? 0.18 : 0.30),
             completionCriteria: .logicallyComplete
@@ -102,5 +103,47 @@ struct VesperLargeTitle: View {
             .accessibilityAddTraits(.isHeader)
             .accessibilityHidden(isCollapsed)
             .allowsHitTesting(false)
+    }
+}
+
+/// The material occupies only the window's top safe area. It is independent of
+/// each scrolling title, and never participates in hit testing.
+struct VesperStatusBarMaterial: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> StatusBarMaterialController {
+        StatusBarMaterialController()
+    }
+
+    func updateUIViewController(_ controller: StatusBarMaterialController, context: Context) {
+        controller.view.setNeedsLayout()
+    }
+
+    final class StatusBarMaterialController: UIViewController {
+        private let material = UIHostingController(rootView:
+            Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
+        )
+
+        override func loadView() {
+            view = UIView()
+            view.backgroundColor = .clear
+            view.isUserInteractionEnabled = false
+            addChild(material)
+            material.view.backgroundColor = .clear
+            material.view.isUserInteractionEnabled = false
+            view.addSubview(material.view)
+            material.didMove(toParent: self)
+        }
+
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            guard let window = view.window else { material.view.frame = .zero; return }
+            let strip = CGRect(x: window.bounds.minX, y: window.bounds.minY,
+                               width: window.bounds.width, height: window.safeAreaInsets.top)
+            material.view.frame = view.convert(strip, from: window)
+        }
+
+        override func viewSafeAreaInsetsDidChange() {
+            super.viewSafeAreaInsetsDidChange()
+            view.setNeedsLayout()
+        }
     }
 }

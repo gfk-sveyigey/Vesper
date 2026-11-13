@@ -12,12 +12,12 @@ struct ImmersiveTitleState {
     private(set) var phase: Phase = .expanded
     private(set) var offset: Double = 0
     private var generation: UInt64 = 0
-    let collapseThreshold: Double
+    let blurDistance: Double
     let topTolerance: Double
 
-    init(collapseThreshold: Double = 48, topTolerance: Double = 2) {
-        precondition(collapseThreshold > topTolerance && topTolerance >= 0)
-        self.collapseThreshold = collapseThreshold
+    init(blurDistance: Double = 48, topTolerance: Double = 2) {
+        precondition(blurDistance > topTolerance && topTolerance >= 0)
+        self.blurDistance = blurDistance
         self.topTolerance = topTolerance
     }
 
@@ -26,21 +26,18 @@ struct ImmersiveTitleState {
     }
 
     var blurProgress: Double {
-        min(1, max(0, (offset - topTolerance) / (collapseThreshold - topTolerance)))
+        min(1, max(0, (offset - topTolerance) / (blurDistance - topTolerance)))
     }
 
-    mutating func observe(offset newOffset: Double, isScrolling: Bool, didStop: Bool = false) -> Transition? {
+    mutating func observe(offset newOffset: Double, didStop: Bool = false) -> Transition? {
         guard newOffset.isFinite else { return nil }
-        let previousOffset = offset
         offset = max(0, newOffset)
         if offset <= topTolerance, isCollapsed {
             return begin(isCollapsed: false)
         }
-        // A short scroll also finishes hiding once scrolling actually becomes idle.
-        // Inactive layout observations alone must never collapse the title.
-        let crossedThreshold = isScrolling && offset >= collapseThreshold && offset > previousOffset
-        let stoppedAwayFromTop = didStop && offset > topTolerance
-        if (crossedThreshold || stoppedAwayFromTop), !isCollapsed {
+        // Geometry only drives blur and restoration. Collapse is exclusively
+        // triggered when the scroll phase reaches idle, never during dragging.
+        if didStop, offset > topTolerance, !isCollapsed {
             return begin(isCollapsed: true)
         }
         return nil

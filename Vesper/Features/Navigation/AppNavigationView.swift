@@ -111,6 +111,11 @@ struct AppNavigationView: View {
 
         }
         .ignoresSafeArea(.container)
+        .overlay {
+            VesperStatusBarMaterial()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .task(id: isPreparingSearch) {
             guard isPreparingSearch else { return }
             // Yield after mounting the search context, then select its native tab

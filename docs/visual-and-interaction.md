@@ -88,9 +88,9 @@ Color("VesperPlaybackProgress")
 ## 信息层级
 
 - 四个一级页面分别显示“媒体”“来源”“观看记录”“设置”，使用滚动内容顶部的 VesperLargeTitle，标题随 ScrollView/List 内容滚动，不使用固定 overlay；不使用系统 Large Title 自动收缩为 Inline Title 的行为。标题始终保持大字号，使用 VesperPrimaryText；初始背景透明，使用 ultraThinMaterial，opacity 由顶部滚动偏移映射到 0...1，不添加始终可见的材质。各页面独立管理 expanded、collapsing、collapsed、expanding 四种状态，切换标签互不影响。
-- 使用 onScrollGeometryChange 观测相对内容顶部的偏移，配合 onScrollPhaseChange 判断滚动。向上滚动超过 48 pt 后，触发独立的向上移出与淡出动画；即使滚动停止，动画仍继续完成；未达阈值但已离开顶部的短距离滚动，在阶段进入 idle 时也执行完整收起动画。中途向下滚动不恢复标题，仅在回到顶部（2 pt 容差）时同步恢复标题和材质。标题在滚动内容中的布局高度不随动画改变，避免布局反馈反复触发状态。
+- 使用 onScrollGeometryChange 观测相对内容顶部的偏移，只驱动标题背景模糊和顶部恢复，不启动独立收起。模糊在顶部 2 pt 容差外渐增，48 pt 时达到 1；48 pt 是模糊映射距离，不是动画触发阈值。手指拖动和惯性滚动期间标题仅随内容自然移动；onScrollPhaseChange 进入 idle 时读取当时的 ScrollGeometry，只有离开顶部才触发独立向上移出与淡出动画。标题自身动画 offset 与 ScrollView 的自然滚动 offset 分离。中途向下滚动不恢复标题，仅回到顶部（2 pt 容差）时恢复。标题在滚动内容中的布局高度不随动画改变，避免布局反馈反复触发状态。
 - 使用 SwiftUI 动画 completion 完成状态转换，忽略过期动画回调，不使用固定延迟判断完成。默认动画 0.30 秒；Reduce Motion 开启时取消位移，仅用 0.18 秒淡入淡出。
-- 一级页面隐藏系统导航栏，由独立大标题承担标题展示。状态栏不添加独立材质或纯色覆盖，由唯一全屏 VesperBackground 连续延伸。标题材质只随标题滚动、淡出，不延伸覆盖状态栏，不覆盖整页。
+- 一级页面隐藏系统导航栏，由独立大标题承担标题展示。状态栏由独立 ultraThinMaterial 覆盖顶部系统安全区，始终保留真实模糊，底层为唯一全屏 VesperBackground，不叠加纯色覆盖。材质高度取自 window.safeAreaInsets.top，不固定高度，不拦截触摸。标题材质只随标题滚动、淡出，不延伸覆盖状态栏，不覆盖整页。
 - 二级及更深页面使用空标题、inline 模式及持续显示的原生导航栏，保留系统返回图标、边缘滑动返回和原生转场，不自行绘制返回按钮。导航栏使用系统 regularMaterial；每个标签独立管理 NavigationStack 历史，一级标题状态不影响二级导航栏。不承诺原生返回图标在转场期间严格固定于同一屏幕坐标。日志导出和清空仍位于原生导航栏右侧。
 - 搜索页面独立处理，保留原生 Search Tab 和 searchable 流程，不接入一级标题组件，不增加重复标题或导航栏。
 - ContentHost 及持久页面 Host 四边贴合父视图，不使用缩短高度、额外固定偏移或裁剪来避让系统栏。底部内容安全区根据原生标签栏的实际 window 坐标计算，页面内部仍由 NavigationStack/List/Form 处理安全区。
@@ -98,8 +98,8 @@ Color("VesperPlaybackProgress")
 - 页面优先采用目标 Apple 平台的原生组件与原生交互逻辑，包括导航、列表、表单、菜单、搜索、确认、焦点和辅助功能行为。
 - 除非原生组件无法满足明确的产品需求，不重新绘制系统控件或复制系统已有交互；自定义样式应基于原生组件能力，并保留平台惯例。
 - 二级及更深页面导航栏统一采用系统 regularMaterial；标签栏保留原生 Liquid Glass，不叠加自绘背景或模糊层。确保文字和图标在滚动、不同内容背景及浅/深色外观下清晰，并正确处理安全区。
-- 根级提供统一全屏背景并延伸至底部手势区域，不绘制额外安全区色块。一级页面状态栏透明显示统一页面背景，大标题材质随滚动渐显并随标题收起；二级导航栏使用系统材质。TabView 普通标签使用透明占位，独立系统 TabView 层位于页面绘制层上方，空白区域触摸穿透，仅原生标签栏与搜索控件接收触摸。标签栏保留原生 Liquid Glass，不设置全局背景 appearance，不覆盖整页模糊。
-- 一级标题、共享背景和触摸穿透调整不改变持久 UIHostingController/NavigationStack、ContentHost 全屏约束、currentPage/tabSelection、搜索打开关闭和多功能按钮逻辑。设置页使用同一标题与滚动状态组件，原生 List 的标题行全宽且不固定。仅根层保留全屏 VesperBackground，页面 Host 不重复绘制不透明背景。系统搜索层为 UITabBar、UISearchBar 及 UIControl 放行触摸，空白区域继续穿透；不重绘取消按钮。输入激活通过 searchable(isPresented:) 管理，不叠加重复 FocusState 或手动键盘控制。
+- 根级提供统一全屏背景并延伸至底部手势区域，不绘制额外安全区色块。一级页面状态栏使用独立 ultraThinMaterial，透出统一页面背景，大标题材质随滚动渐显并随标题收起；二级导航栏使用系统材质。TabView 普通标签使用透明占位，独立系统 TabView 层位于页面绘制层上方，空白区域触摸穿透，仅原生标签栏与搜索控件接收触摸。标签栏保留原生 Liquid Glass，不设置全局背景 appearance，不覆盖整页模糊。
+- 一级标题、共享背景和触摸穿透调整不改变持久 UIHostingController/NavigationStack、ContentHost 全屏约束、currentPage/tabSelection、搜索打开关闭和多功能按钮逻辑。设置页使用同一标题与滚动状态组件，原生 insetGrouped List 保留原来的分组卡片；仅标题所在 Section 使用 listSectionMargins(.all, 0) 全宽显示且不固定。仅根层保留全屏 VesperBackground，页面 Host 不重复绘制不透明背景。系统搜索层为 UITabBar、UISearchBar 及 UIControl 放行触摸，空白区域继续穿透；不重绘取消按钮。输入激活通过 searchable(isPresented:) 管理，不叠加重复 FocusState 或手动键盘控制。
 - 底部使用 SwiftUI 原生 `TabView`；媒体、来源、记录、设置放入 `TabSection("主要功能")`，内部逻辑标识为 `primaryTabs`。多功能项位于组外，使用 `.search` 角色及网格 SF Symbol `square.grid.2x2`，始终保留。
 - 通过 `TabSection.hidden(_:)` 控制整组显隐，不使用 `if` 删除整个分组，也不使用面向自定义布局的 `defaultVisibility` 作为 iPhone 动态显隐开关。
 - 默认仅显示多功能项。默认单击展开或收起主要功能组，长按进入搜索；手势与动作可在设置中通过两列拖动重新配对。点击普通内容不触发收起，选择普通标签也不自动收起。

@@ -14,10 +14,13 @@ struct SettingsView: View {
 
     var body: some View {
         List {
-            VesperLargeTitle("设置")
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+            Section {
+                VesperLargeTitle("设置")
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+            .listSectionMargins(.all, 0)
             Section("应用") {
                 NavigationLink("标签设置", value: SettingsRoute.tabs)
                 NavigationLink("外观设置", value: SettingsRoute.appearance)
@@ -49,9 +52,8 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
             }
         }
-        // Full-width, unpinned title row shares the same scrolling origin and
-        // transparent background as the other root pages. Keep native list rows.
-        .listStyle(.plain)
+        // Only the title section is full-width; settings retain grouped cards.
+        .listStyle(.insetGrouped)
         .contentMargins(.top, 0, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .vesperImmersiveTitle()
