@@ -91,7 +91,8 @@ Color("VesperPlaybackProgress")
 - 顶部使用 iOS 26 原生 `.scrollEdgeEffectStyle(.soft, for: .top)`，并保留顶部 edge effect 可见。滚动视口延伸至顶部安全区，初始内容通过 NavigationStack 外测量的顶部 safeAreaInsets 设置 scrollContent 顶部 margin，仅避让状态栏，不额外预留空导航栏高度；滚动时内容可经过顶部系统边缘效果。ContentHost 约束保持原样，不使用固定状态栏高度或缩短 Host 避让。唯一全屏 VesperBackground 延伸至安全区，状态栏不另加 UIVisualEffectView、Material 或纯色覆盖。原生边缘模糊与标题动画独立管理，不把标题整体高斯模糊当作系统效果。
 - 每个一级页面独立管理 expanded、collapsing、collapsed、expanding。onScrollGeometryChange 观测相对顶部的偏移，仅驱动标题逐渐淡出及顶部恢复；2 pt 顶部容差外开始淡出，48 pt 达到完全透明，48 pt 不是独立动画触发阈值。手指拖动及惯性滚动期间标题仅随 ScrollView 自然移动，不触发独立收起；onScrollPhaseChange 进入 idle 后读取实时 ScrollGeometry，只有已离开顶部才执行独立向上移出与淡出。自然滚动与自有 offset 分离，标题布局高度不随动画改变。
 - 标题收起后，中途向下滚动保持隐藏，仅回到顶部（2 pt 容差）才恢复。用 SwiftUI 动画 completion 完成状态转换，忽略过期回调，不用固定延迟。默认动画 0.30 秒；Reduce Motion 开启时取消独立位移，仅用 0.18 秒淡入淡出。各标签独立保留标题状态。
-- 一级和二级页面均保持系统导航栏显示，统一使用 inline、automatic 背景和原生返回配置。一级导航栏为空，不添加标题或按钮；自定义大标题仍位于滚动内容顶部，内容延伸到空导航栏下方。一级与二级转场不再切换导航栏显隐，但导航栏仍参与系统布局，不能承诺转场期间按钮屏幕坐标完全固定。二级及更深页面使用空标题、inline 模式、原生返回图标和边缘滑动返回；导航栏背景交给系统 automatic，不强制 regularMaterial、纯色或不透明 appearance，不自行绘制返回按钮。每个标签的 NavigationStack 独立管理历史，不承诺原生返回图标在转场期间固定于同一屏幕坐标。日志导出和清空仍位于原生导航栏右侧。
+- 一级和二级页面均保持系统导航栏显示，统一使用 inline、automatic 背景和原生返回配置。一级导航栏中央视觉为空，不添加操作按钮；自定义大标题仍位于滚动内容顶部，内容延伸到空导航栏下方。一级与二级转场不再切换导航栏显隐，但导航栏仍参与系统布局，不能承诺转场期间按钮屏幕坐标完全固定。二级及更深页面中央不显示标题，使用 inline 模式、原生返回图标和边缘滑动返回；导航栏背景交给系统 automatic，不强制 regularMaterial、纯色或不透明 appearance，不自行绘制返回按钮。每个标签的 NavigationStack 独立管理历史，不承诺原生返回图标在转场期间固定于同一屏幕坐标。日志导出和清空仍位于原生导航栏右侧。
+- 一级及二级页面必须保留真实、已国际化的 navigationTitle，供系统长按返回菜单识别历史页面名称；不能用空字符串隐藏标题。统一用透明的 principal ToolbarItem 只替换中央可见标题，并隐藏该占位项自身的玻璃背景和辅助功能元素。返回图标、历史菜单及跳转行为仍由系统生成，不自行绘制或维护返回菜单。
 - 搜索页面保留原生 Search Tab、searchable、现有手动激活和退出流程，不接入一级标题组件，不增加重复导航栏。
 - ContentHost 及持久页面 Host 四边贴合父视图，不使用缩短高度、额外固定偏移或裁剪来避让系统栏。底部内容安全区根据原生标签栏的实际 window 坐标计算，页面内部仍由 NavigationStack/List/Form 处理安全区。
 

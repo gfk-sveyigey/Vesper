@@ -13,6 +13,6 @@ struct SourcesView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .vesperImmersiveTitle()
+        .vesperImmersiveTitle("来源")
     }
 }

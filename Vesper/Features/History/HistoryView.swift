@@ -13,6 +13,6 @@ struct HistoryView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .vesperImmersiveTitle()
+        .vesperImmersiveTitle("观看记录")
     }
 }

@@ -58,6 +58,21 @@ struct VesperNavigationStyle: ViewModifier {
 }
 
 extension View {
+    /// Keep the localized navigation title for native back history, while the
+    /// principal item suppresses only its visible presentation in the bar.
+    func vesperNavigationTitle(_ title: LocalizedStringKey) -> some View {
+        navigationTitle(title)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
+    }
+
     func vesperNavigationStyle(
         _ titleDisplayMode: NavigationBarItem.TitleDisplayMode = .inline
     ) -> some View {

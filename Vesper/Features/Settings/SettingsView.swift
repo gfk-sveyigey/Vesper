@@ -3,6 +3,15 @@ import UIKit
 
 private enum SettingsRoute: Hashable {
     case tabs, gestures, appearance, logs
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .tabs: "标签设置"
+        case .gestures: "手势与动作"
+        case .appearance: "外观设置"
+        case .logs: "运行日志"
+        }
+    }
 }
 
 struct SettingsView: View {
@@ -55,7 +64,7 @@ struct SettingsView: View {
         // Only the title section is full-width; settings retain grouped cards.
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .vesperImmersiveTitle()
+        .vesperImmersiveTitle("设置")
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
@@ -65,7 +74,7 @@ struct SettingsView: View {
                 case .logs: RuntimeLogsView()
                 }
             }
-            .navigationTitle("")
+            .vesperNavigationTitle(route.title)
             .vesperNavigationStyle(.inline)
         }
     }

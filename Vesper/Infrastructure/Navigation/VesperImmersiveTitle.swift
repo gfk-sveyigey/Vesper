@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Each persistent root owns its title state and native scroll edge effect.
 private struct VesperImmersiveTitle: ViewModifier {
+    let title: LocalizedStringKey
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var windowTopInset
     @State private var state = ImmersiveTitleState()
@@ -26,7 +27,7 @@ private struct VesperImmersiveTitle: ViewModifier {
                 let offset = Double(context.geometry.contentOffset.y + context.geometry.contentInsets.top)
                 observe(offset: offset, didStop: oldPhase.isScrolling && phase == .idle)
             }
-            .navigationTitle("")
+            .vesperNavigationTitle(title)
             .vesperNavigationStyle(.inline)
             .onDisappear {
                 state.settle()
@@ -50,8 +51,8 @@ private struct VesperImmersiveTitle: ViewModifier {
 }
 
 extension View {
-    func vesperImmersiveTitle() -> some View {
-        modifier(VesperImmersiveTitle())
+    func vesperImmersiveTitle(_ title: LocalizedStringKey) -> some View {
+        modifier(VesperImmersiveTitle(title: title))
     }
 }
 
