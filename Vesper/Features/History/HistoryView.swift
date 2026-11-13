@@ -7,7 +7,7 @@ struct HistoryView: View {
         } description: {
             Text("最近播放、观看进度和播放历史将在这里呈现。当前原型尚未接入播放会话。")
         }
-        .background(Color("VesperBackground").ignoresSafeArea())
+        .background(VesperTheme.background.ignoresSafeArea())
         .vesperNavigationBarMaterial()
     }
 }

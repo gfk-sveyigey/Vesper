@@ -1,7 +1,13 @@
 import SwiftUI
 import Foundation
+import UIKit
 
 enum VesperTheme {
+    static let background = Color(uiColor: UIColor { traits in
+        if traits.userInterfaceStyle == .dark { return .systemBackground }
+        return UIColor(named: "VesperBackground", in: .main, compatibleWith: traits) ?? .systemBackground
+    })
+
     static func accent(_ identifier: String) -> Color {
         switch identifier {
         case "ocean": Color(red: 0.20, green: 0.42, blue: 0.78)

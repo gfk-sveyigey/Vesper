@@ -40,7 +40,7 @@ struct AppNavigationView: View {
 
     var body: some View {
         ZStack {
-            Color("VesperBackground").ignoresSafeArea()
+            VesperTheme.background.ignoresSafeArea()
             TabView(selection: Binding(
                 get: { tabSelection },
                 set: {
@@ -79,6 +79,7 @@ struct AppNavigationView: View {
                     }
                 }
             }
+            .background(.clear)
             .toolbarBackground(.ultraThinMaterial, for: .tabBar)
             .toolbarBackground(.visible, for: .tabBar)
             .background(MultifunctionGestures(
@@ -108,6 +109,7 @@ struct AppNavigationView: View {
                 .clipped()
 
         }
+        .background(VesperTheme.background.ignoresSafeArea())
         .task(id: isPreparingSearch) {
             guard isPreparingSearch else { return }
             // Yield after mounting the search context, then select its native tab
@@ -351,12 +353,13 @@ private final class SectionHosts {
         if let controller = controllers[section] { return controller }
         let page: AnyView
         switch section {
-        case .media: page = AnyView(NavigationStack { MediaView(openSources: openSources) })
-        case .sources: page = AnyView(NavigationStack { SourcesView() })
-        case .history: page = AnyView(NavigationStack { HistoryView() })
-        case .settings: page = AnyView(NavigationStack { SettingsView() })
+        case .media: page = AnyView(NavigationStack { MediaView(openSources: openSources) }.background(VesperTheme.background.ignoresSafeArea()))
+        case .sources: page = AnyView(NavigationStack { SourcesView() }.background(VesperTheme.background.ignoresSafeArea()))
+        case .history: page = AnyView(NavigationStack { HistoryView() }.background(VesperTheme.background.ignoresSafeArea()))
+        case .settings: page = AnyView(NavigationStack { SettingsView() }.background(VesperTheme.background.ignoresSafeArea()))
         }
         let controller = UIHostingController(rootView: page)
+        controller.view.backgroundColor = .clear
         controllers[section] = controller
         return controller
     }
@@ -375,6 +378,7 @@ private struct ContentHost: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIViewController {
         let container = UIViewController()
+        container.view.backgroundColor = .clear
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
         tap.cancelsTouchesInView = false
         tap.delaysTouchesBegan = false
@@ -410,6 +414,7 @@ private struct ContentHost: UIViewControllerRepresentable {
             SearchPage(query: searchQuery)
         ))
         searchHost.view.accessibilityIdentifier = "search-page-host"
+        searchHost.view.backgroundColor = .clear
         container.addChild(searchHost)
         searchHost.view.translatesAutoresizingMaskIntoConstraints = false
         container.view.addSubview(searchHost.view)
@@ -649,7 +654,7 @@ private struct SearchPage: View {
                 systemImage: "magnifyingglass",
                 description: Text("搜索范围为当前媒体来源。真实媒体来源尚未接入。")
             )
-            .background(Color("VesperBackground").ignoresSafeArea())
+            .background(VesperTheme.background.ignoresSafeArea())
             .vesperNavigationBarMaterial()
         }
     }

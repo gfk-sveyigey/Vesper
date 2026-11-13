@@ -46,7 +46,7 @@ struct SettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color("VesperBackground").ignoresSafeArea())
+        .background(VesperTheme.background.ignoresSafeArea())
         .vesperNavigationBarMaterial()
         .navigationDestination(for: SettingsRoute.self) { route in
             switch route {
@@ -104,7 +104,7 @@ private struct RuntimeLogsView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Color("VesperBackground").ignoresSafeArea())
+        .background(VesperTheme.background.ignoresSafeArea())
         .navigationTitle("运行日志")
         .vesperNavigationBarMaterial()
         .toolbar {
@@ -194,7 +194,7 @@ private struct AppearanceSettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color("VesperBackground").ignoresSafeArea())
+        .background(VesperTheme.background.ignoresSafeArea())
         .navigationTitle("外观设置")
         .vesperNavigationBarMaterial()
     }
@@ -247,7 +247,7 @@ struct TabSettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color("VesperBackground").ignoresSafeArea())
+        .background(VesperTheme.background.ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("标签设置")
         .vesperNavigationBarMaterial()
@@ -276,7 +276,7 @@ private struct GestureActionSettingsView: View {
                 .foregroundStyle(.secondary)
                 .padding()
         }
-        .background(Color("VesperBackground").ignoresSafeArea())
+        .background(VesperTheme.background.ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
         .navigationTitle("手势与动作")
         .vesperNavigationBarMaterial()
