@@ -104,6 +104,7 @@ struct AppNavigationView: View {
                 guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
                 collapsePrimaryTabs()
             }
+                .ignoresSafeArea(edges: .top)
                 .padding(.bottom, tabBarHeight + 24)
                 .clipped()
 
@@ -553,6 +554,10 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             controller.view.isOpaque = false
             controller.tabBar.backgroundColor = .clear
             controller.tabBar.isTranslucent = true
+            for child in controller.viewControllers ?? [] {
+                child.view.backgroundColor = .clear
+                child.view.isOpaque = false
+            }
             let nativeSelection = "index=\(controller.selectedIndex) tab=\(controller.selectedTab?.identifier ?? "none") item=\(controller.tabBar.selectedItem?.title ?? "none")"
             if nativeSelection != lastNativeSelection {
                 lastNativeSelection = nativeSelection
