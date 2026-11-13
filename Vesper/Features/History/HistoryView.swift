@@ -4,7 +4,7 @@ struct HistoryView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                VesperLargeTitle("观看记录")
+                VesperLargeTitle("记录")
                 ContentUnavailableView {
                     Label("暂无播放记录", systemImage: "clock.arrow.circlepath")
                 } description: {
@@ -13,6 +13,6 @@ struct HistoryView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .vesperImmersiveTitle("观看记录")
+        .vesperImmersiveTitle("记录")
     }
 }

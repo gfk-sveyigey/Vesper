@@ -87,7 +87,7 @@ Color("VesperPlaybackProgress")
 
 ## 信息层级
 
-- 四个一级页面分别显示“媒体”“来源”“观看记录”“设置”。VesperLargeTitle 位于 ScrollView/List 内容顶部，始终使用系统 largeTitle 字号及 VesperPrimaryText，不使用系统 Large Title 转 Inline Title 的行为，不使用固定 overlay，不覆盖页面内容。标题背景透明，文字由 SwiftUI 直接渲染，不使用截图、Core Image、自定义高斯模糊或材质背景。
+- 四个一级页面分别显示“媒体”“来源”“记录”“设置”。VesperLargeTitle 位于 ScrollView/List 内容顶部，始终使用系统 largeTitle 字号及 VesperPrimaryText，不使用系统 Large Title 转 Inline Title 的行为，不使用固定 overlay，不覆盖页面内容。标题背景透明，文字由 SwiftUI 直接渲染，不使用截图、Core Image、自定义高斯模糊或材质背景。
 - 顶部使用 iOS 26 原生 `.scrollEdgeEffectStyle(.soft, for: .top)`，并保留顶部 edge effect 可见。滚动视口延伸至顶部安全区，初始内容通过 NavigationStack 外测量的顶部 safeAreaInsets 设置 scrollContent 顶部 margin，仅避让状态栏，不额外预留空导航栏高度；滚动时内容可经过顶部系统边缘效果。ContentHost 约束保持原样，不使用固定状态栏高度或缩短 Host 避让。唯一全屏 VesperBackground 延伸至安全区，状态栏不另加 UIVisualEffectView、Material 或纯色覆盖。原生边缘模糊与标题动画独立管理，不把标题整体高斯模糊当作系统效果。
 - 每个一级页面独立管理 expanded、collapsing、collapsed、expanding。onScrollGeometryChange 观测相对顶部的偏移，仅驱动标题逐渐淡出及顶部恢复；2 pt 顶部容差外开始淡出，48 pt 达到完全透明，48 pt 不是独立动画触发阈值。手指拖动及惯性滚动期间标题仅随 ScrollView 自然移动，不触发独立收起；onScrollPhaseChange 进入 idle 后读取实时 ScrollGeometry，只有已离开顶部才执行独立向上移出与淡出。自然滚动与自有 offset 分离，标题布局高度不随动画改变。
 - 标题收起后，中途向下滚动保持隐藏，仅回到顶部（2 pt 容差）才恢复。用 SwiftUI 动画 completion 完成状态转换，忽略过期回调，不用固定延迟。默认动画 0.30 秒；Reduce Motion 开启时取消独立位移，仅用 0.18 秒淡入淡出。各标签独立保留标题状态。
@@ -101,6 +101,9 @@ Color("VesperPlaybackProgress")
 - 二级及更深页面导航栏材质交由系统 automatic；标签栏保留原生 Liquid Glass，不叠加自绘背景或模糊层。确保文字和图标在滚动、不同内容背景及浅/深色外观下清晰，并正确处理安全区。
 - 根级只保留统一全屏背景，顶部使用系统 Scroll Edge Effect，底部手势区域延续页面背景，不叠加独立色块或整页模糊。TabView 普通标签使用透明占位；独立系统 TabView 层位于页面层上方，空白区域触摸穿透，仅原生标签栏与搜索控件接收触摸。标签栏保留原生 Liquid Glass 及现有收起行为，不配置自定义 UITabBarAppearance 背景，不覆盖 standardAppearance/scrollEdgeAppearance。
 - 设置页保留原生 insetGrouped 分组卡片。标题 Section 只清除水平和底部额外 margin，顶部避让由统一一级页面滚动组件处理。保留 SectionHosts、ContentHost、持久 UIHostingController/NavigationStack、currentPage、tabSelection、selectTab、搜索和多功能手势逻辑，仅移除过时的标题快照与状态栏材质诊断代码。
+- 外观设置的主题模式继续使用 menu Picker；主题色使用系统 ColorPicker 调色盘，禁止透明度选择，实时更新并持久保存到 appearance.accent。自选颜色按 sRGB HEX 保存，已选旧预设保持可读；修改后显示“恢复默认颜色”，恢复随 Light/Dark Appearance 适配的 VesperAccent。页面中不新增散落色值。
+- 运行日志按时间倒序，每批 100 条；滚动接近列表底部时自动追加下一批，不显示手动加载行。导出继续使用完整本地日志文件，不受当前已加载条数限制。
+- 标签设置保留拖动排序和显隐开关；“恢复默认”必须先确认，仅恢复标签顺序与显示状态。原列表中的多功能开关及手势入口移除，导航栏右侧使用 square.grid.2x2 原生 Menu：首项是启用开关，启用时第二项为“手势与动作”，以系统 sheet 展示，默认 medium，可展开到 large，并保留原生拖动指示条和完成按钮。试验阶段提示移至标签列表 footer。
 - 原生效果参考：[ScrollEdgeEffectStyle](https://developer.apple.com/documentation/swiftui/scrolledgeeffectstyle)、[scrollEdgeEffectStyle(_:for:)](https://developer.apple.com/documentation/swiftui/view/scrolledgeeffectstyle(_:for:))、[ignoresSafeArea(_:edges:)](https://developer.apple.com/documentation/swiftui/view/ignoressafearea(_:edges:))。
 
 - 底部使用 SwiftUI 原生 `TabView`；媒体、来源、记录、设置放入 `TabSection("主要功能")`，内部逻辑标识为 `primaryTabs`。多功能项位于组外，使用 `.search` 角色及网格 SF Symbol `square.grid.2x2`，始终保留。

@@ -14,7 +14,6 @@
 "日志（%d）" = "Registros (%d)";
 "暂无运行日志" = "No hay registros";
 "复制日志" = "Copiar registro";
-"加载更早的日志（已显示 %d 条）" = "Cargar anteriores (%d mostrados)";
 "清空日志" = "Borrar registros";
 "好" = "Aceptar";
 "取消" = "Cancelar";
@@ -76,3 +75,8 @@
 "媒体页只显示当前选定的一个来源。请先前往来源页完成配置。" = "Medios muestra una sola fuente seleccionada. Configura una fuente primero.";
 "前往来源" = "Ir a Fuentes";
 "观看记录" = "Historial de visualización";
+"恢复默认颜色" = "Restablecer color predeterminado";
+"恢复默认标签设置？" = "¿Restablecer los ajustes de pestañas?";
+"将恢复标签的显示状态和排列顺序。" = "Se restablecerán la visibilidad y el orden de las pestañas.";
+"多功能按钮设置" = "Ajustes del botón multifunción";
+"完成" = "Listo";

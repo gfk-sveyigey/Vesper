@@ -14,7 +14,6 @@
 "日志（%d）" = "Logs (%d)";
 "暂无运行日志" = "No runtime logs";
 "复制日志" = "Copy Log";
-"加载更早的日志（已显示 %d 条）" = "Load Older Logs (%d shown)";
 "清空日志" = "Clear Logs";
 "好" = "OK";
 "取消" = "Cancel";
@@ -76,3 +75,8 @@
 "媒体页只显示当前选定的一个来源。请先前往来源页完成配置。" = "Media shows one selected source. Go to Sources to configure one first.";
 "前往来源" = "Go to Sources";
 "观看记录" = "Watch History";
+"恢复默认颜色" = "Restore Default Color";
+"恢复默认标签设置？" = "Restore Default Tab Settings?";
+"将恢复标签的显示状态和排列顺序。" = "Tab visibility and order will be reset.";
+"多功能按钮设置" = "Multifunction Button Settings";
+"完成" = "Done";

@@ -2,12 +2,11 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, gestures, appearance, logs
+    case tabs, appearance, logs
 
     var title: LocalizedStringKey {
         switch self {
         case .tabs: "标签设置"
-        case .gestures: "手势与动作"
         case .appearance: "外观设置"
         case .logs: "运行日志"
         }
@@ -69,7 +68,6 @@ struct SettingsView: View {
             Group {
                 switch route {
                 case .tabs: TabSettingsView()
-                case .gestures: GestureActionSettingsView()
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()
                 }
@@ -115,11 +113,6 @@ private struct RuntimeLogsView: View {
                                 }
                             }
                     }
-                    if loadedCount < store.entries.count {
-                        Button(String(format: VesperLocalization.string("加载更早的日志（已显示 %d 条）"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [min(loadedCount, store.entries.count)])) {
-                            loadedCount += 100
-                        }
-                    }
                 }
             }
         }
@@ -145,6 +138,13 @@ private struct RuntimeLogsView: View {
                 .accessibilityLabel("清空日志")
                 .disabled(store.entries.isEmpty)
             }
+        }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentSize.height > 0 &&
+                geometry.visibleRect.maxY >= geometry.contentSize.height - 80
+        } action: { _, isNearBottom in
+            guard isNearBottom, loadedCount < store.entries.count else { return }
+            loadedCount = min(loadedCount + 100, store.entries.count)
         }
         .onAppear { store.setRetention(days: retentionDays) }
         .onChange(of: retentionDays) { _, _ in store.setRetention(days: retentionDays) }
@@ -199,14 +199,17 @@ private struct AppearanceSettingsView: View {
                     Text("浅色").tag("light")
                 }
                 .pickerStyle(.menu)
-                Picker("主题色", selection: $accent) {
-                    Label { Text("薰衣草紫") } icon: { Circle().fill(VesperTheme.accent("vesper")) }.tag("vesper")
-                    Label { Text("海洋蓝") } icon: { Circle().fill(VesperTheme.accent("ocean")) }.tag("ocean")
-                    Label { Text("翡翠绿") } icon: { Circle().fill(VesperTheme.accent("emerald")) }.tag("emerald")
-                    Label { Text("玫瑰粉") } icon: { Circle().fill(VesperTheme.accent("rose")) }.tag("rose")
+                ColorPicker("主题色", selection: Binding(
+                    get: { VesperTheme.accent(accent) },
+                    set: { color in
+                        if let identifier = VesperTheme.accentIdentifier(for: color) {
+                            accent = identifier
+                        }
+                    }
+                ), supportsOpacity: false)
+                if accent != "vesper" {
+                    Button("恢复默认颜色") { accent = "vesper" }
                 }
-                .pickerStyle(.menu)
-                .tint(VesperTheme.accent(accent))
             } footer: {
                 Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
             }
@@ -220,6 +223,8 @@ struct TabSettingsView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
+    @State private var isShowingResetConfirmation = false
+    @State private var isShowingGestureSettings = false
 
     private var sections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
@@ -228,13 +233,6 @@ struct TabSettingsView: View {
 
     var body: some View {
         List {
-            Section("标签栏") {
-                Toggle("启用多功能按钮", isOn: $multifunctionEnabled)
-                Text("多功能按钮仍处于试验阶段，可能出现交互或显示问题；如影响使用，请关闭此功能。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                NavigationLink("多功能按钮手势与动作", value: SettingsRoute.gestures)
-            }
             Section {
                 ForEach(sections) { section in
                     Toggle(isOn: Binding(
@@ -254,15 +252,54 @@ struct TabSettingsView: View {
                     order = values.map(\.rawValue).joined(separator: ",")
                 }
             } footer: {
-                Text("拖动调整顺序。关闭只隐藏入口，不清除页面数据。多功能入口始终保留，设置标签不允许隐藏，但可调整顺序。")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("拖动调整顺序。关闭只隐藏入口，不清除页面数据。多功能入口始终保留，设置标签不允许隐藏，但可调整顺序。")
+                    if multifunctionEnabled {
+                        Text("多功能按钮仍处于试验阶段，可能出现交互或显示问题；如影响使用，请关闭此功能。")
+                    }
+                }
             }
-            Button("恢复默认") {
-                order = "media,sources,history,settings"
-                hidden = ""
-            }
+            Button("恢复默认") { isShowingResetConfirmation = true }
         }
         .scrollContentBackground(.hidden)
         .environment(\.editMode, .constant(.active))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Toggle("启用多功能按钮", isOn: $multifunctionEnabled)
+                    if multifunctionEnabled {
+                        Button("手势与动作") { isShowingGestureSettings = true }
+                    }
+                } label: {
+                    Image(systemName: "square.grid.2x2")
+                }
+                .accessibilityLabel("多功能按钮设置")
+            }
+        }
+        .alert("恢复默认标签设置？", isPresented: $isShowingResetConfirmation) {
+            Button("恢复默认", role: .destructive) {
+                order = "media,sources,history,settings"
+                hidden = ""
+            }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("将恢复标签的显示状态和排列顺序。")
+        }
+        .sheet(isPresented: $isShowingGestureSettings) {
+            NavigationStack {
+                GestureActionSettingsView()
+                    .vesperNavigationTitle("手势与动作")
+                    .vesperNavigationStyle(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("完成") { isShowingGestureSettings = false }
+                        }
+                    }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(VesperTheme.background)
+        }
     }
 }
 
@@ -295,7 +332,7 @@ private struct GestureActionSettingsView: View {
         let values = storage.wrappedValue.split(separator: ",").map(String.init)
         return List {
             ForEach(values, id: \.self) { value in
-                Text(NSLocalizedString(names[value] ?? value, comment: "Multifunction gesture or action"))
+                Text(LocalizedStringKey(names[value] ?? value))
                     .frame(minHeight: 44)
                     .accessibilityHint("拖动调整配对顺序")
             }

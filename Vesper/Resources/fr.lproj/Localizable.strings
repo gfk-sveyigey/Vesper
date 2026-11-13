@@ -14,7 +14,6 @@
 "日志（%d）" = "Journaux (%d)";
 "暂无运行日志" = "Aucun journal";
 "复制日志" = "Copier le journal";
-"加载更早的日志（已显示 %d 条）" = "Charger les anciens journaux (%d affichés)";
 "清空日志" = "Effacer les journaux";
 "好" = "OK";
 "取消" = "Annuler";
@@ -76,3 +75,8 @@
 "媒体页只显示当前选定的一个来源。请先前往来源页完成配置。" = "Médias affiche une seule source sélectionnée. Configurez d’abord une source.";
 "前往来源" = "Aller aux sources";
 "观看记录" = "Historique de visionnage";
+"恢复默认颜色" = "Rétablir la couleur par défaut";
+"恢复默认标签设置？" = "Rétablir les réglages des onglets ?";
+"将恢复标签的显示状态和排列顺序。" = "La visibilité et l’ordre des onglets seront réinitialisés.";
+"多功能按钮设置" = "Réglages du bouton multifonction";
+"完成" = "Terminé";
