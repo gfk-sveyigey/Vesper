@@ -92,3 +92,5 @@
 "启用" = "Enable";
 "上移" = "Move Up";
 "下移" = "Move Down";
+"标签顺序" = "Tab Order";
+"重置主题色" = "Reset Accent Color";

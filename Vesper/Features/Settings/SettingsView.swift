@@ -36,13 +36,13 @@ struct SettingsView: View {
                 Picker(selection: $languageCode) {
                     Text("跟随系统").tag("system")
                     Text(verbatim: "简体中文").tag("zh-Hans")
+                    Text(verbatim: "繁體中文").tag("zh-Hant")
                     Text(verbatim: "English").tag("en")
-                    Text(verbatim: "日本語").tag("ja")
-                    Text(verbatim: "한국어").tag("ko")
+                    Text(verbatim: "Deutsch").tag("de")
                     Text(verbatim: "Español").tag("es")
                     Text(verbatim: "Français").tag("fr")
-                    Text(verbatim: "Deutsch").tag("de")
-                    Text(verbatim: "繁體中文").tag("zh-Hant")
+                    Text(verbatim: "日本語").tag("ja")
+                    Text(verbatim: "한국어").tag("ko")
                 } label: { SettingsLabel("语言设置", symbol: "globe") }
                 .pickerStyle(.menu)
             }
@@ -159,8 +159,14 @@ private struct RuntimeLogsView: View {
         } message: {
             Text("无法准备日志文件，请稍后重试。")
         }
-        .sheet(item: $shareFile) { file in
-            RuntimeLogShareSheet(fileURL: file.url) { isShowingExportError = true }
+        .background {
+            RuntimeLogSharePresenter(file: shareFile) {
+                shareFile = nil
+            } onError: {
+                shareFile = nil
+                isShowingExportError = true
+            }
+            .frame(width: 0, height: 0)
         }
     }
 }
@@ -170,21 +176,57 @@ private struct SharedLogFile: Identifiable {
     var id: String { url.absoluteString }
 }
 
-/// Share the full local file through the native activity sheet.
-private struct RuntimeLogShareSheet: UIViewControllerRepresentable {
-    let fileURL: URL
+/// Present directly from the current UIKit hierarchy, without a SwiftUI sheet.
+private struct RuntimeLogSharePresenter: UIViewControllerRepresentable {
+    let file: SharedLogFile?
+    let onFinished: () -> Void
     let onError: () -> Void
 
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        let controller = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
-        controller.completionWithItemsHandler = { _, _, _, error in
-            guard error != nil else { return }
-            Task { @MainActor in onError() }
-        }
-        return controller
+    func makeUIViewController(context: Context) -> PresenterController { PresenterController() }
+
+    func updateUIViewController(_ presenter: PresenterController, context: Context) {
+        guard let file else { return }
+        presenter.share(file.url, onFinished: onFinished, onError: onError)
     }
 
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) { }
+    final class PresenterController: UIViewController {
+        private var isPresentingShare = false
+
+        func share(_ url: URL, onFinished: @escaping () -> Void, onError: @escaping () -> Void) {
+            guard !isPresentingShare else { return }
+            isPresentingShare = true
+            // Present after SwiftUI finishes this view update.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.view.window != nil else {
+                    self.isPresentingShare = false
+                    onError()
+                    return
+                }
+                var top: UIViewController = self
+                while let parent = top.parent { top = parent }
+                while let presented = top.presentedViewController { top = presented }
+                guard !top.isBeingDismissed, !top.isBeingPresented else {
+                    self.isPresentingShare = false
+                    onError()
+                    return
+                }
+                let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+                controller.completionWithItemsHandler = { [weak self] _, _, _, error in
+                    Task { @MainActor in
+                        self?.isPresentingShare = false
+                        if error != nil { onError() } else { onFinished() }
+                    }
+                }
+                if let popover = controller.popoverPresentationController {
+                    popover.sourceView = top.view
+                    popover.sourceRect = CGRect(x: top.view.bounds.maxX - 44,
+                                                y: top.view.safeAreaInsets.top, width: 44, height: 44)
+                }
+                top.present(controller, animated: true)
+            }
+        }
+    }
 }
 
 private struct AppearanceSettingsView: View {
@@ -208,9 +250,8 @@ private struct AppearanceSettingsView: View {
                         }
                     }
                 ), supportsOpacity: false) { Text("主题色") }
-                if accent != "vesper" {
-                    Button { accent = "vesper" } label: { Text("恢复默认颜色") }
-                }
+                Button("重置主题色") { accent = "vesper" }
+                    .disabled(accent == "vesper")
             } footer: {
                 Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
             }
@@ -240,17 +281,15 @@ struct TabSettingsView: View {
     var body: some View {
         List {
             Section {
-                ForEach(sections) { section in
+                ForEach(sections.filter { $0 != .settings }) { section in
                     Toggle(isOn: Binding(
-                        get: { section == .settings || !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
+                        get: { !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
                         set: { visible in
-                            guard section != .settings else { return }
                             var values = Set(hidden.split(separator: ",").map(String.init))
                             if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
                             hidden = values.sorted().joined(separator: ",")
                         }
                     )) { Label(section.title, systemImage: section.symbol) }
-                    .disabled(section == .settings)
                 }
             } footer: {
                 Text("关闭只隐藏入口，不清除页面数据。设置标签始终保留。")
@@ -303,9 +342,14 @@ struct TabSettingsView: View {
         .sheet(isPresented: $isShowingOrderSettings) {
             NavigationStack {
                 TabOrderSettingsView()
-                    .navigationTitle("调整标签顺序")
+                    .navigationTitle("标签顺序")
                     .vesperNavigationStyle(.inline)
+                    .toolbarRole(.automatic)
+                    .navigationBarBackButtonHidden(true)
                     .toolbar {
+                        ToolbarItem(placement: .principal) {
+                            Text("标签顺序").font(.headline)
+                        }
                         ToolbarItem(placement: .confirmationAction) {
                             Button("完成") { isShowingOrderSettings = false }
                         }
@@ -320,6 +364,7 @@ struct TabSettingsView: View {
                 GestureActionSettingsView()
                     .navigationTitle("手势与动作")
                     .vesperNavigationStyle(.inline)
+                    .toolbarRole(.automatic)
                     .navigationBarBackButtonHidden(true)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
@@ -407,6 +452,7 @@ private struct GestureOrderColumn: View {
                     .frame(height: rowHeight)
                     .padding(.horizontal, 8)
                     .background {
+                        RoundedRectangle(cornerRadius: 12).fill(Color("VesperSurface"))
                         RoundedRectangle(cornerRadius: 12).stroke(.tint, lineWidth: 1)
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 12))
@@ -497,9 +543,9 @@ private struct AppIconChoices: View {
                         RoundedRectangle(cornerRadius: 19).stroke(.tint, lineWidth: 2)
                     }
                     .accessibilityHidden(true)
-                Text("默认图标").font(.caption)
             }
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("默认图标")
             .accessibilityAddTraits(.isSelected)
         }
         .padding(.vertical, 8)
