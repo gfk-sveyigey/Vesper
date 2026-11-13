@@ -12,6 +12,9 @@ struct AppNavigationView: View {
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
     @AppStorage("navigation.gestureOrder") private var gestures = "tap,longPress"
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
+    @AppStorage("debug.searchHiddenDelayMs") private var hiddenSearchDelay = 100
+    @AppStorage("debug.searchVisibleDelayMs") private var visibleSearchDelay = 100
+    @State private var pendingSearchDelay = 0
     @State private var currentPage: AppSection = .media
     @State private var tabSelection: NavigationTab = .section(.media)
     @State private var isExpanded = false
@@ -98,10 +101,9 @@ struct AppNavigationView: View {
         .tint(Color("VesperAccent"))
         .task(id: isPreparingSearch) {
             guard isPreparingSearch else { return }
-            // The only timed delay: wait after requesting group expansion before
-            // switching icon, selecting Search and presenting its page.
+            // Both paths prepare the search control before selecting Search.
             do {
-                try await Task.sleep(for: .milliseconds(100))
+                try await Task.sleep(for: .milliseconds(pendingSearchDelay))
             } catch { return }
             guard !Task.isCancelled, isPreparingSearch else { return }
             isSearchPresented = true
@@ -238,12 +240,10 @@ struct AppNavigationView: View {
         searchReturnState = SearchReturnState(page: currentPage, expanded: isExpanded, tab: tabSelection)
         searchQuery = ""
         searchStartedWithHiddenTabs = multifunctionEnabled && !showPrimaryTabs
-        if searchStartedWithHiddenTabs {
-            isExpanded = true
-            isPreparingSearch = true
-        } else {
-            isSearchPresented = true
-        }
+        pendingSearchDelay = min(500, max(0, searchStartedWithHiddenTabs ? hiddenSearchDelay : visibleSearchDelay))
+        if searchStartedWithHiddenTabs { isExpanded = true }
+        isPreparingSearch = true
+        traceNavigation("search.prepare delayMs=\(pendingSearchDelay) startedHidden=\(searchStartedWithHiddenTabs)")
         synchronizeTabSelection()
         AppLog.info("navigation.search.opened", category: .navigation)
     }

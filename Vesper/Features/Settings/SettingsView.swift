@@ -3,7 +3,7 @@ import UIKit
 import UniformTypeIdentifiers
 
 private enum SettingsRoute: Hashable {
-    case tabs, gestures, appearance, logs
+    case tabs, gestures, appearance, logs, debug
 }
 
 struct SettingsView: View {
@@ -19,6 +19,7 @@ struct SettingsView: View {
                 NavigationLink("多功能按钮手势与动作", value: SettingsRoute.gestures)
                 NavigationLink("外观", value: SettingsRoute.appearance)
                 NavigationLink("运行日志", value: SettingsRoute.logs)
+                NavigationLink("调试设置", value: SettingsRoute.debug)
             }
             Section {
                 LabeledContent("播放器偏好", value: "尚未接入")
@@ -43,9 +44,30 @@ struct SettingsView: View {
             case .gestures: GestureActionSettingsView()
             case .appearance: AppearanceSettingsView()
             case .logs: RuntimeLogsView()
+            case .debug: DebugSettingsView()
             }
         }
         .navigationTitle("设置")
+        .toolbarBackground(.hidden, for: .navigationBar)
+    }
+}
+
+private struct DebugSettingsView: View {
+    @AppStorage("debug.searchHiddenDelayMs") private var hiddenDelay = 100
+    @AppStorage("debug.searchVisibleDelayMs") private var visibleDelay = 100
+
+    var body: some View {
+        Form {
+            Section {
+                Stepper("标签组隐藏时：\(hiddenDelay) ms", value: $hiddenDelay, in: 0...500)
+                Stepper("标签组显示时：\(visibleDelay) ms", value: $visibleDelay, in: 0...500)
+            } header: {
+                Text("搜索展开延迟")
+            } footer: {
+                Text("从准备搜索控件到打开搜索页面的等待时间。两项独立保存，范围为 0–500 ms，默认均为 100 ms。")
+            }
+        }
+        .navigationTitle("调试设置")
         .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
