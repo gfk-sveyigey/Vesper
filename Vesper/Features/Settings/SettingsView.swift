@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import UniformTypeIdentifiers
 
 private enum SettingsRoute: Hashable {
     case tabs, gestures, appearance, logs, debug
@@ -59,8 +58,8 @@ private struct DebugSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Stepper("标签组隐藏时：\(hiddenDelay) ms", value: $hiddenDelay, in: 0...500)
-                Stepper("标签组显示时：\(visibleDelay) ms", value: $visibleDelay, in: 0...500)
+                delaySlider("标签组隐藏时", value: $hiddenDelay)
+                delaySlider("标签组显示时", value: $visibleDelay)
             } header: {
                 Text("搜索展开延迟")
             } footer: {
@@ -70,16 +69,27 @@ private struct DebugSettingsView: View {
         .navigationTitle("调试设置")
         .toolbarBackground(.hidden, for: .navigationBar)
     }
+
+    private func delaySlider(_ title: String, value: Binding<Int>) -> some View {
+        VStack(alignment: .leading) {
+            Text("\(title)：\(value.wrappedValue) ms")
+            Slider(value: Binding(
+                get: { Double(value.wrappedValue) },
+                set: { value.wrappedValue = Int($0.rounded()) }
+            ), in: 0...500, step: 1)
+            .accessibilityLabel(title)
+            .accessibilityValue("\(value.wrappedValue) 毫秒")
+        }
+    }
+
 }
 
 private struct RuntimeLogsView: View {
     @ObservedObject private var store: RuntimeLogEntries
     @AppStorage("runtimeLogs.retentionDays") private var retentionDays = 7
     @AppStorage("runtimeLogs.maximumCount") private var maximumCount = 500
-    @State private var isExporting = false
     @State private var loadedCount = 100
-    @State private var exportSnapshot = ""
-    @State private var exportError: String?
+    @State private var didCopyLogs = false
 
     init() { store = AppLog.runtimeEntries }
 
@@ -121,9 +131,9 @@ private struct RuntimeLogsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("导出全部日志", systemImage: "square.and.arrow.up") {
-                        exportSnapshot = store.exportText
-                        isExporting = true
+                    Button("复制全部日志", systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = store.exportText
+                        didCopyLogs = true
                     }
                         .disabled(store.entries.isEmpty)
                     Button("清空日志", systemImage: "trash", role: .destructive) { store.clear() }
@@ -137,35 +147,10 @@ private struct RuntimeLogsView: View {
         .onAppear { store.setRetention(days: retentionDays, count: maximumCount) }
         .onChange(of: retentionDays) { _, _ in store.setRetention(days: retentionDays, count: maximumCount) }
         .onChange(of: maximumCount) { _, _ in store.setRetention(days: retentionDays, count: maximumCount) }
-        .fileExporter(
-            isPresented: $isExporting,
-            document: RuntimeLogDocument(text: exportSnapshot),
-            contentType: RuntimeLogDocument.logType,
-            defaultFilename: "Vesper-运行日志.log"
-        ) { result in
-            if case .failure = result { exportError = "日志导出失败，请重试。" }
+        .alert("已复制全部日志", isPresented: $didCopyLogs) {
+            Button("好", role: .cancel) { }
         }
-        .alert("导出失败", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
-            Button("好", role: .cancel) { exportError = nil }
-        } message: {
-            Text(exportError ?? "")
-        }
-    }
-}
 
-private struct RuntimeLogDocument: FileDocument {
-    static var logType: UTType { UTType(filenameExtension: "log", conformingTo: .plainText) ?? .plainText }
-    static var readableContentTypes: [UTType] { [logType] }
-    let text: String
-
-    init(text: String) { self.text = text }
-
-    init(configuration: ReadConfiguration) throws {
-        text = String(decoding: configuration.file.regularFileContents ?? Data(), as: UTF8.self)
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: Data(text.utf8))
     }
 }
 

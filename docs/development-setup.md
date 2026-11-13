@@ -42,7 +42,7 @@ CI 沿用 `.github/workflows/build-dev.yml`，推送 dev 后在 macOS 26/Xcode 2
 
 ## 日志
 
-使用 Apple Unified Logging（`OSLog.Logger`），通过 `AppLog` 统一分类。导航诊断 trace 保存在 App 内“设置 > 运行日志”，不会输出到 Xcode Console；最多保留 90 天且数量上限可配置，默认 7 天/500 条，超出任一条件的旧日志会清理。日志以 UTF-8 文本存于 Application Support/Logs/Vesper.log，串行后台写入；运行日志页可整体导出 .log 文件或复制单条日志，不读取旧版偏好数据中的日志。其他类别仍使用系统日志，避免把敏感 URL、路径或凭据写入 App 内日志。
+使用 Apple Unified Logging（`OSLog.Logger`），通过 `AppLog` 统一分类。导航诊断 trace 保存在 App 内“设置 > 运行日志”，不会输出到 Xcode Console；最多保留 90 天且数量上限可配置，默认 7 天/500 条，超出任一条件的旧日志会清理。日志以 UTF-8 文本存于 Application Support/Logs/Vesper.log，串行后台写入；运行日志页可复制全部日志内容或复制单条日志，不读取旧版偏好数据中的日志。其他类别仍使用系统日志，避免把敏感 URL、路径或凭据写入 App 内日志。
 
 多功能按钮始终可见，挂载在应用根级安全区，不属于可隐藏的系统标签栏，也不被内容区域的收起遮罩覆盖。隐藏标签栏只影响四个系统标签，不隐藏该按钮。
 
@@ -50,4 +50,4 @@ CI 沿用 `.github/workflows/build-dev.yml`，推送 dev 后在 macOS 26/Xcode 2
 
 当前使用 UIViewRepresentable 包装 UIKit 原生 UITabBar，媒体/来源/记录/设置四个原生 UITabBarItem 条件加入 items，多功能 UITabBarItem 始终保留。已移除独立悬浮按钮及整条标签栏的隐藏逻辑。应用负责页面导航，系统负责标签项渲染；布局与点击行为仍需设备验收。此前 TabView/右下角独立按钮说明已被本节替代。
 
-运行日志页首次呈现最近 100 条，可按每批 100 条加载更早记录；整体导出不受页面加载数量限制。当前导航诊断仅记录 Search Tab 触摸与手势、TabView selection Binding 写回、App selection 变化和 UIKit 布局采样的实际选中变化。旧的搜索关闭定时采样已移除。
+运行日志页首次呈现最近 100 条，可按每批 100 条加载更早记录；复制全部日志不受页面加载数量限制。当前导航诊断仅记录 Search Tab 触摸与手势、TabView selection Binding 写回、App selection 变化和 UIKit 布局采样的实际选中变化。旧的搜索关闭定时采样已移除。
