@@ -42,7 +42,7 @@ CI 沿用 `.github/workflows/build-dev.yml`，推送 dev 后在 macOS 26/Xcode 2
 
 ## 日志
 
-现有运行日志记录点已全部移除，不再记录导航、触摸、selection 或启动事件。保留 App 内“设置 > 运行日志”的历史日志查看、分页加载、复制、清空和保留时间设置，日志文件位于 Application Support/Logs/Vesper.log。导出准备完整 `.log` 文件，直接使用系统文件位置选择器保存，不显示分享操作列表。
+现有运行日志记录点已全部移除，不再记录导航、触摸、selection 或启动事件。保留 App 内“设置 > 运行日志”的历史日志查看、分页加载、复制、清空和保留时间设置，日志文件位于 Application Support/Logs/Vesper.log。导出准备完整 `.log` 文件，交给系统分享面板，可保存到文件、隔空投送或分享至其他 App。
 
 ## 本地化与外观设置
 

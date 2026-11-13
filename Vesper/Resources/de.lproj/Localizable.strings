@@ -86,3 +86,9 @@
 "未选择媒体来源" = "Keine Medienquelle ausgewählt";
 "未配置来源" = "Keine Quellen konfiguriert";
 "无记录" = "Kein Verlauf";
+"关闭只隐藏入口，不清除页面数据。设置标签始终保留。" = "Ausblenden entfernt keine Daten. Einstellungen bleiben immer verfügbar.";
+"调整标签顺序" = "Tabs sortieren";
+"启用多功能按钮？" = "Multifunktionstaste aktivieren?";
+"启用" = "Aktivieren";
+"上移" = "Nach oben";
+"下移" = "Nach unten";

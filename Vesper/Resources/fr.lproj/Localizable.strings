@@ -86,3 +86,9 @@
 "未选择媒体来源" = "Aucune source sélectionnée";
 "未配置来源" = "Aucune source configurée";
 "无记录" = "Aucun historique";
+"关闭只隐藏入口，不清除页面数据。设置标签始终保留。" = "Masquer un onglet ne supprime pas ses données. Réglages reste toujours disponible.";
+"调整标签顺序" = "Réorganiser les onglets";
+"启用多功能按钮？" = "Activer le bouton multifonction ?";
+"启用" = "Activer";
+"上移" = "Déplacer vers le haut";
+"下移" = "Déplacer vers le bas";

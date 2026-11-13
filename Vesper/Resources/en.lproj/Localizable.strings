@@ -86,3 +86,9 @@
 "未选择媒体来源" = "No Media Source Selected";
 "未配置来源" = "No Sources Configured";
 "无记录" = "No History";
+"关闭只隐藏入口，不清除页面数据。设置标签始终保留。" = "Hiding a tab does not remove its data. Settings always remains available.";
+"调整标签顺序" = "Reorder Tabs";
+"启用多功能按钮？" = "Enable Multifunction Button?";
+"启用" = "Enable";
+"上移" = "Move Up";
+"下移" = "Move Down";

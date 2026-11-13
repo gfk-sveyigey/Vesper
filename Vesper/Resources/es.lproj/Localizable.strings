@@ -86,3 +86,9 @@
 "未选择媒体来源" = "Ninguna fuente seleccionada";
 "未配置来源" = "No hay fuentes configuradas";
 "无记录" = "Sin historial";
+"关闭只隐藏入口，不清除页面数据。设置标签始终保留。" = "Ocultar una pestaña no elimina sus datos. Ajustes siempre está disponible.";
+"调整标签顺序" = "Reordenar pestañas";
+"启用多功能按钮？" = "¿Activar el botón multifunción?";
+"启用" = "Activar";
+"上移" = "Mover arriba";
+"下移" = "Mover abajo";

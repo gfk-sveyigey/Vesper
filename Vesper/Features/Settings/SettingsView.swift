@@ -101,7 +101,7 @@ private struct RuntimeLogsView: View {
                     ForEach([1, 3, 7, 14, 30, 90], id: \.self) { days in
                         Text(String(format: VesperLocalization.string("%d 天"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [days])).tag(days)
                     }
-                } label: { SettingsLabel("保留时间", symbol: "clock") }
+                } label: { Text("保留时间") }
                 .pickerStyle(.menu)
             }
             Section(String(format: VesperLocalization.string("日志（%d）"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [store.entries.count])) {
@@ -162,7 +162,7 @@ private struct RuntimeLogsView: View {
             Text("无法准备日志文件，请稍后重试。")
         }
         .sheet(item: $shareFile) { file in
-            RuntimeLogExportSheet(fileURL: file.url)
+            RuntimeLogShareSheet(fileURL: file.url) { isShowingExportError = true }
         }
     }
 }
@@ -172,15 +172,21 @@ private struct SharedLogFile: Identifiable {
     var id: String { url.absoluteString }
 }
 
-/// Export the full .log file directly; no activity/action list is presented.
-private struct RuntimeLogExportSheet: UIViewControllerRepresentable {
+/// Share the full local file through the native activity sheet.
+private struct RuntimeLogShareSheet: UIViewControllerRepresentable {
     let fileURL: URL
+    let onError: () -> Void
 
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        UIDocumentPickerViewController(forExporting: [fileURL], asCopy: true)
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, _, _, error in
+            guard error != nil else { return }
+            Task { @MainActor in onError() }
+        }
+        return controller
     }
 
-    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) { }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) { }
 }
 
 private struct AppearanceSettingsView: View {
@@ -194,7 +200,7 @@ private struct AppearanceSettingsView: View {
                     Text("跟随系统").tag("system")
                     Text("深色").tag("dark")
                     Text("浅色").tag("light")
-                } label: { SettingsLabel("主题", symbol: "sun.max") }
+                } label: { Text("主题") }
                 .pickerStyle(.menu)
                 ColorPicker(selection: Binding(
                     get: { VesperTheme.accent(accent) },
@@ -203,11 +209,11 @@ private struct AppearanceSettingsView: View {
                             accent = identifier
                         }
                     }
-                ), supportsOpacity: false) { SettingsLabel("主题色", symbol: "paintpalette") }
+                ), supportsOpacity: false) { Text("主题色") }
                 if accent != "vesper" {
-                    Button { accent = "vesper" } label: { SettingsLabel("恢复默认颜色", symbol: "arrow.counterclockwise") }
+                    Button { accent = "vesper" } label: { Text("恢复默认颜色") }
                 }
-                NavigationLink(value: SettingsRoute.icons) { SettingsLabel("更换图标", symbol: "app") }
+                NavigationLink(value: SettingsRoute.icons) { Text("更换图标") }
             } footer: {
                 Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
             }
@@ -223,6 +229,8 @@ struct TabSettingsView: View {
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
     @State private var isShowingResetConfirmation = false
     @State private var isShowingGestureSettings = false
+    @State private var isShowingOrderSettings = false
+    @State private var isShowingEnableConfirmation = false
 
     private var sections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
@@ -241,30 +249,26 @@ struct TabSettingsView: View {
                             if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
                             hidden = values.sorted().joined(separator: ",")
                         }
-                    )) { SettingsLabel(LocalizedStringKey(section.title), symbol: section.symbol) }
+                    )) { Label(section.title, systemImage: section.symbol) }
                     .disabled(section == .settings)
                 }
-                .onMove { offsets, destination in
-                    var values = sections
-                    values.move(fromOffsets: offsets, toOffset: destination)
-                    order = values.map(\.rawValue).joined(separator: ",")
-                }
             } footer: {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("拖动调整顺序。关闭只隐藏入口，不清除页面数据。多功能入口始终保留，设置标签不允许隐藏，但可调整顺序。")
-                    if multifunctionEnabled {
-                        Text("多功能按钮仍处于试验阶段，可能出现交互或显示问题；如影响使用，请关闭此功能。")
-                    }
-                }
+                Text("关闭只隐藏入口，不清除页面数据。设置标签始终保留。")
             }
-            Button { isShowingResetConfirmation = true } label: { SettingsLabel("恢复默认", symbol: "arrow.counterclockwise") }
+            Button("调整标签顺序") { isShowingOrderSettings = true }
+            Button("恢复默认") { isShowingResetConfirmation = true }
         }
         .scrollContentBackground(.hidden)
-        .environment(\.editMode, .constant(.active))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Toggle("启用多功能按钮", isOn: $multifunctionEnabled)
+                    Toggle("启用多功能按钮", isOn: Binding(
+                        get: { multifunctionEnabled },
+                        set: { enabled in
+                            if enabled { isShowingEnableConfirmation = true }
+                            else { multifunctionEnabled = false }
+                        }
+                    ))
                     if multifunctionEnabled {
                         Button("手势与动作") { isShowingGestureSettings = true }
                     }
@@ -273,6 +277,12 @@ struct TabSettingsView: View {
                 }
                 .accessibilityLabel("多功能按钮设置")
             }
+        }
+        .alert("启用多功能按钮？", isPresented: $isShowingEnableConfirmation) {
+            Button("启用") { multifunctionEnabled = true }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("多功能按钮仍处于试验阶段，可能出现交互或显示问题；如影响使用，请关闭此功能。")
         }
         .alert("恢复默认标签设置？", isPresented: $isShowingResetConfirmation) {
             Button("恢复默认", role: .destructive) {
@@ -283,11 +293,27 @@ struct TabSettingsView: View {
         } message: {
             Text("将恢复标签的显示状态和排列顺序。")
         }
+        .sheet(isPresented: $isShowingOrderSettings) {
+            NavigationStack {
+                TabOrderSettingsView()
+                    .navigationTitle("调整标签顺序")
+                    .vesperNavigationStyle(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("完成") { isShowingOrderSettings = false }
+                        }
+                    }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(VesperTheme.background)
+        }
         .sheet(isPresented: $isShowingGestureSettings) {
             NavigationStack {
                 GestureActionSettingsView()
-                    .vesperNavigationTitle("手势与动作")
+                    .navigationTitle("手势与动作")
                     .vesperNavigationStyle(.inline)
+                    .navigationBarBackButtonHidden(true)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("完成") { isShowingGestureSettings = false }
@@ -302,45 +328,87 @@ struct TabSettingsView: View {
 }
 
 
+private struct TabOrderSettingsView: View {
+    @AppStorage("navigation.order") private var order = "media,sources,history,settings"
+
+    private var sections: [AppSection] {
+        let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
+        return saved + AppSection.allCases.filter { !saved.contains($0) }
+    }
+
+    var body: some View {
+        List {
+            ForEach(sections) { section in
+                Label(section.title, systemImage: section.symbol)
+            }
+            .onMove { offsets, destination in
+                var updated = sections
+                updated.move(fromOffsets: offsets, toOffset: destination)
+                // Shared storage updates both the settings list and native tabs.
+                order = updated.map(\.rawValue).joined(separator: ",")
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .environment(\.editMode, .constant(.active))
+    }
+}
+
 private struct GestureActionSettingsView: View {
     @AppStorage("navigation.gestureOrder") private var gestureOrder = "tap,longPress"
     @AppStorage("navigation.actionOrder") private var actionOrder = "tabs,search"
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("手势").frame(maxWidth: .infinity)
-                Text("动作").frame(maxWidth: .infinity)
+        ScrollView {
+            VStack(spacing: 20) {
+                HStack(alignment: .top, spacing: 20) {
+                    column($gestureOrder, kind: "gesture", names: ["tap": "单击", "longPress": "长按"])
+                    column($actionOrder, kind: "action", names: ["tabs": "展开标签栏", "search": "进入搜索"])
+                }
+                Text("分别拖动两列项目，同一行的手势与动作配对并自动保存。启用多功能按钮时使用此映射；关闭时单击搜索按钮进入搜索，长按无动作。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
-            .font(.headline)
-            .padding()
-            HStack(spacing: 0) {
-                column($gestureOrder, names: ["tap": "单击", "longPress": "长按"])
-                column($actionOrder, names: ["tabs": "展开标签栏", "search": "进入搜索"])
-            }
-            Text("分别拖动两列项目，同一行的手势与动作配对并自动保存。启用多功能按钮时使用此映射；关闭时单击搜索按钮进入搜索，长按无动作。")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .padding()
+            .padding(20)
         }
-        .environment(\.editMode, .constant(.active))
     }
 
-    private func column(_ storage: Binding<String>, names: [String: String]) -> some View {
+    private func column(_ storage: Binding<String>, kind: String, names: [String: String]) -> some View {
         let values = storage.wrappedValue.split(separator: ",").map(String.init)
-        return List {
+        return VStack(spacing: 16) {
             ForEach(values, id: \.self) { value in
                 Text(LocalizedStringKey(names[value] ?? value))
-                    .frame(minHeight: 44)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .padding(.horizontal, 8)
+                    .background {
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(.tint, lineWidth: 1)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+                    .draggable("\(kind):\(value)")
+                    .dropDestination(for: String.self) { items, _ in
+                        guard items.count == 1, let item = items.first,
+                              item.hasPrefix(kind + ":") else { return false }
+                        let source = String(item.dropFirst(kind.count + 1))
+                        guard let from = values.firstIndex(of: source),
+                              let to = values.firstIndex(of: value), from != to else { return false }
+                        var updated = values
+                        updated.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+                        storage.wrappedValue = updated.joined(separator: ",")
+                        return true
+                    }
                     .accessibilityHint("拖动调整配对顺序")
-            }
-            .onMove { offsets, destination in
-                var updated = values
-                updated.move(fromOffsets: offsets, toOffset: destination)
-                storage.wrappedValue = updated.joined(separator: ",")
+                    .accessibilityAction(named: Text("上移")) { move(value, by: -1, storage: storage) }
+                    .accessibilityAction(named: Text("下移")) { move(value, by: 1, storage: storage) }
             }
         }
-        .listStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func move(_ value: String, by delta: Int, storage: Binding<String>) {
+        var values = storage.wrappedValue.split(separator: ",").map(String.init)
+        guard let index = values.firstIndex(of: value), values.indices.contains(index + delta) else { return }
+        values.swapAt(index, index + delta)
+        storage.wrappedValue = values.joined(separator: ",")
     }
 }
 
@@ -358,10 +426,10 @@ private struct SettingsLabel: View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
                 .symbolVariant(.none)
-                .font(.system(size: 17, weight: .regular))
+                .font(.system(size: 15, weight: .regular))
                 .foregroundStyle(.tint)
-                .frame(width: 32, height: 30)
-                .overlay { RoundedRectangle(cornerRadius: 8).stroke(.tint, lineWidth: 1) }
+                .frame(width: 27, height: 26)
+                .overlay { RoundedRectangle(cornerRadius: 7).stroke(.tint, lineWidth: 1) }
                 .accessibilityHidden(true)
             Text(title)
         }
