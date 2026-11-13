@@ -3,40 +3,37 @@ import SwiftUI
 /// Each persistent root owns its title state and native scroll edge effect.
 private struct VesperImmersiveTitle: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.vesperWindowTopInset) private var windowTopInset
     @State private var state = ImmersiveTitleState()
     @State private var isTitleCollapsed = false
 
     func body(content: Content) -> some View {
-        GeometryReader { geometry in
-            content
-                // Expand the scroll viewport beneath the status bar, but keep
-                // initial content below it. Scrolling can then carry content
-                // through the native edge effect without moving the Host.
-                .contentMargins(.top, geometry.safeAreaInsets.top, for: .scrollContent)
-                .scrollEdgeEffectStyle(.soft, for: .top)
-                .scrollEdgeEffectHidden(false, for: .top)
-                .ignoresSafeArea(.container, edges: .top)
-                .environment(\.vesperTitleCollapsed, isTitleCollapsed)
-                .environment(\.vesperTitleFadeProgress, state.fadeProgress)
-                .onScrollGeometryChange(for: Double.self) { geometry in
-                    Double(geometry.contentOffset.y + geometry.contentInsets.top)
-                } action: { _, offset in
-                    observe(offset: offset)
-                }
-                .onScrollPhaseChange { oldPhase, phase, context in
-                    let offset = Double(context.geometry.contentOffset.y + context.geometry.contentInsets.top)
-                    observe(offset: offset, didStop: oldPhase.isScrolling && phase == .idle)
-                }
-        }
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .navigationBar)
-        .onDisappear {
-            state.settle()
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { isTitleCollapsed = state.isCollapsed }
-        }
+        content
+            // Extend the viewport beneath the empty, visible navigation bar.
+            // Reserve only the outer Host's status safe area, not the bar height.
+            .contentMargins(.top, windowTopInset, for: .scrollContent)
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .scrollEdgeEffectHidden(false, for: .top)
+            .ignoresSafeArea(.container, edges: .top)
+            .environment(\.vesperTitleCollapsed, isTitleCollapsed)
+            .environment(\.vesperTitleFadeProgress, state.fadeProgress)
+            .onScrollGeometryChange(for: Double.self) { geometry in
+                Double(geometry.contentOffset.y + geometry.contentInsets.top)
+            } action: { _, offset in
+                observe(offset: offset)
+            }
+            .onScrollPhaseChange { oldPhase, phase, context in
+                let offset = Double(context.geometry.contentOffset.y + context.geometry.contentInsets.top)
+                observe(offset: offset, didStop: oldPhase.isScrolling && phase == .idle)
+            }
+            .navigationTitle("")
+            .vesperNavigationStyle(.inline)
+            .onDisappear {
+                state.settle()
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { isTitleCollapsed = state.isCollapsed }
+            }
     }
 
     private func observe(offset: Double, didStop: Bool = false) {
@@ -55,6 +52,18 @@ private struct VesperImmersiveTitle: ViewModifier {
 extension View {
     func vesperImmersiveTitle() -> some View {
         modifier(VesperImmersiveTitle())
+    }
+}
+
+/// The outer page Host measures this before its NavigationStack adds bar insets.
+private struct VesperWindowTopInsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var vesperWindowTopInset: CGFloat {
+        get { self[VesperWindowTopInsetKey.self] }
+        set { self[VesperWindowTopInsetKey.self] = newValue }
     }
 }
 

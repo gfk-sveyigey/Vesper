@@ -349,9 +349,14 @@ private struct HostedPageEnvironment<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        content()
-            .environment(\.locale, VesperLocalization.locale(for: languageCode))
-            .tint(VesperTheme.accent(accent))
+        // Measure outside NavigationStack so this inset excludes its navigation
+        // bar. Root pages can underlap an empty bar while avoiding the status bar.
+        GeometryReader { geometry in
+            content()
+                .environment(\.vesperWindowTopInset, geometry.safeAreaInsets.top)
+                .environment(\.locale, VesperLocalization.locale(for: languageCode))
+                .tint(VesperTheme.accent(accent))
+        }
     }
 }
 
