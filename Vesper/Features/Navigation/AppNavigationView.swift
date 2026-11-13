@@ -95,8 +95,7 @@ struct AppNavigationView: View {
             ))
 
             // This sibling owns the ordinary pages, independently of TabView.
-            // Keep navigation controllers full-screen; reserve the tab bar with
-            // child safe-area insets rather than resizing the entire host.
+            // Constrain page hosts to the unobscured system safe-area viewport.
             ContentHost(
                 hosts: hosts,
                 currentPage: currentPage,
@@ -381,70 +380,53 @@ private final class SectionHosts {
     }
 }
 
-/// A full-screen viewport keeps the NavigationStack origin stable during pushes.
-/// Content avoids the native tab bar, while background can cover the whole window.
+/// Hosts occupy only the unobscured viewport. Background is supplied by TabView.
 private final class PageContainerController: UIViewController {
     var bottomBarClearance: CGFloat = 0 {
         didSet {
-            guard oldValue != bottomBarClearance, isViewLoaded else { return }
-            updateChildSafeAreas()
-            view.setNeedsLayout()
+            guard oldValue != bottomBarClearance else { return }
+            for constraint in bottomConstraints { constraint.constant = -bottomBarClearance }
+            viewIfLoaded?.setNeedsLayout()
         }
     }
+    private var bottomConstraints: [NSLayoutConstraint] = []
 
     override func loadView() {
         view = PageContainerView()
         view.backgroundColor = .clear
     }
 
+    func install(_ child: UIViewController) {
+        addChild(child)
+        child.view.translatesAutoresizingMaskIntoConstraints = false
+        child.view.clipsToBounds = true
+        view.addSubview(child.view)
+        let bottom = child.view.bottomAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -bottomBarClearance
+        )
+        bottomConstraints.append(bottom)
+        NSLayoutConstraint.activate([
+            child.view.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            child.view.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            child.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            bottom
+        ])
+        child.didMove(toParent: self)
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        updateChildSafeAreas()
-    }
-
-    override func viewSafeAreaInsetsDidChange() {
-        super.viewSafeAreaInsetsDidChange()
-        updateChildSafeAreas()
-    }
-
-    func updateChildSafeAreas() {
-        for child in children {
-            var insets = child.additionalSafeAreaInsets
-            if insets.bottom != bottomBarClearance {
-                insets.bottom = bottomBarClearance
-                child.additionalSafeAreaInsets = insets
-            }
-        }
-        // Let touches reach the sibling TabView, including the home-indicator area.
         (view as? PageContainerView)?.bottomPassthroughHeight =
             view.safeAreaInsets.bottom + bottomBarClearance
     }
 }
 
 private final class PageContainerView: UIView {
-    private let contentMask = CAShapeLayer()
-    var bottomPassthroughHeight: CGFloat = 0 {
-        didSet {
-            if oldValue != bottomPassthroughHeight { setNeedsLayout() }
-        }
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // Reveal the sibling tab bar without shrinking the navigation viewport.
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        contentMask.frame = bounds
-        contentMask.path = CGPath(rect: CGRect(
-            x: bounds.minX, y: bounds.minY, width: bounds.width,
-            height: max(0, bounds.height - bottomPassthroughHeight)
-        ), transform: nil)
-        layer.mask = contentMask
-        CATransaction.commit()
-    }
+    var bottomPassthroughHeight: CGFloat = 0
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard point.y < bounds.maxY - bottomPassthroughHeight else { return nil }
+        guard point.y >= safeAreaInsets.top,
+              point.y < bounds.maxY - bottomPassthroughHeight else { return nil }
         return super.hitTest(point, with: event)
     }
 }
@@ -483,35 +465,16 @@ private struct ContentHost: UIViewControllerRepresentable {
         }
         for section in AppSection.allCases {
             let host = hosts.controller(for: section, openSources: openSources)
-            container.addChild(host)
-            host.view.translatesAutoresizingMaskIntoConstraints = false
-            container.view.addSubview(host.view)
-            NSLayoutConstraint.activate([
-                host.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
-                host.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
-                host.view.topAnchor.constraint(equalTo: container.view.topAnchor),
-                host.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
-            ])
+            container.install(host)
             host.view.isHidden = isSearchPresented || section != currentPage
-            host.didMove(toParent: container)
         }
         let searchHost = UIHostingController(rootView: AnyView(
             HostedPageEnvironment { SearchPage(query: searchQuery) }
         ))
         searchHost.view.accessibilityIdentifier = "search-page-host"
         searchHost.view.backgroundColor = .clear
-        container.addChild(searchHost)
-        searchHost.view.translatesAutoresizingMaskIntoConstraints = false
-        container.view.addSubview(searchHost.view)
-        NSLayoutConstraint.activate([
-            searchHost.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
-            searchHost.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
-            searchHost.view.topAnchor.constraint(equalTo: container.view.topAnchor),
-            searchHost.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
-        ])
+        container.install(searchHost)
         searchHost.view.isHidden = !isSearchPresented
-        searchHost.didMove(toParent: container)
-        container.updateChildSafeAreas()
         context.coordinator.isSearchPresented = isSearchPresented
         context.coordinator.showPrimaryTabs = showPrimaryTabs
         return container

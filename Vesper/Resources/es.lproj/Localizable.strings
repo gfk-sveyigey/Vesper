@@ -75,3 +75,5 @@
 "尚未选择媒体来源" = "No se seleccionó una fuente";
 "媒体页只显示当前选定的一个来源。请先前往来源页完成配置。" = "Medios muestra una sola fuente seleccionada. Configura una fuente primero.";
 "前往来源" = "Ir a Fuentes";
+
+"返回" = "Volver";

@@ -50,12 +50,15 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .vesperTransparentNavigationBar()
         .navigationDestination(for: SettingsRoute.self) { route in
-            switch route {
-            case .tabs: TabSettingsView()
-            case .gestures: GestureActionSettingsView()
-            case .appearance: AppearanceSettingsView()
-            case .logs: RuntimeLogsView()
+            Group {
+                switch route {
+                case .tabs: TabSettingsView()
+                case .gestures: GestureActionSettingsView()
+                case .appearance: AppearanceSettingsView()
+                case .logs: RuntimeLogsView()
+                }
             }
+            .toolbar(.hidden, for: .navigationBar)
         }
     }
 }
@@ -72,6 +75,30 @@ private struct RuntimeLogsView: View {
 
     var body: some View {
         List {
+            Section {
+                HStack {
+                    SettingsBackButton()
+                    Spacer()
+                    Button {
+                        store.prepareExportFile { result in
+                            switch result {
+                            case .success(let url): shareFile = SharedLogFile(url: url)
+                            case .failure: isShowingExportError = true
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("导出日志")
+                    .disabled(store.entries.isEmpty)
+                    Button(role: .destructive) { isShowingClearConfirmation = true } label: {
+                        Image(systemName: "trash")
+                    }
+                    .accessibilityLabel("清空日志")
+                    .disabled(store.entries.isEmpty)
+                }
+                .buttonStyle(.borderless)
+            }
             if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
             Section("保留规则") {
                 Picker("保留时间", selection: $retentionDays) {
@@ -106,30 +133,7 @@ private struct RuntimeLogsView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background.ignoresSafeArea())
-        .navigationTitle("运行日志")
-        .navigationBarTitleDisplayMode(.inline)
         .vesperTransparentNavigationBar()
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    store.prepareExportFile { result in
-                        switch result {
-                        case .success(let url): shareFile = SharedLogFile(url: url)
-                        case .failure: isShowingExportError = true
-                        }
-                    }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .accessibilityLabel("导出日志")
-                .disabled(store.entries.isEmpty)
-                Button(role: .destructive) { isShowingClearConfirmation = true } label: {
-                    Image(systemName: "trash")
-                }
-                .accessibilityLabel("清空日志")
-                .disabled(store.entries.isEmpty)
-            }
-        }
         .onAppear { store.setRetention(days: retentionDays) }
         .onChange(of: retentionDays) { _, _ in store.setRetention(days: retentionDays) }
         .confirmationDialog("确定清空所有日志？", isPresented: $isShowingClearConfirmation, titleVisibility: .visible) {
@@ -176,6 +180,7 @@ private struct AppearanceSettingsView: View {
 
     var body: some View {
         Form {
+            Section { SettingsBackButton() }
             Section {
                 Picker("主题", selection: $appearanceMode) {
                     Text("自动").tag("system")
@@ -197,8 +202,6 @@ private struct AppearanceSettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background.ignoresSafeArea())
-        .navigationTitle("外观设置")
-        .navigationBarTitleDisplayMode(.inline)
         .vesperTransparentNavigationBar()
     }
 }
@@ -216,6 +219,7 @@ struct TabSettingsView: View {
 
     var body: some View {
         List {
+            Section { SettingsBackButton() }
             Section("标签栏") {
                 Toggle("启用多功能按钮", isOn: $multifunctionEnabled)
                 Text("多功能按钮仍处于试验阶段，可能出现交互或显示问题；如影响使用，请关闭此功能。")
@@ -252,8 +256,6 @@ struct TabSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background.ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
-        .navigationTitle("标签设置")
-        .navigationBarTitleDisplayMode(.inline)
         .vesperTransparentNavigationBar()
     }
 }
@@ -265,6 +267,9 @@ private struct GestureActionSettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            SettingsBackButton()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
             HStack {
                 Text("手势").frame(maxWidth: .infinity)
                 Text("动作").frame(maxWidth: .infinity)
@@ -282,8 +287,6 @@ private struct GestureActionSettingsView: View {
         }
         .background(VesperTheme.background.ignoresSafeArea())
         .environment(\.editMode, .constant(.active))
-        .navigationTitle("手势与动作")
-        .navigationBarTitleDisplayMode(.inline)
         .vesperTransparentNavigationBar()
     }
 
@@ -302,5 +305,14 @@ private struct GestureActionSettingsView: View {
             }
         }
         .listStyle(.plain)
+    }
+}
+
+/// A content-level return action keeps detail pages usable without a title bar.
+private struct SettingsBackButton: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Button("返回", systemImage: "chevron.backward") { dismiss() }
     }
 }
