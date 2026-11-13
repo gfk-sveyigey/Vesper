@@ -2,14 +2,13 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs, icons
+    case tabs, appearance, logs
 
     var title: LocalizedStringKey {
         switch self {
         case .tabs: "标签设置"
         case .appearance: "外观设置"
         case .logs: "运行日志"
-        case .icons: "更换图标"
         }
     }
 }
@@ -73,7 +72,6 @@ struct SettingsView: View {
                 case .tabs: TabSettingsView()
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()
-                case .icons: AppIconSettingsView()
                 }
             }
             .vesperNavigationTitle(route.title)
@@ -213,9 +211,11 @@ private struct AppearanceSettingsView: View {
                 if accent != "vesper" {
                     Button { accent = "vesper" } label: { Text("恢复默认颜色") }
                 }
-                NavigationLink(value: SettingsRoute.icons) { Text("更换图标") }
             } footer: {
                 Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
+            }
+            Section("更换图标") {
+                AppIconChoices()
             }
         }
         .scrollContentBackground(.hidden)
@@ -255,8 +255,6 @@ struct TabSettingsView: View {
             } footer: {
                 Text("关闭只隐藏入口，不清除页面数据。设置标签始终保留。")
             }
-            Button("调整标签顺序") { isShowingOrderSettings = true }
-            Button("恢复默认") { isShowingResetConfirmation = true }
         }
         .scrollContentBackground(.hidden)
         .toolbar {
@@ -276,6 +274,15 @@ struct TabSettingsView: View {
                     Image(systemName: "square.grid.2x2")
                 }
                 .accessibilityLabel("多功能按钮设置")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("调整标签顺序", systemImage: "arrow.up.arrow.down") { isShowingOrderSettings = true }
+                    Button("恢复默认", systemImage: "arrow.counterclockwise") { isShowingResetConfirmation = true }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("标签设置")
             }
         }
         .alert("启用多功能按钮？", isPresented: $isShowingEnableConfirmation) {
@@ -317,6 +324,9 @@ struct TabSettingsView: View {
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("完成") { isShowingGestureSettings = false }
+                        }
+                        ToolbarItem(placement: .principal) {
+                            Text("手势与动作").font(.headline)
                         }
                     }
             }
@@ -361,8 +371,8 @@ private struct GestureActionSettingsView: View {
         ScrollView {
             VStack(spacing: 20) {
                 HStack(alignment: .top, spacing: 20) {
-                    column($gestureOrder, kind: "gesture", names: ["tap": "单击", "longPress": "长按"])
-                    column($actionOrder, kind: "action", names: ["tabs": "展开标签栏", "search": "进入搜索"])
+                    GestureOrderColumn(storage: $gestureOrder, names: ["tap": "单击", "longPress": "长按"])
+                    GestureOrderColumn(storage: $actionOrder, names: ["tabs": "展开标签栏", "search": "进入搜索"])
                 }
                 Text("分别拖动两列项目，同一行的手势与动作配对并自动保存。启用多功能按钮时使用此映射；关闭时单击搜索按钮进入搜索，长按无动作。")
                     .font(.footnote)
@@ -372,43 +382,80 @@ private struct GestureActionSettingsView: View {
         }
     }
 
-    private func column(_ storage: Binding<String>, kind: String, names: [String: String]) -> some View {
-        let values = storage.wrappedValue.split(separator: ",").map(String.init)
-        return VStack(spacing: 16) {
+}
+
+/// Reorder only within a column. A local drag moves the actual card, rather
+/// than starting a transferable copy session (and displaying its plus badge).
+private struct GestureOrderColumn: View {
+    @Binding var storage: String
+    let names: [String: String]
+    @ScaledMetric(relativeTo: .body) private var rowHeight = 52.0
+    @GestureState private var dragOffset = CGSize.zero
+    @GestureState private var isDragging = false
+    @State private var draggedValue: String?
+    @State private var initialIndex = 0
+    @Namespace private var coordinateSpace
+
+    private var values: [String] { storage.split(separator: ",").map(String.init) }
+    private var rowStride: CGFloat { rowHeight + 16 }
+
+    var body: some View {
+        VStack(spacing: 16) {
             ForEach(values, id: \.self) { value in
                 Text(LocalizedStringKey(names[value] ?? value))
-                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: rowHeight)
                     .padding(.horizontal, 8)
                     .background {
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(.tint, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 12).stroke(.tint, lineWidth: 1)
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 12))
-                    .draggable("\(kind):\(value)")
-                    .dropDestination(for: String.self) { items, _ in
-                        guard items.count == 1, let item = items.first,
-                              item.hasPrefix(kind + ":") else { return false }
-                        let source = String(item.dropFirst(kind.count + 1))
-                        guard let from = values.firstIndex(of: source),
-                              let to = values.firstIndex(of: value), from != to else { return false }
-                        var updated = values
-                        updated.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
-                        storage.wrappedValue = updated.joined(separator: ",")
-                        return true
-                    }
+                    .offset(y: offset(for: value))
+                    .zIndex(draggedValue == value ? 1 : 0)
+                    .gesture(
+                        DragGesture(minimumDistance: 6, coordinateSpace: .named(coordinateSpace))
+                            .updating($dragOffset) { drag, offset, _ in offset = drag.translation }
+                            .updating($isDragging) { _, active, _ in active = true }
+                            .onChanged { drag in
+                                if draggedValue != value {
+                                    draggedValue = value
+                                    initialIndex = values.firstIndex(of: value) ?? 0
+                                }
+                                let target = min(values.count - 1, max(0,
+                                    initialIndex + Int((drag.translation.height / rowStride).rounded())))
+                                reorder(value, to: target)
+                            }
+                    )
                     .accessibilityHint("拖动调整配对顺序")
-                    .accessibilityAction(named: Text("上移")) { move(value, by: -1, storage: storage) }
-                    .accessibilityAction(named: Text("下移")) { move(value, by: 1, storage: storage) }
+                    .accessibilityAction(named: Text("上移")) { move(value, by: -1) }
+                    .accessibilityAction(named: Text("下移")) { move(value, by: 1) }
             }
         }
         .frame(maxWidth: .infinity)
+        .coordinateSpace(name: coordinateSpace)
+        .onChange(of: isDragging) { _, active in
+            if !active { withAnimation(.easeInOut(duration: 0.18)) { draggedValue = nil } }
+        }
     }
 
-    private func move(_ value: String, by delta: Int, storage: Binding<String>) {
-        var values = storage.wrappedValue.split(separator: ",").map(String.init)
+    private func offset(for value: String) -> CGFloat {
+        guard draggedValue == value, isDragging,
+              let index = values.firstIndex(of: value) else { return 0 }
+        // Compensate only for the reorder's layout change, keeping the card
+        // under the finger while its neighbours animate into their new places.
+        return dragOffset.height + CGFloat(initialIndex - index) * rowStride
+    }
+
+    private func reorder(_ value: String, to target: Int) {
+        var updated = values
+        guard let from = updated.firstIndex(of: value), from != target else { return }
+        updated.move(fromOffsets: IndexSet(integer: from), toOffset: target > from ? target + 1 : target)
+        withAnimation(.easeInOut(duration: 0.18)) { storage = updated.joined(separator: ",") }
+    }
+
+    private func move(_ value: String, by delta: Int) {
         guard let index = values.firstIndex(of: value), values.indices.contains(index + delta) else { return }
-        values.swapAt(index, index + delta)
-        storage.wrappedValue = values.joined(separator: ",")
+        reorder(value, to: index + delta)
     }
 }
 
@@ -436,22 +483,25 @@ private struct SettingsLabel: View {
     }
 }
 
-private struct AppIconSettingsView: View {
+/// Inline choices; the only available icon is the installed primary icon.
+private struct AppIconChoices: View {
     var body: some View {
-        List {
-            HStack(spacing: 14) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), spacing: 16)], spacing: 16) {
+            VStack(spacing: 8) {
                 Image("VesperAppIcon")
                     .resizable()
-                    .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .padding(5)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 19).stroke(.tint, lineWidth: 2)
+                    }
                     .accessibilityHidden(true)
-                Text("默认图标")
-                Spacer()
-                Image(systemName: "checkmark").foregroundStyle(.tint)
+                Text("默认图标").font(.caption)
             }
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isSelected)
         }
-        .scrollContentBackground(.hidden)
+        .padding(.vertical, 8)
     }
 }
