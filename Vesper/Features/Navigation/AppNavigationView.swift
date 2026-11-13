@@ -112,7 +112,9 @@ struct AppNavigationView: View {
         }
         .ignoresSafeArea(.container)
         .overlay {
-            VesperStatusBarMaterial()
+            VesperStatusBarMaterial(diagnosticContext:
+                "page=\(currentPage.rawValue) search=\(isSearchPresented) prepared=\(hasPreparedSearchControl)"
+            )
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }

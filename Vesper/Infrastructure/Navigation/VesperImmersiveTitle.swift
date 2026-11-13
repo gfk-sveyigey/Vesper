@@ -106,16 +106,26 @@ struct VesperLargeTitle: View {
 /// The material occupies only the window's top safe area. It is independent of
 /// each scrolling title, and never participates in hit testing.
 struct VesperStatusBarMaterial: UIViewControllerRepresentable {
+    let diagnosticContext: String
+
     func makeUIViewController(context: Context) -> StatusBarMaterialController {
         StatusBarMaterialController()
     }
 
     func updateUIViewController(_ controller: StatusBarMaterialController, context: Context) {
+        controller.diagnosticContext = diagnosticContext
         controller.view.setNeedsLayout()
     }
 
     final class StatusBarMaterialController: UIViewController {
         private let material = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+        var diagnosticContext = "" {
+            didSet {
+                if oldValue != diagnosticContext { scheduleDiagnostic() }
+            }
+        }
+        private var lastDiagnosticContext: String?
+        private var diagnosticScheduled = false
 
         override func loadView() {
             view = UIView()
@@ -132,11 +142,80 @@ struct VesperStatusBarMaterial: UIViewControllerRepresentable {
             let strip = CGRect(x: window.bounds.minX, y: window.bounds.minY,
                                width: window.bounds.width, height: window.safeAreaInsets.top)
             material.frame = view.convert(strip, from: window)
+            scheduleDiagnostic()
         }
 
         override func viewSafeAreaInsetsDidChange() {
             super.viewSafeAreaInsetsDidChange()
             view.setNeedsLayout()
         }
+
+        private func scheduleDiagnostic() {
+            guard !diagnosticScheduled, !diagnosticContext.isEmpty,
+                  diagnosticContext != lastDiagnosticContext else { return }
+            diagnosticScheduled = true
+            // Observe after layout, without publishing or changing any UI state.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                diagnosticScheduled = false
+                guard let window = viewIfLoaded?.window, window.safeAreaInsets.top > 0,
+                      material.bounds.height > 0,
+                      diagnosticContext != lastDiagnosticContext else { return }
+                lastDiagnosticContext = diagnosticContext
+                StatusBarDiagnostics.capture(window: window, material: material, context: diagnosticContext)
+            }
+        }
+    }
+}
+
+/// Bounded, event-driven diagnostics. No text, URLs or media data are collected;
+/// trace() writes exclusively to the App runtime log, never Xcode Console.
+@MainActor
+private enum StatusBarDiagnostics {
+    static func capture(window: UIWindow, material: UIVisualEffectView, context: String) {
+        let id = UUID().uuidString
+        let strip = CGRect(x: window.bounds.minX, y: window.bounds.minY,
+                           width: window.bounds.width, height: window.safeAreaInsets.top)
+        let actualMaterial = material.convert(material.bounds, to: window)
+        AppLog.trace("statusbar.trace.begin", detail:
+            "id=\(id) \(context) safeTop=\(window.safeAreaInsets.top) strip=\(strip) material=\(actualMaterial) reduceTransparency=\(UIAccessibility.isReduceTransparencyEnabled) style=\(window.traitCollection.userInterfaceStyle.rawValue)")
+        var records = 0
+        var omitted = 0
+        // Include one point below the strip to locate a scroll viewport beginning
+        // exactly at the safe-area boundary, even if nothing is drawn above it.
+        let probe = strip.insetBy(dx: 0, dy: -1)
+        func visit(_ view: UIView, path: String, parentAlpha: CGFloat) {
+            let effectiveAlpha = parentAlpha * view.alpha
+            if view.isHidden || effectiveAlpha <= 0.001 { return }
+            let rect = view.convert(view.bounds, to: window)
+            let scroll = view as? UIScrollView
+            let relevant = rect.intersects(probe) || scroll != nil
+            if relevant {
+                if records < 96 {
+                    var details = "id=\(id) path=\(path) type=\(String(describing: type(of: view))) rect=\(rect) bg=\(color(view.backgroundColor, traits: view.traitCollection)) alpha=\(effectiveAlpha) opaque=\(view.isOpaque) clips=\(view.clipsToBounds) mask=\(view.layer.mask != nil) rasterized=\(view.layer.shouldRasterize) safeTop=\(view.safeAreaInsets.top)"
+                    if let scroll {
+                        details += " offsetY=\(scroll.contentOffset.y) insetTop=\(scroll.adjustedContentInset.top) contentHeight=\(scroll.contentSize.height) viewportTop=\(rect.minY)"
+                    }
+                    AppLog.trace("statusbar.trace.layer", detail: details)
+                    records += 1
+                } else { omitted += 1 }
+            }
+            // Do not prune by parent bounds: an unclipped child may draw outside.
+            for (index, child) in view.subviews.enumerated() {
+                visit(child, path: "\(path)/\(index)", parentAlpha: effectiveAlpha)
+            }
+        }
+        visit(window, path: "0", parentAlpha: 1)
+        AppLog.trace("statusbar.trace.end", detail: "id=\(id) records=\(records) omitted=\(omitted)")
+    }
+
+    private static func color(_ color: UIColor?, traits: UITraitCollection) -> String {
+        guard let color else { return "nil" }
+        let resolved = color.resolvedColor(with: traits)
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        if resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha) {
+            return String(format: "rgba(%.3f,%.3f,%.3f,%.3f)", Double(red), Double(green), Double(blue), Double(alpha))
+        }
+        return "unresolved"
     }
 }
