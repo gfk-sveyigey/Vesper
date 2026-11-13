@@ -20,7 +20,7 @@ struct SettingsView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
-            .listSectionMargins(.all, 0)
+            .listSectionMargins([.horizontal, .bottom], 0)
             Section("应用") {
                 NavigationLink("标签设置", value: SettingsRoute.tabs)
                 NavigationLink("外观设置", value: SettingsRoute.appearance)
@@ -54,7 +54,6 @@ struct SettingsView: View {
         }
         // Only the title section is full-width; settings retain grouped cards.
         .listStyle(.insetGrouped)
-        .contentMargins(.top, 0, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .vesperImmersiveTitle()
         .navigationDestination(for: SettingsRoute.self) { route in

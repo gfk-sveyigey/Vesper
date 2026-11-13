@@ -12,12 +12,12 @@ struct ImmersiveTitleState {
     private(set) var phase: Phase = .expanded
     private(set) var offset: Double = 0
     private var generation: UInt64 = 0
-    let blurDistance: Double
+    let fadeDistance: Double
     let topTolerance: Double
 
-    init(blurDistance: Double = 48, topTolerance: Double = 2) {
-        precondition(blurDistance > topTolerance && topTolerance >= 0)
-        self.blurDistance = blurDistance
+    init(fadeDistance: Double = 48, topTolerance: Double = 2) {
+        precondition(fadeDistance > topTolerance && topTolerance >= 0)
+        self.fadeDistance = fadeDistance
         self.topTolerance = topTolerance
     }
 
@@ -25,8 +25,8 @@ struct ImmersiveTitleState {
         phase == .collapsing || phase == .collapsed
     }
 
-    var blurProgress: Double {
-        min(1, max(0, (offset - topTolerance) / (blurDistance - topTolerance)))
+    var fadeProgress: Double {
+        min(1, max(0, (offset - topTolerance) / (fadeDistance - topTolerance)))
     }
 
     mutating func observe(offset newOffset: Double, didStop: Bool = false) -> Transition? {
@@ -35,7 +35,7 @@ struct ImmersiveTitleState {
         if offset <= topTolerance, isCollapsed {
             return begin(isCollapsed: false)
         }
-        // Geometry only drives blur and restoration. Collapse is exclusively
+        // Geometry only drives fade and restoration. Collapse is exclusively
         // triggered when the scroll phase reaches idle, never during dragging.
         if didStop, offset > topTolerance, !isCollapsed {
             return begin(isCollapsed: true)

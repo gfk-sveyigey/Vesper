@@ -51,8 +51,7 @@ struct VesperNavigationStyle: ViewModifier {
             .navigationBarTitleDisplayMode(titleDisplayMode)
             .navigationBarBackButtonHidden(false)
             .toolbar(.visible, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(.regularMaterial, for: .navigationBar)
+            .toolbarBackground(.automatic, for: .navigationBar)
             .toolbarColorScheme(nil, for: .navigationBar)
             .toolbarRole(.editor)
     }
