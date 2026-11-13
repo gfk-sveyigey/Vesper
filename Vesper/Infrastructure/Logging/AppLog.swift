@@ -97,7 +97,7 @@ final class RuntimeLogEntries: ObservableObject {
 
     var exportText: String { entries.map(\.message).joined(separator: "\n") }
 
-    func prepareExportFile(completion: @escaping (Result<URL, Error>) -> Void) {
+    func prepareExportFile(completion: @escaping @MainActor @Sendable (Result<URL, Error>) -> Void) {
         if !pending.isEmpty {
             entries.append(contentsOf: pending)
             pending.removeAll(keepingCapacity: true)
@@ -111,9 +111,9 @@ final class RuntimeLogEntries: ObservableObject {
             do {
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try text.write(to: url, atomically: true, encoding: .utf8)
-                DispatchQueue.main.async { completion(.success(url)) }
+                Task { @MainActor in completion(.success(url)) }
             } catch {
-                DispatchQueue.main.async { completion(.failure(error)) }
+                Task { @MainActor in completion(.failure(error)) }
             }
         }
     }
