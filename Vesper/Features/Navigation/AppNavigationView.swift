@@ -213,18 +213,26 @@ struct AppNavigationView: View {
 
     private func collapsePrimaryTabs() {
         guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
-        searchFocused = false
-        searchInputActive = false
-        if hasPreparedSearchControl {
-            // Detach the dormant search context while the normal tab is still
-            // selected; collapse the group in a separate main-queue update.
-            hasPreparedSearchControl = false
-            DispatchQueue.main.async {
-                guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
-                isExpanded = false
-                synchronizeTabSelection()
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            searchFocused = false
+            searchInputActive = false
+            if hasPreparedSearchControl {
+                // Detach the search context before changing the selected item.
+                hasPreparedSearchControl = false
+                DispatchQueue.main.async { finishCollapsingPrimaryTabs() }
+            } else {
+                finishCollapsingPrimaryTabs()
             }
-        } else {
+        }
+    }
+
+    private func finishCollapsingPrimaryTabs() {
+        guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
             isExpanded = false
             synchronizeTabSelection()
         }
