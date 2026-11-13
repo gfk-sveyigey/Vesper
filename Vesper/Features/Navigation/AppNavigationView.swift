@@ -81,7 +81,6 @@ struct AppNavigationView: View {
             }
             .background(.clear)
             .toolbarBackground(.ultraThinMaterial, for: .tabBar)
-            .toolbarBackground(.visible, for: .tabBar)
             .background(MultifunctionGestures(
                 tap: { performGesture("tap") },
                 longPress: { performGesture("longPress") },
@@ -550,6 +549,10 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             var root: UIViewController = self
             while let parent = root.parent { root = parent }
             guard let controller = findTabController(in: root) else { return }
+            controller.view.backgroundColor = .clear
+            controller.view.isOpaque = false
+            controller.tabBar.backgroundColor = .clear
+            controller.tabBar.isTranslucent = true
             let nativeSelection = "index=\(controller.selectedIndex) tab=\(controller.selectedTab?.identifier ?? "none") item=\(controller.tabBar.selectedItem?.title ?? "none")"
             if nativeSelection != lastNativeSelection {
                 lastNativeSelection = nativeSelection
