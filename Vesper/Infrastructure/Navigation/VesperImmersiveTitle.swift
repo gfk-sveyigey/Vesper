@@ -3,18 +3,14 @@ import UIKit
 
 /// Attach directly to the root ScrollView/List inside its existing NavigationStack.
 private struct VesperImmersiveTitle: ViewModifier {
-    let title: LocalizedStringKey
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var state = ImmersiveTitleState()
     @State private var isTitleCollapsed = false
     @State private var isScrolling = false
-    @State private var titleHeight: CGFloat = 88
 
     func body(content: Content) -> some View {
         content
-            // This scrollable leading space stays constant during title animations,
-            // avoiding layout/scroll-offset feedback when the title disappears.
-            .contentMargins(.top, titleHeight, for: .scrollContent)
+            .environment(\.vesperTitleCollapsed, isTitleCollapsed)
             .onScrollGeometryChange(for: Double.self) { geometry in
                 Double(geometry.contentOffset.y + geometry.contentInsets.top)
             } action: { _, offset in
@@ -27,15 +23,6 @@ private struct VesperImmersiveTitle: ViewModifier {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
-            .overlay(alignment: .top) {
-                titleOverlay
-            }
-            // Independent of the title's visibility, position and animation.
-            .overlay {
-                VesperStatusBarMaterial()
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
             .onDisappear {
                 isScrolling = false
                 state.settle()
@@ -43,33 +30,6 @@ private struct VesperImmersiveTitle: ViewModifier {
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { isTitleCollapsed = state.isCollapsed }
             }
-    }
-
-    private var titleOverlay: some View {
-        Color.clear
-            .frame(height: titleHeight)
-            .overlay(alignment: .topLeading) {
-                Text(title)
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(Color("VesperPrimaryText"))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16)
-                    .background(.regularMaterial)
-                    .onGeometryChange(for: CGFloat.self) { geometry in
-                        geometry.size.height
-                    } action: { height in
-                        if titleHeight != height { titleHeight = height }
-                    }
-                    .offset(y: reduceMotion || !isTitleCollapsed ? 0 : -titleHeight)
-                    .opacity(isTitleCollapsed ? 0 : 1)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityHidden(isTitleCollapsed)
-            }
-            // Clip only the animated header, never the page or its safe areas.
-            .clipped()
-            .allowsHitTesting(false)
     }
 
     private func observe(offset: Double) {
@@ -86,14 +46,53 @@ private struct VesperImmersiveTitle: ViewModifier {
 }
 
 extension View {
-    func vesperImmersiveTitle(_ title: LocalizedStringKey) -> some View {
-        modifier(VesperImmersiveTitle(title: title))
+    func vesperImmersiveTitle() -> some View {
+        modifier(VesperImmersiveTitle())
     }
 }
 
-/// Draw only in the window's top system safe area, even when this root page's
-/// content starts below it. No SwiftUI state updates or per-page fixed heights.
-private struct VesperStatusBarMaterial: UIViewRepresentable {
+private struct VesperTitleCollapsedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private extension EnvironmentValues {
+    var vesperTitleCollapsed: Bool {
+        get { self[VesperTitleCollapsedKey.self] }
+        set { self[VesperTitleCollapsedKey.self] = newValue }
+    }
+}
+
+/// A real scroll-content item, never a fixed overlay. Its layout height stays
+/// stable while its contents animate, so scroll geometry cannot feed back.
+struct VesperLargeTitle: View {
+    let title: LocalizedStringKey
+    @Environment(\.vesperTitleCollapsed) private var isCollapsed
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var height: CGFloat = 80
+
+    init(_ title: LocalizedStringKey) { self.title = title }
+
+    var body: some View {
+        Text(title)
+            .font(.largeTitle.bold())
+            .foregroundStyle(Color("VesperPrimaryText"))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
+            .background(.regularMaterial)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            .offset(y: isCollapsed && !reduceMotion ? -height : 0)
+            .opacity(isCollapsed ? 0 : 1)
+            .clipped()
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityHidden(isCollapsed)
+            .allowsHitTesting(false)
+    }
+}
+
+/// Draw only in the window's top system safe area from the shared root layer. No SwiftUI state updates or per-page fixed heights.
+struct VesperStatusBarMaterial: UIViewRepresentable {
     func makeUIView(context: Context) -> StatusBarMaterialView { StatusBarMaterialView() }
     func updateUIView(_ view: StatusBarMaterialView, context: Context) { view.setNeedsLayout() }
 

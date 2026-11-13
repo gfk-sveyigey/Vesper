@@ -14,6 +14,10 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            VesperLargeTitle("设置")
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             Section("应用") {
                 NavigationLink("标签设置", value: SettingsRoute.tabs)
                 NavigationLink("外观设置", value: SettingsRoute.appearance)
@@ -46,7 +50,7 @@ struct SettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .vesperImmersiveTitle("设置")
+        .vesperImmersiveTitle()
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {

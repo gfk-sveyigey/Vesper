@@ -23,7 +23,6 @@ struct AppNavigationView: View {
     @State private var hasPreparedSearchControl = false
     @State private var searchInputActive = false
     @State private var searchQuery = ""
-    @FocusState private var searchFocused: Bool
     @State private var searchReturnState: SearchReturnState?
     @State private var searchStartedWithHiddenTabs = false
     @State private var tabBarFrame: CGRect = .null
@@ -68,7 +67,6 @@ struct AppNavigationView: View {
                                     searchInputActive = active
                                 }
                             ), prompt: "搜索当前媒体来源")
-                            .searchFocused($searchFocused)
                             .task(id: isSearchPresented) {
                                 guard isSearchPresented else { return }
                                 await Task.yield()
@@ -113,6 +111,11 @@ struct AppNavigationView: View {
 
         }
         .ignoresSafeArea(.container)
+        .overlay {
+            VesperStatusBarMaterial()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .task(id: isPreparingSearch) {
             guard isPreparingSearch else { return }
             // Yield after mounting the search context, then select its native tab
@@ -230,7 +233,6 @@ struct AppNavigationView: View {
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            searchFocused = false
             searchInputActive = false
         }
         guard hasPreparedSearchControl else {
@@ -324,14 +326,12 @@ struct AppNavigationView: View {
         // The Search Tab owns the native search control; ContentHost owns results.
         guard isSearchPresented else { return }
         searchInputActive = true
-        searchFocused = true
         AppLog.info("navigation.search.manuallyActivated", category: .navigation)
     }
 
     private func closeSearch() {
         guard isSearchPresented || isPreparingSearch else { return }
         isPreparingSearch = false
-        searchFocused = false
         searchInputActive = false
         isSearchPresented = false
         if let previous = searchReturnState {
@@ -369,10 +369,10 @@ private final class SectionHosts {
         if let controller = controllers[section] { return controller }
         let page: AnyView
         switch section {
-        case .media: page = AnyView(NavigationStack { MediaView(openSources: openSources) }.background(VesperTheme.background.ignoresSafeArea()))
-        case .sources: page = AnyView(NavigationStack { SourcesView() }.background(VesperTheme.background.ignoresSafeArea()))
-        case .history: page = AnyView(NavigationStack { HistoryView() }.background(VesperTheme.background.ignoresSafeArea()))
-        case .settings: page = AnyView(NavigationStack { SettingsView() }.background(VesperTheme.background.ignoresSafeArea()))
+        case .media: page = AnyView(NavigationStack { MediaView(openSources: openSources) })
+        case .sources: page = AnyView(NavigationStack { SourcesView() })
+        case .history: page = AnyView(NavigationStack { HistoryView() })
+        case .settings: page = AnyView(NavigationStack { SettingsView() })
         }
         let controller = UIHostingController(rootView: AnyView(HostedPageEnvironment { page }))
         controller.view.backgroundColor = .clear
@@ -428,7 +428,9 @@ private final class SystemTabPassthroughView: UIView {
         let hit = super.hitTest(point, with: event)
         var ancestor = hit
         while let candidate = ancestor, candidate !== self {
-            if candidate is UITabBar || candidate is UISearchBar || candidate is UISearchTextField {
+            // The native cancel button can be a sibling of UISearchBar.
+            // Allow its UIControl ancestry rather than swallowing the touch.
+            if candidate is UITabBar || candidate is UISearchBar || candidate is UIControl {
                 return hit
             }
             ancestor = candidate.superview
