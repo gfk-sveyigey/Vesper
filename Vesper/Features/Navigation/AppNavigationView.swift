@@ -564,9 +564,17 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             }
         }
         @objc private func pressed(_ recognizer: UILongPressGestureRecognizer) {
-            if recognizer.state == .began {
-                trace("SearchTab.longPress.recognized")
+            switch recognizer.state {
+            case .began:
+                trace("SearchTab.longPress.thresholdReached id=\(touchSequence)")
+            case .ended:
+                trace("SearchTab.longPress.released id=\(touchSequence)")
                 longPressAction()
+                trace("SearchTab.longPress.actionReturned id=\(touchSequence)")
+            case .cancelled, .failed:
+                trace("SearchTab.longPress.cancelled id=\(touchSequence)")
+            default:
+                break
             }
         }
     }
