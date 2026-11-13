@@ -44,7 +44,7 @@ enum VesperLocalization {
 
 /// Shared system navigation layout; each NavigationStack still owns its history.
 struct VesperNavigationStyle: ViewModifier {
-    var titleDisplayMode: NavigationBarItem.TitleDisplayMode = .large
+    var titleDisplayMode: NavigationBarItem.TitleDisplayMode = .inline
 
     func body(content: Content) -> some View {
         content
@@ -60,7 +60,7 @@ struct VesperNavigationStyle: ViewModifier {
 
 extension View {
     func vesperNavigationStyle(
-        _ titleDisplayMode: NavigationBarItem.TitleDisplayMode = .large
+        _ titleDisplayMode: NavigationBarItem.TitleDisplayMode = .inline
     ) -> some View {
         modifier(VesperNavigationStyle(titleDisplayMode: titleDisplayMode))
     }

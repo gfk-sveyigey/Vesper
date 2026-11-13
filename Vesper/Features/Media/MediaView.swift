@@ -15,7 +15,6 @@ struct MediaView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle("媒体")
-        .vesperNavigationStyle()
+        .vesperImmersiveTitle("媒体")
     }
 }

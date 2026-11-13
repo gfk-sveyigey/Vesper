@@ -10,7 +10,6 @@ struct HistoryView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle("观看记录")
-        .vesperNavigationStyle()
+        .vesperImmersiveTitle("观看记录")
     }
 }

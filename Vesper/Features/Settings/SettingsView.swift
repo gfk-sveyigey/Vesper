@@ -46,17 +46,17 @@ struct SettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .navigationTitle("设置")
-        .vesperNavigationStyle()
+        .vesperImmersiveTitle("设置")
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
-                case .tabs: TabSettingsView().navigationTitle("标签设置")
-                case .gestures: GestureActionSettingsView().navigationTitle("手势与动作")
-                case .appearance: AppearanceSettingsView().navigationTitle("外观设置")
-                case .logs: RuntimeLogsView().navigationTitle("运行日志")
+                case .tabs: TabSettingsView()
+                case .gestures: GestureActionSettingsView()
+                case .appearance: AppearanceSettingsView()
+                case .logs: RuntimeLogsView()
                 }
             }
+            .navigationTitle("")
             .vesperNavigationStyle(.inline)
         }
     }
