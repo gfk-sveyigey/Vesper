@@ -440,13 +440,10 @@ struct TabSettingsView: View {
                         }
                     }
             }
-            .presentationDetents([.height(360)])
-            .presentationDragIndicator(.hidden)
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationContentInteraction(.resizes)
             .interactiveDismissDisabled(false)
-            .background {
-                SheetOutsideDismiss { isShowingOrderSettings = false }
-                    .frame(width: 0, height: 0)
-            }
             .presentationBackground(VesperTheme.background)
         }
         .sheet(isPresented: $isShowingGestureSettings) {
@@ -468,13 +465,10 @@ struct TabSettingsView: View {
                         }
                     }
             }
-            .presentationDetents([.height(360)])
-            .presentationDragIndicator(.hidden)
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationContentInteraction(.resizes)
             .interactiveDismissDisabled(false)
-            .background {
-                SheetOutsideDismiss { isShowingGestureSettings = false }
-                    .frame(width: 0, height: 0)
-            }
             .presentationBackground(VesperTheme.background)
         }
     }

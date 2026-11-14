@@ -215,3 +215,5 @@ Color("VesperPlaybackProgress")
 
 - 图标变化经现有 UIKit 桥接即时同步普通 UITab.image（包含 UITabGroup.children 内隐藏的标签）；显示标签组时同步 UITabBarItem 的 image/selectedImage，不修改 Search Tab、不变更 selection、不重建 TabView。布局回调也检查图片是否被系统覆盖，仅在实际不同时写入。
 - 标签图标选择改为按标签顺序排列的同排四个独立卡片，点击卡片弹出对应图标菜单。
+
+- 标签顺序和手势与动作页面使用系统 medium/large 半屏 detents、系统拖动指示器及 `.presentationContentInteraction(.resizes)`；滚动手势优先驱动半屏容器在 medium 与 large 间移动，随后才滚动页面内容，关闭按钮仍在左上角。
