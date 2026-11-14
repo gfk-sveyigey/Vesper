@@ -38,4 +38,27 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .settings: "gearshape"
         }
     }
+
+    /// The tab group always uses the filled visual variant.
+    var filledSymbol: String {
+        switch symbol {
+        case "film": "film.fill"
+        case "play.rectangle": "play.rectangle.fill"
+        case "tv": "tv.fill"
+        case "photo.on.rectangle": "photo.on.rectangle.fill"
+        case "externaldrive": "externaldrive.fill"
+        case "folder": "folder.fill"
+        case "server.rack": "server.rack"
+        case "network": "network"
+        case "clock.arrow.circlepath": "clock.fill"
+        case "clock": "clock.fill"
+        case "list.bullet": "list.bullet"
+        case "calendar": "calendar"
+        case "gearshape": "gearshape.fill"
+        case "gear": "gear"
+        case "slider.horizontal.3": "slider.horizontal.3"
+        case "switch.2": "switch.2"
+        default: symbol + ".fill"
+        }
+    }
 }

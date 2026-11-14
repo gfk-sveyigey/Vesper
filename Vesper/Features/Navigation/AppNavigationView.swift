@@ -88,7 +88,7 @@ struct AppNavigationView: View {
                     tap: { performGesture("tap") },
                     longPress: { performGesture("longPress") },
                     enabled: !isSearchPresented,
-                    tabIcons: Dictionary(uniqueKeysWithValues: enabledSections.map { ($0.title, $0.symbol) }),
+                    tabIcons: Dictionary(uniqueKeysWithValues: enabledSections.map { ($0.title, $0.filledSymbol) }),
                     primaryTabsVisible: showPrimaryTabs,
                     reselected: { index in
                         guard !isSearchPresented, !isPreparingSearch, showPrimaryTabs,

@@ -308,7 +308,7 @@ struct TabSettingsView: View {
                             if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
                             hidden = values.sorted().joined(separator: ",")
                         }
-                    )) { Label(section.title, systemImage: section.symbol) }
+                    )) { Label(section.title, systemImage: section.filledSymbol) }
                 }
             } header: {
                 Text("显示标签")
@@ -320,7 +320,7 @@ struct TabSettingsView: View {
                     ForEach(sections.filter { $0 != .settings }) { section in
                         Button { openSection(section) } label: {
                             VStack(spacing: 8) {
-                                Image(systemName: section.symbol)
+                                Image(systemName: section.filledSymbol)
 .font(.system(size: 24, weight: .medium))
                                     .foregroundStyle(.tint)
                                 Text(section.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
@@ -349,7 +349,7 @@ struct TabSettingsView: View {
                             }
                         } label: {
                             VStack(spacing: 8) {
-                                Image(systemName: section.symbol)
+                                Image(systemName: section.filledSymbol)
 .font(.system(size: 24, weight: .medium))
                                     .foregroundStyle(.tint)
                                 Text(section.title)
@@ -567,7 +567,7 @@ private struct TabOrderSettingsView: View {
     var body: some View {
         List {
             ForEach(sections) { section in
-                Label(section.title, systemImage: section.symbol)
+                Label(section.title, systemImage: section.filledSymbol)
             }
             .onMove { offsets, destination in
                 var updated = sections
