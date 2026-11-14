@@ -4,7 +4,7 @@
 
 ## 当前导航基线（2026-11-14）
 
-一级标题使用滚动内容顶部的 `VesperLargeTitle`，自然随内容滚出；一级导航栏隐藏，不使用透明 principal 或自定义滚动标题动画。顶部保留系统 soft 滚动边缘效果。二级页面显示系统 inline 标题、返回按钮及独立 Toolbar。
+一级标题使用滚动内容顶部的 `VesperLargeTitle`，自然随内容滚出；一级和二级导航栏均保持显示，沿用构建 166 的透明 principal 与系统自动背景，不使用自定义滚动标题动画。顶部保留系统 soft 滚动边缘效果。二级页面使用系统 inline 导航布局、返回按钮及独立 Toolbar；透明 principal 隐藏可见标题，真实标题保留用于返回历史。
 
 底部始终提供媒体、来源、记录、设置和独立 Search Tab。标签顺序和图标可调整，不提供多功能按钮、隐藏标签或手势配对。`tabBarMinimizeBehavior(.onScrollDown)` 由系统响应当前页面滚动；`tabViewBottomAccessory` 承载 MiniPlayer，并随系统标签栏缩至 inline。点击 MiniPlayer 使用匹配源和 zoom 转场展开。当前仅实现播放器空状态，没有播放引擎，播放控制禁用。
 

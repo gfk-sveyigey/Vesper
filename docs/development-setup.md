@@ -16,7 +16,7 @@ CI 保留现有 `.github/workflows/build-dev.yml`，dev 推送后在 macOS/Xcode
 
 当前顶部与底部采用 iOS 26 原生导航。SwiftUI TabView 直接承载媒体、来源、记录、设置四个 NavigationStack 和独立 Search Tab，各标签的 NavigationPath 独立保存在根视图。移除 SystemTabLayer、ContentHost、PageContainerController、UIKit 手势桥接和手工安全区计算，不再通过隐藏标签组切换布局。
 
-一级页面使用滚动内容顶部的 `VesperLargeTitle`，隐藏一级导航栏并保留原生顶部滚动边缘效果，二级页面使用系统 inline 标题和返回按钮。底部启用 `.tabBarMinimizeBehavior(.onScrollDown)`；MiniPlayer 放在 `.tabViewBottomAccessory`，系统负责玻璃背景及收缩位置，使用 matchedTransitionSource 和 zoom 转场展开。当前没有播放引擎，播放器显示“未在播放”，播放和下一项禁用。标签顺序与图标设置保留，多功能按钮、手势映射与标签显隐入口移除。
+一级页面使用滚动内容顶部的 `VesperLargeTitle`，保留原生顶部滚动边缘效果；一级与二级导航栏均沿用构建 166 的自动背景及透明 principal，真实标题保留用于返回历史，二级页面使用系统 inline 导航布局和返回按钮，不显示标题文字。底部启用 `.tabBarMinimizeBehavior(.onScrollDown)`；MiniPlayer 放在 `.tabViewBottomAccessory`，系统负责玻璃背景及收缩位置，使用 matchedTransitionSource 和 zoom 转场展开。当前没有播放引擎，播放器显示“未在播放”，播放和下一项禁用。标签顺序与图标设置保留，多功能按钮、手势映射与标签显隐入口移除。
 
 ## 阶段二来源切片
 

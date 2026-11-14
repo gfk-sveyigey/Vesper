@@ -11,8 +11,8 @@ private struct VesperRootTopEdge: ViewModifier {
             .scrollEdgeEffectStyle(.soft, for: .top)
             .scrollEdgeEffectHidden(false, for: .top)
             .ignoresSafeArea(.container, edges: .top)
-            .navigationTitle(title)
-            .toolbar(.hidden, for: .navigationBar)
+            .vesperNavigationTitle(title)
+            .vesperNavigationStyle(.inline)
     }
 }
 

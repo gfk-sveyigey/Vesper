@@ -58,24 +58,44 @@ enum VesperLocalization {
     }
 }
 
-/// Detail pages keep native inline titles and system back navigation.
+/// Shared system navigation layout; each NavigationStack still owns its history.
 struct VesperNavigationStyle: ViewModifier {
     var titleDisplayMode: NavigationBarItem.TitleDisplayMode = .inline
+
     func body(content: Content) -> some View {
-        content.navigationBarTitleDisplayMode(titleDisplayMode)
-            .toolbarTitleDisplayMode(.inline)
+        content
+            .navigationBarTitleDisplayMode(titleDisplayMode)
+            .navigationBarBackButtonHidden(false)
             .toolbar(.visible, for: .navigationBar)
+            .toolbarBackground(.automatic, for: .navigationBar)
+            .toolbarColorScheme(nil, for: .navigationBar)
+            .toolbarRole(.editor)
     }
 }
 
 extension View {
+    /// Keep the localized navigation title for native back history, while the
+    /// principal item suppresses only its visible presentation in the bar.
     func vesperNavigationTitle(_ title: LocalizedStringKey) -> some View {
         navigationTitle(title)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
     }
 
     func vesperNavigationStyle(
         _ titleDisplayMode: NavigationBarItem.TitleDisplayMode = .inline
     ) -> some View {
         modifier(VesperNavigationStyle(titleDisplayMode: titleDisplayMode))
+    }
+
+    func vesperSystemNavigationBar() -> some View {
+        toolbarBackground(.automatic, for: .navigationBar)
     }
 }
