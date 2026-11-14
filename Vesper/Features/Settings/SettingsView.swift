@@ -320,16 +320,21 @@ struct TabSettingsView: View {
                     ForEach(sections.filter { $0 != .settings }) { section in
                         Button { openSection(section) } label: {
                             VStack(spacing: 8) {
-                                Image(systemName: section.symbol).font(.title2)
-                                Text(section.title).font(.caption).foregroundStyle(.primary)
+                                Image(systemName: section.symbol)
+                                    .font(.system(size: 24, weight: .regular))
+                                    .foregroundStyle(.tint)
+                                Text(section.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                             }
-                            .frame(maxWidth: .infinity, minHeight: 64)
-                            .contentShape(Rectangle())
+                            .frame(maxWidth: .infinity, minHeight: 88)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                            .contentShape(RoundedRectangle(cornerRadius: 16))
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.vertical, 8)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
             Section("标签图标") {
                 ForEach(sections) { section in
@@ -394,10 +399,11 @@ struct TabSettingsView: View {
             Button("恢复默认", role: .destructive) {
                 order = "media,sources,history,settings"
                 hidden = ""
+                icons = "{}"
             }
             Button("取消", role: .cancel) { }
         } message: {
-            Text("将恢复标签的显示状态和排列顺序。")
+            Text("将恢复标签的显示状态、排列顺序和图标。")
         }
         .sheet(isPresented: $isShowingOrderSettings) {
             NavigationStack {
@@ -733,15 +739,16 @@ private struct SettingsLabel: View {
 /// Inline choices; the only available icon is the installed primary icon.
 private struct AppIconChoices: View {
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), spacing: 16)], spacing: 16) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
             VStack(spacing: 8) {
                 Image("VesperAppIcon")
                     .resizable()
-                    .frame(width: 64, height: 64)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                    .padding(5)
+                    .scaledToFit()
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .padding(4)
                     .overlay {
-                        RoundedRectangle(cornerRadius: 19).stroke(.tint, lineWidth: 2)
+                        RoundedRectangle(cornerRadius: 14).stroke(.tint, lineWidth: 2)
                     }
                     .accessibilityHidden(true)
             }

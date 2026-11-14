@@ -80,9 +80,10 @@ struct AppNavigationView: View {
                 }
                 // UIKit can reuse positional tab items after a dynamic reorder,
                 // leaving an old image attached to a different section. Recreate
-                // only the native tab layer when its ordering changes; page Hosts
+                // only the native tab layer when its ordering changes. Icon edits
+                // update Tab labels in place and never rebuild the tab layer. Page Hosts
                 // and their navigation histories live outside this identity.
-                .id(order + "|" + icons)
+                .id(order)
                 .background(MultifunctionGestures(
                     tap: { performGesture("tap") },
                     longPress: { performGesture("longPress") },
