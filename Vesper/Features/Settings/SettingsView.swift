@@ -285,7 +285,6 @@ struct TabSettingsView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
-    @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = false
     @State private var isShowingResetConfirmation = false
     @State private var isShowingGestureSettings = false
     @State private var isShowingOrderSettings = false
@@ -315,9 +314,6 @@ struct TabSettingsView: View {
                 Text("显示标签")
             } footer: {
                 Text("关闭只隐藏入口，不清除页面数据。设置标签始终保留。")
-            }
-            Section("迷你播放器") {
-                Toggle("常驻显示", isOn: $miniPlayerAlwaysVisible)
             }
             Section("跳转标签") {
                 HStack(alignment: .top, spacing: 12) {
