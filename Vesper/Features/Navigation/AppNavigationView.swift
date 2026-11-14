@@ -343,6 +343,7 @@ private struct HostedPageEnvironment<Content: View>: View {
 /// Four persistent hosts, each with its own NavigationStack.
 @MainActor
 private final class SectionHosts {
+    private let library = SourceLibrary()
     var openSection: (AppSection) -> Void = { _ in }
     private var histories: [AppSection: PageHistory] = [:]
 
@@ -364,7 +365,7 @@ private final class SectionHosts {
         }
         let history = PageHistory()
         histories[section] = history
-        let controller = UIHostingController(rootView: AnyView(HostedPageEnvironment { PageNavigation(history: history, page: page) }))
+        let controller = UIHostingController(rootView: AnyView(HostedPageEnvironment { PageNavigation(history: history, page: page).environmentObject(library) }))
         controller.view.backgroundColor = .clear
         controllers[section] = controller
         return controller
