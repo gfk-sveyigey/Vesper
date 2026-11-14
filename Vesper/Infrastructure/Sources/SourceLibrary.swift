@@ -73,29 +73,26 @@ struct DeviceSourceAdapter: SourceAdapter {
             }
             return items
         case .local:
-            return try Self.localMedia(in: source, directory: localDirectory)
+            let manager = FileManager.default
+            guard manager.fileExists(atPath: localDirectory.path) else { return [] }
+            var failed = false
+            guard let files = manager.enumerator(at: localDirectory,
+                includingPropertiesForKeys: [.isRegularFileKey, .contentTypeKey],
+                options: [.skipsHiddenFiles], errorHandler: { _, _ in failed = true; return false }) else {
+                throw SourceFailure.unavailable
+            }
+            var items: [MediaItem] = []
+            for case let url as URL in files {
+                try Task.checkCancellation()
+                let values = try url.resourceValues(forKeys: [.isRegularFileKey, .contentTypeKey])
+                guard values.isRegularFile == true, values.contentType?.conforms(to: .movie) == true else { continue }
+                let relative = String(url.path.dropFirst(localDirectory.path.count))
+                items.append(MediaItem(id: MediaID(sourceID: source.id, localID: relative),
+                                       title: url.lastPathComponent, resource: .file(url)))
+            }
+            if failed { throw SourceFailure.unavailable }
+            return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         }
-    }
-
-    private static func localMedia(in source: MediaSource, directory: URL) throws -> [MediaItem] {
-        let manager = FileManager.default
-        guard manager.fileExists(atPath: directory.path) else { return [] }
-        var failed = false
-        guard let files = manager.enumerator(at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey, .contentTypeKey],
-            options: [.skipsHiddenFiles], errorHandler: { _, _ in failed = true; return false }) else {
-            throw SourceFailure.unavailable
-        }
-        var items: [MediaItem] = []
-        for case let url as URL in files {
-            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .contentTypeKey])
-            guard values.isRegularFile == true, values.contentType?.conforms(to: .movie) == true else { continue }
-            let relative = String(url.path.dropFirst(directory.path.count))
-            items.append(MediaItem(id: MediaID(sourceID: source.id, localID: relative),
-                                   title: url.lastPathComponent, resource: .file(url)))
-        }
-        if failed { throw SourceFailure.unavailable }
-        return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
     /// Copies into an owned directory so access survives picker dismissal/relaunch.
