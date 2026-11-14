@@ -9,12 +9,12 @@ struct SourcesView: View {
             VStack(alignment: .leading, spacing: 20) {
                 VesperLargeTitle(title: "来源") {
                     Button { isAdding = true } label: {
-                        Image(systemName: "plus")
-                            .font(.title3.weight(.semibold))
-                            .frame(width: 44, height: 44)
+                        Label("添加演示来源", systemImage: "plus")
                     }
+                    .labelStyle(.iconOnly)
                     .buttonStyle(.glass)
                     .buttonBorderShape(.circle)
+                    .controlSize(.large)
                     .accessibilityLabel("添加演示来源")
                 }
                 VStack(alignment: .leading, spacing: 16) {

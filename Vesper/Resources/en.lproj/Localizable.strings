@@ -145,3 +145,6 @@
 "下一项" = "Next";
 "调整标签排列顺序和图标。" = "Customize tab order and icons.";
 "将恢复标签的排列顺序和图标。" = "Tab order and icons will be reset.";
+
+"测试记录 %lld" = "Test entry %lld";
+"滚动测试占位，不是真实观看记录。" = "Scrolling placeholder, not actual watch history.";

@@ -145,3 +145,6 @@
 "下一项" = "Suivant";
 "调整标签排列顺序和图标。" = "Personnalisez l’ordre et les icônes des onglets.";
 "将恢复标签的排列顺序和图标。" = "L’ordre et les icônes des onglets seront réinitialisés.";
+
+"测试记录 %lld" = "Entrée de test %lld";
+"滚动测试占位，不是真实观看记录。" = "Exemple de défilement, pas un historique réel.";

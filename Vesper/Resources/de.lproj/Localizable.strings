@@ -145,3 +145,6 @@
 "下一项" = "Weiter";
 "调整标签排列顺序和图标。" = "Reihenfolge und Symbole der Tabs anpassen.";
 "将恢复标签的排列顺序和图标。" = "Reihenfolge und Symbole der Tabs werden zurückgesetzt.";
+
+"测试记录 %lld" = "Testeintrag %lld";
+"滚动测试占位，不是真实观看记录。" = "Platzhalter zum Scrollen, kein echter Wiedergabeverlauf.";

@@ -100,15 +100,17 @@ private struct MiniPlayerAccessory: View {
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     let openPlayer: () -> Void
 
+    private var isCompact: Bool { placement == .inline }
+
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: isCompact ? 8 : 12) {
             Button(action: openPlayer) {
-                HStack(spacing: 12) {
+                HStack(spacing: isCompact ? 8 : 12) {
                     Image(systemName: "play.rectangle")
-                        .font(.title2)
-                        .frame(width: 36, height: 36)
+                        .font(isCompact ? .body : .title2)
+                        .frame(width: isCompact ? 24 : 36, height: isCompact ? 24 : 36)
                     Text("未在播放")
-                        .font(.subheadline.weight(.medium))
+                        .font(isCompact ? .footnote.weight(.medium) : .subheadline.weight(.medium))
                         .lineLimit(1)
                     Spacer(minLength: 0)
                 }
@@ -118,12 +120,12 @@ private struct MiniPlayerAccessory: View {
             .accessibilityLabel("打开播放器")
             Button("播放", systemImage: "play.fill") {}.disabled(true)
                 .labelStyle(.iconOnly)
-            if placement != .inline {
+            if !isCompact {
                 Button("下一项", systemImage: "forward.end.fill") {}.disabled(true)
                     .labelStyle(.iconOnly)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, isCompact ? 8 : 16)
+        .padding(.vertical, isCompact ? 4 : 8)
     }
 }
