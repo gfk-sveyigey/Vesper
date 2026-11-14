@@ -29,12 +29,6 @@ private struct VesperImmersiveTitle: ViewModifier {
             }
             .vesperNavigationTitle(title)
             .vesperNavigationStyle(.inline)
-            .onDisappear {
-                state.settle()
-                var transaction = Transaction(animation: nil)
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { isTitleCollapsed = state.isCollapsed }
-            }
     }
 
     private func observe(offset: Double, didStop: Bool = false) {
