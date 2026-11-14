@@ -32,18 +32,6 @@ struct VesperLargeTitle: View {
     }
 }
 
-/// A regular List row so the title scrolls away with the rest of the page.
-struct VesperListTitle: View {
-    let title: LocalizedStringKey
-
-    var body: some View {
-        VesperLargeTitle(title: title)
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-    }
-}
-
 private struct VesperWindowTopInsetKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
