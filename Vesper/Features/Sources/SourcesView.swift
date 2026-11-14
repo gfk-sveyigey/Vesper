@@ -12,7 +12,7 @@ struct SourcesView: View {
     var body: some View {
         List {
             Section {
-                HStack(spacing: 0) {
+                ZStack(alignment: .topTrailing) {
                     VesperLargeTitle("来源")
                     Menu {
                         if !library.contains(.photos) {
@@ -35,7 +35,10 @@ struct SourcesView: View {
                         Image(systemName: "plus.circle")
                             .font(.title2)
                             .frame(width: 44, height: 44)
+                            .contentShape(Circle())
                     }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular, in: .circle)
                     .accessibilityLabel("添加媒体来源")
                     .disabled(isAuthorizing || library.isImporting)
                     .padding(.trailing, 20)
