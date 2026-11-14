@@ -1,0 +1,8 @@
+.DS_Store
+DerivedData/
+*.xcuserstate
+xcuserdata/
+build/
+
+# Local-only helpers
+scripts/
