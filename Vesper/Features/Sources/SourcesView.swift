@@ -7,8 +7,7 @@ struct SourcesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                HStack(spacing: 0) {
-                    VesperLargeTitle(title: "来源")
+                VesperLargeTitle(title: "来源") {
                     Button { isAdding = true } label: {
                         Image(systemName: "plus")
                             .font(.title3.weight(.semibold))
@@ -17,7 +16,6 @@ struct SourcesView: View {
                     .buttonStyle(.glass)
                     .buttonBorderShape(.circle)
                     .accessibilityLabel("添加演示来源")
-                    .padding(.trailing, 20)
                 }
                 VStack(alignment: .leading, spacing: 16) {
                     if library.sources.isEmpty {

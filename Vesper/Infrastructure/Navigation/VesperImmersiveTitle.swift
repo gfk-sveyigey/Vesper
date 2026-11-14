@@ -17,18 +17,33 @@ private struct VesperRootTopEdge: ViewModifier {
 }
 
 /// A content row, never a pinned header or navigation-bar overlay.
-struct VesperLargeTitle: View {
+struct VesperLargeTitle<Actions: View>: View {
     let title: LocalizedStringKey
+    private let actions: Actions
+
+    init(title: LocalizedStringKey, @ViewBuilder actions: () -> Actions) {
+        self.title = title
+        self.actions = actions()
+    }
 
     var body: some View {
-        Text(title)
-            .font(.largeTitle.bold())
-            .foregroundStyle(Color("VesperPrimaryText"))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 12)
-            .accessibilityAddTraits(.isHeader)
+        HStack(spacing: 16) {
+            Text(title)
+                .font(.largeTitle.bold())
+                .foregroundStyle(Color("VesperPrimaryText"))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+            actions
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+    }
+}
+
+extension VesperLargeTitle where Actions == EmptyView {
+    init(title: LocalizedStringKey) {
+        self.init(title: title) { EmptyView() }
     }
 }
 
