@@ -227,3 +227,5 @@ Color("VesperPlaybackProgress")
 - MiniPlayerLayer 作为 AppNavigationView 的第三个 ZStack 层，使用 MiniPlayerPositionCoordinator 冻结标签组收起前的标签栏高度；当前没有播放状态，因此 hasPlayableContent 默认关闭。播放器卡片使用 iOS 26 `.glassEffect(.regular)`，后续接入播放状态后显示。
 
 - 标签设置新增“迷你播放器”分组及“常驻显示”开关，使用 `miniPlayer.alwaysVisible` 与 AppNavigationView 共享。开启时即使没有播放内容也显示占位播放器，搜索期间仍隐藏。
+
+- MiniPlayerLayer 根据 `showPrimaryTabs` 在完整和紧凑两种卡片状态间切换：标签组显示时展示标题、说明和 42pt 控件；标签组隐藏时缩为 30pt 图标、单行标题和紧凑播放按钮，使用 spring 动画并保持底部冻结位置。

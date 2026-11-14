@@ -913,7 +913,7 @@ private struct MiniPlayerLayer: View {
     var body: some View {
         GeometryReader { geometry in
             if shouldShow {
-                MiniPlayerCard()
+                MiniPlayerCard(isCompact: !tabBarVisible)
                     .padding(.horizontal, 12)
                     .padding(.bottom, max(8, coordinator.tabBarHeight + geometry.safeAreaInsets.bottom + 6))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -927,26 +927,37 @@ private struct MiniPlayerLayer: View {
 }
 
 private struct MiniPlayerCard: View {
+    let isCompact: Bool
+
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: isCompact ? 8 : 12) {
             Image(systemName: "music.note")
-                .font(.title3)
-                .frame(width: 42, height: 42)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .font(isCompact ? .subheadline : .title3)
+                .frame(width: isCompact ? 30 : 42, height: isCompact ? 30 : 42)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: isCompact ? 8 : 10))
             VStack(alignment: .leading, spacing: 2) {
-                Text("正在播放").font(.subheadline.weight(.semibold))
-                Text("媒体内容").font(.caption).foregroundStyle(.secondary)
+                Text("正在播放")
+                    .font(isCompact ? .caption.weight(.semibold) : .subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if !isCompact {
+                    Text("媒体内容")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             Button { } label: {
-                Image(systemName: "play.fill").font(.headline)
+                Image(systemName: "play.fill")
+                    .font(isCompact ? .subheadline : .headline)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("播放")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, isCompact ? 10 : 14)
+        .padding(.vertical, isCompact ? 6 : 10)
         .frame(maxWidth: .infinity)
-        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        .glassEffect(.regular, in: .rect(cornerRadius: isCompact ? 14 : 18))
+        .animation(.spring(response: 0.35, dampingFraction: 0.86), value: isCompact)
     }
 }
