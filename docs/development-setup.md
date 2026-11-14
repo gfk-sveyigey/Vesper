@@ -18,9 +18,9 @@ CI 保留现有 `.github/workflows/build-dev.yml`，dev 推送后在 macOS/Xcode
 
 ## 阶段二来源切片
 
-SectionHosts 持有唯一 SourceLibrary，通过 environmentObject 注入四个页面 Host；不重建导航栈。来源列表和当前选择以单个 JSON 快照持久化于 UserDefaults。当前支持系统相册视频和文件导入的视频；SourceAdapter 隔离照片库与本地文件读取，Emby 入口暂未接入。
+SectionHosts 持有唯一 SourceLibrary，通过 environmentObject 注入四个页面 Host；不重建导航栈。来源列表和当前选择以单个 JSON 快照持久化于 UserDefaults，仅包含演示配置。SourceAdapter 隔离数据读取；当前 DemoSourceAdapter 提供内容、空、失败和离线状态，演示媒体没有真实资源和播放能力。
 
-来源选择不会改变主导航标签。媒体页观察共享状态，仅显示选中的一个来源；切换、删除或重试取消旧请求，并以代次标识拒绝迟到结果。相册来源遵循系统权限，本地视频复制到 App 文档目录以保持访问。
+来源选择不会改变主导航标签。媒体页观察共享状态，仅显示选中的一个来源；切换、删除或重试取消旧请求，并以代次标识拒绝迟到结果。来源配置和页面状态验证见 [阶段二验证](phase-two-validation.md)。
 
 ## 日志
 
