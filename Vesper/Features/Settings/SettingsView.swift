@@ -36,18 +36,23 @@ struct SettingsView: View {
                             Divider().padding(.leading, 16)
                             settingsLink(.logs, title: "运行日志", symbol: "doc.text")
                             Divider().padding(.leading, 16)
-                            Picker(selection: $languageCode) {
-                                Text("跟随系统").tag("system")
-                                Text(verbatim: "简体中文").tag("zh-Hans")
-                                Text(verbatim: "繁體中文").tag("zh-Hant")
-                                Text(verbatim: "English").tag("en")
-                                Text(verbatim: "Deutsch").tag("de")
-                                Text(verbatim: "Español").tag("es")
-                                Text(verbatim: "Français").tag("fr")
-                                Text(verbatim: "日本語").tag("ja")
-                                Text(verbatim: "한국어").tag("ko")
-                            } label: { SettingsLabel("语言设置", symbol: "globe") }
-                            .pickerStyle(.menu)
+                            HStack {
+                                SettingsLabel("语言设置", symbol: "globe")
+                                Spacer(minLength: 12)
+                                Picker(selection: $languageCode) {
+                                    Text("跟随系统").tag("system")
+                                    Text(verbatim: "简体中文").tag("zh-Hans")
+                                    Text(verbatim: "繁體中文").tag("zh-Hant")
+                                    Text(verbatim: "English").tag("en")
+                                    Text(verbatim: "Deutsch").tag("de")
+                                    Text(verbatim: "Español").tag("es")
+                                    Text(verbatim: "Français").tag("fr")
+                                    Text(verbatim: "日本語").tag("ja")
+                                    Text(verbatim: "한국어").tag("ko")
+                                } label: { SettingsLabel("语言设置", symbol: "globe") }
+                                .pickerStyle(.menu)
+                                .labelsHidden()
+                            }
                             .padding(16)
                         }
                         .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))

@@ -7,7 +7,18 @@ struct SourcesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                VesperLargeTitle(title: "来源")
+                HStack(spacing: 0) {
+                    VesperLargeTitle(title: "来源")
+                    Button { isAdding = true } label: {
+                        Image(systemName: "plus")
+                            .font(.title3.weight(.semibold))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel("添加演示来源")
+                    .padding(.trailing, 20)
+                }
                 VStack(alignment: .leading, spacing: 16) {
                     if library.sources.isEmpty {
                         ContentUnavailableView("未配置来源", systemImage: "externaldrive")
@@ -48,10 +59,6 @@ struct SourcesView: View {
                     }
                     Text("演示来源仅用于验证来源切换和页面状态，不包含真实媒体。")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Button("添加演示来源", systemImage: "plus") { isAdding = true }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                        .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
                     if library.storageFailed { Text("来源设置保存失败").foregroundStyle(.red) }
                 }
                 .padding(.horizontal, 20)
