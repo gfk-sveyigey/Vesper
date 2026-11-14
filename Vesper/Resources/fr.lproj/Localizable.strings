@@ -97,3 +97,6 @@
 "关闭" = "Fermer";
 "页面" = "Pages";
 "显示标签" = "Afficher les onglets";
+"选择显示的标签，调整排列顺序与多功能按钮，也可从这里打开隐藏的页面。" = "Choisissez les onglets visibles, leur ordre et le bouton multifonction, ou ouvrez les pages masquées.";
+"查看运行日志，设置保留时间，或分享完整日志文件以协助排查问题。" = "Consultez les journaux, réglez leur durée de conservation ou partagez le fichier complet pour faciliter le dépannage.";
+"选择喜欢的主题、主题色和应用图标，让 Vesper 更符合你的偏好。" = "Choisissez votre thème, votre couleur d’accent et votre icône pour personnaliser Vesper.";

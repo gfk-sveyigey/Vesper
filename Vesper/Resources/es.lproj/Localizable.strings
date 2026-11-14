@@ -97,3 +97,6 @@
 "关闭" = "Cerrar";
 "页面" = "Páginas";
 "显示标签" = "Mostrar pestañas";
+"选择显示的标签，调整排列顺序与多功能按钮，也可从这里打开隐藏的页面。" = "Elige las pestañas visibles, ajusta su orden y el botón multifunción, o abre páginas ocultas.";
+"查看运行日志，设置保留时间，或分享完整日志文件以协助排查问题。" = "Consulta los registros, elige cuánto tiempo conservarlos o comparte el archivo completo para resolver problemas.";
+"选择喜欢的主题、主题色和应用图标，让 Vesper 更符合你的偏好。" = "Elige el tema, color de acento e icono de la app que prefieras para personalizar Vesper.";

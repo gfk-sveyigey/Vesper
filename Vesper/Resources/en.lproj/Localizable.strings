@@ -97,3 +97,6 @@
 "关闭" = "Close";
 "页面" = "Pages";
 "显示标签" = "Show Tabs";
+"选择显示的标签，调整排列顺序与多功能按钮，也可从这里打开隐藏的页面。" = "Choose visible tabs, adjust their order and the multifunction button, or open hidden pages here.";
+"查看运行日志，设置保留时间，或分享完整日志文件以协助排查问题。" = "View runtime logs, choose how long to keep them, or share the complete log file to help troubleshoot issues.";
+"选择喜欢的主题、主题色和应用图标，让 Vesper 更符合你的偏好。" = "Choose your preferred theme, accent color and app icon to personalize Vesper.";

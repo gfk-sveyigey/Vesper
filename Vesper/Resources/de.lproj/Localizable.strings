@@ -97,3 +97,6 @@
 "关闭" = "Schließen";
 "页面" = "Seiten";
 "显示标签" = "Tabs anzeigen";
+"选择显示的标签，调整排列顺序与多功能按钮，也可从这里打开隐藏的页面。" = "Wähle sichtbare Tabs, passe Reihenfolge und Multifunktionstaste an oder öffne ausgeblendete Seiten.";
+"查看运行日志，设置保留时间，或分享完整日志文件以协助排查问题。" = "Sieh Laufzeitprotokolle an, lege die Aufbewahrungsdauer fest oder teile die vollständige Datei zur Fehlersuche.";
+"选择喜欢的主题、主题色和应用图标，让 Vesper 更符合你的偏好。" = "Passe Vesper mit deinem bevorzugten Design, deiner Akzentfarbe und deinem App-Symbol an.";

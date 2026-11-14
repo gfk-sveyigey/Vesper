@@ -40,20 +40,6 @@ struct SettingsView: View {
                 } label: { SettingsLabel("语言设置", symbol: "globe") }
                 .pickerStyle(.menu)
             }
-            Section("页面") {
-                ForEach([AppSection.media, .sources, .history]) { section in
-                    Button { openSection(section) } label: {
-                        HStack {
-                            Label(section.title, systemImage: section.symbol)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                }
-            }
             Section {
                 LabeledContent { Text("尚未接入") } label: { SettingsLabel("播放器偏好", symbol: "play.rectangle") }
                 LabeledContent { Text("尚未连接") } label: { SettingsLabel("IMDb", symbol: "film") }
@@ -87,12 +73,12 @@ struct SettingsView: View {
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
-                case .tabs: TabSettingsView()
+                case .tabs: TabSettingsView(openSection: openSection)
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()
                 }
             }
-            .navigationTitle(route.title)
+            .vesperNavigationTitle(route.title)
             .vesperNavigationStyle(.inline)
         }
     }
@@ -110,6 +96,8 @@ private struct RuntimeLogsView: View {
 
     var body: some View {
         List {
+            SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看运行日志，设置保留时间，或分享完整日志文件以协助排查问题。")
+
             if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
             Section("保留规则") {
                 Picker(selection: $retentionDays) {
@@ -253,6 +241,8 @@ private struct AppearanceSettingsView: View {
 
     var body: some View {
         Form {
+            SettingsIntroCard(title: "外观设置", symbol: "paintpalette", description: "选择喜欢的主题、主题色和应用图标，让 Vesper 更符合你的偏好。")
+
             Section {
                 Picker(selection: $appearanceMode) {
                     Text("跟随系统").tag("system")
@@ -284,6 +274,7 @@ private struct AppearanceSettingsView: View {
 
 
 struct TabSettingsView: View {
+    let openSection: (AppSection) -> Void
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
@@ -299,6 +290,8 @@ struct TabSettingsView: View {
 
     var body: some View {
         List {
+            SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "选择显示的标签，调整排列顺序与多功能按钮，也可从这里打开隐藏的页面。")
+
             Section {
                 ForEach(sections.filter { $0 != .settings }) { section in
                     Toggle(isOn: Binding(
@@ -314,6 +307,20 @@ struct TabSettingsView: View {
                 Text("显示标签")
             } footer: {
                 Text("关闭只隐藏入口，不清除页面数据。设置标签始终保留。")
+            }
+            Section("页面") {
+                ForEach([AppSection.media, .sources, .history]) { section in
+                    Button { openSection(section) } label: {
+                        HStack {
+                            Label(section.title, systemImage: section.symbol)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -470,9 +477,14 @@ private struct GestureOrderColumn: View {
     @GestureState private var isDragging = false
     @State private var draggedValue: String?
     @State private var initialIndex = 0
+    @State private var localValues: [String] = []
+    @State private var feedback = UISelectionFeedbackGenerator()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var coordinateSpace
 
-    private var values: [String] { storage.split(separator: ",").map(String.init) }
+    private var values: [String] {
+        localValues.isEmpty ? storage.split(separator: ",").map(String.init) : localValues
+    }
     private var rowStride: CGFloat { rowHeight + 16 }
 
     var body: some View {
@@ -497,6 +509,7 @@ private struct GestureOrderColumn: View {
                                 if draggedValue != value {
                                     draggedValue = value
                                     initialIndex = values.firstIndex(of: value) ?? 0
+                                    feedback.prepare()
                                 }
                                 let target = min(values.count - 1, max(0,
                                     initialIndex + Int((drag.translation.height / rowStride).rounded())))
@@ -510,6 +523,12 @@ private struct GestureOrderColumn: View {
         }
         .frame(maxWidth: .infinity)
         .coordinateSpace(name: coordinateSpace)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: localValues)
+        .onAppear { localValues = storage.split(separator: ",").map(String.init) }
+        .onChange(of: storage) { _, value in
+            let saved = value.split(separator: ",").map(String.init)
+            if localValues != saved { localValues = saved }
+        }
         .onChange(of: isDragging) { _, active in
             if !active { withAnimation(.easeInOut(duration: 0.18)) { draggedValue = nil } }
         }
@@ -527,12 +546,50 @@ private struct GestureOrderColumn: View {
         var updated = values
         guard let from = updated.firstIndex(of: value), from != target else { return }
         updated.move(fromOffsets: IndexSet(integer: from), toOffset: target > from ? target + 1 : target)
-        withAnimation(.easeInOut(duration: 0.18)) { storage = updated.joined(separator: ",") }
+        // Animate local layout first; AppStorage is persistence, not the source
+        // of the layout animation transaction.
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.24)) { localValues = updated }
+        storage = updated.joined(separator: ",")
+        feedback.selectionChanged()
+        feedback.prepare()
     }
 
     private func move(_ value: String, by delta: Int) {
         guard let index = values.firstIndex(of: value), values.indices.contains(index + delta) else { return }
         reorder(value, to: index + delta)
+    }
+}
+
+/// Introductory row within the native grouped list; scales with Dynamic Type.
+private struct SettingsIntroCard: View {
+    let title: LocalizedStringKey
+    let symbol: String
+    let description: LocalizedStringKey
+    @ScaledMetric(relativeTo: .largeTitle) private var iconSize = 38.0
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                Image(systemName: symbol)
+                    .font(.system(size: iconSize))
+                    .foregroundStyle(.white)
+                    .frame(width: iconSize + 24, height: iconSize + 24)
+                    .background(.tint, in: RoundedRectangle(cornerRadius: 18))
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.title.bold())
+                    .accessibilityAddTraits(.isHeader)
+                Text(description)
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(5)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 26))
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        }
     }
 }
 
