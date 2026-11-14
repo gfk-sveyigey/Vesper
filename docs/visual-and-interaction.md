@@ -212,3 +212,6 @@ Color("VesperPlaybackProgress")
 
 - 图标编辑只更新 Tab 的标签内容，原生 TabView 身份仅随 order 变化，不再随 navigation.icons 改变，以避免隐藏标签组时修改图标重建系统标签层引起闪烁。
 - 标签设置恢复默认同时恢复显隐、顺序与图标。跳转标签使用同排三个独立卡片（24pt 图标、subheadline 标题）；应用图标选择使用四个等宽列按可用宽度缩放，不再固定为 64pt。
+
+- 图标变化经现有 UIKit 桥接即时同步普通 UITab.image（包含 UITabGroup.children 内隐藏的标签）；显示标签组时同步 UITabBarItem 的 image/selectedImage，不修改 Search Tab、不变更 selection、不重建 TabView。布局回调也检查图片是否被系统覆盖，仅在实际不同时写入。
+- 标签图标选择改为按标签顺序排列的同排四个独立卡片，点击卡片弹出对应图标菜单。

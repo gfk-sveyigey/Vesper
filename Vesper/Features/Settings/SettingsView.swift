@@ -337,10 +337,8 @@ struct TabSettingsView: View {
                 .listRowSeparator(.hidden)
             }
             Section("标签图标") {
-                ForEach(sections) { section in
-                    HStack {
-                        Label(section.title, systemImage: section.symbol)
-                        Spacer()
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(sections) { section in
                         Menu {
                             ForEach(section.iconChoices, id: \.self) { symbol in
                                 Button { setIcon(symbol, for: section) } label: {
@@ -350,13 +348,24 @@ struct TabSettingsView: View {
                                 }
                             }
                         } label: {
-                            Image(systemName: section.symbol)
-                                .font(.title3)
-                                .frame(minWidth: 44, minHeight: 44)
+                            VStack(spacing: 8) {
+                                Image(systemName: section.symbol)
+                                    .font(.system(size: 24, weight: .regular))
+                                    .foregroundStyle(.tint)
+                                Text(section.title)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.primary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 88)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                            .contentShape(RoundedRectangle(cornerRadius: 16))
                         }
-                        .accessibilityLabel("更换图标")
+                        .accessibilityHint("更换图标")
                     }
                 }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
         }
         .listStyle(.insetGrouped)
