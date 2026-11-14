@@ -33,8 +33,7 @@ struct AppNavigationView: View {
     private var enabledSections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
         let ordered = saved + AppSection.allCases.filter { !saved.contains($0) }
-        let excluded = Set(hidden.split(separator: ",").map(String.init))
-        return ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
+        return ordered
     }
 
     // Native Apple-style tab bar is always present. The legacy multifunction
