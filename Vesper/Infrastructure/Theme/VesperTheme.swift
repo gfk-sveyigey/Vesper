@@ -65,6 +65,11 @@ struct VesperNavigationStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .navigationBarTitleDisplayMode(titleDisplayMode)
+            .navigationBarBackButtonHidden(false)
+            .toolbar(.visible, for: .navigationBar)
+            .toolbarBackground(.automatic, for: .navigationBar)
+            .toolbarColorScheme(nil, for: .navigationBar)
+            .toolbarRole(.editor)
     }
 }
 
@@ -75,10 +80,12 @@ extension View {
         navigationTitle(title)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .opacity(0)
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
     }
 
