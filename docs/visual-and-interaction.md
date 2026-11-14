@@ -223,3 +223,5 @@ Color("VesperPlaybackProgress")
 - 标签图标卡片采用与标签组一致的层级 SF Symbol 渲染样式，避免自定义图标选择引入不同的线性视觉。
 
 - 标签栏及标签设置相关图标统一传入基础 `section.symbol`，不再强制 `.fill`、Regular 或 selectedImage；系统根据 Tab 选中状态和 SF Symbols 提供的变体自动渲染。
+
+- MiniPlayerLayer 作为 AppNavigationView 的第三个 ZStack 层，使用 MiniPlayerPositionCoordinator 冻结标签组收起前的标签栏高度；当前没有播放状态，因此 hasPlayableContent 默认关闭。播放器卡片使用 iOS 26 `.glassEffect(.regular)`，后续接入播放状态后显示。

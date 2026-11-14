@@ -29,6 +29,9 @@ struct AppNavigationView: View {
     @State private var searchStartedWithHiddenTabs = false
     @State private var tabBarFrame: CGRect = .null
     @State private var hosts = SectionHosts()
+    @State private var miniPlayerCoordinator = MiniPlayerPositionCoordinator()
+    // Playback has not been connected yet; the layer remains ready but hidden.
+    @State private var hasPlayableContent = false
 
     private var enabledSections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
@@ -107,6 +110,16 @@ struct AppNavigationView: View {
 
             // This sibling owns the ordinary pages, independently of TabView.
             // Hosts fill the viewport; child safe areas reserve the actual native bar.
+            MiniPlayerLayer(
+                hasPlayableContent: hasPlayableContent,
+                isSearchPresented: isSearchPresented,
+                isPreparingSearch: isPreparingSearch,
+                tabBarVisible: showPrimaryTabs,
+                tabBarFrame: tabBarFrame,
+                coordinator: miniPlayerCoordinator
+            )
+            .zIndex(2)
+
             ContentHost(
                 hosts: hosts,
                 openSection: { selectTab(.section($0)) },
@@ -122,6 +135,12 @@ struct AppNavigationView: View {
 
         }
         .ignoresSafeArea(.container)
+        .onChange(of: tabBarFrame) { _, frame in
+            miniPlayerCoordinator.update(frame: frame, isTabBarVisible: showPrimaryTabs)
+        }
+        .onChange(of: showPrimaryTabs) { _, visible in
+            miniPlayerCoordinator.setTabBarVisible(visible)
+        }
         .task(id: isPreparingSearch) {
             guard isPreparingSearch else { return }
             // Yield after mounting the search context, then select its native tab
@@ -844,5 +863,87 @@ private struct SearchPage: View {
             )
             .vesperSystemNavigationBar()
         }
+    }
+}
+
+
+@MainActor
+private final class MiniPlayerPositionCoordinator: ObservableObject {
+    @Published private(set) var tabBarHeight: CGFloat = 0
+    private var frozenHeight: CGFloat = 0
+    private var isVisible = false
+
+    func update(frame: CGRect, isTabBarVisible: Bool) {
+        guard frame.isNull == false, frame.isInfinite == false, frame.height > 0 else { return }
+        if isTabBarVisible {
+            tabBarHeight = frame.height
+            frozenHeight = frame.height
+            isVisible = true
+        } else if !isVisible {
+            frozenHeight = frame.height
+        }
+    }
+
+    func setTabBarVisible(_ visible: Bool) {
+        if visible {
+            isVisible = true
+            tabBarHeight = max(tabBarHeight, frozenHeight)
+        } else {
+            isVisible = false
+            tabBarHeight = frozenHeight
+        }
+    }
+}
+
+private struct MiniPlayerLayer: View {
+    let hasPlayableContent: Bool
+    let isSearchPresented: Bool
+    let isPreparingSearch: Bool
+    let tabBarVisible: Bool
+    let tabBarFrame: CGRect
+    @ObservedObject var coordinator: MiniPlayerPositionCoordinator
+
+    private var shouldShow: Bool {
+        hasPlayableContent && !isSearchPresented && !isPreparingSearch
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            if shouldShow {
+                MiniPlayerCard()
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, max(8, coordinator.tabBarHeight + geometry.safeAreaInsets.bottom + 6))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(.spring(response: 0.35, dampingFraction: 0.86), value: tabBarVisible)
+            }
+        }
+        .allowsHitTesting(shouldShow)
+        .accessibilityHidden(!shouldShow)
+    }
+}
+
+private struct MiniPlayerCard: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "music.note")
+                .font(.title3)
+                .frame(width: 42, height: 42)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("正在播放").font(.subheadline.weight(.semibold))
+                Text("媒体内容").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button { } label: {
+                Image(systemName: "play.fill").font(.headline)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("播放")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .glassEffect(.regular, in: .rect(cornerRadius: 18))
     }
 }
