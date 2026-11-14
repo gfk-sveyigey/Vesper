@@ -14,6 +14,7 @@ private enum SettingsRoute: Hashable {
 }
 
 struct SettingsView: View {
+    let openSection: (AppSection) -> Void
     @AppStorage("language.code") private var languageCode = "system"
 
     private var version: String {
@@ -22,13 +23,6 @@ struct SettingsView: View {
 
     var body: some View {
         List {
-            Section {
-                VesperLargeTitle("设置")
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-            .listSectionMargins([.horizontal, .bottom], 0)
             Section("应用") {
                 NavigationLink(value: SettingsRoute.tabs) { SettingsLabel("标签设置", symbol: "rectangle.3.group") }
                 NavigationLink(value: SettingsRoute.appearance) { SettingsLabel("外观设置", symbol: "paintpalette") }
@@ -46,10 +40,33 @@ struct SettingsView: View {
                 } label: { SettingsLabel("语言设置", symbol: "globe") }
                 .pickerStyle(.menu)
             }
+            Section("页面") {
+                ForEach([AppSection.media, .sources, .history]) { section in
+                    Button { openSection(section) } label: {
+                        HStack {
+                            Label(section.title, systemImage: section.symbol)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
             Section {
                 LabeledContent { Text("尚未接入") } label: { SettingsLabel("播放器偏好", symbol: "play.rectangle") }
                 LabeledContent { Text("尚未连接") } label: { SettingsLabel("IMDb", symbol: "film") }
-                LabeledContent { Text("尚未连接") } label: { SettingsLabel("Trakt", symbol: "checkmark.tv") }
+                LabeledContent { Text("尚未连接") } label: { Label {
+                    Text(verbatim: "Trakt")
+                } icon: {
+                    Image("TraktIcon")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 22, height: 22)
+                        .foregroundStyle(.tint)
+                } }
             } header: {
                 Text("后续功能")
             } footer: {
@@ -62,10 +79,11 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
             }
         }
-        // Only the title section is full-width; settings retain grouped cards.
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .vesperImmersiveTitle("设置")
+        .scrollContentBackground(.visible)
+        .navigationTitle("设置")
+        .vesperNavigationStyle(.large)
+        .toolbarRole(.automatic)
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
@@ -74,7 +92,7 @@ struct SettingsView: View {
                 case .logs: RuntimeLogsView()
                 }
             }
-            .vesperNavigationTitle(route.title)
+            .navigationTitle(route.title)
             .vesperNavigationStyle(.inline)
         }
     }
@@ -119,7 +137,7 @@ private struct RuntimeLogsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
+        .scrollContentBackground(.visible)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -259,7 +277,8 @@ private struct AppearanceSettingsView: View {
                 AppIconChoices()
             }
         }
-        .scrollContentBackground(.hidden)
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.visible)
     }
 }
 
@@ -291,11 +310,14 @@ struct TabSettingsView: View {
                         }
                     )) { Label(section.title, systemImage: section.symbol) }
                 }
+            } header: {
+                Text("显示标签")
             } footer: {
                 Text("关闭只隐藏入口，不清除页面数据。设置标签始终保留。")
             }
         }
-        .scrollContentBackground(.hidden)
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.visible)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -411,7 +433,8 @@ private struct TabOrderSettingsView: View {
                 order = updated.map(\.rawValue).joined(separator: ",")
             }
         }
-        .scrollContentBackground(.hidden)
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.visible)
         .environment(\.editMode, .constant(.active))
     }
 }

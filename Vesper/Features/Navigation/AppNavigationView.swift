@@ -106,6 +106,7 @@ struct AppNavigationView: View {
             // Hosts fill the viewport; child safe areas reserve the actual native bar.
             ContentHost(
                 hosts: hosts,
+                openSection: { selectTab(.section($0)) },
                 currentPage: currentPage,
                 isSearchPresented: isSearchPresented,
                 showPrimaryTabs: showPrimaryTabs,
@@ -339,6 +340,7 @@ private struct HostedPageEnvironment<Content: View>: View {
 /// Four persistent hosts, each with its own NavigationStack.
 @MainActor
 private final class SectionHosts {
+    var openSection: (AppSection) -> Void = { _ in }
     private var histories: [AppSection: PageHistory] = [:]
 
     func pop(_ section: AppSection) {
@@ -355,7 +357,7 @@ private final class SectionHosts {
         case .media: page = AnyView(MediaView())
         case .sources: page = AnyView(SourcesView())
         case .history: page = AnyView(HistoryView())
-        case .settings: page = AnyView(SettingsView())
+        case .settings: page = AnyView(SettingsView(openSection: { [weak self] in self?.openSection($0) }))
         }
         let history = PageHistory()
         histories[section] = history
@@ -492,6 +494,7 @@ private final class PageContainerController: UIViewController {
 
 private struct ContentHost: UIViewControllerRepresentable {
     let hosts: SectionHosts
+    let openSection: (AppSection) -> Void
     let currentPage: AppSection
     let isSearchPresented: Bool
     let showPrimaryTabs: Bool
@@ -502,6 +505,7 @@ private struct ContentHost: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(contentTapped: contentTapped) }
 
     func makeUIViewController(context: Context) -> PageContainerController {
+        hosts.openSection = openSection
         let container = PageContainerController()
         container.tabBarFrame = tabBarFrame
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
@@ -539,6 +543,7 @@ private struct ContentHost: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ container: PageContainerController, context: Context) {
+        hosts.openSection = openSection
         container.tabBarFrame = tabBarFrame
         context.coordinator.contentTapped = contentTapped
         context.coordinator.isSearchPresented = isSearchPresented
