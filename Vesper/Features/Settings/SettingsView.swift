@@ -321,9 +321,7 @@ struct TabSettingsView: View {
                         Button { openSection(section) } label: {
                             VStack(spacing: 8) {
                                 Image(systemName: section.symbol)
-                                    .symbolVariant(.none)
-                                    .font(.system(size: 24, weight: .regular))
-                                    .symbolRenderingMode(.hierarchical)
+.font(.system(size: 24, weight: .medium))
                                     .foregroundStyle(.tint)
                                 Text(section.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                             }
@@ -352,9 +350,7 @@ struct TabSettingsView: View {
                         } label: {
                             VStack(spacing: 8) {
                                 Image(systemName: section.symbol)
-                                    .symbolVariant(.none)
-                                    .font(.system(size: 24, weight: .regular))
-                                    .symbolRenderingMode(.hierarchical)
+.font(.system(size: 24, weight: .medium))
                                     .foregroundStyle(.tint)
                                 Text(section.title)
                                     .font(.caption.weight(.medium))
