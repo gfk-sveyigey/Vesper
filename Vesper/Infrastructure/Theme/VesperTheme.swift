@@ -65,6 +65,7 @@ struct VesperNavigationStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .navigationBarTitleDisplayMode(titleDisplayMode)
+            .toolbarTitleDisplayMode(.inlineLarge)
             .navigationBarBackButtonHidden(false)
             .toolbar(.visible, for: .navigationBar)
             .toolbarBackground(.automatic, for: .navigationBar)

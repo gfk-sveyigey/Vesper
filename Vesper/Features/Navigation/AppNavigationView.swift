@@ -37,7 +37,10 @@ struct AppNavigationView: View {
         return ordered.filter { $0 == .settings || !excluded.contains($0.rawValue) }
     }
 
-    private var showPrimaryTabs: Bool { isPreparingSearch || isSearchPresented || !multifunctionEnabled || isExpanded }
+    // Native Apple-style tab bar is always present. The legacy multifunction
+    // visibility state remains persisted for settings migration, but no longer
+    // controls the system tab bar.
+    private var showPrimaryTabs: Bool { true }
 
     var body: some View {
         ZStack {
@@ -50,7 +53,7 @@ struct AppNavigationView: View {
                     }
                 )) {
                     primaryTabs
-                    Tab(multifunctionTitle, systemImage: multifunctionSymbol, value: NavigationTab.multifunction, role: .search) {
+                    Tab("搜索", systemImage: "magnifyingglass", value: NavigationTab.multifunction, role: .search) {
                         // Mount on first preparation and retain the navigation/search
                         // context when cancelling so native dismissal can finish.
                         if hasPreparedSearchControl {
@@ -84,10 +87,11 @@ struct AppNavigationView: View {
                 // update Tab labels in place and never rebuild the tab layer. Page Hosts
                 // and their navigation histories live outside this identity.
                 .id(order)
+                .tabBarMinimizeBehavior(.onScrollDown)
                 .background(MultifunctionGestures(
-                    tap: { performGesture("tap") },
-                    longPress: { performGesture("longPress") },
-                    enabled: !isSearchPresented,
+                    tap: {},
+                    longPress: {},
+                    enabled: false,
 
                     reselected: { index in
                         guard !isSearchPresented, !isPreparingSearch, showPrimaryTabs,
@@ -116,8 +120,8 @@ struct AppNavigationView: View {
                 searchQuery: searchQuery,
                 tabBarFrame: tabBarFrame
             ) {
-                guard multifunctionEnabled, !isSearchPresented, !isPreparingSearch else { return }
-                collapsePrimaryTabs()
+                // The native tab bar owns its own visibility and safe-area
+                // behavior in Apple-style mode.
             }
 
         }
@@ -179,13 +183,12 @@ struct AppNavigationView: View {
                 }
             }
         }
-        .hidden(!showPrimaryTabs)
     }
 
     private func selectTab(_ tab: NavigationTab) {
         guard case let .section(section) = tab else {
-            // System search selection is accepted only in the search session.
-            if isSearchPresented { tabSelection = tab }
+            if !isSearchPresented { openSearch() }
+            else { tabSelection = tab }
             return
         }
         // SwiftUI can write the currently selected normal tab back while
