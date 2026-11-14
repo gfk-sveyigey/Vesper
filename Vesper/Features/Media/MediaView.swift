@@ -2,8 +2,6 @@ import SwiftUI
 
 struct MediaView: View {
     @EnvironmentObject private var library: SourceLibrary
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var isImporting = false
 
     var body: some View {
         if library.selectedSource == nil {
@@ -13,14 +11,7 @@ struct MediaView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     VesperLargeTitle("媒体")
                     if let source = library.selectedSource {
-                        HStack {
-                            Text(LocalizedStringKey(source.kind.titleKey)).font(.headline)
-                            Spacer()
-                            if source.kind == .local {
-                                Button("导入视频", systemImage: "square.and.arrow.down") { isImporting = true }
-                                    .disabled(library.isImporting)
-                            }
-                        }.padding(.horizontal, 20)
+                        Text(verbatim: source.name).font(.headline).padding(.horizontal, 20)
                     }
                     switch library.content {
                     case .unselected: EmptyView()
@@ -39,6 +30,7 @@ struct MediaView: View {
                                             .frame(height: 150)
                                             .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 12))
                                         Text(verbatim: item.title).font(.headline)
+                                        Text("演示内容，不可播放").font(.caption).foregroundStyle(.secondary)
                                     }
                                 }
                             }
@@ -46,7 +38,7 @@ struct MediaView: View {
                         }
                     case .failed(let error):
                         ContentUnavailableView {
-                            Label(LocalizedStringKey(error.messageKey), systemImage: "exclamationmark.triangle")
+                            Label(LocalizedStringKey(error == .offline ? "来源离线" : "无法加载来源"), systemImage: error == .offline ? "wifi.slash" : "exclamationmark.triangle")
                         } actions: {
                             Button("重试") { library.reload() }
                         }
@@ -56,10 +48,6 @@ struct MediaView: View {
             }
             .refreshable { library.reload() }
             .vesperImmersiveTitle("媒体")
-            .videoImporter(isPresented: $isImporting)
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .active { library.reload() }
-            }
         }
     }
 }
