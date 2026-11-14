@@ -66,7 +66,6 @@ struct SettingsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.visible)
         .scrollContentBackground(.hidden)
         .vesperImmersiveTitle("设置")
         .navigationDestination(for: SettingsRoute.self) { route in
@@ -323,7 +322,6 @@ struct TabSettingsView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.visible)
         .toolbar {
-
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("标签顺序", systemImage: "arrow.up.arrow.down") { isShowingOrderSettings = true }
@@ -401,58 +399,6 @@ struct TabSettingsView: View {
 
 }
 
-
-/// SwiftUI sheets support swipe dismissal; observe only taps outside the
-/// presented frame to add backdrop dismissal without consuming sheet controls.
-private struct SheetOutsideDismiss: UIViewControllerRepresentable {
-    let dismiss: () -> Void
-
-    func makeUIViewController(context: Context) -> Controller { Controller(dismiss: dismiss) }
-    func updateUIViewController(_ controller: Controller, context: Context) { controller.dismissAction = dismiss }
-    static func dismantleUIViewController(_ controller: Controller, coordinator: ()) { controller.uninstall() }
-
-    final class Controller: UIViewController, UIGestureRecognizerDelegate {
-        var dismissAction: () -> Void
-        private weak var container: UIView?
-        private weak var sheet: UIPresentationController?
-        private lazy var tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
-
-        init(dismiss: @escaping () -> Void) {
-            dismissAction = dismiss
-            super.init(nibName: nil, bundle: nil)
-        }
-        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            var current: UIViewController? = self
-            while let controller = current {
-                if let presentation = controller.presentationController,
-                   let view = presentation.containerView {
-                    uninstall()
-                    sheet = presentation
-                    container = view
-                    tap.delegate = self
-                    tap.cancelsTouchesInView = false
-                    view.addGestureRecognizer(tap)
-                    break
-                }
-                current = controller.parent
-            }
-        }
-        func uninstall() {
-            container?.removeGestureRecognizer(tap)
-            container = nil
-            sheet = nil
-        }
-        @objc private func tapped() { dismissAction() }
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard let sheet, let container else { return false }
-            return !sheet.frameOfPresentedViewInContainerView.contains(touch.location(in: container))
-        }
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
-    }
-}
 
 private struct TabOrderSettingsView: View {
     @AppStorage("navigation.icons") private var icons = "{}"

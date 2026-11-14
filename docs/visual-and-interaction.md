@@ -2,6 +2,14 @@
 
 本文件定义界面设计的原则与交互契约。品牌定位为暮色、宁静、沉浸、精致，以薰衣草紫作为识别色。完整全屏播放界面的视觉与控制布局暂不定义；标题/导航区域的紧凑播放条及系统 PiP 属于范围，应用内可拖动小窗不属于范围。
 
+## 当前导航基线（2026-11-14）
+
+顶部改用系统 `toolbarTitleDisplayMode(.inlineLarge)`；不再使用内容内大标题、透明 principal 或自定义滚动标题动画。二级页面显示系统 inline 标题、返回按钮及独立 Toolbar。
+
+底部始终提供媒体、来源、记录、设置和独立 Search Tab。标签顺序和图标可调整，不提供多功能按钮、隐藏标签或手势配对。`tabBarMinimizeBehavior(.onScrollDown)` 由系统响应当前页面滚动；`tabViewBottomAccessory` 承载 MiniPlayer，并随系统标签栏缩至 inline。点击 MiniPlayer 使用匹配源和 zoom 转场展开。当前仅实现播放器空状态，没有播放引擎，播放控制禁用。
+
+此基线替代下文涉及旧标签显隐、手工安全区和标题动画的历史描述。来源参考：[Apple 官方 accessory 文档](https://developer.apple.com/documentation/swiftui/view/tabviewbottomaccessory(content:))、[inlineLarge](https://developer.apple.com/documentation/swiftui/toolbartitledisplaymode/inlinelarge)、[AppleMusicBottombarSwiftUI](https://github.com/ahmetbostanciklioglu/AppleMusicBottombarSwiftUI)。
+
 ## 品牌视觉定位
 
 以暮色为灵感，以紫色作为品牌识别，结合柔和的界面层次、原生系统材质与沉浸式播放体验。
