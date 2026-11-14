@@ -175,7 +175,7 @@ struct AppNavigationView: View {
     private var primaryTabs: some TabContent<NavigationTab> {
         TabSection("主要功能") {
             ForEach(enabledSections) { section in
-                Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
+                Tab(section.title, systemImage: section.filledSymbol, value: NavigationTab.section(section)) {
                     TransparentTabPlaceholder()
                 }
             }
