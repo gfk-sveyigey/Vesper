@@ -137,3 +137,11 @@
 "来源离线" = "Fuente sin conexión";
 "无法加载来源" = "No se puede cargar la fuente";
 "重试" = "Reintentar";
+
+"未在播放" = "Sin reproducción";
+"打开播放器" = "Abrir reproductor";
+"播放器" = "Reproductor";
+"选择媒体后即可开始播放。" = "Selecciona contenido para iniciar la reproducción.";
+"下一项" = "Siguiente";
+"调整标签排列顺序和图标。" = "Personaliza el orden y los iconos de las pestañas.";
+"将恢复标签的排列顺序和图标。" = "Se restablecerán el orden y los iconos.";

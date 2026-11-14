@@ -137,3 +137,11 @@
 "来源离线" = "Quelle offline";
 "无法加载来源" = "Quelle kann nicht geladen werden";
 "重试" = "Erneut versuchen";
+
+"未在播放" = "Keine Wiedergabe";
+"打开播放器" = "Player öffnen";
+"播放器" = "Player";
+"选择媒体后即可开始播放。" = "Wähle Medien für die Wiedergabe aus.";
+"下一项" = "Weiter";
+"调整标签排列顺序和图标。" = "Reihenfolge und Symbole der Tabs anpassen.";
+"将恢复标签的排列顺序和图标。" = "Reihenfolge und Symbole der Tabs werden zurückgesetzt.";

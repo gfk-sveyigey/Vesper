@@ -14,11 +14,13 @@ CI 保留现有 `.github/workflows/build-dev.yml`，dev 推送后在 macOS/Xcode
 
 ## 导航及验收状态
 
-阶段一的交互、设备适配和辅助功能验收已由用户确认完成（2026-11-14）。当前 AppNavigationView 内 SystemTabLayer 与 ContentHost 是兄弟层：系统 SwiftUI TabView/TabSection 承载标签及原生搜索；实际页面由 UIKit PageContainerController 和 SectionHosts 中四个持久 UIHostingController、独立 NavigationStack 承载。TabSection.hidden 控制标签组，不销毁实际页面。多功能按钮使用系统 Search Tab 入口与 App 手势桥接，没有独立自绘标签栏。迷你播放器实验代码已移除。
+当前顶部与底部采用 iOS 26 原生导航。SwiftUI TabView 直接承载媒体、来源、记录、设置四个 NavigationStack 和独立 Search Tab，各标签的 NavigationPath 独立保存在根视图。移除 SystemTabLayer、ContentHost、PageContainerController、UIKit 手势桥接和手工安全区计算，不再通过隐藏标签组切换布局。
+
+一级页面使用 `.toolbarTitleDisplayMode(.inlineLarge)`，二级页面使用系统 inline 标题和返回按钮。底部启用 `.tabBarMinimizeBehavior(.onScrollDown)`；MiniPlayer 放在 `.tabViewBottomAccessory`，系统负责玻璃背景及收缩位置，使用 matchedTransitionSource 和 zoom 转场展开。当前没有播放引擎，播放器显示“未在播放”，播放和下一项禁用。标签顺序与图标设置保留，多功能按钮、手势映射与标签显隐入口移除。
 
 ## 阶段二来源切片
 
-SectionHosts 持有唯一 SourceLibrary，通过 environmentObject 注入四个页面 Host；不重建导航栈。来源列表和当前选择以单个 JSON 快照持久化于 UserDefaults，仅包含演示配置。SourceAdapter 隔离数据读取；当前 DemoSourceAdapter 提供内容、空、失败和离线状态，演示媒体没有真实资源和播放能力。
+AppNavigationView 持有唯一 SourceLibrary，通过 environmentObject 注入原生 TabView 的页面。来源列表和当前选择以单个 JSON 快照持久化于 UserDefaults，仅包含演示配置。SourceAdapter 隔离数据读取；当前 DemoSourceAdapter 提供内容、空、失败和离线状态，演示媒体没有真实资源和播放能力。
 
 来源选择不会改变主导航标签。媒体页观察共享状态，仅显示选中的一个来源；切换、删除或重试取消旧请求，并以代次标识拒绝迟到结果。来源配置和页面状态验证见 [阶段二验证](phase-two-validation.md)。
 

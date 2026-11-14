@@ -137,3 +137,11 @@
 "来源离线" = "Source Offline";
 "无法加载来源" = "Unable to Load Source";
 "重试" = "Retry";
+
+"未在播放" = "Not Playing";
+"打开播放器" = "Open Player";
+"播放器" = "Player";
+"选择媒体后即可开始播放。" = "Choose media to start playback.";
+"下一项" = "Next";
+"调整标签排列顺序和图标。" = "Customize tab order and icons.";
+"将恢复标签的排列顺序和图标。" = "Tab order and icons will be reset.";

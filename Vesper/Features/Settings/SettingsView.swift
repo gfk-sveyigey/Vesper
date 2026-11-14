@@ -23,13 +23,6 @@ struct SettingsView: View {
 
     var body: some View {
         List {
-            Section {
-                VesperLargeTitle("设置")
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-            .listSectionMargins([.horizontal, .bottom], 0)
             Section("应用") {
                 NavigationLink(value: SettingsRoute.tabs) { SettingsLabel("标签设置", symbol: "rectangle.3.group") }
                 NavigationLink(value: SettingsRoute.appearance) { SettingsLabel("外观设置", symbol: "paintpalette") }
@@ -283,12 +276,8 @@ struct TabSettingsView: View {
     @AppStorage("navigation.icons") private var icons = "{}"
     let openSection: (AppSection) -> Void
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
-    @AppStorage("navigation.hidden") private var hidden = ""
-    @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
     @State private var isShowingResetConfirmation = false
-    @State private var isShowingGestureSettings = false
     @State private var isShowingOrderSettings = false
-    @State private var isShowingEnableConfirmation = false
 
     private var sections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
@@ -297,45 +286,8 @@ struct TabSettingsView: View {
 
     var body: some View {
         List {
-            SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "选择显示的标签，调整排列顺序与多功能按钮，也可从这里打开隐藏的页面。")
+            SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "调整标签排列顺序和图标。")
 
-            Section {
-                ForEach(sections.filter { $0 != .settings }) { section in
-                    Toggle(isOn: Binding(
-                        get: { !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
-                        set: { visible in
-                            var values = Set(hidden.split(separator: ",").map(String.init))
-                            if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
-                            hidden = values.sorted().joined(separator: ",")
-                        }
-                    )) { Label(section.title, systemImage: section.symbol) }
-                }
-            } header: {
-                Text("显示标签")
-            } footer: {
-                Text("关闭只隐藏入口，不清除页面数据。设置标签始终保留。")
-            }
-            Section("跳转标签") {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(sections.filter { $0 != .settings }) { section in
-                        Button { openSection(section) } label: {
-                            VStack(spacing: 8) {
-                                Image(systemName: section.symbol)
-.font(.system(size: 24, weight: .medium))
-                                    .foregroundStyle(.tint)
-                                Text(section.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 88)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-                            .contentShape(RoundedRectangle(cornerRadius: 16))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
             Section("标签图标") {
                 HStack(alignment: .top, spacing: 10) {
                     ForEach(sections) { section in
@@ -371,30 +323,7 @@ struct TabSettingsView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.visible)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        if multifunctionEnabled {
-                            multifunctionEnabled = false
-                        } else {
-                            isShowingEnableConfirmation = true
-                        }
-                    } label: {
-                        Label(
-                            multifunctionEnabled ? "关闭多功能按钮" : "启用多功能按钮",
-                            systemImage: multifunctionEnabled ? "square.grid.2x2.fill" : "square.grid.2x2"
-                        )
-                    }
-                    if multifunctionEnabled {
-                        Button { isShowingGestureSettings = true } label: {
-                            Label("手势与动作", systemImage: "hand.tap")
-                        }
-                    }
-                } label: {
-                    Image(systemName: multifunctionEnabled ? "square.grid.2x2.fill" : "square.grid.2x2")
-                }
-                .accessibilityLabel("多功能按钮设置")
-            }
+
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("标签顺序", systemImage: "arrow.up.arrow.down") { isShowingOrderSettings = true }
@@ -405,21 +334,14 @@ struct TabSettingsView: View {
                 .accessibilityLabel("标签设置")
             }
         }
-        .alert("启用多功能按钮？", isPresented: $isShowingEnableConfirmation) {
-            Button("启用") { multifunctionEnabled = true }
-            Button("取消", role: .cancel) { }
-        } message: {
-            Text("多功能按钮仍处于试验阶段，可能出现交互或显示问题；如影响使用，请关闭此功能。")
-        }
         .alert("恢复默认标签设置？", isPresented: $isShowingResetConfirmation) {
             Button("恢复默认", role: .destructive) {
                 order = "media,sources,history,settings"
-                hidden = ""
                 icons = "{}"
             }
             Button("取消", role: .cancel) { }
         } message: {
-            Text("将恢复标签的显示状态、排列顺序和图标。")
+            Text("将恢复标签的排列顺序和图标。")
         }
         .sheet(isPresented: $isShowingOrderSettings) {
             NavigationStack {
@@ -445,30 +367,7 @@ struct TabSettingsView: View {
             .interactiveDismissDisabled(false)
             .presentationBackground(VesperTheme.background)
         }
-        .sheet(isPresented: $isShowingGestureSettings) {
-            NavigationStack {
-                GestureActionSettingsView()
-                    .navigationTitle("手势与动作")
-                    .vesperNavigationStyle(.inline)
-                    .toolbarRole(.automatic)
-                    .navigationBarBackButtonHidden(true)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button { isShowingGestureSettings = false } label: {
-                                Image(systemName: "xmark")
-                            }
-                            .accessibilityLabel("关闭")
-                        }
-                        ToolbarItem(placement: .principal) {
-                            Text("手势与动作").font(.headline)
-                        }
-                    }
-            }
-            .presentationDetents([.height(360)])
-            .presentationDragIndicator(.hidden)
-            .interactiveDismissDisabled(false)
-            .presentationBackground(VesperTheme.background)
-        }
+
     }
     private func setIcon(_ symbol: String, for section: AppSection) {
         let data = icons.data(using: .utf8) ?? Data()
@@ -579,121 +478,6 @@ private struct TabOrderSettingsView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.visible)
         .environment(\.editMode, .constant(.active))
-    }
-}
-
-private struct GestureActionSettingsView: View {
-    @AppStorage("navigation.gestureOrder") private var gestureOrder = "tap,longPress"
-    @AppStorage("navigation.actionOrder") private var actionOrder = "tabs,search"
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                HStack(alignment: .top, spacing: 20) {
-                    GestureOrderColumn(storage: $gestureOrder, names: ["tap": "单击", "longPress": "长按"])
-                    GestureOrderColumn(storage: $actionOrder, names: ["tabs": "展开标签栏", "search": "进入搜索"])
-                }
-                Text("分别拖动两列项目，同一行的手势与动作配对并自动保存。启用多功能按钮时使用此映射；关闭时单击搜索按钮进入搜索，长按无动作。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(20)
-        }
-    }
-
-}
-
-/// Reorder only within a column. A local drag moves the actual card, rather
-/// than starting a transferable copy session (and displaying its plus badge).
-private struct GestureOrderColumn: View {
-    @Binding var storage: String
-    let names: [String: String]
-    @ScaledMetric(relativeTo: .body) private var rowHeight = 52.0
-    @GestureState private var dragOffset = CGSize.zero
-    @GestureState private var isDragging = false
-    @State private var draggedValue: String?
-    @State private var initialIndex = 0
-    @State private var localValues: [String] = []
-    @State private var feedback = UISelectionFeedbackGenerator()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var coordinateSpace
-
-    private var values: [String] {
-        localValues.isEmpty ? storage.split(separator: ",").map(String.init) : localValues
-    }
-    private var rowStride: CGFloat { rowHeight + 16 }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            ForEach(values, id: \.self) { value in
-                Text(LocalizedStringKey(names[value] ?? value))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: rowHeight)
-                    .padding(.horizontal, 8)
-                    .background {
-                        RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                        RoundedRectangle(cornerRadius: 12).fill(Color("VesperSecondaryBackground").opacity(0.42))
-                        RoundedRectangle(cornerRadius: 12).stroke(.tint, lineWidth: 1)
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: 12))
-                    .offset(y: offset(for: value))
-                    .zIndex(draggedValue == value ? 1 : 0)
-                    .gesture(
-                        DragGesture(minimumDistance: 6, coordinateSpace: .named(coordinateSpace))
-                            .updating($dragOffset) { drag, offset, _ in offset = drag.translation }
-                            .updating($isDragging) { _, active, _ in active = true }
-                            .onChanged { drag in
-                                if draggedValue != value {
-                                    draggedValue = value
-                                    initialIndex = values.firstIndex(of: value) ?? 0
-                                    feedback.prepare()
-                                }
-                                let target = min(values.count - 1, max(0,
-                                    initialIndex + Int((drag.translation.height / rowStride).rounded())))
-                                reorder(value, to: target)
-                            }
-                    )
-                    .accessibilityHint("拖动调整配对顺序")
-                    .accessibilityAction(named: Text("上移")) { move(value, by: -1) }
-                    .accessibilityAction(named: Text("下移")) { move(value, by: 1) }
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .coordinateSpace(name: coordinateSpace)
-        .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: localValues)
-        .onAppear { localValues = storage.split(separator: ",").map(String.init) }
-        .onChange(of: storage) { _, value in
-            let saved = value.split(separator: ",").map(String.init)
-            if localValues != saved { localValues = saved }
-        }
-        .onChange(of: isDragging) { _, active in
-            if !active { withAnimation(.easeInOut(duration: 0.18)) { draggedValue = nil } }
-        }
-    }
-
-    private func offset(for value: String) -> CGFloat {
-        guard draggedValue == value, isDragging,
-              let index = values.firstIndex(of: value) else { return 0 }
-        // Compensate only for the reorder's layout change, keeping the card
-        // under the finger while its neighbours animate into their new places.
-        return dragOffset.height + CGFloat(initialIndex - index) * rowStride
-    }
-
-    private func reorder(_ value: String, to target: Int) {
-        var updated = values
-        guard let from = updated.firstIndex(of: value), from != target else { return }
-        updated.move(fromOffsets: IndexSet(integer: from), toOffset: target > from ? target + 1 : target)
-        // Animate local layout first; AppStorage is persistence, not the source
-        // of the layout animation transaction.
-        withAnimation(reduceMotion ? nil : .snappy(duration: 0.24)) { localValues = updated }
-        storage = updated.joined(separator: ",")
-        feedback.selectionChanged()
-        feedback.prepare()
-    }
-
-    private func move(_ value: String, by delta: Int) {
-        guard let index = values.firstIndex(of: value), values.indices.contains(index + delta) else { return }
-        reorder(value, to: index + delta)
     }
 }
 

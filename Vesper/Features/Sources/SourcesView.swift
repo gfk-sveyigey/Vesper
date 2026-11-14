@@ -6,12 +6,6 @@ struct SourcesView: View {
 
     var body: some View {
         List {
-            Section {
-                VesperLargeTitle("来源")
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
             if library.sources.isEmpty {
                 ContentUnavailableView("未配置来源", systemImage: "externaldrive")
             }

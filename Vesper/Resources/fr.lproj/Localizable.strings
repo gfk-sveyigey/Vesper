@@ -137,3 +137,11 @@
 "来源离线" = "Source hors ligne";
 "无法加载来源" = "Impossible de charger la source";
 "重试" = "Réessayer";
+
+"未在播放" = "Aucune lecture";
+"打开播放器" = "Ouvrir le lecteur";
+"播放器" = "Lecteur";
+"选择媒体后即可开始播放。" = "Choisissez un média pour lancer la lecture.";
+"下一项" = "Suivant";
+"调整标签排列顺序和图标。" = "Personnalisez l’ordre et les icônes des onglets.";
+"将恢复标签的排列顺序和图标。" = "L’ordre et les icônes des onglets seront réinitialisés.";
