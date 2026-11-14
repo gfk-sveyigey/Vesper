@@ -23,6 +23,9 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            Section {
+                VesperListTitle(title: "设置")
+            }
             Section("应用") {
                 NavigationLink(value: SettingsRoute.tabs) { SettingsLabel("标签设置", symbol: "rectangle.3.group") }
                 NavigationLink(value: SettingsRoute.appearance) { SettingsLabel("外观设置", symbol: "paintpalette") }

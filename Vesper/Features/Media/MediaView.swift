@@ -9,6 +9,7 @@ struct MediaView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    VesperLargeTitle(title: "媒体")
                     if let source = library.selectedSource {
                         Text(verbatim: source.name).font(.headline).padding(.horizontal, 20)
                     }
@@ -55,21 +56,29 @@ struct VesperEmptyPage: View {
     let title: LocalizedStringKey
     let message: LocalizedStringKey
     let symbol: String
+    @Environment(\.vesperWindowTopInset) private var windowTopInset
+
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
-                VStack(spacing: 16) {
-                    Image(systemName: symbol)
-                        .font(.system(size: 48))
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    Text(message)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(Color("VesperPrimaryText"))
-                        .multilineTextAlignment(.center)
+                VStack(spacing: 0) {
+                    VesperLargeTitle(title: title)
+                    Spacer(minLength: 20)
+                    VStack(spacing: 16) {
+                        Image(systemName: symbol)
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                        Text(message)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(Color("VesperPrimaryText"))
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20)
+                    Spacer(minLength: 20)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: geometry.size.height)
+                .frame(minHeight: max(0, geometry.size.height - windowTopInset))
             }
         }
         .vesperImmersiveTitle(title)

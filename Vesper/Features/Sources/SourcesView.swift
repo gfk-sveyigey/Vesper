@@ -6,6 +6,9 @@ struct SourcesView: View {
 
     var body: some View {
         List {
+            Section {
+                VesperListTitle(title: "来源")
+            }
             if library.sources.isEmpty {
                 ContentUnavailableView("未配置来源", systemImage: "externaldrive")
             }
