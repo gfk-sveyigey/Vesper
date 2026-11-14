@@ -373,15 +373,22 @@ struct TabSettingsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Toggle("启用多功能按钮", isOn: Binding(
-                        get: { multifunctionEnabled },
-                        set: { enabled in
-                            if enabled { isShowingEnableConfirmation = true }
-                            else { multifunctionEnabled = false }
+                    Button {
+                        if multifunctionEnabled {
+                            multifunctionEnabled = false
+                        } else {
+                            isShowingEnableConfirmation = true
                         }
-                    ))
+                    } label: {
+                        Label(
+                            multifunctionEnabled ? "关闭多功能按钮" : "启用多功能按钮",
+                            systemImage: "square.grid.2x2"
+                        )
+                    }
                     if multifunctionEnabled {
-                        Button("手势与动作") { isShowingGestureSettings = true }
+                        Button { isShowingGestureSettings = true } label: {
+                            Label("手势与动作", systemImage: "hand.tap")
+                        }
                     }
                 } label: {
                     Image(systemName: "square.grid.2x2")
@@ -632,7 +639,8 @@ private struct GestureOrderColumn: View {
                     .frame(height: rowHeight)
                     .padding(.horizontal, 8)
                     .background {
-                        RoundedRectangle(cornerRadius: 12).fill(Color("VesperSecondaryBackground"))
+                        RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 12).fill(Color("VesperSecondaryBackground").opacity(0.42))
                         RoundedRectangle(cornerRadius: 12).stroke(.tint, lineWidth: 1)
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 12))
