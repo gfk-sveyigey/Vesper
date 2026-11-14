@@ -172,7 +172,7 @@ struct AppNavigationView: View {
         TabSection("主要功能") {
             ForEach(enabledSections) { section in
                 Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
-                    Color.clear
+                    TransparentTabPlaceholder()
                 }
             }
         }
@@ -391,6 +391,8 @@ private struct SystemTabLayer<Content: View>: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: SystemTabLayerController, context: Context) {
         controller.host.rootView = AnyView(content().environment(\.locale, locale).tint(VesperTheme.accent(accent)))
+        controller.refreshTransparency()
+        controller.view.setNeedsLayout()
     }
 }
 
@@ -418,6 +420,68 @@ private final class SystemTabLayerController: UIViewController {
             host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
         host.didMove(toParent: self)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        refreshTransparency()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        refreshTransparency()
+    }
+
+    func refreshTransparency() {
+        // TabView may create new UIKit page controllers during first expansion
+        // or reorder. Keep their container backgrounds transparent independently
+        // of the gesture bridge's layout callbacks. Do not touch bar materials.
+        clearLoadedControllerBackgrounds(host)
+    }
+
+    private func clearLoadedControllerBackgrounds(_ controller: UIViewController) {
+        if controller.isViewLoaded {
+            controller.view.backgroundColor = .clear
+            controller.view.isOpaque = false
+        }
+        for child in controller.children { clearLoadedControllerBackgrounds(child) }
+    }
+}
+
+/// A placeholder can appear after its parent's last layout callback. Clear
+/// only its own controller ancestry, never the sibling ContentHost or its pages.
+private struct TransparentTabPlaceholder: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+    func updateUIViewController(_ controller: Controller, context: Context) { controller.clearBackgrounds() }
+
+    final class Controller: UIViewController {
+        override func loadView() {
+            view = UIView()
+            view.backgroundColor = .clear
+            view.isOpaque = false
+        }
+
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            clearBackgrounds()
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            clearBackgrounds()
+        }
+
+        func clearBackgrounds() {
+            var current: UIViewController? = self
+            while let controller = current {
+                if controller.isViewLoaded {
+                    controller.view.backgroundColor = .clear
+                    controller.view.isOpaque = false
+                }
+                if controller is SystemTabLayerController { break }
+                current = controller.parent
+            }
+        }
     }
 }
 
@@ -481,6 +545,9 @@ private final class PageContainerController: UIViewController {
         } else {
             overlap = view.bounds.intersection(view.convert(tabBarFrame, from: window))
         }
+        // During tab reconstruction UIKit can briefly report a bar at the top
+        // of the window. Never turn that transient frame into a full-page inset.
+        if !overlap.isNull && overlap.minY < view.bounds.midY { return }
         let bottomInset = overlap.isNull ? 0 : max(0, view.bounds.maxY - overlap.minY - view.safeAreaInsets.bottom)
         for child in children {
             var insets = child.additionalSafeAreaInsets
@@ -676,7 +743,11 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             let bar = controller.tabBar
             if let window = bar.window, !bar.bounds.isEmpty {
                 let frame = bar.convert(bar.bounds, to: window)
-                DispatchQueue.main.async { [weak self] in self?.reportFrame(frame) }
+                // Keep the last usable frame through first layout/reordering;
+                // an unattached/transitional bar is not a content safe area.
+                if frame.minY >= window.bounds.midY, frame.intersects(window.bounds) {
+                    DispatchQueue.main.async { [weak self] in self?.reportFrame(frame) }
+                }
             }
             guard installedBar !== bar else { return }
             uninstall()
