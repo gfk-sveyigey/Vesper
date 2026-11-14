@@ -70,7 +70,7 @@ jobs:
             -configuration Debug \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/DerivedData \
-            MARKETING_VERSION='${{ steps.version.outputs.raw }}' \
+            MARKETING_VERSION='${{ steps.version.outputs.raw }}(Build dev ${{ github.run_number }})' \
             CURRENT_PROJECT_VERSION='${{ github.run_number }}' \
             PRODUCT_BUNDLE_IDENTIFIER=com.aholic.vesper \
             IPHONEOS_DEPLOYMENT_TARGET=26.0 \
