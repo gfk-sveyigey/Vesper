@@ -75,12 +75,10 @@ extension View {
         navigationTitle(title)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Color.clear
-                        .frame(width: 1, height: 1)
-                        .allowsHitTesting(false)
+                    Text(title)
+                        .opacity(0)
                         .accessibilityHidden(true)
                 }
-                .sharedBackgroundVisibility(.hidden)
             }
     }
 
