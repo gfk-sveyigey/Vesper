@@ -23,6 +23,13 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            Section {
+                VesperLargeTitle("设置")
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+            .listSectionMargins([.horizontal, .bottom], 0)
             Section("应用") {
                 NavigationLink(value: SettingsRoute.tabs) { SettingsLabel("标签设置", symbol: "rectangle.3.group") }
                 NavigationLink(value: SettingsRoute.appearance) { SettingsLabel("外观设置", symbol: "paintpalette") }
@@ -67,9 +74,8 @@ struct SettingsView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.visible)
-        .navigationTitle("设置")
-        .vesperNavigationStyle(.large)
-        .toolbarRole(.automatic)
+        .scrollContentBackground(.hidden)
+        .vesperImmersiveTitle("设置")
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
@@ -274,6 +280,7 @@ private struct AppearanceSettingsView: View {
 
 
 struct TabSettingsView: View {
+    @AppStorage("navigation.icons") private var icons = "{}"
     let openSection: (AppSection) -> Void
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
@@ -308,17 +315,41 @@ struct TabSettingsView: View {
             } footer: {
                 Text("关闭只隐藏入口，不清除页面数据。设置标签始终保留。")
             }
-            Section("页面") {
-                ForEach([AppSection.media, .sources, .history]) { section in
-                    Button { openSection(section) } label: {
-                        HStack {
-                            Label(section.title, systemImage: section.symbol)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
+            Section("跳转标签") {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(sections.filter { $0 != .settings }) { section in
+                        Button { openSection(section) } label: {
+                            VStack(spacing: 8) {
+                                Image(systemName: section.symbol).font(.title2)
+                                Text(section.title).font(.caption).foregroundStyle(.primary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 64)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            Section("标签图标") {
+                ForEach(sections) { section in
+                    HStack {
+                        Label(section.title, systemImage: section.symbol)
+                        Spacer()
+                        Menu {
+                            ForEach(section.iconChoices, id: \.self) { symbol in
+                                Button { setIcon(symbol, for: section) } label: {
+                                    Label {
+                                        Text(iconTitle(symbol))
+                                    } icon: { Image(systemName: symbol) }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: section.symbol)
+                                .font(.title3)
+                                .frame(minWidth: 44, minHeight: 44)
+                        }
+                        .accessibilityLabel("更换图标")
                     }
                 }
             }
@@ -345,7 +376,7 @@ struct TabSettingsView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("调整标签顺序", systemImage: "arrow.up.arrow.down") { isShowingOrderSettings = true }
+                    Button("标签顺序", systemImage: "arrow.up.arrow.down") { isShowingOrderSettings = true }
                     Button("恢复默认", systemImage: "arrow.counterclockwise") { isShowingResetConfirmation = true }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -379,7 +410,7 @@ struct TabSettingsView: View {
                         ToolbarItem(placement: .principal) {
                             Text("标签顺序").font(.headline)
                         }
-                        ToolbarItem(placement: .confirmationAction) {
+                        ToolbarItem(placement: .cancellationAction) {
                             Button { isShowingOrderSettings = false } label: {
                                 Image(systemName: "xmark")
                             }
@@ -389,7 +420,11 @@ struct TabSettingsView: View {
             }
             .presentationDetents([.height(360)])
             .presentationDragIndicator(.hidden)
-            .interactiveDismissDisabled()
+            .interactiveDismissDisabled(false)
+            .background {
+                SheetOutsideDismiss { isShowingOrderSettings = false }
+                    .frame(width: 0, height: 0)
+            }
             .presentationBackground(VesperTheme.background)
         }
         .sheet(isPresented: $isShowingGestureSettings) {
@@ -400,7 +435,7 @@ struct TabSettingsView: View {
                     .toolbarRole(.automatic)
                     .navigationBarBackButtonHidden(true)
                     .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
+                        ToolbarItem(placement: .cancellationAction) {
                             Button { isShowingGestureSettings = false } label: {
                                 Image(systemName: "xmark")
                             }
@@ -413,14 +448,101 @@ struct TabSettingsView: View {
             }
             .presentationDetents([.height(360)])
             .presentationDragIndicator(.hidden)
-            .interactiveDismissDisabled()
+            .interactiveDismissDisabled(false)
+            .background {
+                SheetOutsideDismiss { isShowingGestureSettings = false }
+                    .frame(width: 0, height: 0)
+            }
             .presentationBackground(VesperTheme.background)
         }
     }
+    private func setIcon(_ symbol: String, for section: AppSection) {
+        let data = icons.data(using: .utf8) ?? Data()
+        var values = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+        values[section.rawValue] = symbol
+        if let data = try? JSONEncoder().encode(values), let saved = String(data: data, encoding: .utf8) {
+            icons = saved
+        }
+    }
+
+    private func iconTitle(_ symbol: String) -> LocalizedStringKey {
+        switch symbol {
+        case "film": "胶片"
+        case "play.rectangle": "播放"
+        case "tv": "电视"
+        case "photo.on.rectangle": "相册"
+        case "externaldrive": "硬盘"
+        case "folder": "文件夹"
+        case "server.rack": "服务器"
+        case "network": "网络"
+        case "clock.arrow.circlepath": "历史"
+        case "clock": "时钟"
+        case "list.bullet": "列表"
+        case "calendar": "日历"
+        case "gearshape": "齿轮"
+        case "gear": "圆形齿轮"
+        case "slider.horizontal.3": "滑块"
+        default: "开关"
+        }
+    }
+
 }
 
 
+/// SwiftUI sheets support swipe dismissal; observe only taps outside the
+/// presented frame to add backdrop dismissal without consuming sheet controls.
+private struct SheetOutsideDismiss: UIViewControllerRepresentable {
+    let dismiss: () -> Void
+
+    func makeUIViewController(context: Context) -> Controller { Controller(dismiss: dismiss) }
+    func updateUIViewController(_ controller: Controller, context: Context) { controller.dismissAction = dismiss }
+    static func dismantleUIViewController(_ controller: Controller, coordinator: ()) { controller.uninstall() }
+
+    final class Controller: UIViewController, UIGestureRecognizerDelegate {
+        var dismissAction: () -> Void
+        private weak var container: UIView?
+        private weak var sheet: UIPresentationController?
+        private lazy var tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+
+        init(dismiss: @escaping () -> Void) {
+            dismissAction = dismiss
+            super.init(nibName: nil, bundle: nil)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            var current: UIViewController? = self
+            while let controller = current {
+                if let presentation = controller.presentationController,
+                   let view = presentation.containerView {
+                    uninstall()
+                    sheet = presentation
+                    container = view
+                    tap.delegate = self
+                    tap.cancelsTouchesInView = false
+                    view.addGestureRecognizer(tap)
+                    break
+                }
+                current = controller.parent
+            }
+        }
+        func uninstall() {
+            container?.removeGestureRecognizer(tap)
+            container = nil
+            sheet = nil
+        }
+        @objc private func tapped() { dismissAction() }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let sheet, let container else { return false }
+            return !sheet.frameOfPresentedViewInContainerView.contains(touch.location(in: container))
+        }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+    }
+}
+
 private struct TabOrderSettingsView: View {
+    @AppStorage("navigation.icons") private var icons = "{}"
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
 
     private var sections: [AppSection] {

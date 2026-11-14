@@ -8,6 +8,7 @@ private enum NavigationTab: Hashable {
 }
 
 struct AppNavigationView: View {
+    @AppStorage("navigation.icons") private var icons = "{}"
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
@@ -81,7 +82,7 @@ struct AppNavigationView: View {
                 // leaving an old image attached to a different section. Recreate
                 // only the native tab layer when its ordering changes; page Hosts
                 // and their navigation histories live outside this identity.
-                .id(order)
+                .id(order + "|" + icons)
                 .background(MultifunctionGestures(
                     tap: { performGesture("tap") },
                     longPress: { performGesture("longPress") },
