@@ -120,3 +120,5 @@
 "开关" = "Interruptores";
 "将恢复标签的显示状态、排列顺序和图标。" = "Se restablecerán la visibilidad, el orden y los iconos de las pestañas.";
 "关闭多功能按钮" = "Desactivar botón multifunción";
+"未选择媒体" = "No hay medios seleccionados";
+"选择媒体来源后显示播放内容" = "La reproducción aparece después de elegir una fuente";

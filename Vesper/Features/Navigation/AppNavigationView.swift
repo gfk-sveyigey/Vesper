@@ -78,6 +78,9 @@ struct AppNavigationView: View {
                         }
                     }
                 }
+                .tabViewBottomAccessory {
+                    MiniPlayerView()
+                }
                 // UIKit can reuse positional tab items after a dynamic reorder,
                 // leaving an old image attached to a different section. Recreate
                 // only the native tab layer when its ordering changes. Icon edits
@@ -844,5 +847,42 @@ private struct SearchPage: View {
             )
             .vesperSystemNavigationBar()
         }
+    }
+}
+
+
+/// Native TabView bottom accessory for the compact player surface.
+private struct MiniPlayerView: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "film")
+                .font(.title3)
+                .foregroundStyle(.tint)
+                .frame(width: 38, height: 38)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("未选择媒体")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text("选择媒体来源后显示播放内容")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button { } label: {
+                Image(systemName: "play.fill")
+                    .font(.headline)
+            }
+            .buttonStyle(.plain)
+            .disabled(true)
+            .accessibilityLabel("播放")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }

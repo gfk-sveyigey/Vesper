@@ -120,3 +120,5 @@
 "开关" = "Switches";
 "将恢复标签的显示状态、排列顺序和图标。" = "Tab visibility, order and icons will be reset.";
 "关闭多功能按钮" = "Disable Multifunction Button";
+"未选择媒体" = "No Media Selected";
+"选择媒体来源后显示播放内容" = "Playback appears after choosing a media source";

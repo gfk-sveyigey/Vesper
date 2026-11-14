@@ -223,3 +223,5 @@ Color("VesperPlaybackProgress")
 - 标签图标卡片采用与标签组一致的层级 SF Symbol 渲染样式，避免自定义图标选择引入不同的线性视觉。
 
 - 标签栏及标签设置相关图标统一传入基础 `section.symbol`，不再强制 `.fill`、Regular 或 selectedImage；系统根据 Tab 选中状态和 SF Symbols 提供的变体自动渲染。
+
+- 迷你播放器使用 iOS 26 SwiftUI `TabView` 的 `.tabViewBottomAccessory`，由系统安排在标签栏上方并处理 Liquid Glass、安全区和标签组收起布局；当前无媒体内容时显示禁用的占位播放条。
