@@ -321,7 +321,8 @@ struct TabSettingsView: View {
                         Button { openSection(section) } label: {
                             VStack(spacing: 8) {
                                 Image(systemName: section.symbol)
-                                    .font(.system(size: 24, weight: .medium))
+                                    .symbolVariant(.none)
+                                    .font(.system(size: 24, weight: .regular))
                                     .symbolRenderingMode(.hierarchical)
                                     .foregroundStyle(.tint)
                                 Text(section.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
@@ -351,7 +352,8 @@ struct TabSettingsView: View {
                         } label: {
                             VStack(spacing: 8) {
                                 Image(systemName: section.symbol)
-                                    .font(.system(size: 24, weight: .medium))
+                                    .symbolVariant(.none)
+                                    .font(.system(size: 24, weight: .regular))
                                     .symbolRenderingMode(.hierarchical)
                                     .foregroundStyle(.tint)
                                 Text(section.title)
@@ -384,7 +386,7 @@ struct TabSettingsView: View {
                     } label: {
                         Label(
                             multifunctionEnabled ? "关闭多功能按钮" : "启用多功能按钮",
-                            systemImage: multifunctionEnabled ? "square.grid.2x2.fill" : "magnifyingglass"
+                            systemImage: multifunctionEnabled ? "square.grid.2x2.fill" : "square.grid.2x2"
                         )
                     }
                     if multifunctionEnabled {
@@ -393,7 +395,7 @@ struct TabSettingsView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: multifunctionEnabled ? "square.grid.2x2.fill" : "magnifyingglass")
+                    Image(systemName: multifunctionEnabled ? "square.grid.2x2.fill" : "square.grid.2x2")
                 }
                 .accessibilityLabel("多功能按钮设置")
             }

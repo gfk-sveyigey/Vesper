@@ -781,8 +781,9 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
                     if let group = tab as? UITabGroup {
                         update(group.children)
                     } else if !(tab is UISearchTab), let symbol = tabIcons[tab.title],
-                              let image = UIImage(systemName: symbol) {
-                        if tab.image?.isEqual(image) != true { tab.image = image }
+                              let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(weight: .regular)) {
+                        let regularImage = image.withRenderingMode(.alwaysTemplate)
+                        if tab.image?.isEqual(regularImage) != true { tab.image = regularImage }
                     }
                 }
             }
@@ -792,9 +793,10 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             guard primaryTabsVisible else { return }
             for item in controller.tabBar.items ?? [] {
                 guard let title = item.title, let symbol = tabIcons[title],
-                      let image = UIImage(systemName: symbol) else { continue }
-                if item.image?.isEqual(image) != true { item.image = image }
-                if item.selectedImage?.isEqual(image) != true { item.selectedImage = image }
+                      let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(weight: .regular)) else { continue }
+                let regularImage = image.withRenderingMode(.alwaysTemplate)
+                if item.image?.isEqual(regularImage) != true { item.image = regularImage }
+                if item.selectedImage?.isEqual(regularImage) != true { item.selectedImage = regularImage }
             }
         }
 
