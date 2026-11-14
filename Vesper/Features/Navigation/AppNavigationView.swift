@@ -365,7 +365,9 @@ private final class SectionHosts {
         }
         let history = PageHistory()
         histories[section] = history
-        let controller = UIHostingController(rootView: AnyView(HostedPageEnvironment { PageNavigation(history: history, page: page).environmentObject(library) }))
+        let controller = UIHostingController(rootView: AnyView(HostedPageEnvironment { [library] in
+            PageNavigation(history: history, page: page).environmentObject(library)
+        }))
         controller.view.backgroundColor = .clear
         controllers[section] = controller
         return controller
