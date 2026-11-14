@@ -88,7 +88,7 @@ struct AppNavigationView: View {
                     tap: { performGesture("tap") },
                     longPress: { performGesture("longPress") },
                     enabled: !isSearchPresented,
-                    tabIcons: Dictionary(uniqueKeysWithValues: enabledSections.map { ($0.title, $0.filledSymbol) }),
+                    tabIcons: Dictionary(uniqueKeysWithValues: enabledSections.map { ($0.title, $0.symbol) }),
                     primaryTabsVisible: showPrimaryTabs,
                     reselected: { index in
                         guard !isSearchPresented, !isPreparingSearch, showPrimaryTabs,
@@ -175,7 +175,7 @@ struct AppNavigationView: View {
     private var primaryTabs: some TabContent<NavigationTab> {
         TabSection("主要功能") {
             ForEach(enabledSections) { section in
-                Tab(section.title, systemImage: section.filledSymbol, value: NavigationTab.section(section)) {
+                Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
                     TransparentTabPlaceholder()
                 }
             }

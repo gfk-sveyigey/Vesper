@@ -221,3 +221,5 @@ Color("VesperPlaybackProgress")
 - 两个设置半屏页恢复单一固定高度 360pt，不随滚动在 medium/large detent 间变化；系统下滑关闭和左上角关闭按钮保留。
 - 多功能菜单和入口图标按状态显示：关闭时使用搜索图标，启用时使用实心多功能图标；启用/关闭文字同步表达当前动作。
 - 标签图标卡片采用与标签组一致的层级 SF Symbol 渲染样式，避免自定义图标选择引入不同的线性视觉。
+
+- 标签栏及标签设置相关图标统一传入基础 `section.symbol`，不再强制 `.fill`、Regular 或 selectedImage；系统根据 Tab 选中状态和 SF Symbols 提供的变体自动渲染。
