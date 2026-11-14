@@ -351,12 +351,16 @@ struct TabSettingsView: View {
                             Text("标签顺序").font(.headline)
                         }
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("完成") { isShowingOrderSettings = false }
+                            Button { isShowingOrderSettings = false } label: {
+                                Image(systemName: "xmark")
+                            }
+                            .accessibilityLabel("关闭")
                         }
                     }
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            .presentationDetents([.height(360)])
+            .presentationDragIndicator(.hidden)
+            .interactiveDismissDisabled()
             .presentationBackground(VesperTheme.background)
         }
         .sheet(isPresented: $isShowingGestureSettings) {
@@ -368,15 +372,19 @@ struct TabSettingsView: View {
                     .navigationBarBackButtonHidden(true)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("完成") { isShowingGestureSettings = false }
+                            Button { isShowingGestureSettings = false } label: {
+                                Image(systemName: "xmark")
+                            }
+                            .accessibilityLabel("关闭")
                         }
                         ToolbarItem(placement: .principal) {
                             Text("手势与动作").font(.headline)
                         }
                     }
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            .presentationDetents([.height(360)])
+            .presentationDragIndicator(.hidden)
+            .interactiveDismissDisabled()
             .presentationBackground(VesperTheme.background)
         }
     }
@@ -452,7 +460,7 @@ private struct GestureOrderColumn: View {
                     .frame(height: rowHeight)
                     .padding(.horizontal, 8)
                     .background {
-                        RoundedRectangle(cornerRadius: 12).fill(Color("VesperSurface"))
+                        RoundedRectangle(cornerRadius: 12).fill(Color("VesperSecondaryBackground"))
                         RoundedRectangle(cornerRadius: 12).stroke(.tint, lineWidth: 1)
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 12))
@@ -505,7 +513,7 @@ private struct GestureOrderColumn: View {
     }
 }
 
-/// Outline symbols and a consistent accent outline, without a filled icon tile.
+/// Match the standard symbol-and-text labels used by tab settings.
 private struct SettingsLabel: View {
     let title: LocalizedStringKey
     let symbol: String
@@ -516,16 +524,7 @@ private struct SettingsLabel: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .symbolVariant(.none)
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(.tint)
-                .frame(width: 27, height: 26)
-                .overlay { RoundedRectangle(cornerRadius: 7).stroke(.tint, lineWidth: 1) }
-                .accessibilityHidden(true)
-            Text(title)
-        }
+        Label(title, systemImage: symbol)
     }
 }
 

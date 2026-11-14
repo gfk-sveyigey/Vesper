@@ -189,3 +189,7 @@ Color("VesperPlaybackProgress")
 - 标签显隐列表不显示始终保留的设置标签；排序半屏页仍包含该标签。排序页标题为“标签顺序”，隐藏返回按钮；排序与手势半屏页覆盖 editor toolbarRole，使用自动样式及居中 principal 标题。
 - 手势排序卡片使用 VesperSurface 背景及主题色边框。外观中的“重置主题色”始终显示，默认颜色时禁用；图标不展示名称，但保留辅助功能名称和选中状态。
 - 语言菜单依次为跟随系统、简体中文、繁体中文、English、Deutsch、Español、Français、日本語、한국어。
+
+- 排序或重置顺序时，以 order 为原生 TabView 的视图身份，重建其 UIKit 标签项，避免位置复用留下旧图标；ContentHost、SectionHosts 和导航历史不重建。标签组显隐和搜索状态更新不触发这一重建。
+- 标签顺序及手势与动作面板固定 360pt 高度，禁止下拉关闭，不显示拖动横条，右上角使用关闭图标；内容仍可滚动，卡片拖动排序保留。
+- 手势卡片使用比浅色页面背景更深的 VesperSecondaryBackground；设置首页图标与标签设置一致，使用普通 Label，不绘制外框。
