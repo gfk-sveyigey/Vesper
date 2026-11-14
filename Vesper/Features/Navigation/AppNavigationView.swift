@@ -14,6 +14,7 @@ struct AppNavigationView: View {
     @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
     @AppStorage("navigation.gestureOrder") private var gestures = "tap,longPress"
     @AppStorage("navigation.actionOrder") private var actions = "tabs,search"
+    @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = false
     @State private var collapseTask: Task<Void, Never>?
     @State private var collapseToken: UUID?
     @State private var currentPage: AppSection = .media
@@ -112,6 +113,7 @@ struct AppNavigationView: View {
             // Hosts fill the viewport; child safe areas reserve the actual native bar.
             MiniPlayerLayer(
                 hasPlayableContent: hasPlayableContent,
+                alwaysVisible: miniPlayerAlwaysVisible,
                 isSearchPresented: isSearchPresented,
                 isPreparingSearch: isPreparingSearch,
                 tabBarVisible: showPrimaryTabs,
@@ -897,6 +899,7 @@ private final class MiniPlayerPositionCoordinator: ObservableObject {
 
 private struct MiniPlayerLayer: View {
     let hasPlayableContent: Bool
+    let alwaysVisible: Bool
     let isSearchPresented: Bool
     let isPreparingSearch: Bool
     let tabBarVisible: Bool
@@ -904,7 +907,7 @@ private struct MiniPlayerLayer: View {
     @ObservedObject var coordinator: MiniPlayerPositionCoordinator
 
     private var shouldShow: Bool {
-        hasPlayableContent && !isSearchPresented && !isPreparingSearch
+        (hasPlayableContent || alwaysVisible) && !isSearchPresented && !isPreparingSearch
     }
 
     var body: some View {

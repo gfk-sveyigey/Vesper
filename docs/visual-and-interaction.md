@@ -225,3 +225,5 @@ Color("VesperPlaybackProgress")
 - 标签栏及标签设置相关图标统一传入基础 `section.symbol`，不再强制 `.fill`、Regular 或 selectedImage；系统根据 Tab 选中状态和 SF Symbols 提供的变体自动渲染。
 
 - MiniPlayerLayer 作为 AppNavigationView 的第三个 ZStack 层，使用 MiniPlayerPositionCoordinator 冻结标签组收起前的标签栏高度；当前没有播放状态，因此 hasPlayableContent 默认关闭。播放器卡片使用 iOS 26 `.glassEffect(.regular)`，后续接入播放状态后显示。
+
+- 标签设置新增“迷你播放器”分组及“常驻显示”开关，使用 `miniPlayer.alwaysVisible` 与 AppNavigationView 共享。开启时即使没有播放内容也显示占位播放器，搜索期间仍隐藏。
