@@ -12,38 +12,7 @@ struct SourcesView: View {
     var body: some View {
         List {
             Section {
-                ZStack(alignment: .topTrailing) {
-                    VesperLargeTitle("来源")
-                    Menu {
-                        if !library.contains(.photos) {
-                            Button("相册视频", systemImage: "photo.on.rectangle") {
-                                isAuthorizing = true
-                                Task {
-                                    defer { isAuthorizing = false }
-                                    do { try await library.addPhotos() }
-                                    catch { photoAccessFailed = true }
-                                }
-                            }
-                        }
-                        if !library.contains(.local) {
-                            Button("本地视频", systemImage: "folder") {
-                                isImporting = true
-                            }
-                        }
-                        Button("Emby", systemImage: "server.rack") {}.disabled(true)
-                    } label: {
-                        Image(systemName: "plus.circle")
-                            .font(.title2)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular, in: .circle)
-                    .accessibilityLabel("添加媒体来源")
-                    .disabled(isAuthorizing || library.isImporting)
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 8)
-                }
+                VesperLargeTitle("来源")
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
@@ -84,6 +53,37 @@ struct SourcesView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .vesperImmersiveTitle("来源")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    if !library.contains(.photos) {
+                        Button("相册视频", systemImage: "photo.on.rectangle") {
+                            isAuthorizing = true
+                            Task {
+                                defer { isAuthorizing = false }
+                                do { try await library.addPhotos() }
+                                catch { photoAccessFailed = true }
+                            }
+                        }
+                    }
+                    if !library.contains(.local) {
+                        Button("本地视频", systemImage: "folder") {
+                            isImporting = true
+                        }
+                    }
+                    Button("Emby", systemImage: "server.rack") {}.disabled(true)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.semibold))
+                        .frame(width: 36, height: 36)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular, in: .circle)
+                .accessibilityLabel("添加媒体来源")
+                .disabled(isAuthorizing || library.isImporting)
+            }
+        }
         .videoImporter(isPresented: $isImporting)
         .alert("无法访问相册", isPresented: $photoAccessFailed) {
             Button("取消", role: .cancel) {}
