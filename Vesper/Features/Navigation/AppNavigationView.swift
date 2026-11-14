@@ -846,4 +846,3 @@ private struct SearchPage: View {
         }
     }
 }
-
