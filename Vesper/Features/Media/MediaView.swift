@@ -56,7 +56,10 @@ struct MediaView: View {
             }
             .refreshable { library.reload() }
             .vesperImmersiveTitle("媒体")
-            .videoImporter(isPresented: $isImporting)
+            .fileImporter(isPresented: $isImporting, allowedContentTypes: [.movie], allowsMultipleSelection: true) { result in
+                guard case .success(let urls) = result else { return }
+                Task { try? await library.importVideos(urls) }
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { library.reload() }
             }
