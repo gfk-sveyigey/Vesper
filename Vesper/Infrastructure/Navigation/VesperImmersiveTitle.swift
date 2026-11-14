@@ -1,11 +1,34 @@
 import SwiftUI
 
-/// Root titles are owned by the native navigation bar. No scroll observers,
-/// principal placeholders or page-disappearance state changes are needed.
+/// Build 166's top scroll viewport, with the current native inlineLarge title.
+private struct VesperRootTopEdge: ViewModifier {
+    let title: LocalizedStringKey
+    @Environment(\.vesperWindowTopInset) private var windowTopInset
+
+    func body(content: Content) -> some View {
+        content
+            .contentMargins(.top, windowTopInset, for: .scrollContent)
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .scrollEdgeEffectHidden(false, for: .top)
+            .ignoresSafeArea(.container, edges: .top)
+            .navigationTitle(title)
+            .toolbarTitleDisplayMode(.inlineLarge)
+    }
+}
+
+private struct VesperWindowTopInsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var vesperWindowTopInset: CGFloat {
+        get { self[VesperWindowTopInsetKey.self] }
+        set { self[VesperWindowTopInsetKey.self] = newValue }
+    }
+}
+
 extension View {
     func vesperImmersiveTitle(_ title: LocalizedStringKey) -> some View {
-        navigationTitle(title)
-            .toolbarTitleDisplayMode(.inlineLarge)
-            .scrollEdgeEffectStyle(.soft, for: .top)
+        modifier(VesperRootTopEdge(title: title))
     }
 }
