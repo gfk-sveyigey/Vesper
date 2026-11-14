@@ -321,7 +321,8 @@ struct TabSettingsView: View {
                         Button { openSection(section) } label: {
                             VStack(spacing: 8) {
                                 Image(systemName: section.symbol)
-                                    .font(.system(size: 24, weight: .regular))
+                                    .font(.system(size: 24, weight: .medium))
+                                    .symbolRenderingMode(.hierarchical)
                                     .foregroundStyle(.tint)
                                 Text(section.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                             }
@@ -350,7 +351,8 @@ struct TabSettingsView: View {
                         } label: {
                             VStack(spacing: 8) {
                                 Image(systemName: section.symbol)
-                                    .font(.system(size: 24, weight: .regular))
+                                    .font(.system(size: 24, weight: .medium))
+                                    .symbolRenderingMode(.hierarchical)
                                     .foregroundStyle(.tint)
                                 Text(section.title)
                                     .font(.caption.weight(.medium))
@@ -382,7 +384,7 @@ struct TabSettingsView: View {
                     } label: {
                         Label(
                             multifunctionEnabled ? "关闭多功能按钮" : "启用多功能按钮",
-                            systemImage: "square.grid.2x2"
+                            systemImage: multifunctionEnabled ? "square.grid.2x2.fill" : "magnifyingglass"
                         )
                     }
                     if multifunctionEnabled {
@@ -391,7 +393,7 @@ struct TabSettingsView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "square.grid.2x2")
+                    Image(systemName: multifunctionEnabled ? "square.grid.2x2.fill" : "magnifyingglass")
                 }
                 .accessibilityLabel("多功能按钮设置")
             }
@@ -440,9 +442,8 @@ struct TabSettingsView: View {
                         }
                     }
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .presentationContentInteraction(.resizes)
+            .presentationDetents([.height(360)])
+            .presentationDragIndicator(.hidden)
             .interactiveDismissDisabled(false)
             .presentationBackground(VesperTheme.background)
         }
@@ -465,9 +466,8 @@ struct TabSettingsView: View {
                         }
                     }
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .presentationContentInteraction(.resizes)
+            .presentationDetents([.height(360)])
+            .presentationDragIndicator(.hidden)
             .interactiveDismissDisabled(false)
             .presentationBackground(VesperTheme.background)
         }
