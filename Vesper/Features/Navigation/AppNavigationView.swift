@@ -88,8 +88,7 @@ struct AppNavigationView: View {
                     tap: { performGesture("tap") },
                     longPress: { performGesture("longPress") },
                     enabled: !isSearchPresented,
-                    tabIcons: Dictionary(uniqueKeysWithValues: enabledSections.map { ($0.title, $0.symbol) }),
-                    primaryTabsVisible: showPrimaryTabs,
+
                     reselected: { index in
                         guard !isSearchPresented, !isPreparingSearch, showPrimaryTabs,
                               enabledSections.indices.contains(index), enabledSections[index] == currentPage else { return }
@@ -679,8 +678,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     let tap: () -> Void
     let longPress: () -> Void
     let enabled: Bool
-    let tabIcons: [String: String]
-    let primaryTabsVisible: Bool
     let reselected: (Int) -> Void
     let reportFrame: (CGRect) -> Void
 
@@ -689,8 +686,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: GestureController, context: Context) {
-        controller.tabIcons = tabIcons
-        controller.primaryTabsVisible = primaryTabsVisible
         controller.reselected = reselected
         controller.tapAction = tap
         controller.longPressAction = longPress
@@ -708,8 +703,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
         var longPressAction: () -> Void
         var reportFrame: (CGRect) -> Void
         var gesturesEnabled = true
-        var tabIcons: [String: String] = [:]
-        var primaryTabsVisible = false
         var reselected: (Int) -> Void = { _ in }
         private var reselectedIndex: Int?
         private lazy var reselectRecognizer = UITapGestureRecognizer(target: self, action: #selector(reselectTapped))
@@ -750,7 +743,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
 
                 }
             }
-            synchronizeIcons(in: controller)
             let bar = controller.tabBar
             if let window = bar.window, !bar.bounds.isEmpty {
                 let frame = bar.convert(bar.bounds, to: window)
@@ -773,31 +765,6 @@ private struct MultifunctionGestures: UIViewControllerRepresentable {
             bar.addGestureRecognizer(reselectRecognizer)
             bar.addGestureRecognizer(tapRecognizer)
             bar.addGestureRecognizer(pressRecognizer)
-        }
-
-        private func synchronizeIcons(in controller: UITabBarController) {
-            func update(_ tabs: [UITab]) {
-                for tab in tabs {
-                    if let group = tab as? UITabGroup {
-                        update(group.children)
-                    } else if !(tab is UISearchTab), let symbol = tabIcons[tab.title],
-                              let image = UIImage(systemName: symbol) {
-                        if tab.image?.isEqual(image) != true { tab.image = image }
-                    }
-                }
-            }
-            // Update the retained UITab even when its group is hidden. UIKit's
-            // visible tab items can retain their previous image independently.
-            update(controller.tabs)
-            guard primaryTabsVisible else { return }
-            for item in controller.tabBar.items ?? [] {
-                guard let title = item.title, let symbol = tabIcons[title],
-                      let image = UIImage(systemName: symbol) else { continue }
-                if item.image?.isEqual(image) != true { item.image = image }
-                // Leave selectedImage under SwiftUI/UIKit control so the native
-                // selected-state rendering remains unchanged.
-
-            }
         }
 
         private func clearContainerBackgrounds(in controller: UIViewController) {
