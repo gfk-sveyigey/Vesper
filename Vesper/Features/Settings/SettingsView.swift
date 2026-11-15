@@ -31,11 +31,11 @@ struct SettingsView: View {
                             .padding(.horizontal, 16)
                         VStack(spacing: 0) {
                             settingsLink(.tabs, title: "标签设置", symbol: "rectangle.3.group")
-                            Divider().padding(.leading, 16)
+                            Divider().padding(.leading, 56)
                             settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
-                            Divider().padding(.leading, 16)
+                            Divider().padding(.leading, 56)
                             settingsLink(.logs, title: "运行日志", symbol: "doc.text")
-                            Divider().padding(.leading, 16)
+                            Divider().padding(.leading, 56)
                             HStack {
                                 SettingsLabel("语言设置", symbol: "globe")
                                 Spacer(minLength: 12)
@@ -61,23 +61,31 @@ struct SettingsView: View {
                         Text("后续功能").font(.subheadline).foregroundStyle(.secondary)
                             .padding(.horizontal, 16)
                         VStack(spacing: 0) {
-                            LabeledContent { Text("尚未接入") } label: { SettingsLabel("播放器偏好", symbol: "play.rectangle") }
-                                .padding(16)
-                            Divider().padding(.leading, 16)
-                            LabeledContent { Text("尚未连接") } label: { SettingsLabel("IMDb", symbol: "film") }
-                                .padding(16)
-                            Divider().padding(.leading, 16)
-                            LabeledContent { Text("尚未连接") } label: { Label {
-                                Text(verbatim: "Trakt")
-                            } icon: {
+                            HStack {
+                                SettingsLabel("播放器偏好", symbol: "play.rectangle")
+                                Spacer()
+                                Text("尚未接入").foregroundStyle(.secondary)
+                            }.padding(16)
+                            Divider().padding(.leading, 56)
+                            HStack {
+                                SettingsLabel("IMDb", symbol: "film")
+                                Spacer()
+                                Text("尚未连接").foregroundStyle(.secondary)
+                            }.padding(16)
+                            Divider().padding(.leading, 56)
+                            HStack(spacing: 12) {
                                 Image("TraktIcon")
                                     .renderingMode(.template)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 22, height: 22)
+                                    .resizable().scaledToFit()
+                                    .frame(width: 20, height: 20)
+                                    .frame(width: 28, height: 28)
                                     .foregroundStyle(.tint)
-                            } }
-                            .padding(16)
+                                    .accessibilityHidden(true)
+                                Text(verbatim: "Trakt").font(.body)
+                                    .foregroundStyle(Color("VesperPrimaryText"))
+                                Spacer()
+                                Text("尚未连接").foregroundStyle(.secondary)
+                            }.padding(16)
                         }
                         .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
                         Text("播放器和外部服务将在对应阶段接入，当前不会提供无效的开关或连接按钮。")
@@ -317,6 +325,7 @@ struct TabSettingsView: View {
     @AppStorage("navigation.icons") private var icons = "{}"
     let openSection: (AppSection) -> Void
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
+    @AppStorage("navigation.hidden") private var hidden = ""
     @State private var isShowingResetConfirmation = false
     @State private var isShowingOrderSettings = false
 
@@ -329,6 +338,25 @@ struct TabSettingsView: View {
         List {
             SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "调整标签排列顺序和图标。")
 
+            Section("显示标签") {
+                ForEach(sections.filter { $0 != .settings }) { section in
+                    Toggle(isOn: Binding(
+                        get: { !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
+                        set: { visible in
+                            var values = Set(hidden.split(separator: ",").map(String.init))
+                            if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
+                            hidden = values.sorted().joined(separator: ",")
+                        }
+                    )) { SettingsLabel(LocalizedStringKey(section.title), symbol: section.symbol) }
+                }
+            }
+            Section("跳转标签") {
+                ForEach(sections.filter { $0 != .settings }) { section in
+                    Button { openSection(section) } label: {
+                        SettingsLabel(LocalizedStringKey(section.title), symbol: section.symbol)
+                    }
+                }
+            }
             Section("标签图标") {
                 HStack(alignment: .top, spacing: 10) {
                     ForEach(sections) { section in
@@ -378,6 +406,7 @@ struct TabSettingsView: View {
             Button("恢复默认", role: .destructive) {
                 order = "media,sources,history,settings"
                 icons = "{}"
+                hidden = ""
             }
             Button("取消", role: .cancel) { }
         } message: {
@@ -513,7 +542,17 @@ private struct SettingsLabel: View {
     }
 
     var body: some View {
-        Label(title, systemImage: symbol)
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(.tint)
+                .frame(width: 28, height: 28)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.body)
+                .foregroundStyle(Color("VesperPrimaryText"))
+        }
+        .frame(minHeight: 28)
     }
 }
 

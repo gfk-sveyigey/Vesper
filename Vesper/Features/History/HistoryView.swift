@@ -1,14 +1,19 @@
 import SwiftUI
 
 struct HistoryView: View {
+    @AppStorage("navigation.icons") private var icons = "{}"
+    private let testRows = Array(1...20)
     var body: some View {
+        if testRows.isEmpty {
+            VesperEmptyPage(title: "记录", message: "无记录", symbol: AppSection.history.symbol)
+        } else {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VesperLargeTitle(title: "记录")
                 LazyVStack(spacing: 12) {
-                    ForEach(1...20, id: \.self) { index in
+                    ForEach(testRows, id: \.self) { index in
                         HStack(spacing: 16) {
-                            Image(systemName: "film")
+                            Image(systemName: AppSection.history.symbol)
                                 .font(.title2)
                                 .foregroundStyle(.tint)
                                 .accessibilityHidden(true)
@@ -32,5 +37,6 @@ struct HistoryView: View {
             .padding(.bottom, 20)
         }
         .vesperImmersiveTitle("记录")
+        }
     }
 }

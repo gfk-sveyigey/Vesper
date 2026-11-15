@@ -1,103 +1,93 @@
 import SwiftUI
+import Photos
+import UniformTypeIdentifiers
 
 struct SourcesView: View {
     @EnvironmentObject private var library: SourceLibrary
-    @State private var isAdding = false
+    @AppStorage("navigation.icons") private var icons = "{}"
+    @State private var isImporting = false
+    @State private var isShowingError = false
+    @State private var isShowingEmbyNotice = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VesperLargeTitle(title: "来源") {
-                    Button { isAdding = true } label: {
-                        Label("添加演示来源", systemImage: "plus")
-                    }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .controlSize(.large)
-                    .accessibilityLabel("添加演示来源")
-                }
-                VStack(alignment: .leading, spacing: 16) {
-                    if library.sources.isEmpty {
-                        ContentUnavailableView("未配置来源", systemImage: "externaldrive")
-                    }
-                    ForEach(library.sources) { source in
-                        VStack(alignment: .leading, spacing: 10) {
-                            Button { library.select(source.id) } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 4) {
+        Group {
+            if library.sources.isEmpty {
+                VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol) { addMenu }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        VesperLargeTitle(title: "来源") { addMenu }
+                        LazyVStack(spacing: 16) {
+                            ForEach(library.sources) { source in
+                                Button { library.select(source.id) } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: source.kind == .photos ? "photo" : "folder")
+                                            .frame(width: 28)
                                         Text(verbatim: source.name).foregroundStyle(.primary)
-                                        Text("演示来源").font(.caption).foregroundStyle(.secondary)
+                                        Spacer()
+                                        if source.id == library.selectedID { Image(systemName: "checkmark") }
                                     }
-                                    Spacer()
-                                    if source.id == library.selectedID {
-                                        Image(systemName: "checkmark.circle.fill")
-                                    }
+                                    .padding(16)
+                                    .contentShape(Rectangle())
                                 }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(source.id == library.selectedID ? .isSelected : [])
-                            Picker("来源状态", selection: Binding(
-                                get: { source.behavior },
-                                set: { library.configure(source.id, behavior: $0) }
-                            )) {
-                                ForEach(DemoSourceBehavior.allCases) { behavior in
-                                    Text(LocalizedStringKey(behavior.titleKey)).tag(behavior)
+                                .buttonStyle(.plain)
+                                .accessibilityAddTraits(source.id == library.selectedID ? .isSelected : [])
+                                .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
+                                .contextMenu {
+                                    Button("删除", role: .destructive) { library.remove(source.id) }
                                 }
+                                .accessibilityAction(named: Text("删除")) { library.remove(source.id) }
                             }
-                            .pickerStyle(.menu)
+                            if library.storageFailed { Text("来源设置保存失败").foregroundStyle(.red) }
                         }
-                        .padding(16)
-                        .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
-                        .contextMenu {
-                            Button("删除", role: .destructive) { library.remove(source.id) }
-                        }
-                        .accessibilityAction(named: Text("删除")) { library.remove(source.id) }
+                        .padding(.horizontal, 20)
                     }
-                    Text("演示来源仅用于验证来源切换和页面状态，不包含真实媒体。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    if library.storageFailed { Text("来源设置保存失败").foregroundStyle(.red) }
+                    .padding(.bottom, 20)
                 }
-                .padding(.horizontal, 20)
+                .vesperImmersiveTitle("来源")
             }
-            .padding(.bottom, 20)
         }
-        .vesperImmersiveTitle("来源")
-        .sheet(isPresented: $isAdding) {
-            AddDemoSourceView { name, behavior in library.addDemo(name: name, behavior: behavior) }
+        .fileImporter(isPresented: $isImporting, allowedContentTypes: [.folder]) { result in
+            do {
+                let url = try result.get()
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let bookmark = try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
+                library.addDeviceSource(kind: .local, name: VesperLocalization.string("本地视频"), bookmark: bookmark)
+            } catch { isShowingError = true }
         }
+        .alert("无法添加来源", isPresented: $isShowingError) {
+            Button("好", role: .cancel) { }
+        } message: { Text("请检查相册访问权限或重新选择本地文件夹。") }
+        .alert("Emby", isPresented: $isShowingEmbyNotice) {
+            Button("好", role: .cancel) { }
+        } message: { Text("Emby 来源尚未接入。") }
     }
-}
 
-private struct AddDemoSourceView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var behavior = DemoSourceBehavior.content
-    let save: (String, DemoSourceBehavior) -> Void
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextField("来源名称", text: $name)
-                Picker("来源状态", selection: $behavior) {
-                    ForEach(DemoSourceBehavior.allCases) { item in
-                        Text(LocalizedStringKey(item.titleKey)).tag(item)
+    private var addMenu: some View {
+        Menu {
+            if !library.sources.contains(where: { $0.kind == .photos }) {
+                Button("相册视频", systemImage: "photo") {
+                    Task {
+                        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+                        if status == .authorized || status == .limited {
+                            library.addDeviceSource(kind: .photos, name: VesperLocalization.string("相册视频"))
+                        } else { isShowingError = true }
                     }
                 }
-                .pickerStyle(.menu)
-                Text("演示来源仅用于验证来源切换和页面状态，不包含真实媒体。")
-                    .foregroundStyle(.secondary)
             }
-            .navigationTitle("添加演示来源")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("添加") { save(name, behavior); dismiss() }
-                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
+            if !library.sources.contains(where: { $0.kind == .local }) {
+                Button("本地视频", systemImage: "folder") { isImporting = true }
             }
+            Button("Emby", systemImage: "server.rack") { isShowingEmbyNotice = true }
+        } label: {
+            Label("添加来源", systemImage: "plus")
+                .font(.body.weight(.regular))
         }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .controlSize(.large)
+        .accessibilityLabel("添加来源")
     }
 }

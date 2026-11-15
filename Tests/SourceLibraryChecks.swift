@@ -44,6 +44,15 @@ struct SourceLibraryChecks {
         let emptyRestored = SourceLibrary(defaults: defaults)
         precondition(emptyRestored.sources.isEmpty && emptyRestored.selectedID == nil)
 
+        // Device sources are unique by kind and bookmarks survive persistence.
+        library.addDeviceSource(kind: .local, name: "Local", bookmark: Data([1, 2, 3]))
+        library.addDeviceSource(kind: .local, name: "Duplicate", bookmark: Data([4]))
+        precondition(library.sources.count == 1)
+        precondition(library.sources[0].folderBookmark == Data([1, 2, 3]))
+        let deviceRestored = SourceLibrary(defaults: defaults)
+        precondition(deviceRestored.sources == library.sources)
+        library.remove(library.sources[0].id)
+
         // Adapter deliberately ignores cancellation: generation guard must still
         // reject the old source's late completion.
         let race = SourceLibrary(defaults: defaults, adapter: UncooperativeAdapter())

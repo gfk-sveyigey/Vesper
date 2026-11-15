@@ -10,12 +10,15 @@ private enum NavigationTab: Hashable {
 struct AppNavigationView: View {
     @AppStorage("navigation.icons") private var icons = "{}"
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
+    @AppStorage("navigation.hidden") private var hidden = ""
+    @AppStorage("search.recent") private var recentSearchesData = "[]"
     @State private var selection = NavigationTab.section(.media)
     @StateObject private var library = SourceLibrary()
     @State private var mediaPath = NavigationPath()
     @State private var sourcesPath = NavigationPath()
     @State private var historyPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
+    @State private var hiddenSection: AppSection?
     @State private var searchQuery = ""
     @State private var isPlayerPresented = false
     @Namespace private var playerTransition
@@ -24,6 +27,14 @@ struct AppNavigationView: View {
         var seen = Set<AppSection>()
         return (order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) } + AppSection.allCases)
             .filter { seen.insert($0).inserted }
+    }
+
+    private var visibleSections: [AppSection] {
+        sections.filter { $0 == .settings || !hidden.split(separator: ",").contains(Substring($0.rawValue)) }
+    }
+
+    private var recentSearches: [String] {
+        (try? JSONDecoder().decode([String].self, from: Data(recentSearchesData.utf8))) ?? []
     }
 
     var body: some View {
@@ -36,21 +47,42 @@ struct AppNavigationView: View {
 
     private var tabs: some View {
         TabView(selection: $selection) {
-            ForEach(sections) { section in
+            ForEach(visibleSections) { section in
                 Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
                     sectionPage(section)
                 }
             }
             Tab("搜索", systemImage: "magnifyingglass", value: NavigationTab.search, role: .search) {
                 NavigationStack {
-                    ContentUnavailableView(
-                        searchQuery.isEmpty ? "搜索媒体" : "暂无搜索结果",
-                        systemImage: "magnifyingglass"
-                    )
-                    .navigationTitle("搜索")
+                    Group {
+                        if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            if recentSearches.isEmpty {
+                                ContentUnavailableView("无最近搜索", systemImage: "clock.arrow.circlepath")
+                            } else {
+                                List {
+                                    Section("最近搜索") {
+                                        ForEach(recentSearches, id: \.self) { query in
+                                            Button { searchQuery = query; rememberSearch() } label: {
+                                                Label { Text(verbatim: query) } icon: { Image(systemName: "clock.arrow.circlepath") }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            ContentUnavailableView("暂无搜索结果", systemImage: "magnifyingglass")
+                        }
+                    }
+                    .navigationTitle(searchQuery.isEmpty ? "最近搜索" : "搜索")
                     .toolbarTitleDisplayMode(.inlineLarge)
                     .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
+                    .onSubmit(of: .search) { rememberSearch() }
                 }
+            }
+        }
+        .onChange(of: hidden) { _, _ in
+            if case let .section(section) = selection, !visibleSections.contains(section) {
+                selection = .section(.settings)
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
@@ -77,6 +109,15 @@ struct AppNavigationView: View {
         }
     }
 
+    private func rememberSearch() {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        let values = Array(([query] + recentSearches.filter { $0 != query }).prefix(20))
+        if let data = try? JSONEncoder().encode(values), let value = String(data: data, encoding: .utf8) {
+            recentSearchesData = value
+        }
+    }
+
     @ViewBuilder
     private func sectionPage(_ section: AppSection) -> some View {
         switch section {
@@ -88,7 +129,18 @@ struct AppNavigationView: View {
             NavigationStack(path: $historyPath) { HistoryView() }
         case .settings:
             NavigationStack(path: $settingsPath) {
-                SettingsView(openSection: { selection = .section($0) })
+                SettingsView(openSection: { section in
+                    if visibleSections.contains(section) { selection = .section(section) }
+                    else { hiddenSection = section }
+                })
+                .navigationDestination(item: $hiddenSection) { section in
+                    switch section {
+                    case .media: MediaView()
+                    case .sources: SourcesView()
+                    case .history: HistoryView()
+                    case .settings: EmptyView()
+                    }
+                }
             }
         }
     }

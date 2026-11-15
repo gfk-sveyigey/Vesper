@@ -148,3 +148,21 @@
 
 "测试记录 %lld" = "Testeintrag %lld";
 "滚动测试占位，不是真实观看记录。" = "Platzhalter zum Scrollen, kein echter Wiedergabeverlauf.";
+
+"最近搜索" = "Letzte Suchanfragen";
+
+"无最近搜索" = "Keine letzten Suchanfragen";
+
+"添加来源" = "Quelle hinzufügen";
+
+"相册视频" = "Videos der Fotomediathek";
+
+"本地视频" = "Lokale Videos";
+
+"无法添加来源" = "Quelle konnte nicht hinzugefügt werden";
+
+"请检查相册访问权限或重新选择本地文件夹。" = "Prüfe den Fotozugriff oder wähle den lokalen Ordner erneut.";
+
+"Emby 来源尚未接入。" = "Emby-Quellen sind noch nicht verfügbar.";
+
+"播放功能尚未接入" = "Wiedergabe ist noch nicht verfügbar";

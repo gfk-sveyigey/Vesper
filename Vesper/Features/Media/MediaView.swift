@@ -2,10 +2,11 @@ import SwiftUI
 
 struct MediaView: View {
     @EnvironmentObject private var library: SourceLibrary
+    @AppStorage("navigation.icons") private var icons = "{}"
 
     var body: some View {
         if library.selectedSource == nil {
-            VesperEmptyPage(title: "媒体", message: "未选择媒体来源", symbol: "film")
+            VesperEmptyPage(title: "媒体", message: "未选择媒体来源", symbol: AppSection.media.symbol)
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -19,7 +20,7 @@ struct MediaView: View {
                         ProgressView().frame(maxWidth: .infinity).padding(40)
                     case .loaded(let items):
                         if items.isEmpty {
-                            ContentUnavailableView("来源中暂无媒体", systemImage: "film")
+                            VesperEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
                         } else {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 20) {
                                 ForEach(items) { item in
@@ -30,7 +31,7 @@ struct MediaView: View {
                                             .frame(height: 150)
                                             .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 12))
                                         Text(verbatim: item.title).font(.headline)
-                                        Text("演示内容，不可播放").font(.caption).foregroundStyle(.secondary)
+                                        Text(library.selectedSource?.kind == .demo ? "演示内容，不可播放" : "播放功能尚未接入").font(.caption).foregroundStyle(.secondary)
                                     }
                                 }
                             }
@@ -52,35 +53,58 @@ struct MediaView: View {
     }
 }
 
-struct VesperEmptyPage: View {
+struct VesperEmptyContent: View {
+    let message: LocalizedStringKey
+    let symbol: String
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: symbol)
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text(message)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color("VesperPrimaryText"))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+    }
+}
+
+struct VesperEmptyPage<Actions: View>: View {
     let title: LocalizedStringKey
     let message: LocalizedStringKey
     let symbol: String
+    private let actions: Actions
     @Environment(\.vesperWindowTopInset) private var windowTopInset
+
+    init(title: LocalizedStringKey, message: LocalizedStringKey, symbol: String, @ViewBuilder actions: () -> Actions) {
+        self.title = title
+        self.message = message
+        self.symbol = symbol
+        self.actions = actions()
+    }
 
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    VesperLargeTitle(title: title)
+                    VesperLargeTitle(title: title) { actions }
                     Spacer(minLength: 20)
-                    VStack(spacing: 16) {
-                        Image(systemName: symbol)
-                            .font(.system(size: 48))
-                            .foregroundStyle(.secondary)
-                            .accessibilityHidden(true)
-                        Text(message)
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(Color("VesperPrimaryText"))
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 20)
+                    VesperEmptyContent(message: message, symbol: symbol)
                     Spacer(minLength: 20)
                 }
                 .frame(minHeight: max(0, geometry.size.height - windowTopInset))
             }
         }
         .vesperImmersiveTitle(title)
+    }
+}
+
+extension VesperEmptyPage where Actions == EmptyView {
+    init(title: LocalizedStringKey, message: LocalizedStringKey, symbol: String) {
+        self.init(title: title, message: message, symbol: symbol) { EmptyView() }
     }
 }

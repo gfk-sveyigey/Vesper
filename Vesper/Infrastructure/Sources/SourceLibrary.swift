@@ -1,5 +1,8 @@
 import Foundation
 import Combine
+#if canImport(Photos)
+import Photos
+#endif
 
 /// Stable identity is scoped to a source, not a title or display URL.
 struct MediaID: Hashable, Codable, Sendable {
@@ -38,10 +41,11 @@ enum DemoSourceBehavior: String, Codable, CaseIterable, Identifiable, Sendable {
 
 /// Demo is an explicit source kind; service accounts are not media sources.
 struct MediaSource: Identifiable, Codable, Equatable, Sendable {
-    enum Kind: String, Codable { case demo }
+    enum Kind: String, Codable { case demo, photos, local }
     let id: UUID
     var name: String
     let kind: Kind
+    var folderBookmark: Data? = nil
     var behavior: DemoSourceBehavior
     var capabilities: SourceCapabilities { [.browse] }
 }
@@ -56,6 +60,40 @@ protocol SourceAdapter: Sendable {
 
 struct DemoSourceAdapter: SourceAdapter {
     func media(in source: MediaSource) async throws -> [MediaItem] {
+        if source.kind == .local {
+            guard let bookmark = source.folderBookmark else { throw SourceFailure.unavailable }
+            #if os(iOS)
+            var stale = false
+            let url = try URL(resolvingBookmarkData: bookmark, options: [], bookmarkDataIsStale: &stale)
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let urls = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isRegularFileKey])
+            let extensions: Set<String> = ["mp4", "mov", "m4v", "mkv", "avi", "webm"]
+            return urls.filter { extensions.contains($0.pathExtension.lowercased()) }.sorted { $0.lastPathComponent < $1.lastPathComponent }.map {
+                MediaItem(id: MediaID(sourceID: source.id, localID: $0.lastPathComponent), title: $0.deletingPathExtension().lastPathComponent, resource: nil)
+            }
+            #else
+            throw SourceFailure.unavailable
+            #endif
+        }
+        if source.kind == .photos {
+            #if canImport(Photos)
+            let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            guard status == .authorized || status == .limited else { throw SourceFailure.unavailable }
+            let options = PHFetchOptions()
+            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            let assets = PHAsset.fetchAssets(with: .video, options: options)
+            var items: [MediaItem] = []
+            for index in 0..<assets.count {
+                let asset = assets.object(at: index)
+                let name = PHAssetResource.assetResources(for: asset).first?.originalFilename ?? asset.localIdentifier
+                items.append(MediaItem(id: MediaID(sourceID: source.id, localID: asset.localIdentifier), title: name, resource: nil))
+            }
+            return items
+            #else
+            throw SourceFailure.unavailable
+            #endif
+        }
         try await Task.sleep(for: .milliseconds(250))
         switch source.behavior {
         case .empty: return []
@@ -100,6 +138,14 @@ final class SourceLibrary: ObservableObject {
         selectedID = saved?.selectedID
         if !sources.contains(where: { $0.id == selectedID }) { selectedID = nil }
         reload()
+    }
+
+    func addDeviceSource(kind: MediaSource.Kind, name: String, bookmark: Data? = nil) {
+        guard kind != .demo, !sources.contains(where: { $0.kind == kind }) else { return }
+        let source = MediaSource(id: UUID(), name: name, kind: kind, folderBookmark: bookmark, behavior: .empty)
+        sources.append(source)
+        if selectedID == nil { selectedID = source.id; reload() }
+        persist()
     }
 
     func addDemo(name: String, behavior: DemoSourceBehavior) {
