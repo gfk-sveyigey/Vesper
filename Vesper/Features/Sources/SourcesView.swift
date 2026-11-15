@@ -63,7 +63,7 @@ struct SourcesView: View {
             Label("添加来源", systemImage: "plus.circle")
         }
         .labelStyle(.iconOnly)
-        .buttonStyle(.glass)
+        .buttonStyle(.automatic)
         .controlSize(.large)
         .frame(width: 48, height: 48)
     }

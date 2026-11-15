@@ -69,7 +69,7 @@ struct MediaView: View {
             Label("选择媒体来源", systemImage: "chevron.down")
         }
         .labelStyle(.iconOnly)
-        .buttonStyle(.glass)
+        .buttonStyle(.automatic)
         .controlSize(.large)
         .frame(width: 48, height: 48)
     }
