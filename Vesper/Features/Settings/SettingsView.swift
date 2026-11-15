@@ -442,7 +442,7 @@ struct TabSettingsView: View {
         .alert("暂不支持关闭", isPresented: $isShowingMiniPlayerAvailabilityAlert) {
             Button("好", role: .cancel) { }
         } message: {
-            Text("当前系统版本不支持关闭常显迷你播放器。请升级到 iOS 26.1 或更高版本。")
+            Text("当前系统版本低于 iOS 26.1，不支持关闭常显迷你播放器。请升级系统后再试。")
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
