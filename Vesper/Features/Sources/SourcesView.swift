@@ -11,7 +11,7 @@ struct SourcesView: View {
     @State private var isShowingEmbyNotice = false
 
     var body: some View {
-        Group {
+        ZStack {
             if library.sources.isEmpty {
                 VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol) { addMenu }
             } else {
@@ -48,6 +48,21 @@ struct SourcesView: View {
                 .vesperImmersiveTitle("来源")
             }
         }
+        .confirmationDialog("添加来源", isPresented: $isShowingAddMenu, titleVisibility: .visible) {
+            if !library.sources.contains(where: { $0.kind == .photos }) {
+                Button("相册视频") { addPhotos() }
+            }
+            if !library.sources.contains(where: { $0.kind == .local }) {
+                Button("本地视频") { isImporting = true }
+            }
+            Button("Emby") { isShowingEmbyNotice = true }
+            Button("取消", role: .cancel) { }
+        }
+        #if DEBUG
+        .onChange(of: isShowingAddMenu) { _, presented in
+            print("[SourcesView] isShowingAddMenu=\(presented)")
+        }
+        #endif
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.folder]) { result in
             do {
                 let url = try result.get()
@@ -67,6 +82,9 @@ struct SourcesView: View {
 
     private var addMenu: some View {
         Button {
+            #if DEBUG
+            print("[SourcesView] Add button tapped")
+            #endif
             isShowingAddMenu = true
         } label: {
             Label("添加来源", systemImage: "plus.circle")
@@ -75,16 +93,6 @@ struct SourcesView: View {
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
         .controlSize(.large)
-        .confirmationDialog("添加来源", isPresented: $isShowingAddMenu, titleVisibility: .visible) {
-            if !library.sources.contains(where: { $0.kind == .photos }) {
-                Button("相册视频") { addPhotos() }
-            }
-            if !library.sources.contains(where: { $0.kind == .local }) {
-                Button("本地视频") { isImporting = true }
-            }
-            Button("Emby") { isShowingEmbyNotice = true }
-            Button("取消", role: .cancel) { }
-        }
     }
 
     private func addPhotos() {
