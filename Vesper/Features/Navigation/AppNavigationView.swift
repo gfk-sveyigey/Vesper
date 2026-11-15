@@ -53,31 +53,21 @@ struct AppNavigationView: View {
     }
 
     private var tabs: some View {
-        Group {
-            if shouldShowMiniPlayer {
-                tabContent
-                    .tabViewBottomAccessory {
-                        MiniPlayerAccessory { isPlayerPresented = true }
-                            .matchedTransitionSource(id: "player", in: playerTransition)
-                    }
-            } else {
-                tabContent
-            }
-        }
-        .fullScreenCover(isPresented: $isPlayerPresented) {
-            NavigationStack {
-                ContentUnavailableView("未在播放", systemImage: "play.rectangle",
-                    description: Text("选择媒体后即可开始播放。"))
-                    .navigationTitle("播放器")
-                    .toolbarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("关闭", systemImage: "chevron.down") { isPlayerPresented = false }
+        tabContent
+            .fullScreenCover(isPresented: $isPlayerPresented) {
+                NavigationStack {
+                    ContentUnavailableView("未在播放", systemImage: "play.rectangle",
+                        description: Text("选择媒体后即可开始播放。"))
+                        .navigationTitle("播放器")
+                        .toolbarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("关闭", systemImage: "chevron.down") { isPlayerPresented = false }
+                            }
                         }
-                    }
+                }
+                .navigationTransition(.zoom(sourceID: "player", in: playerTransition))
             }
-            .navigationTransition(.zoom(sourceID: "player", in: playerTransition))
-        }
     }
 
     @ViewBuilder
@@ -123,6 +113,10 @@ struct AppNavigationView: View {
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .tabViewSearchActivation(.searchTabSelection)
+        .tabViewBottomAccessory(isEnabled: shouldShowMiniPlayer) {
+            MiniPlayerAccessory { isPlayerPresented = true }
+                .matchedTransitionSource(id: "player", in: playerTransition)
+        }
         .environmentObject(library)
         .background(VesperTheme.background.ignoresSafeArea())
     }
