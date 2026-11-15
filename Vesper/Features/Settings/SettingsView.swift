@@ -189,11 +189,6 @@ private struct RuntimeLogsView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.visible)
-        .alert("暂不支持关闭", isPresented: $isShowingMiniPlayerAvailabilityAlert) {
-            Button("好", role: .cancel) { }
-        } message: {
-            Text("当前系统版本不支持关闭常显迷你播放器。请升级到 iOS 26.1 或更高版本。")
-        }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -444,6 +439,11 @@ struct TabSettingsView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.visible)
+        .alert("暂不支持关闭", isPresented: $isShowingMiniPlayerAvailabilityAlert) {
+            Button("好", role: .cancel) { }
+        } message: {
+            Text("当前系统版本不支持关闭常显迷你播放器。请升级到 iOS 26.1 或更高版本。")
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
