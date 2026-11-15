@@ -10,7 +10,6 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 84
     @State private var scrollOffset: CGFloat = 0
     @State private var headerOffset: CGFloat = 0
-    @State private var viewportHeight: CGFloat = 0
     @State private var isCollapsed = false
     @State private var isSnapping = false
     @State private var animationGeneration = 0
@@ -38,15 +37,12 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 20)
             }
-            .frame(minHeight: viewportHeight + headerHeight, alignment: .top)
         }
-        .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
-            ScrollMetrics(offset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
-                          height: max(0, geometry.containerSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom))
-        } action: { _, metrics in
-            viewportHeight = metrics.height
-            scrollOffset = metrics.offset
-            updateHeader(at: metrics.offset)
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            max(0, geometry.contentOffset.y + geometry.contentInsets.top)
+        } action: { _, offset in
+            scrollOffset = offset
+            updateHeader(at: offset)
         }
         .onScrollPhaseChange { oldPhase, newPhase in
             if oldPhase == .interacting, newPhase != .interacting,
@@ -108,11 +104,6 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             guard generation == animationGeneration else { return }
             isSnapping = false
         }
-    }
-
-    private struct ScrollMetrics: Equatable {
-        let offset: CGFloat
-        let height: CGFloat
     }
 }
 
