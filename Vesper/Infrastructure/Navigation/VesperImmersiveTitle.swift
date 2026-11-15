@@ -3,11 +3,9 @@ import SwiftUI
 /// Root headers live in scroll content; system navigation remains available.
 private struct VesperRootNavigationTitle: ViewModifier {
     let title: LocalizedStringKey
-    @Environment(\.vesperWindowTopInset) private var windowTopInset
 
     func body(content: Content) -> some View {
         content
-            .contentMargins(.top, windowTopInset, for: .scrollContent)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarTitleDisplayMode(.inline)
