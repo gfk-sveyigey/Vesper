@@ -76,6 +76,15 @@ struct VesperNavigationStyle: ViewModifier {
 extension View {
     func vesperNavigationTitle(_ title: LocalizedStringKey) -> some View {
         navigationTitle(title)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
     }
 
     func vesperNavigationStyle(
