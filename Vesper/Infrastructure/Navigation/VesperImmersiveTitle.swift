@@ -6,17 +6,15 @@ private struct VesperRootTopEdge: ViewModifier {
     @Environment(\.vesperWindowTopInset) private var windowTopInset
 
     func body(content: Content) -> some View {
-        GeometryReader { geometry in
-            content
-                // Keep scroll content below the native bar's hit-testing area,
-                // while its viewport still extends underneath the scroll edge.
-                .contentMargins(.top, max(windowTopInset, geometry.safeAreaInsets.top), for: .scrollContent)
-                .scrollEdgeEffectStyle(.soft, for: .top)
-                .scrollEdgeEffectHidden(false, for: .top)
-                .ignoresSafeArea(.container, edges: .top)
-        }
-        .vesperNavigationTitle(title)
-        .vesperNavigationStyle(.inline)
+        content
+            // Extend the scroll viewport once and reserve only the window's
+            // status safe area, without adding the navigation bar inset again.
+            .contentMargins(.top, windowTopInset, for: .scrollContent)
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .scrollEdgeEffectHidden(false, for: .top)
+            .ignoresSafeArea(.container, edges: .top)
+            .vesperNavigationTitle(title)
+            .vesperNavigationStyle(.inline)
     }
 }
 
