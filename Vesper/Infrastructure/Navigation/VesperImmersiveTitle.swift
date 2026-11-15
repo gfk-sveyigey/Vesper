@@ -8,6 +8,7 @@ private struct VesperRootNavigationTitle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .contentMargins(.top, windowTopInset, for: .scrollContent)
+            .ignoresSafeArea(.container, edges: .top)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarTitleDisplayMode(.inline)
