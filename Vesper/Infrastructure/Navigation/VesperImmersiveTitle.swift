@@ -58,6 +58,12 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 animationGeneration += 1
                 isSnapping = false
                 isSystemScrolling = true
+                // Start revealing immediately, independently of the distance
+                // the system still has to scroll back to the top.
+                withAnimation(animation) {
+                    isCollapsed = false
+                    headerOffset = 0
+                }
             } else if newPhase == .interacting || newPhase == .idle {
                 if isSystemScrolling && scrollOffset <= 0.5 {
                     headerOffset = 0
@@ -99,13 +105,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private func updateHeader(at offset: CGFloat) {
-        if isSystemScrolling {
-            // System tab/status-bar return-to-top: reveal in the same scroll
-            // coordinate space instead of starting a delayed spring at the top.
-            headerOffset = min(offset, headerHeight)
-            isCollapsed = offset > 0.5
-            return
-        }
+        // Geometry updates must not overwrite the independent return animation.
+        guard !isSystemScrolling else { return }
         if offset <= 0.5 {
             guard headerOffset > 0 || isCollapsed || isSnapping else { return }
             animationGeneration += 1
