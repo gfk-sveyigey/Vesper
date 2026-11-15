@@ -62,12 +62,11 @@ struct SourcesView: View {
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 17, weight: .medium))
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+                .glassEffect(.regular.interactive(), in: .circle)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .controlSize(.regular)
-        .buttonSizing(.flexible)
-        .frame(width: 44, height: 44)
+        .buttonStyle(.plain)
         .accessibilityLabel("添加来源")
     }
 
