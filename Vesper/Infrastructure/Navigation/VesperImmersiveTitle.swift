@@ -10,7 +10,6 @@ private struct VesperRootNavigationTitle: ViewModifier {
         content
             .contentMargins(.top, windowTopInset, for: .scrollContent)
             .ignoresSafeArea(.container, edges: .top)
-            .background(RootNavigationTouchPassthrough().allowsHitTesting(false))
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarTitleDisplayMode(.inline)
