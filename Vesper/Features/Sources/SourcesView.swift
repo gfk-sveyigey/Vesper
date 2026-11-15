@@ -60,12 +60,14 @@ struct SourcesView: View {
             }
             Button("Emby", systemImage: "play.rectangle") { isShowingEmbyNotice = true }
         } label: {
-            Label("添加来源", systemImage: "plus.circle")
+            Image(systemName: "plus")
+                .font(.system(size: 17, weight: .medium))
+                .frame(width: 44, height: 44)
         }
-        .labelStyle(.iconOnly)
         .buttonStyle(.glass)
-        .controlSize(.large)
-        .frame(width: 48, height: 48)
+        .buttonBorderShape(.circle)
+        .controlSize(.regular)
+        .accessibilityLabel("添加来源")
     }
 
     private func addPhotos() {
