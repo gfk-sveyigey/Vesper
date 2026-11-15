@@ -53,7 +53,7 @@ struct AppNavigationView: View {
     }
 
     private var tabs: some View {
-        tabContent
+        accessoryContent
             .fullScreenCover(isPresented: $isPlayerPresented) {
                 NavigationStack {
                     ContentUnavailableView("未在播放", systemImage: "play.rectangle",
@@ -68,6 +68,25 @@ struct AppNavigationView: View {
                 }
                 .navigationTransition(.zoom(sourceID: "player", in: playerTransition))
             }
+    }
+
+    @ViewBuilder
+    private var accessoryContent: some View {
+        if #available(iOS 26.1, *) {
+            tabContent
+                .tabViewBottomAccessory(isEnabled: shouldShowMiniPlayer) {
+                    MiniPlayerAccessory { isPlayerPresented = true }
+                        .matchedTransitionSource(id: "player", in: playerTransition)
+                }
+        } else if shouldShowMiniPlayer {
+            tabContent
+                .tabViewBottomAccessory {
+                    MiniPlayerAccessory { isPlayerPresented = true }
+                        .matchedTransitionSource(id: "player", in: playerTransition)
+                }
+        } else {
+            tabContent
+        }
     }
 
     @ViewBuilder
@@ -113,10 +132,6 @@ struct AppNavigationView: View {
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .tabViewSearchActivation(.searchTabSelection)
-        .tabViewBottomAccessory(isEnabled: shouldShowMiniPlayer) {
-            MiniPlayerAccessory { isPlayerPresented = true }
-                .matchedTransitionSource(id: "player", in: playerTransition)
-        }
         .environmentObject(library)
         .background(VesperTheme.background.ignoresSafeArea())
     }
