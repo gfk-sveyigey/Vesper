@@ -67,7 +67,6 @@ struct MediaView: View {
             }
         } label: {
             Image(systemName: "chevron.down")
-                .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())
                 .glassEffect(.regular.interactive(), in: .circle)

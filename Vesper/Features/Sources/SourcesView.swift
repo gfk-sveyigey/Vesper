@@ -61,7 +61,6 @@ struct SourcesView: View {
             Button("Emby", systemImage: "play.rectangle") { isShowingEmbyNotice = true }
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())
                 .glassEffect(.regular.interactive(), in: .circle)
