@@ -68,11 +68,12 @@ struct MediaView: View {
         } label: {
             Image(systemName: "chevron.down")
                 .font(.system(size: 17, weight: .medium))
-                .frame(width: 44, height: 44)
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
         .controlSize(.regular)
+        .buttonSizing(.flexible)
+        .frame(width: 44, height: 44)
         .accessibilityLabel("选择媒体来源")
     }
 }
