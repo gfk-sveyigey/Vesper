@@ -5,14 +5,12 @@ struct MediaView: View {
     @AppStorage("navigation.icons") private var icons = "{}"
 
     var body: some View {
-        if library.selectedSource == nil {
-            VesperEmptyPage(title: "媒体", message: "未选择媒体来源", symbol: AppSection.media.symbol)
-        } else {
-            VesperRootScrollView(title: "媒体") {
-                VStack(alignment: .leading, spacing: 20) {
-                    if let source = library.selectedSource {
-                        Text(verbatim: source.name).font(.headline).padding(.horizontal, 20)
-                    }
+        VesperRootScrollView(title: "媒体") {
+            VStack(alignment: .leading, spacing: 20) {
+                if library.selectedSource == nil {
+                    VesperEmptyContent(message: "未选择媒体来源", symbol: AppSection.media.symbol)
+                        .frame(maxWidth: .infinity, minHeight: 420)
+                } else {
                     switch library.content {
                     case .unselected: EmptyView()
                     case .loading:
@@ -20,6 +18,7 @@ struct MediaView: View {
                     case .loaded(let items):
                         if items.isEmpty {
                             VesperEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
+                                .frame(maxWidth: .infinity, minHeight: 420)
                         } else {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 20) {
                                 ForEach(items) { item in
@@ -32,10 +31,10 @@ struct MediaView: View {
                                         Text(verbatim: item.title).font(.headline)
                                         Text(library.selectedSource?.kind == .demo ? "演示内容，不可播放" : "播放功能尚未接入").font(.caption).foregroundStyle(.secondary)
                                     }
+                                    }
                                 }
-                            }
                             .padding(.horizontal, 20)
-                        }
+                            }
                     case .failed(let error):
                         ContentUnavailableView {
                             Label(LocalizedStringKey(error == .offline ? "来源离线" : "无法加载来源"), systemImage: error == .offline ? "wifi.slash" : "exclamationmark.triangle")
@@ -45,8 +44,34 @@ struct MediaView: View {
                     }
                 }
             }
-            .refreshable { library.reload() }
+        } actions: {
+            if !library.sources.isEmpty {
+                mediaSourceMenu
+            }
         }
+        .refreshable { library.reload() }
+    }
+
+    private var mediaSourceMenu: some View {
+        Menu {
+            ForEach(library.sources) { source in
+                Button {
+                    library.select(source.id)
+                } label: {
+                    Label {
+                        Text(verbatim: source.name)
+                    } icon: {
+                        Image(systemName: source.id == library.selectedID ? "checkmark" : "folder")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.headline.weight(.semibold))
+                .frame(width: 48, height: 48)
+        }
+        .buttonStyle(.glass)
+        .controlSize(.large)
     }
 }
 

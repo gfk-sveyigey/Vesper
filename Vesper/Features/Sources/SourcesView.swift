@@ -64,8 +64,8 @@ struct SourcesView: View {
         }
         .labelStyle(.iconOnly)
         .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
         .controlSize(.large)
+        .frame(width: 48, height: 48)
     }
 
     private func addPhotos() {
