@@ -66,12 +66,12 @@ struct MediaView: View {
                 }
             }
         } label: {
-            Image(systemName: "chevron.down")
-                .font(.headline.weight(.semibold))
-                .frame(width: 48, height: 48)
+            Label("选择媒体来源", systemImage: "chevron.down")
         }
+        .labelStyle(.iconOnly)
         .buttonStyle(.glass)
         .controlSize(.large)
+        .frame(width: 48, height: 48)
     }
 }
 
