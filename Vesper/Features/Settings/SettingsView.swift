@@ -23,7 +23,6 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                VesperLargeTitle(title: "设置")
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("应用").font(.subheadline).foregroundStyle(.secondary)
@@ -102,7 +101,7 @@ struct SettingsView: View {
             }
             .padding(.bottom, 20)
         }
-        .vesperImmersiveTitle("设置")
+        .vesperRootNavigationTitle("设置")
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {

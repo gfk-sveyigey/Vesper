@@ -45,11 +45,7 @@ struct AppNavigationView: View {
     }
 
     var body: some View {
-        // Measure outside each NavigationStack, as in build 166, so the value
-        // describes the status safe area rather than the navigation title bar.
-        GeometryReader { geometry in
-            tabs.environment(\.vesperWindowTopInset, geometry.safeAreaInsets.top)
-        }
+        tabs
     }
 
     private var tabs: some View {

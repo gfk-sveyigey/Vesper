@@ -5,7 +5,6 @@ import UniformTypeIdentifiers
 struct SourcesView: View {
     @EnvironmentObject private var library: SourceLibrary
     @AppStorage("navigation.icons") private var icons = "{}"
-    @State private var isShowingAddMenu = false
     @State private var isImporting = false
     @State private var isShowingError = false
     @State private var isShowingEmbyNotice = false
@@ -13,11 +12,10 @@ struct SourcesView: View {
     var body: some View {
         ZStack {
             if library.sources.isEmpty {
-                VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol) { addMenu }
+                VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        VesperLargeTitle(title: "来源") { addMenu }
                         LazyVStack(spacing: 16) {
                             ForEach(library.sources) { source in
                                 Button { library.select(source.id) } label: {
@@ -45,24 +43,12 @@ struct SourcesView: View {
                     }
                     .padding(.bottom, 20)
                 }
-                .vesperImmersiveTitle("来源")
             }
         }
-        .confirmationDialog("添加来源", isPresented: $isShowingAddMenu, titleVisibility: .visible) {
-            if !library.sources.contains(where: { $0.kind == .photos }) {
-                Button("相册视频") { addPhotos() }
-            }
-            if !library.sources.contains(where: { $0.kind == .local }) {
-                Button("本地视频") { isImporting = true }
-            }
-            Button("Emby") { isShowingEmbyNotice = true }
-            Button("取消", role: .cancel) { }
+        .vesperRootNavigationTitle("来源")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { addMenu }
         }
-        #if DEBUG
-        .onChange(of: isShowingAddMenu) { _, presented in
-            print("[SourcesView] isShowingAddMenu=\(presented)")
-        }
-        #endif
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.folder]) { result in
             do {
                 let url = try result.get()
@@ -81,11 +67,14 @@ struct SourcesView: View {
     }
 
     private var addMenu: some View {
-        Button {
-            #if DEBUG
-            print("[SourcesView] Add button tapped")
-            #endif
-            isShowingAddMenu = true
+        Menu {
+            if !library.sources.contains(where: { $0.kind == .photos }) {
+                Button("相册视频", systemImage: "photo.on.rectangle") { addPhotos() }
+            }
+            if !library.sources.contains(where: { $0.kind == .local }) {
+                Button("本地视频", systemImage: "folder") { isImporting = true }
+            }
+            Button("Emby", systemImage: "play.rectangle") { isShowingEmbyNotice = true }
         } label: {
             Label("添加来源", systemImage: "plus.circle")
         }

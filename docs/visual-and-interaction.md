@@ -2,11 +2,11 @@
 
 本文件定义界面设计的原则与交互契约。品牌定位为暮色、宁静、沉浸、精致，以薰衣草紫作为识别色。完整全屏播放界面的视觉与控制布局暂不定义；标题/导航区域的紧凑播放条及系统 PiP 属于范围，应用内可拖动小窗不属于范围。
 
-## 当前导航基线（2026-11-14）
+## 当前导航基线（2026-11-15）
 
-一级标题使用滚动内容顶部的 `VesperLargeTitle`，自然随内容滚出；一级和二级导航栏均保持显示，沿用构建 166 的透明 principal 与系统自动背景，不使用自定义滚动标题动画。顶部保留系统 soft 滚动边缘效果。二级页面使用系统 inline 导航布局、返回按钮及独立 Toolbar；透明 principal 隐藏可见标题，真实标题保留用于返回历史。
+一级页面使用系统 `.toolbarTitleDisplayMode(.inlineLarge)` 导航标题及 soft 滚动边缘效果，不再使用内容内大标题、透明 principal、手工顶部安全区留白或自定义标题动画。来源添加菜单位于来源页自己的 `.topBarTrailing` Toolbar，使用原生 Menu。二级页面使用系统 inline 标题、返回按钮及独立 Toolbar。
 
-底部始终提供媒体、来源、记录、设置和独立 Search Tab。标签顺序和图标可调整，不提供多功能按钮、隐藏标签或手势配对。`tabBarMinimizeBehavior(.onScrollDown)` 由系统响应当前页面滚动；`tabViewBottomAccessory` 承载 MiniPlayer，并随系统标签栏缩至 inline。点击 MiniPlayer 使用匹配源和 zoom 转场展开。当前仅实现播放器空状态，没有播放引擎，播放控制禁用。
+底部提供媒体、来源、记录、设置和独立 Search Tab。标签顺序、图标、默认标签和显示状态可调整，设置标签始终保留；不提供多功能按钮或手势配对。`tabBarMinimizeBehavior(.onScrollDown)` 由系统响应当前页面滚动；`tabViewBottomAccessory` 承载 MiniPlayer，并随系统标签栏缩至 inline。点击 MiniPlayer 使用匹配源和 zoom 转场展开。当前仅实现播放器空状态，没有播放引擎，播放控制禁用。
 
 此基线替代下文涉及旧标签显隐、手工安全区和标题动画的历史描述。来源参考：[Apple 官方 accessory 文档](https://developer.apple.com/documentation/swiftui/view/tabviewbottomaccessory(content:))、[inlineLarge](https://developer.apple.com/documentation/swiftui/toolbartitledisplaymode/inlinelarge)、[AppleMusicBottombarSwiftUI](https://github.com/ahmetbostanciklioglu/AppleMusicBottombarSwiftUI)。
 
