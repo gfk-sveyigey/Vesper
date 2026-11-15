@@ -101,15 +101,6 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Color.clear
-                    .frame(width: 1, height: 1)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-            .sharedBackgroundVisibility(.hidden)
-        }
         .scrollEdgeEffectStyle(.soft, for: .vertical)
         .scrollEdgeEffectHidden(false, for: .vertical)
     }
