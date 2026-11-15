@@ -343,6 +343,7 @@ struct TabSettingsView: View {
     @AppStorage("navigation.defaultTab") private var defaultTab = "media"
     @AppStorage("miniPlayer.enabled") private var miniPlayerEnabled = true
     @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
+    @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
     @State private var isShowingResetConfirmation = false
     @State private var isShowingOrderSettings = false
 
@@ -381,6 +382,13 @@ struct TabSettingsView: View {
                 .pickerStyle(.menu)
             } footer: {
                 Text("打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。")
+            }
+            Section("标签栏") {
+                Toggle(isOn: $tabBarCanMinimize) {
+                    SettingsLabel("允许标签栏收缩", symbol: "arrow.down.right.and.arrow.up.left")
+                }
+            } footer: {
+                Text("关闭后，向下滚动页面时标签栏保持展开。")
             }
             Section {
                 Toggle(isOn: $miniPlayerEnabled) {

@@ -14,6 +14,7 @@ struct AppNavigationView: View {
     @AppStorage("search.recent") private var recentSearchesData = "[]"
     @AppStorage("miniPlayer.enabled") private var miniPlayerEnabled = true
     @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
+    @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
     @State private var selection: NavigationTab
     @StateObject private var library = SourceLibrary()
     @State private var mediaPath = NavigationPath()
@@ -130,7 +131,7 @@ struct AppNavigationView: View {
                 selection = .section(.settings)
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabBarMinimizeBehavior(tabBarCanMinimize ? .onScrollDown : .never)
         .tabViewSearchActivation(.searchTabSelection)
         .environmentObject(library)
         .background(VesperTheme.background.ignoresSafeArea())
