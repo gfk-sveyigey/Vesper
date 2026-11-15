@@ -98,10 +98,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             .clipped()
         }
         .ignoresSafeArea(.container, edges: .top)
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        .modifier(VesperRootNavigationDebugStyle(title: title))
         .scrollEdgeEffectStyle(.soft, for: .vertical)
         .scrollEdgeEffectHidden(false, for: .vertical)
     }
@@ -157,5 +154,119 @@ extension EnvironmentValues {
     var vesperWindowTopInset: CGFloat {
         get { self[VesperWindowTopInsetKey.self] }
         set { self[VesperWindowTopInsetKey.self] = newValue }
+    }
+}
+
+/// Keep experimental preferences local to root pages, away from destination toolbars.
+private struct VesperRootNavigationDebugStyle: ViewModifier {
+    let title: LocalizedStringKey
+    @AppStorage("debug.navigation.hidden") private var navigationHidden = false
+    @AppStorage("debug.navigation.background") private var background = "system"
+    @AppStorage("debug.navigation.titleHidden") private var titleHidden = false
+    @AppStorage("debug.navigation.emptyTitle") private var emptyTitle = false
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle(emptyTitle ? LocalizedStringKey("") : title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarTitleDisplayMode(.inline)
+            .toolbarVisibility(navigationHidden ? .hidden : .visible, for: .navigationBar)
+            .toolbarBackground(backgroundStyle, for: .navigationBar)
+            .toolbarBackgroundVisibility(background == "system" ? .automatic : .visible, for: .navigationBar)
+            .toolbar {
+                if titleHidden {
+                    ToolbarItem(placement: .principal) {
+                        Color.clear.frame(width: 1, height: 1)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                }
+            }
+            .onAppear { logConfiguration() }
+            .onChange(of: configuration) { _, _ in logConfiguration() }
+    }
+
+    private var backgroundStyle: AnyShapeStyle {
+        background == "system" ? AnyShapeStyle(.bar) : AnyShapeStyle(VesperTheme.accent(background))
+    }
+
+    private var configuration: String {
+        "hidden=\(navigationHidden) background=\(background) titleHidden=\(titleHidden) emptyTitle=\(emptyTitle)"
+    }
+
+    private func logConfiguration() {
+        AppLog.menuDiagnostic("navigation config \(configuration)")
+    }
+}
+
+struct VesperHeaderAction: Identifiable {
+    let id: String
+    let title: String
+    let symbol: String
+    let action: () -> Void
+}
+
+/// Selecting a sheet option dismisses the sheet before running its action.
+struct VesperDebugHeaderButton: View {
+    let title: LocalizedStringKey
+    let symbol: String
+    let diagnosticName: String
+    let options: [VesperHeaderAction]
+    @AppStorage("debug.navigation.presentation") private var presentation = "menu"
+    @State private var isPresented = false
+    @State private var pendingAction: (() -> Void)?
+
+    var body: some View {
+        Group {
+            if presentation == "sheet" {
+                Button {
+                    AppLog.menuDiagnostic("\(diagnosticName) sheet requested")
+                    isPresented = true
+                } label: {
+                    Label(title, systemImage: symbol)
+                }
+            } else {
+                Menu {
+                    ForEach(options) { option in
+                        Button(option.title, systemImage: option.symbol, action: option.action)
+                    }
+                } label: {
+                    Label(title, systemImage: symbol)
+                }
+            }
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.glass)
+        .controlSize(.large)
+        .frame(width: 48, height: 48)
+        .menuDiagnostics(diagnosticName)
+        .sheet(isPresented: $isPresented, onDismiss: {
+            let action = pendingAction
+            pendingAction = nil
+            action?()
+        }) {
+            NavigationStack {
+                List(options) { option in
+                    Button(option.title, systemImage: option.symbol) {
+                        pendingAction = option.action
+                        isPresented = false
+                    }
+                }
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("关闭", systemImage: "xmark") { isPresented = false }
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+            .onAppear { AppLog.menuDiagnostic("\(diagnosticName) sheet appeared") }
+        }
+        .onChange(of: presentation) { _, value in
+            AppLog.menuDiagnostic("\(diagnosticName) presentation=\(value)")
+        }
     }
 }

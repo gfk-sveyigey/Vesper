@@ -51,31 +51,29 @@ struct SourcesView: View {
     }
 
     private var addMenu: some View {
-        Menu {
-            if !library.sources.contains(where: { $0.kind == .photos }) {
-                Button("相册视频", systemImage: "photo.on.rectangle") {
-                    AppLog.menuDiagnostic("sources.add action=photos")
-                    addPhotos()
-                }
-            }
-            if !library.sources.contains(where: { $0.kind == .local }) {
-                Button("本地视频", systemImage: "folder") {
-                    AppLog.menuDiagnostic("sources.add action=local")
-                    addLocalVideos()
-                }
-            }
-            Button("Emby", systemImage: "play.rectangle") {
-                AppLog.menuDiagnostic("sources.add action=emby")
-                isShowingEmbyNotice = true
-            }
-        } label: {
-            Label("添加来源", systemImage: "plus.circle")
+        VesperDebugHeaderButton(title: "添加来源", symbol: "plus.circle",
+                                diagnosticName: "sources.add", options: addOptions)
+    }
+
+    private var addOptions: [VesperHeaderAction] {
+        var options: [VesperHeaderAction] = []
+        if !library.sources.contains(where: { $0.kind == .photos }) {
+            options.append(VesperHeaderAction(id: "photos", title: VesperLocalization.string("相册视频"), symbol: "photo.on.rectangle") {
+                AppLog.menuDiagnostic("sources.add action=photos")
+                addPhotos()
+            })
         }
-        .labelStyle(.iconOnly)
-        .buttonStyle(.glass)
-        .controlSize(.large)
-        .frame(width: 48, height: 48)
-        .menuDiagnostics("sources.add")
+        if !library.sources.contains(where: { $0.kind == .local }) {
+            options.append(VesperHeaderAction(id: "local", title: VesperLocalization.string("本地视频"), symbol: "folder") {
+                AppLog.menuDiagnostic("sources.add action=local")
+                addLocalVideos()
+            })
+        }
+        options.append(VesperHeaderAction(id: "emby", title: "Emby", symbol: "play.rectangle") {
+            AppLog.menuDiagnostic("sources.add action=emby")
+            isShowingEmbyNotice = true
+        })
+        return options
     }
 
     private func addPhotos() {
