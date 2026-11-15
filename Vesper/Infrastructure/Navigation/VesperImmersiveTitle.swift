@@ -1,23 +1,19 @@
 import SwiftUI
 
-/// Root pages use the native navigation title and top scroll-edge effect.
-private struct VesperRootNavigationTitle: ViewModifier {
-    let title: LocalizedStringKey
-
-    func body(content: Content) -> some View {
-        content
-            .navigationTitle(title)
-            .toolbarTitleDisplayMode(.inlineLarge)
-            .scrollEdgeEffectStyle(.soft, for: .top)
-            .scrollEdgeEffectHidden(false, for: .top)
-    }
-}
-
-/// Shared root scrolling with native page titles and trailing toolbar actions.
+/// Each root page owns its header state; detail navigation stays native.
 struct VesperRootScrollView<Actions: View, Content: View>: View {
     let title: LocalizedStringKey
     private let actions: Actions
     private let content: Content
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .largeTitle) private var headerHeight: CGFloat = 84
+    @State private var position = ScrollPosition()
+    @State private var scrollOffset: CGFloat = 0
+    @State private var headerOffset: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+    @State private var isCollapsed = false
+    @State private var isSnapping = false
+    @State private var animationGeneration = 0
 
     init(title: LocalizedStringKey, @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
@@ -25,33 +21,115 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         self.actions = actions()
     }
 
+    private var animation: Animation {
+        reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.38, dampingFraction: 0.88)
+    }
+
+    // Reclaim the hidden header's space near the top without changing the
+    // scroll layout on every geometry callback (which feeds back into offset).
+    private var reclaimedSpace: CGFloat {
+        isCollapsed ? max(0, headerHeight - scrollOffset) : 0
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: headerHeight)
+                    .accessibilityHidden(true)
                 content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .offset(y: -reclaimedSpace)
+                    .padding(.bottom, 20)
             }
-            .padding(.bottom, 20)
+            .frame(minHeight: viewportHeight + headerHeight, alignment: .top)
         }
-        .vesperRootNavigationTitle(title)
-        .toolbar {
-            if Actions.self != EmptyView.self {
-                ToolbarItem(placement: .topBarTrailing) {
-                    actions
-                }
+        .scrollPosition($position)
+        .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
+            ScrollMetrics(offset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
+                          height: max(0, geometry.containerSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom))
+        } action: { _, metrics in
+            viewportHeight = metrics.height
+            scrollOffset = metrics.offset
+            updateHeader(at: metrics.offset)
+        }
+        .onScrollPhaseChange { oldPhase, newPhase in
+            if newPhase == .interacting {
+                animationGeneration += 1
+                isSnapping = false
+            } else if (oldPhase == .interacting || newPhase == .idle),
+                      !isCollapsed, headerOffset > 0.5, scrollOffset > 0.5 {
+                snapHeader()
             }
         }
+        .overlay(alignment: .top) {
+            HStack(spacing: 16) {
+                Text(title)
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(Color("VesperPrimaryText"))
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                actions
+            }
+            .padding(.horizontal, 20)
+            .frame(height: headerHeight)
+            .frame(maxWidth: .infinity)
+            .background(VesperTheme.background)
+            .opacity(reduceMotion ? 1 - headerOffset / headerHeight : 1)
+            .offset(y: reduceMotion ? 0 : -headerOffset)
+            .allowsHitTesting(!isCollapsed && headerOffset < headerHeight)
+            .accessibilityHidden(isCollapsed)
+            .clipped()
+        }
+        .clipped()
+        .navigationTitle(title)
+        .toolbar(.hidden, for: .navigationBar)
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .scrollEdgeEffectHidden(false, for: .top)
+    }
+
+    private func updateHeader(at offset: CGFloat) {
+        if offset <= 0.5 {
+            guard headerOffset > 0 || isCollapsed || isSnapping else { return }
+            animationGeneration += 1
+            isSnapping = false
+            withAnimation(animation) {
+                isCollapsed = false
+                headerOffset = 0
+            }
+        } else if isCollapsed {
+            headerOffset = headerHeight
+        } else {
+            headerOffset = max(headerOffset, min(offset, headerHeight))
+        }
+    }
+
+    private func snapHeader() {
+        guard !isSnapping, !isCollapsed else { return }
+        isSnapping = true
+        animationGeneration += 1
+        let generation = animationGeneration
+        withAnimation(animation, completionCriteria: .logicallyComplete) {
+            headerOffset = headerHeight
+            if scrollOffset < headerHeight {
+                position.scrollTo(y: headerHeight)
+            }
+        } completion: {
+            guard generation == animationGeneration else { return }
+            isCollapsed = scrollOffset > 0.5
+            headerOffset = isCollapsed ? headerHeight : 0
+            isSnapping = false
+        }
+    }
+
+    private struct ScrollMetrics: Equatable {
+        let offset: CGFloat
+        let height: CGFloat
     }
 }
 
 extension VesperRootScrollView where Actions == EmptyView {
     init(title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
         self.init(title: title, content: content) { EmptyView() }
-    }
-}
-
-extension View {
-    func vesperRootNavigationTitle(_ title: LocalizedStringKey) -> some View {
-        modifier(VesperRootNavigationTitle(title: title))
     }
 }
 
