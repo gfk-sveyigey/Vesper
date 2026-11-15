@@ -53,6 +53,35 @@ struct AppNavigationView: View {
     }
 
     private var tabs: some View {
+        Group {
+            if shouldShowMiniPlayer {
+                tabContent
+                    .tabViewBottomAccessory {
+                        MiniPlayerAccessory { isPlayerPresented = true }
+                            .matchedTransitionSource(id: "player", in: playerTransition)
+                    }
+            } else {
+                tabContent
+            }
+        }
+        .fullScreenCover(isPresented: $isPlayerPresented) {
+            NavigationStack {
+                ContentUnavailableView("未在播放", systemImage: "play.rectangle",
+                    description: Text("选择媒体后即可开始播放。"))
+                    .navigationTitle("播放器")
+                    .toolbarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("关闭", systemImage: "chevron.down") { isPlayerPresented = false }
+                        }
+                    }
+            }
+            .navigationTransition(.zoom(sourceID: "player", in: playerTransition))
+        }
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
         TabView(selection: $selection) {
             ForEach(visibleSections) { section in
                 Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
@@ -94,34 +123,17 @@ struct AppNavigationView: View {
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .tabViewSearchActivation(.searchTabSelection)
-        .tabViewBottomAccessory {
-            if miniPlayerEnabled && (miniPlayerAlwaysVisible || hasPlayableContent) {
-                MiniPlayerAccessory { isPlayerPresented = true }
-                    .matchedTransitionSource(id: "player", in: playerTransition)
-            }
-        }
         .environmentObject(library)
         .background(VesperTheme.background.ignoresSafeArea())
-        .fullScreenCover(isPresented: $isPlayerPresented) {
-            NavigationStack {
-                ContentUnavailableView("未在播放", systemImage: "play.rectangle",
-                    description: Text("选择媒体后即可开始播放。"))
-                    .navigationTitle("播放器")
-                    .toolbarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("关闭", systemImage: "chevron.down") { isPlayerPresented = false }
-                        }
-                    }
-            }
-            .navigationTransition(.zoom(sourceID: "player", in: playerTransition))
-        }
     }
 
     // Playback sessions are not connected yet; this becomes true when a
     // playable session is added. The always-visible option keeps the current
     // empty accessory available until then.
     private var hasPlayableContent: Bool { false }
+    private var shouldShowMiniPlayer: Bool {
+        miniPlayerEnabled && (miniPlayerAlwaysVisible || hasPlayableContent)
+    }
 
     private func rememberSearch() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
