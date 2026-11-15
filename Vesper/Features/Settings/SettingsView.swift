@@ -382,7 +382,7 @@ struct TabSettingsView: View {
             } footer: {
                 Text("打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。")
             }
-            Section("迷你播放器") {
+            Section {
                 Toggle(isOn: $miniPlayerEnabled) {
                     SettingsLabel("启用迷你播放器", symbol: "play.rectangle")
                 }
@@ -390,6 +390,8 @@ struct TabSettingsView: View {
                     SettingsLabel("常显迷你播放器", symbol: "eye")
                 }
                 .disabled(!miniPlayerEnabled)
+            } header: {
+                Text("迷你播放器")
             } footer: {
                 Text("关闭常显后，仅在有可播放内容时显示迷你播放器。")
             }
