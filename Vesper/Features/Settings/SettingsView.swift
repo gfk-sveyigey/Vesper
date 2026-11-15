@@ -33,6 +33,12 @@ struct SettingsView: View {
                         Divider().padding(.leading, 56)
                         settingsLink(.logs, title: "运行日志", symbol: "doc.text")
                         Divider().padding(.leading, 56)
+                        placeholderSetting("播放设置", symbol: "play.circle")
+                        Divider().padding(.leading, 56)
+                        placeholderSetting("字幕设置", symbol: "captions.bubble")
+                        Divider().padding(.leading, 56)
+                        placeholderSetting("弹幕设置", symbol: "text.bubble")
+                        Divider().padding(.leading, 56)
                         HStack {
                             SettingsLabel("语言设置", symbol: "globe")
                             Spacer(minLength: 12)
@@ -109,6 +115,17 @@ struct SettingsView: View {
             .vesperNavigationTitle(route.title)
             .vesperNavigationStyle(.inline)
         }
+    }
+
+    private func placeholderSetting(_ title: LocalizedStringKey, symbol: String) -> some View {
+        HStack {
+            SettingsLabel(title, symbol: symbol)
+            Spacer()
+            Text("尚未接入")
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .contentShape(Rectangle())
     }
 
     private func settingsLink(_ route: SettingsRoute, title: LocalizedStringKey, symbol: String) -> some View {
@@ -324,6 +341,8 @@ struct TabSettingsView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.defaultTab") private var defaultTab = "media"
+    @AppStorage("miniPlayer.enabled") private var miniPlayerEnabled = true
+    @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
     @State private var isShowingResetConfirmation = false
     @State private var isShowingOrderSettings = false
 
@@ -362,6 +381,17 @@ struct TabSettingsView: View {
                 .pickerStyle(.menu)
             } footer: {
                 Text("打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。")
+            }
+            Section("迷你播放器") {
+                Toggle(isOn: $miniPlayerEnabled) {
+                    SettingsLabel("启用迷你播放器", symbol: "play.rectangle")
+                }
+                Toggle(isOn: $miniPlayerAlwaysVisible) {
+                    SettingsLabel("常显迷你播放器", symbol: "eye")
+                }
+                .disabled(!miniPlayerEnabled)
+            } footer: {
+                Text("关闭常显后，仅在有可播放内容时显示迷你播放器。")
             }
             Section("标签图标") {
                 HStack(alignment: .top, spacing: 10) {

@@ -12,6 +12,8 @@ struct AppNavigationView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("search.recent") private var recentSearchesData = "[]"
+    @AppStorage("miniPlayer.enabled") private var miniPlayerEnabled = true
+    @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
     @State private var selection: NavigationTab
     @StateObject private var library = SourceLibrary()
     @State private var mediaPath = NavigationPath()
@@ -93,8 +95,10 @@ struct AppNavigationView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .tabViewSearchActivation(.searchTabSelection)
         .tabViewBottomAccessory {
-            MiniPlayerAccessory { isPlayerPresented = true }
-                .matchedTransitionSource(id: "player", in: playerTransition)
+            if miniPlayerEnabled && (miniPlayerAlwaysVisible || hasPlayableContent) {
+                MiniPlayerAccessory { isPlayerPresented = true }
+                    .matchedTransitionSource(id: "player", in: playerTransition)
+            }
         }
         .environmentObject(library)
         .background(VesperTheme.background.ignoresSafeArea())
@@ -113,6 +117,11 @@ struct AppNavigationView: View {
             .navigationTransition(.zoom(sourceID: "player", in: playerTransition))
         }
     }
+
+    // Playback sessions are not connected yet; this becomes true when a
+    // playable session is added. The always-visible option keeps the current
+    // empty accessory available until then.
+    private var hasPlayableContent: Bool { false }
 
     private func rememberSearch() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
