@@ -53,12 +53,21 @@ struct SourcesView: View {
     private var addMenu: some View {
         Menu {
             if !library.sources.contains(where: { $0.kind == .photos }) {
-                Button("相册视频", systemImage: "photo.on.rectangle") { addPhotos() }
+                Button("相册视频", systemImage: "photo.on.rectangle") {
+                    AppLog.menuDiagnostic("sources.add action=photos")
+                    addPhotos()
+                }
             }
             if !library.sources.contains(where: { $0.kind == .local }) {
-                Button("本地视频", systemImage: "folder") { addLocalVideos() }
+                Button("本地视频", systemImage: "folder") {
+                    AppLog.menuDiagnostic("sources.add action=local")
+                    addLocalVideos()
+                }
             }
-            Button("Emby", systemImage: "play.rectangle") { isShowingEmbyNotice = true }
+            Button("Emby", systemImage: "play.rectangle") {
+                AppLog.menuDiagnostic("sources.add action=emby")
+                isShowingEmbyNotice = true
+            }
         } label: {
             Label("添加来源", systemImage: "plus.circle")
         }
@@ -66,6 +75,7 @@ struct SourcesView: View {
         .buttonStyle(.glass)
         .controlSize(.large)
         .frame(width: 48, height: 48)
+        .menuDiagnostics("sources.add")
     }
 
     private func addPhotos() {

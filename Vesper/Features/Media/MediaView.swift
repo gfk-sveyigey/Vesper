@@ -56,6 +56,7 @@ struct MediaView: View {
         Menu {
             ForEach(library.sources) { source in
                 Button {
+                    AppLog.menuDiagnostic("media.select action sourceID=\(source.id)")
                     library.select(source.id)
                 } label: {
                     Label {
@@ -72,6 +73,7 @@ struct MediaView: View {
         .buttonStyle(.glass)
         .controlSize(.large)
         .frame(width: 48, height: 48)
+        .menuDiagnostics("media.select")
     }
 }
 

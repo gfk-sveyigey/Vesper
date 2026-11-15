@@ -55,6 +55,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             updateHeader(at: metrics.offset)
         }
         .onScrollPhaseChange { oldPhase, newPhase in
+            AppLog.menuDiagnostic("root phase=\(oldPhase)->\(newPhase) scroll=\(scrollOffset) header=\(headerOffset) collapsed=\(isCollapsed) snapping=\(isSnapping) topInset=\(topInset)")
             if newPhase == .animating {
                 animationGeneration += 1
                 isSnapping = false
