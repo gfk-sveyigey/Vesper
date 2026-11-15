@@ -51,29 +51,21 @@ struct SourcesView: View {
     }
 
     private var addMenu: some View {
-        VesperDebugHeaderButton(title: "添加来源", symbol: "plus.circle",
-                                diagnosticName: "sources.add", options: addOptions)
-    }
-
-    private var addOptions: [VesperHeaderAction] {
-        var options: [VesperHeaderAction] = []
-        if !library.sources.contains(where: { $0.kind == .photos }) {
-            options.append(VesperHeaderAction(id: "photos", title: VesperLocalization.string("相册视频"), symbol: "photo.on.rectangle") {
-                AppLog.menuDiagnostic("sources.add action=photos")
-                addPhotos()
-            })
+        Menu {
+            if !library.sources.contains(where: { $0.kind == .photos }) {
+                Button("相册视频", systemImage: "photo.on.rectangle") { addPhotos() }
+            }
+            if !library.sources.contains(where: { $0.kind == .local }) {
+                Button("本地视频", systemImage: "folder") { addLocalVideos() }
+            }
+            Button("Emby", systemImage: "play.rectangle") { isShowingEmbyNotice = true }
+        } label: {
+            Label("添加来源", systemImage: "plus.circle")
         }
-        if !library.sources.contains(where: { $0.kind == .local }) {
-            options.append(VesperHeaderAction(id: "local", title: VesperLocalization.string("本地视频"), symbol: "folder") {
-                AppLog.menuDiagnostic("sources.add action=local")
-                addLocalVideos()
-            })
-        }
-        options.append(VesperHeaderAction(id: "emby", title: "Emby", symbol: "play.rectangle") {
-            AppLog.menuDiagnostic("sources.add action=emby")
-            isShowingEmbyNotice = true
-        })
-        return options
+        .labelStyle(.iconOnly)
+        .buttonStyle(.glass)
+        .controlSize(.large)
+        .frame(width: 48, height: 48)
     }
 
     private func addPhotos() {

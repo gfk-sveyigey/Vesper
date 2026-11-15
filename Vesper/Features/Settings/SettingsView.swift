@@ -2,14 +2,13 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs, debug
+    case tabs, appearance, logs
 
     var title: LocalizedStringKey {
         switch self {
         case .tabs: "标签设置"
         case .appearance: "外观设置"
         case .logs: "运行日志"
-        case .debug: "调试功能"
         }
     }
 }
@@ -33,8 +32,6 @@ struct SettingsView: View {
                         settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
                         Divider().padding(.leading, 56)
                         settingsLink(.logs, title: "运行日志", symbol: "doc.text")
-                        Divider().padding(.leading, 56)
-                        settingsLink(.debug, title: "调试功能", symbol: "ladybug")
                         Divider().padding(.leading, 56)
                         placeholderSetting("播放设置", symbol: "play.circle")
                         Divider().padding(.leading, 56)
@@ -113,7 +110,6 @@ struct SettingsView: View {
                 case .tabs: TabSettingsView()
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()
-                case .debug: NavigationDebugSettingsView()
                 }
             }
             .vesperNavigationTitle(route.title)
@@ -632,65 +628,5 @@ private struct AppIconChoices: View {
             .accessibilityAddTraits(.isSelected)
         }
         .padding(.vertical, 8)
-    }
-}
-
-private struct NavigationDebugSettingsView: View {
-    @AppStorage("debug.navigation.externalHeader") private var externalHeader = false
-    @AppStorage("debug.navigation.hidden") private var navigationHidden = false
-    @AppStorage("debug.navigation.background") private var background = "system"
-    @AppStorage("debug.navigation.titleHidden") private var titleHidden = false
-    @AppStorage("debug.navigation.emptyTitle") private var emptyTitle = false
-    @AppStorage("debug.navigation.presentation") private var presentation = "menu"
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle("隐藏导航栏", isOn: $navigationHidden)
-                Picker("导航栏背景", selection: Binding(
-                    get: { ["system", "transparent"].contains(background) ? background : "custom" },
-                    set: { background = $0 == "custom" ? "#FF0000" : $0 }
-                )) {
-                    Text("系统默认").tag("system")
-                    Text("透明").tag("transparent")
-                    Text("自定义颜色").tag("custom")
-                }
-                if !["system", "transparent"].contains(background) {
-                    ColorPicker("导航栏背景颜色", selection: Binding(
-                        get: { VesperTheme.accent(background) },
-                        set: { if let value = VesperTheme.accentIdentifier(for: $0) { background = value } }
-                    ), supportsOpacity: false)
-                }
-                Toggle("隐藏小标题", isOn: $titleHidden)
-                Toggle("小标题使用空文本", isOn: $emptyTitle)
-            } header: {
-                Text("一级页面导航栏")
-            } footer: {
-                Text("作用于媒体、来源、记录和设置首页。隐藏小标题使用透明占位；空文本会清空实际导航标题。透明仅隐藏背景，导航栏和按钮仍保留；自定义颜色会强制显示背景。二级页面和搜索页保持原样。")
-            }
-            Section {
-                Toggle("Header 置于导航栈上方", isOn: $externalHeader)
-            } footer: {
-                Text("开启后，将一级页面的大标题和按钮置于 NavigationStack 外层，验证导航栏覆盖对点击的影响。保留导航栏显隐设置和 Header 收缩逻辑；二级页面不显示这层 Header。")
-            }
-            Section {
-                Picker("按钮弹出方式", selection: $presentation) {
-                    Text("菜单").tag("menu")
-                    Text("半屏页面").tag("sheet")
-                }
-            } footer: {
-                Text("作用于来源页的添加按钮和媒体页的来源选择按钮；半屏页面使用系统 sheet。")
-            }
-            Section {
-                Button("恢复调试默认值") {
-                    externalHeader = false
-                    navigationHidden = false
-                    background = "system"
-                    titleHidden = false
-                    emptyTitle = false
-                    presentation = "menu"
-                }
-            }
-        }
     }
 }

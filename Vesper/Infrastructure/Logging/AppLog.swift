@@ -1,20 +1,10 @@
 import Foundation
 import Combine
-import SwiftUI
 
 /// Runtime log storage remains available for future recording points.
 @MainActor
 enum AppLog {
     static let runtimeEntries = RuntimeLogEntries()
-
-    static func menuDiagnostic(_ message: String) {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let timestamp = formatter.string(from: Date())
-        let line = "\(timestamp) [MenuDiagnostic] \(message)"
-        print(line)
-        runtimeEntries.append(line)
-    }
 }
 
 @MainActor
@@ -160,22 +150,5 @@ struct RuntimeLogEntry: Codable, Identifiable {
         self.id = id
         self.timestamp = timestamp
         self.message = message
-    }
-}
-
-/// Temporary diagnostics: a simultaneous tap observes recognition, not raw
-/// touch delivery or whether SwiftUI actually presented the menu.
-extension View {
-    func menuDiagnostics(_ name: String) -> some View {
-        onGeometryChange(for: CGRect.self) { proxy in
-            proxy.frame(in: .global)
-        } action: { frame in
-            AppLog.menuDiagnostic("\(name) globalFrame=\(frame)")
-        }
-        .simultaneousGesture(TapGesture().onEnded {
-            AppLog.menuDiagnostic("\(name) simultaneous tap recognized; presentation unconfirmed")
-        })
-        .onAppear { AppLog.menuDiagnostic("\(name) appeared") }
-        .onDisappear { AppLog.menuDiagnostic("\(name) disappeared") }
     }
 }

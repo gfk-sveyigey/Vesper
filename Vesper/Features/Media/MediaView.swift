@@ -53,17 +53,26 @@ struct MediaView: View {
     }
 
     private var mediaSourceMenu: some View {
-        VesperDebugHeaderButton(title: "选择媒体来源", symbol: "chevron.down",
-                                diagnosticName: "media.select",
-                                options: library.sources.map { source in
-            VesperHeaderAction(id: source.id.uuidString, title: source.name,
-                               symbol: source.id == library.selectedID ? "checkmark" : "folder") {
-                AppLog.menuDiagnostic("media.select action sourceID=\(source.id)")
-                library.select(source.id)
+        Menu {
+            ForEach(library.sources) { source in
+                Button {
+                    library.select(source.id)
+                } label: {
+                    Label {
+                        Text(verbatim: source.name)
+                    } icon: {
+                        Image(systemName: source.id == library.selectedID ? "checkmark" : "folder")
+                    }
+                }
             }
-        })
+        } label: {
+            Label("选择媒体来源", systemImage: "chevron.down")
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.glass)
+        .controlSize(.large)
+        .frame(width: 48, height: 48)
     }
-
 }
 
 struct VesperEmptyContent: View {
