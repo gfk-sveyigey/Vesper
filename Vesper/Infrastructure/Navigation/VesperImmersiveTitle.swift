@@ -40,6 +40,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .padding(.bottom, 20)
             }
         }
+        .scrollClipDisabled()
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .scrollDisabled(!canScroll)
         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
@@ -89,14 +90,12 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             .frame(height: headerContentHeight)
             .padding(.top, topInset)
             .frame(maxWidth: .infinity)
-            .background(VesperTheme.background)
             .opacity(reduceMotion ? 1 - headerOffset / headerHeight : 1)
             .offset(y: reduceMotion ? 0 : -headerOffset)
             .allowsHitTesting(!isCollapsed && headerOffset < headerHeight)
             .accessibilityHidden(isCollapsed)
             .clipped()
         }
-        .clipped()
         .ignoresSafeArea(.container, edges: .top)
         .navigationTitle(title)
         .toolbar(.hidden, for: .navigationBar)
