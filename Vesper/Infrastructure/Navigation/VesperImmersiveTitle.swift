@@ -7,9 +7,11 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let content: Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var topInset
-    @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 84
+    @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
     @State private var scrollOffset: CGFloat = 0
     @State private var headerOffset: CGFloat = 0
+    @State private var canScroll = false
+    @State private var isSystemScrolling = false
     @State private var isCollapsed = false
     @State private var isSnapping = false
     @State private var animationGeneration = 0
@@ -38,13 +40,31 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .padding(.bottom, 20)
             }
         }
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            max(0, geometry.contentOffset.y + geometry.contentInsets.top)
-        } action: { _, offset in
-            scrollOffset = offset
-            updateHeader(at: offset)
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+        .scrollDisabled(!canScroll)
+        .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
+            ScrollMetrics(
+                offset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
+                canScroll: geometry.contentSize.height + geometry.contentInsets.top
+                    + geometry.contentInsets.bottom > geometry.containerSize.height + 1
+            )
+        } action: { _, metrics in
+            canScroll = metrics.canScroll
+            scrollOffset = metrics.offset
+            updateHeader(at: metrics.offset)
         }
         .onScrollPhaseChange { oldPhase, newPhase in
+            if newPhase == .animating {
+                animationGeneration += 1
+                isSnapping = false
+                isSystemScrolling = true
+            } else if newPhase == .interacting || newPhase == .idle {
+                if isSystemScrolling && scrollOffset <= 0.5 {
+                    headerOffset = 0
+                    isCollapsed = false
+                }
+                isSystemScrolling = false
+            }
             if oldPhase == .interacting, newPhase != .interacting,
                !isCollapsed, headerOffset > 0.5, scrollOffset > 0.5 {
                 snapHeader()
@@ -79,6 +99,13 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private func updateHeader(at offset: CGFloat) {
+        if isSystemScrolling {
+            // System tab/status-bar return-to-top: reveal in the same scroll
+            // coordinate space instead of starting a delayed spring at the top.
+            headerOffset = min(offset, headerHeight)
+            isCollapsed = offset > 0.5
+            return
+        }
         if offset <= 0.5 {
             guard headerOffset > 0 || isCollapsed || isSnapping else { return }
             animationGeneration += 1
@@ -105,6 +132,12 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             isSnapping = false
         }
     }
+
+    private struct ScrollMetrics: Equatable {
+        let offset: CGFloat
+        let canScroll: Bool
+    }
+
 }
 
 extension VesperRootScrollView where Actions == EmptyView {
