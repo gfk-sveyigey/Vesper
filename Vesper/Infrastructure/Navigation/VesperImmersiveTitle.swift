@@ -8,6 +8,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var topInset
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
+    @AppStorage("debug.navigation.externalHeader") private var externalHeader = false
     @State private var scrollOffset: CGFloat = 0
     @State private var headerOffset: CGFloat = 0
     @State private var canScroll = false
@@ -79,28 +80,33 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
         }
         .overlay(alignment: .top) {
-            HStack(spacing: 16) {
-                Text(title)
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(Color("VesperPrimaryText"))
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-                actions
-            }
-            .padding(.horizontal, 20)
-            .frame(height: headerContentHeight)
-            .padding(.top, topInset)
-            .frame(maxWidth: .infinity)
-            .opacity(reduceMotion ? 1 - headerOffset / headerHeight : 1)
-            .offset(y: reduceMotion ? 0 : -headerOffset)
-            .allowsHitTesting(!isCollapsed && headerOffset < headerHeight)
-            .accessibilityHidden(isCollapsed)
-            .clipped()
+            if !externalHeader { header }
         }
+        .preference(key: VesperRootHeaderKey.self, value: externalHeader ? AnyView(header) : nil)
         .ignoresSafeArea(.container, edges: .top)
         .modifier(VesperRootNavigationDebugStyle(title: title))
         .scrollEdgeEffectStyle(.soft, for: .vertical)
         .scrollEdgeEffectHidden(false, for: .vertical)
+    }
+
+    private var header: some View {
+        HStack(spacing: 16) {
+            Text(title)
+                .font(.largeTitle.bold())
+                .foregroundStyle(Color("VesperPrimaryText"))
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 0)
+            actions
+        }
+        .padding(.horizontal, 20)
+        .frame(height: headerContentHeight)
+        .padding(.top, topInset)
+        .frame(maxWidth: .infinity)
+        .opacity(reduceMotion ? 1 - headerOffset / headerHeight : 1)
+        .offset(y: reduceMotion ? 0 : -headerOffset)
+        .allowsHitTesting(!isCollapsed && headerOffset < headerHeight)
+        .accessibilityHidden(isCollapsed)
+        .clipped()
     }
 
     private func updateHeader(at offset: CGFloat) {
@@ -172,7 +178,7 @@ private struct VesperRootNavigationDebugStyle: ViewModifier {
             .toolbarTitleDisplayMode(.inline)
             .toolbarVisibility(navigationHidden ? .hidden : .visible, for: .navigationBar)
             .toolbarBackground(backgroundStyle, for: .navigationBar)
-            .toolbarBackgroundVisibility(background == "system" ? .automatic : .visible, for: .navigationBar)
+            .toolbarBackgroundVisibility(backgroundVisibility, for: .navigationBar)
             .toolbar {
                 if titleHidden {
                     ToolbarItem(placement: .principal) {
@@ -187,8 +193,20 @@ private struct VesperRootNavigationDebugStyle: ViewModifier {
             .onChange(of: configuration) { _, _ in logConfiguration() }
     }
 
+    private var backgroundVisibility: Visibility {
+        switch background {
+        case "system": .automatic
+        case "transparent": .hidden
+        default: .visible
+        }
+    }
+
     private var backgroundStyle: AnyShapeStyle {
-        background == "system" ? AnyShapeStyle(.bar) : AnyShapeStyle(VesperTheme.accent(background))
+        switch background {
+        case "system": AnyShapeStyle(.bar)
+        case "transparent": AnyShapeStyle(Color.clear)
+        default: AnyShapeStyle(VesperTheme.accent(background))
+        }
     }
 
     private var configuration: String {
@@ -268,5 +286,33 @@ struct VesperDebugHeaderButton: View {
         .onChange(of: presentation) { _, value in
             AppLog.menuDiagnostic("\(diagnosticName) presentation=\(value)")
         }
+    }
+}
+
+/// Publish the actual Header view, including its scroll offset and actions, to
+/// the enclosing stack. No UIKit hit-testing or navigation gesture changes.
+private struct VesperRootHeaderKey: PreferenceKey {
+    static var defaultValue: AnyView? { nil }
+
+    static func reduce(value: inout AnyView?, nextValue: () -> AnyView?) {
+        if let next = nextValue() { value = next }
+    }
+}
+
+struct VesperNavigationHeaderLayer: ViewModifier {
+    let isRoot: Bool
+    @AppStorage("debug.navigation.externalHeader") private var externalHeader = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlayPreferenceValue(VesperRootHeaderKey.self, alignment: .top) { header in
+                if externalHeader && isRoot, let header {
+                    header
+                        .ignoresSafeArea(.container, edges: .top)
+                }
+            }
+            .onChange(of: externalHeader) { _, enabled in
+                AppLog.menuDiagnostic("navigation externalHeader=\(enabled)")
+            }
     }
 }

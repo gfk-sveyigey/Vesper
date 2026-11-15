@@ -159,14 +159,18 @@ struct AppNavigationView: View {
         switch section {
         case .media:
             NavigationStack(path: $mediaPath) { MediaView() }
+                .modifier(VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty))
         case .sources:
             NavigationStack(path: $sourcesPath) { SourcesView() }
+                .modifier(VesperNavigationHeaderLayer(isRoot: sourcesPath.isEmpty))
         case .history:
             NavigationStack(path: $historyPath) { HistoryView() }
+                .modifier(VesperNavigationHeaderLayer(isRoot: historyPath.isEmpty))
         case .settings:
             NavigationStack(path: $settingsPath) {
                 SettingsView()
             }
+            .modifier(VesperNavigationHeaderLayer(isRoot: settingsPath.isEmpty))
         }
     }
 }

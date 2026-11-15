@@ -636,6 +636,7 @@ private struct AppIconChoices: View {
 }
 
 private struct NavigationDebugSettingsView: View {
+    @AppStorage("debug.navigation.externalHeader") private var externalHeader = false
     @AppStorage("debug.navigation.hidden") private var navigationHidden = false
     @AppStorage("debug.navigation.background") private var background = "system"
     @AppStorage("debug.navigation.titleHidden") private var titleHidden = false
@@ -647,13 +648,14 @@ private struct NavigationDebugSettingsView: View {
             Section {
                 Toggle("隐藏导航栏", isOn: $navigationHidden)
                 Picker("导航栏背景", selection: Binding(
-                    get: { background == "system" ? "system" : "custom" },
-                    set: { background = $0 == "system" ? "system" : "#FF0000" }
+                    get: { ["system", "transparent"].contains(background) ? background : "custom" },
+                    set: { background = $0 == "custom" ? "#FF0000" : $0 }
                 )) {
                     Text("系统默认").tag("system")
+                    Text("透明").tag("transparent")
                     Text("自定义颜色").tag("custom")
                 }
-                if background != "system" {
+                if !["system", "transparent"].contains(background) {
                     ColorPicker("导航栏背景颜色", selection: Binding(
                         get: { VesperTheme.accent(background) },
                         set: { if let value = VesperTheme.accentIdentifier(for: $0) { background = value } }
@@ -664,7 +666,12 @@ private struct NavigationDebugSettingsView: View {
             } header: {
                 Text("一级页面导航栏")
             } footer: {
-                Text("作用于媒体、来源、记录和设置首页。隐藏小标题使用透明占位；空文本会清空实际导航标题。自定义背景颜色会强制显示导航栏背景。二级页面和搜索页保持原样。")
+                Text("作用于媒体、来源、记录和设置首页。隐藏小标题使用透明占位；空文本会清空实际导航标题。透明仅隐藏背景，导航栏和按钮仍保留；自定义颜色会强制显示背景。二级页面和搜索页保持原样。")
+            }
+            Section {
+                Toggle("Header 置于导航栈上方", isOn: $externalHeader)
+            } footer: {
+                Text("开启后，将一级页面的大标题和按钮置于 NavigationStack 外层，验证导航栏覆盖对点击的影响。保留导航栏显隐设置和 Header 收缩逻辑；二级页面不显示这层 Header。")
             }
             Section {
                 Picker("按钮弹出方式", selection: $presentation) {
@@ -676,6 +683,7 @@ private struct NavigationDebugSettingsView: View {
             }
             Section {
                 Button("恢复调试默认值") {
+                    externalHeader = false
                     navigationHidden = false
                     background = "system"
                     titleHidden = false
