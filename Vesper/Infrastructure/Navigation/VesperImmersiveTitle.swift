@@ -99,7 +99,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .ignoresSafeArea(.container, edges: .top)
         .navigationTitle(title)
         .toolbar(.hidden, for: .navigationBar)
-        .scrollEdgeEffectStyle(.hard, for: .vertical)
+        .scrollEdgeEffectStyle(.soft, for: .vertical)
         .scrollEdgeEffectHidden(false, for: .vertical)
     }
 
