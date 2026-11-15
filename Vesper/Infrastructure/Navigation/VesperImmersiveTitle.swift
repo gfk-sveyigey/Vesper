@@ -100,8 +100,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .ignoresSafeArea(.container, edges: .top)
         .navigationTitle(title)
         .toolbar(.hidden, for: .navigationBar)
-        .scrollEdgeEffectStyle(.soft, for: .top)
-        .scrollEdgeEffectHidden(false, for: .top)
+        .scrollEdgeEffectStyle(.soft, for: .vertical)
+        .scrollEdgeEffectHidden(false, for: .vertical)
     }
 
     private func updateHeader(at offset: CGFloat) {
