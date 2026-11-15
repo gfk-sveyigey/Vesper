@@ -64,33 +64,28 @@ extension VesperLargeTitle where Actions == EmptyView {
 struct VesperRootScrollView<Actions: View, Content: View>: View {
     let title: LocalizedStringKey
     private let actions: Actions
-    private let content: (CGFloat) -> Content
-    @Environment(\.vesperWindowTopInset) private var windowTopInset
-    @State private var headerHeight: CGFloat = 72
+    private let content: Content
 
-    init(title: LocalizedStringKey, @ViewBuilder content: @escaping (CGFloat) -> Content, @ViewBuilder actions: () -> Actions) {
+    init(title: LocalizedStringKey, @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
-        self.content = content
+        self.content = content()
         self.actions = actions()
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    VesperLargeTitle(title: title) { actions }
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
-                    content(max(0, geometry.size.height - windowTopInset - headerHeight - 40))
-                }
-                .padding(.bottom, 20)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VesperLargeTitle(title: title) { actions }
+                content
             }
+            .padding(.bottom, 20)
         }
         .vesperRootNavigationTitle(title)
     }
 }
 
 extension VesperRootScrollView where Actions == EmptyView {
-    init(title: LocalizedStringKey, @ViewBuilder content: @escaping (CGFloat) -> Content) {
+    init(title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
         self.init(title: title, content: content) { EmptyView() }
     }
 }

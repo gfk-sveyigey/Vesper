@@ -8,7 +8,7 @@ struct MediaView: View {
         if library.selectedSource == nil {
             VesperEmptyPage(title: "媒体", message: "未选择媒体来源", symbol: AppSection.media.symbol)
         } else {
-            VesperRootScrollView(title: "媒体") { _ in
+            VesperRootScrollView(title: "媒体") {
                 VStack(alignment: .leading, spacing: 20) {
                     if let source = library.selectedSource {
                         Text(verbatim: source.name).font(.headline).padding(.horizontal, 20)
@@ -84,9 +84,9 @@ struct VesperEmptyPage<Actions: View>: View {
     }
 
     var body: some View {
-        VesperRootScrollView(title: title) { availableHeight in
+        VesperRootScrollView(title: title) {
             VesperEmptyContent(message: message, symbol: symbol)
-                .frame(minHeight: availableHeight)
+                .frame(maxWidth: .infinity, minHeight: 420)
         } actions: {
             actions
         }

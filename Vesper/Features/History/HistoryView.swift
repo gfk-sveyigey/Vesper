@@ -7,7 +7,7 @@ struct HistoryView: View {
         if testRows.isEmpty {
             VesperEmptyPage(title: "记录", message: "无记录", symbol: AppSection.history.symbol)
         } else {
-            VesperRootScrollView(title: "记录") { _ in
+            VesperRootScrollView(title: "记录") {
                 LazyVStack(spacing: 12) {
                     ForEach(testRows, id: \.self) { index in
                         HStack(spacing: 16) {

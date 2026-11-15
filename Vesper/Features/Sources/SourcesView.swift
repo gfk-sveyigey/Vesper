@@ -14,7 +14,7 @@ struct SourcesView: View {
             if library.sources.isEmpty {
                 VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol) { addMenu }
             } else {
-                VesperRootScrollView(title: "来源") { _ in
+                VesperRootScrollView(title: "来源") {
                     LazyVStack(spacing: 16) {
                         ForEach(library.sources) { source in
                             Button { library.select(source.id) } label: {

@@ -21,7 +21,7 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VesperRootScrollView(title: "设置") { _ in
+        VesperRootScrollView(title: "设置") {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("应用").font(.subheadline).foregroundStyle(.secondary)
