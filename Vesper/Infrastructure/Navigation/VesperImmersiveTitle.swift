@@ -10,7 +10,6 @@ private struct VesperRootNavigationTitle: ViewModifier {
         content
             .contentMargins(.top, windowTopInset, for: .scrollContent)
             .ignoresSafeArea(.container, edges: .top)
-            .background(RootNavigationTouchPassthrough().allowsHitTesting(false))
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarTitleDisplayMode(.inline)
@@ -104,91 +103,5 @@ extension EnvironmentValues {
     var vesperWindowTopInset: CGFloat {
         get { self[VesperWindowTopInsetKey.self] }
         set { self[VesperWindowTopInsetKey.self] = newValue }
-    }
-}
-
-/// Lets scroll-content controls receive touches in the root page's title area.
-/// The bridge is scoped to a root navigation page and restores the bar before
-/// a detail page appears, so native back buttons and interactive pop remain
-/// fully managed by UIKit.
-private struct RootNavigationTouchPassthrough: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> Controller { Controller() }
-
-    func updateUIViewController(_ controller: Controller, context: Context) {
-        controller.updateInteraction()
-    }
-
-    static func dismantleUIViewController(_ controller: Controller, coordinator: ()) {
-        controller.restoreInteraction()
-    }
-
-    final class Controller: UIViewController {
-        private var isPageVisible = false
-        private weak var managedBar: UINavigationBar?
-        private var previousInteraction: Bool?
-
-        override func loadView() {
-            let passthroughView = PassthroughView()
-            passthroughView.backgroundColor = .clear
-            view = passthroughView
-        }
-
-        override func viewWillAppear(_ animated: Bool) {
-            super.viewWillAppear(animated)
-            isPageVisible = true
-            updateInteraction()
-        }
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            isPageVisible = true
-            updateInteraction()
-        }
-
-        override func viewDidLayoutSubviews() {
-            super.viewDidLayoutSubviews()
-            updateInteraction()
-        }
-
-        override func viewWillDisappear(_ animated: Bool) {
-            isPageVisible = false
-            restoreInteraction()
-            super.viewWillDisappear(animated)
-        }
-
-        func updateInteraction() {
-            guard isPageVisible,
-                  let navigation = navigationController,
-                  navigation.viewControllers.count == 1 else {
-                restoreInteraction()
-                return
-            }
-
-            let bar = navigation.navigationBar
-            if managedBar !== bar {
-                restoreInteraction()
-                managedBar = bar
-                previousInteraction = bar.isUserInteractionEnabled
-            }
-            bar.isUserInteractionEnabled = false
-        }
-
-        func restoreInteraction() {
-            if let bar = managedBar, let previousInteraction {
-                bar.isUserInteractionEnabled = previousInteraction
-            }
-            managedBar = nil
-            previousInteraction = nil
-        }
-    }
-
-    private final class PassthroughView: UIView {
-        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-            false
-        }
-
-        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-            nil
-        }
     }
 }
