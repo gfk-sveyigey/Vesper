@@ -8,9 +8,26 @@ struct SourcesView: View {
     @State private var isShowingEmbyNotice = false
 
     var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                addMenu
+            }
+            .padding(.horizontal, 20)
+            scrollContent
+        }
+        .alert("无法添加来源", isPresented: $isShowingError) {
+            Button("好", role: .cancel) { }
+        } message: { Text("请检查相册访问权限或本地视频文件。") }
+        .alert("Emby", isPresented: $isShowingEmbyNotice) {
+            Button("好", role: .cancel) { }
+        } message: { Text("Emby 来源尚未接入。") }
+    }
+
+    private var scrollContent: some View {
         ZStack {
             if library.sources.isEmpty {
-                VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol) { addMenu }
+                VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol)
             } else {
                 VesperRootScrollView(title: "来源") {
                     LazyVStack(spacing: 16) {
@@ -37,17 +54,10 @@ struct SourcesView: View {
                         if library.storageFailed { Text("来源设置保存失败").foregroundStyle(.red) }
                     }
                     .padding(.horizontal, 20)
-                } actions: {
-                    addMenu
                 }
             }
         }
-        .alert("无法添加来源", isPresented: $isShowingError) {
-            Button("好", role: .cancel) { }
-        } message: { Text("请检查相册访问权限或本地视频文件。") }
-        .alert("Emby", isPresented: $isShowingEmbyNotice) {
-            Button("好", role: .cancel) { }
-        } message: { Text("Emby 来源尚未接入。") }
+
     }
 
     private var addMenu: some View {

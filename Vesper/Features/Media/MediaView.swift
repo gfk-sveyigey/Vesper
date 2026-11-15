@@ -5,6 +5,19 @@ struct MediaView: View {
     @AppStorage("navigation.icons") private var icons = "{}"
 
     var body: some View {
+        VStack(spacing: 0) {
+            if !library.sources.isEmpty {
+                HStack {
+                    Spacer()
+                    mediaSourceMenu
+                }
+                .padding(.horizontal, 20)
+            }
+            scrollContent
+        }
+    }
+
+    private var scrollContent: some View {
         VesperRootScrollView(title: "媒体") {
             VStack(alignment: .leading, spacing: 20) {
                 if library.selectedSource == nil {
@@ -43,10 +56,6 @@ struct MediaView: View {
                         }
                     }
                 }
-            }
-        } actions: {
-            if !library.sources.isEmpty {
-                mediaSourceMenu
             }
         }
         .refreshable { library.reload() }
