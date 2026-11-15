@@ -166,3 +166,11 @@
 "Emby 来源尚未接入。" = "Les sources Emby ne sont pas encore disponibles.";
 
 "播放功能尚未接入" = "La lecture n’est pas encore disponible";
+
+"默认标签页" = "Onglet par défaut";
+
+"关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。" = "Désactiver un onglet le retire de la barre et peut rendre sa page inaccessible ailleurs. Réactivez-le ici si nécessaire. Réglages reste toujours disponible.";
+
+"打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。" = "Afficher cet onglet au lancement. Un onglet masqué ne peut pas être défini par défaut.";
+
+"将恢复标签的排列顺序、图标、显示状态和默认标签页。" = "L’ordre, les icônes, la visibilité et l’onglet par défaut seront réinitialisés.";

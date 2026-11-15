@@ -14,7 +14,6 @@ private enum SettingsRoute: Hashable {
 }
 
 struct SettingsView: View {
-    let openSection: (AppSection) -> Void
     @AppStorage("language.code") private var languageCode = "system"
 
     private var version: String {
@@ -52,10 +51,14 @@ struct SettingsView: View {
                                 } label: { SettingsLabel("语言设置", symbol: "globe") }
                                 .pickerStyle(.menu)
                                 .labelsHidden()
+                                .buttonStyle(.plain)
+                                .fixedSize(horizontal: true, vertical: false)
                             }
-                            .padding(16)
+                            .padding(.leading, 16)
+                            .padding(.trailing, 8)
+                            .padding(.vertical, 16)
                         }
-                        .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
+                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("后续功能").font(.subheadline).foregroundStyle(.secondary)
@@ -87,7 +90,7 @@ struct SettingsView: View {
                                 Text("尚未连接").foregroundStyle(.secondary)
                             }.padding(16)
                         }
-                        .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
+                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                         Text("播放器和外部服务将在对应阶段接入，当前不会提供无效的开关或连接按钮。")
                             .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16)
                     }
@@ -103,7 +106,7 @@ struct SettingsView: View {
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
-                case .tabs: TabSettingsView(openSection: openSection)
+                case .tabs: TabSettingsView()
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()
                 }
@@ -323,9 +326,9 @@ private struct AppearanceSettingsView: View {
 
 struct TabSettingsView: View {
     @AppStorage("navigation.icons") private var icons = "{}"
-    let openSection: (AppSection) -> Void
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
+    @AppStorage("navigation.defaultTab") private var defaultTab = "media"
     @State private var isShowingResetConfirmation = false
     @State private var isShowingOrderSettings = false
 
@@ -338,7 +341,7 @@ struct TabSettingsView: View {
         List {
             SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "调整标签排列顺序和图标。")
 
-            Section("显示标签") {
+            Section {
                 ForEach(sections.filter { $0 != .settings }) { section in
                     Toggle(isOn: Binding(
                         get: { !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
@@ -346,16 +349,24 @@ struct TabSettingsView: View {
                             var values = Set(hidden.split(separator: ",").map(String.init))
                             if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
                             hidden = values.sorted().joined(separator: ",")
+                            if !visible && defaultTab == section.rawValue { defaultTab = "settings" }
                         }
                     )) { SettingsLabel(LocalizedStringKey(section.title), symbol: section.symbol) }
                 }
+            } header: {
+                Text("显示标签")
+            } footer: {
+                Text("关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。")
             }
-            Section("跳转标签") {
-                ForEach(sections.filter { $0 != .settings }) { section in
-                    Button { openSection(section) } label: {
-                        SettingsLabel(LocalizedStringKey(section.title), symbol: section.symbol)
+            Section {
+                Picker("默认标签页", selection: $defaultTab) {
+                    ForEach(sections.filter { $0 == .settings || !hidden.split(separator: ",").contains(Substring($0.rawValue)) }) { section in
+                        Text(section.title).tag(section.rawValue)
                     }
                 }
+                .pickerStyle(.menu)
+            } footer: {
+                Text("打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。")
             }
             Section("标签图标") {
                 HStack(alignment: .top, spacing: 10) {
@@ -407,10 +418,11 @@ struct TabSettingsView: View {
                 order = "media,sources,history,settings"
                 icons = "{}"
                 hidden = ""
+                defaultTab = "media"
             }
             Button("取消", role: .cancel) { }
         } message: {
-            Text("将恢复标签的排列顺序和图标。")
+            Text("将恢复标签的排列顺序、图标、显示状态和默认标签页。")
         }
         .sheet(isPresented: $isShowingOrderSettings) {
             NavigationStack {

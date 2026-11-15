@@ -166,3 +166,11 @@
 "Emby 来源尚未接入。" = "Emby sources are not available yet.";
 
 "播放功能尚未接入" = "Playback is not available yet";
+
+"默认标签页" = "Default Tab";
+
+"关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。" = "Turning a tab off removes it from the tab bar and may leave no other way to open that page. Turn it back on here when needed. Settings always remains available.";
+
+"打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。" = "Open the selected tab when the app starts. Hidden tabs cannot be the default.";
+
+"将恢复标签的排列顺序、图标、显示状态和默认标签页。" = "Tab order, icons, visibility and the default tab will be reset.";

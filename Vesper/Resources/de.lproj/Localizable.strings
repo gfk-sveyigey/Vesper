@@ -166,3 +166,11 @@
 "Emby 来源尚未接入。" = "Emby-Quellen sind noch nicht verfügbar.";
 
 "播放功能尚未接入" = "Wiedergabe ist noch nicht verfügbar";
+
+"默认标签页" = "Standardtab";
+
+"关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。" = "Ausgeblendete Tabs werden aus der Tableiste entfernt. Die Seite ist dann möglicherweise nicht anders erreichbar. Aktiviere sie bei Bedarf hier erneut. Einstellungen bleibt verfügbar.";
+
+"打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。" = "Beim App-Start den ausgewählten Tab öffnen. Ausgeblendete Tabs können nicht als Standard verwendet werden.";
+
+"将恢复标签的排列顺序、图标、显示状态和默认标签页。" = "Reihenfolge, Symbole, Sichtbarkeit und Standardtab werden zurückgesetzt.";

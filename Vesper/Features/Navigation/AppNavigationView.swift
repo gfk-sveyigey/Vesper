@@ -12,16 +12,23 @@ struct AppNavigationView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("search.recent") private var recentSearchesData = "[]"
-    @State private var selection = NavigationTab.section(.media)
+    @State private var selection: NavigationTab
     @StateObject private var library = SourceLibrary()
     @State private var mediaPath = NavigationPath()
     @State private var sourcesPath = NavigationPath()
     @State private var historyPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
-    @State private var hiddenSection: AppSection?
     @State private var searchQuery = ""
     @State private var isPlayerPresented = false
     @Namespace private var playerTransition
+
+    init() {
+        let defaults = UserDefaults.standard
+        let preferred = AppSection(rawValue: defaults.string(forKey: "navigation.defaultTab") ?? "media") ?? .media
+        let hidden = (defaults.string(forKey: "navigation.hidden") ?? "").split(separator: ",")
+        let initial = preferred == .settings || !hidden.contains(Substring(preferred.rawValue)) ? preferred : .settings
+        _selection = State(initialValue: .section(initial))
+    }
 
     private var sections: [AppSection] {
         var seen = Set<AppSection>()
@@ -129,18 +136,7 @@ struct AppNavigationView: View {
             NavigationStack(path: $historyPath) { HistoryView() }
         case .settings:
             NavigationStack(path: $settingsPath) {
-                SettingsView(openSection: { section in
-                    if visibleSections.contains(section) { selection = .section(section) }
-                    else { hiddenSection = section }
-                })
-                .navigationDestination(item: $hiddenSection) { section in
-                    switch section {
-                    case .media: MediaView()
-                    case .sources: SourcesView()
-                    case .history: HistoryView()
-                    case .settings: EmptyView()
-                    }
-                }
+                SettingsView()
             }
         }
     }

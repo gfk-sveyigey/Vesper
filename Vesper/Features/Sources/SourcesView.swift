@@ -81,13 +81,14 @@ struct SourcesView: View {
             }
             Button("Emby", systemImage: "server.rack") { isShowingEmbyNotice = true }
         } label: {
-            Label("添加来源", systemImage: "plus")
-                .font(.body.weight(.regular))
+            Image(systemName: "plus.circle")
+                .font(.system(size: 22, weight: .regular))
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+                .glassEffect(.regular.interactive(), in: .circle)
         }
-        .labelStyle(.iconOnly)
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .controlSize(.large)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .accessibilityLabel("添加来源")
     }
 }

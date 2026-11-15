@@ -166,3 +166,11 @@
 "Emby 来源尚未接入。" = "Las fuentes Emby aún no están disponibles.";
 
 "播放功能尚未接入" = "La reproducción aún no está disponible";
+
+"默认标签页" = "Pestaña predeterminada";
+
+"关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。" = "Al desactivar una pestaña, se elimina de la barra y puede que no haya otra forma de abrir esa página. Vuelve a activarla aquí cuando la necesites. Ajustes siempre estará disponible.";
+
+"打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。" = "Abrir la pestaña seleccionada al iniciar la app. Las pestañas ocultas no pueden ser la predeterminada.";
+
+"将恢复标签的排列顺序、图标、显示状态和默认标签页。" = "Se restablecerán el orden, los iconos, la visibilidad y la pestaña predeterminada.";
