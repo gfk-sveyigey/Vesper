@@ -10,6 +10,7 @@ struct MediaView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    VesperLargeTitle(title: "媒体")
                     if let source = library.selectedSource {
                         Text(verbatim: source.name).font(.headline).padding(.horizontal, 20)
                     }
@@ -72,18 +73,37 @@ struct VesperEmptyContent: View {
     }
 }
 
-struct VesperEmptyPage: View {
+struct VesperEmptyPage<Actions: View>: View {
     let title: LocalizedStringKey
     let message: LocalizedStringKey
     let symbol: String
+    private let actions: Actions
+
+    init(title: LocalizedStringKey, message: LocalizedStringKey, symbol: String, @ViewBuilder actions: () -> Actions) {
+        self.title = title
+        self.message = message
+        self.symbol = symbol
+        self.actions = actions()
+    }
 
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
-                VesperEmptyContent(message: message, symbol: symbol)
-                    .frame(minHeight: geometry.size.height)
+                VStack(spacing: 0) {
+                    VesperLargeTitle(title: title) { actions }
+                    Spacer(minLength: 20)
+                    VesperEmptyContent(message: message, symbol: symbol)
+                    Spacer(minLength: 20)
+                }
+                .frame(minHeight: geometry.size.height)
             }
         }
         .vesperRootNavigationTitle(title)
+    }
+}
+
+extension VesperEmptyPage where Actions == EmptyView {
+    init(title: LocalizedStringKey, message: LocalizedStringKey, symbol: String) {
+        self.init(title: title, message: message, symbol: symbol) { EmptyView() }
     }
 }

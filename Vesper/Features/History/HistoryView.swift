@@ -9,6 +9,7 @@ struct HistoryView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    VesperLargeTitle(title: "记录")
                     LazyVStack(spacing: 12) {
                         ForEach(testRows, id: \.self) { index in
                             HStack(spacing: 16) {

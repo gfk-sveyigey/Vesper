@@ -23,6 +23,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                VesperLargeTitle(title: "设置")
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("应用").font(.subheadline).foregroundStyle(.secondary)

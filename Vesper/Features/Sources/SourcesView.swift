@@ -12,10 +12,11 @@ struct SourcesView: View {
     var body: some View {
         ZStack {
             if library.sources.isEmpty {
-                VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol)
+                VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol) { addMenu }
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
+                        VesperLargeTitle(title: "来源") { addMenu }
                         LazyVStack(spacing: 16) {
                             ForEach(library.sources) { source in
                                 Button { library.select(source.id) } label: {
@@ -46,9 +47,6 @@ struct SourcesView: View {
             }
         }
         .vesperRootNavigationTitle("来源")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { addMenu }
-        }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.folder]) { result in
             do {
                 let url = try result.get()
