@@ -78,6 +78,7 @@ struct VesperEmptyPage<Actions: View>: View {
     let message: LocalizedStringKey
     let symbol: String
     private let actions: Actions
+    @Environment(\.vesperWindowTopInset) private var windowTopInset
 
     init(title: LocalizedStringKey, message: LocalizedStringKey, symbol: String, @ViewBuilder actions: () -> Actions) {
         self.title = title
@@ -95,7 +96,7 @@ struct VesperEmptyPage<Actions: View>: View {
                     VesperEmptyContent(message: message, symbol: symbol)
                     Spacer(minLength: 20)
                 }
-                .frame(minHeight: geometry.size.height)
+                .frame(minHeight: max(0, geometry.size.height - windowTopInset))
             }
         }
         .vesperRootNavigationTitle(title)

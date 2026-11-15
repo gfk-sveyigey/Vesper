@@ -4,7 +4,7 @@
 
 ## 当前导航基线（2026-11-15）
 
-一级页面使用 ScrollView 内容顶部的 `VesperLargeTitle`，来源原生 Menu 位于同一个标题行，与标题自然滚动。一级导航栏采用 inline 模式，透明 principal 只隐藏可见标题，保留真实标题用于返回历史。不使用 inlineLarge、Toolbar 加号、自定义标题动画或手工顶部安全区留白；内容遵守系统安全区并保留 soft 滚动边缘效果。二级页面使用系统 inline 标题、返回按钮及独立 Toolbar。
+一级页面使用 ScrollView 内容顶部的 `VesperLargeTitle`，来源原生 Menu 位于同一个标题行，与标题自然滚动。一级导航栏采用 inline 模式，透明 principal 只隐藏可见标题，保留真实标题用于返回历史。不使用 inlineLarge、Toolbar 加号或自定义标题动画。一级滚动视口延伸到导航栏下方，内容只保留窗口状态栏安全区间距，并保留 soft 滚动边缘效果。页面内 UIKit 桥接仅在根页面显示时让空导航栏透传触摸，离开根页面即恢复之前的交互状态；不更换导航代理。二级页面使用系统 inline 标题、返回按钮及独立 Toolbar。
 
 底部提供媒体、来源、记录、设置和独立 Search Tab。标签顺序、图标、默认标签和显示状态可调整，设置标签始终保留；不提供多功能按钮或手势配对。`tabBarMinimizeBehavior(.onScrollDown)` 由系统响应当前页面滚动；`tabViewBottomAccessory` 承载 MiniPlayer，并随系统标签栏缩至 inline。点击 MiniPlayer 使用匹配源和 zoom 转场展开。当前仅实现播放器空状态，没有播放引擎，播放控制禁用。
 

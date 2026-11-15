@@ -44,9 +44,9 @@ struct SourcesView: View {
                     }
                     .padding(.bottom, 20)
                 }
+                .vesperRootNavigationTitle("来源")
             }
         }
-        .vesperRootNavigationTitle("来源")
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.folder]) { result in
             do {
                 let url = try result.get()

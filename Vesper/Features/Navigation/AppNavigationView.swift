@@ -45,7 +45,9 @@ struct AppNavigationView: View {
     }
 
     var body: some View {
-        tabs
+        GeometryReader { geometry in
+            tabs.environment(\.vesperWindowTopInset, geometry.safeAreaInsets.top)
+        }
     }
 
     private var tabs: some View {
