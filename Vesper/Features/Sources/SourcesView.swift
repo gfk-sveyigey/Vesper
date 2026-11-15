@@ -1,11 +1,9 @@
 import SwiftUI
 import Photos
-import UniformTypeIdentifiers
 
 struct SourcesView: View {
     @EnvironmentObject private var library: SourceLibrary
     @AppStorage("navigation.icons") private var icons = "{}"
-    @State private var isImporting = false
     @State private var isShowingError = false
     @State private var isShowingEmbyNotice = false
 
@@ -44,18 +42,9 @@ struct SourcesView: View {
                 }
             }
         }
-        .fileImporter(isPresented: $isImporting, allowedContentTypes: [.folder]) { result in
-            do {
-                let url = try result.get()
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                let bookmark = try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
-                library.addDeviceSource(kind: .local, name: VesperLocalization.string("本地视频"), bookmark: bookmark)
-            } catch { isShowingError = true }
-        }
         .alert("无法添加来源", isPresented: $isShowingError) {
             Button("好", role: .cancel) { }
-        } message: { Text("请检查相册访问权限或重新选择本地文件夹。") }
+        } message: { Text("请检查相册访问权限或本地视频文件。") }
         .alert("Emby", isPresented: $isShowingEmbyNotice) {
             Button("好", role: .cancel) { }
         } message: { Text("Emby 来源尚未接入。") }
@@ -67,7 +56,7 @@ struct SourcesView: View {
                 Button("相册视频", systemImage: "photo.on.rectangle") { addPhotos() }
             }
             if !library.sources.contains(where: { $0.kind == .local }) {
-                Button("本地视频", systemImage: "folder") { isImporting = true }
+                Button("本地视频", systemImage: "folder") { addLocalVideos() }
             }
             Button("Emby", systemImage: "play.rectangle") { isShowingEmbyNotice = true }
         } label: {
@@ -85,6 +74,19 @@ struct SourcesView: View {
             if status == .authorized || status == .limited {
                 library.addDeviceSource(kind: .photos, name: VesperLocalization.string("相册视频"))
             } else { isShowingError = true }
+        }
+    }
+
+    private func addLocalVideos() {
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        do {
+            try FileManager.default.createDirectory(at: documentsURL, withIntermediateDirectories: true)
+            library.addDeviceSource(
+                kind: .local,
+                name: VesperLocalization.string("本地视频")
+            )
+        } catch {
+            isShowingError = true
         }
     }
 }

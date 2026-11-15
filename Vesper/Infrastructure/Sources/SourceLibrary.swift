@@ -61,10 +61,17 @@ protocol SourceAdapter: Sendable {
 struct DemoSourceAdapter: SourceAdapter {
     func media(in source: MediaSource) async throws -> [MediaItem] {
         if source.kind == .local {
-            guard let bookmark = source.folderBookmark else { throw SourceFailure.unavailable }
             #if os(iOS)
-            var stale = false
-            let url = try URL(resolvingBookmarkData: bookmark, options: [], bookmarkDataIsStale: &stale)
+            let url: URL
+            if let bookmark = source.folderBookmark {
+                var stale = false
+                url = try URL(resolvingBookmarkData: bookmark, options: [], bookmarkDataIsStale: &stale)
+            } else {
+                guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                    throw SourceFailure.unavailable
+                }
+                url = documentsURL
+            }
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let urls = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isRegularFileKey])
