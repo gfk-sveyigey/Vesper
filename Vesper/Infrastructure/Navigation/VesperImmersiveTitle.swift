@@ -32,6 +32,7 @@ private struct VesperRootNavigationTitle: ViewModifier {
 struct VesperLargeTitle<Actions: View>: View {
     let title: LocalizedStringKey
     private let actions: Actions
+    @ScaledMetric(relativeTo: .largeTitle) private var minimumRowHeight = 52
 
     init(title: LocalizedStringKey, @ViewBuilder actions: () -> Actions) {
         self.title = title
@@ -39,23 +40,58 @@ struct VesperLargeTitle<Actions: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            Text(title)
-                .font(.largeTitle.bold())
-                .foregroundStyle(Color("VesperPrimaryText"))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityAddTraits(.isHeader)
-            actions
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
+        Text(title)
+            .font(.largeTitle.bold())
+            .foregroundStyle(Color("VesperPrimaryText"))
+            .padding(.trailing, 60)
+            .frame(maxWidth: .infinity, minHeight: minimumRowHeight, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
+            // Actions do not participate in sizing or reposition the title text.
+            .overlay(alignment: .trailing) { actions }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
     }
 }
 
 extension VesperLargeTitle where Actions == EmptyView {
     init(title: LocalizedStringKey) {
         self.init(title: title) { EmptyView() }
+    }
+}
+
+/// All root pages, including empty states, use the same viewport and header.
+struct VesperRootScrollView<Actions: View, Content: View>: View {
+    let title: LocalizedStringKey
+    private let actions: Actions
+    private let content: (CGFloat) -> Content
+    @Environment(\.vesperWindowTopInset) private var windowTopInset
+    @State private var headerHeight: CGFloat = 72
+
+    init(title: LocalizedStringKey, @ViewBuilder content: @escaping (CGFloat) -> Content, @ViewBuilder actions: () -> Actions) {
+        self.title = title
+        self.content = content
+        self.actions = actions()
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    VesperLargeTitle(title: title) { actions }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
+                    content(max(0, geometry.size.height - windowTopInset - headerHeight - 40))
+                }
+                .padding(.bottom, 20)
+            }
+        }
+        .vesperRootNavigationTitle(title)
+    }
+}
+
+extension VesperRootScrollView where Actions == EmptyView {
+    init(title: LocalizedStringKey, @ViewBuilder content: @escaping (CGFloat) -> Content) {
+        self.init(title: title, content: content) { EmptyView() }
     }
 }
 

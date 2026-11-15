@@ -14,37 +14,34 @@ struct SourcesView: View {
             if library.sources.isEmpty {
                 VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol) { addMenu }
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        VesperLargeTitle(title: "来源") { addMenu }
-                        LazyVStack(spacing: 16) {
-                            ForEach(library.sources) { source in
-                                Button { library.select(source.id) } label: {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: source.kind == .photos ? "photo" : "folder")
-                                            .frame(width: 28)
-                                        Text(verbatim: source.name).foregroundStyle(.primary)
-                                        Spacer()
-                                        if source.id == library.selectedID { Image(systemName: "checkmark") }
-                                    }
-                                    .padding(16)
-                                    .contentShape(Rectangle())
+                VesperRootScrollView(title: "来源") { _ in
+                    LazyVStack(spacing: 16) {
+                        ForEach(library.sources) { source in
+                            Button { library.select(source.id) } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: source.kind == .photos ? "photo" : "folder")
+                                        .frame(width: 28)
+                                    Text(verbatim: source.name).foregroundStyle(.primary)
+                                    Spacer()
+                                    if source.id == library.selectedID { Image(systemName: "checkmark") }
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityAddTraits(source.id == library.selectedID ? .isSelected : [])
-                                .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
-                                .contextMenu {
-                                    Button("删除", role: .destructive) { library.remove(source.id) }
-                                }
-                                .accessibilityAction(named: Text("删除")) { library.remove(source.id) }
+                                .padding(16)
+                                .contentShape(Rectangle())
                             }
-                            if library.storageFailed { Text("来源设置保存失败").foregroundStyle(.red) }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(source.id == library.selectedID ? .isSelected : [])
+                            .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
+                            .contextMenu {
+                                Button("删除", role: .destructive) { library.remove(source.id) }
+                            }
+                            .accessibilityAction(named: Text("删除")) { library.remove(source.id) }
                         }
-                        .padding(.horizontal, 20)
+                        if library.storageFailed { Text("来源设置保存失败").foregroundStyle(.red) }
                     }
-                    .padding(.bottom, 20)
+                    .padding(.horizontal, 20)
+                } actions: {
+                    addMenu
                 }
-                .vesperRootNavigationTitle("来源")
             }
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.folder]) { result in

@@ -8,9 +8,8 @@ struct MediaView: View {
         if library.selectedSource == nil {
             VesperEmptyPage(title: "媒体", message: "未选择媒体来源", symbol: AppSection.media.symbol)
         } else {
-            ScrollView {
+            VesperRootScrollView(title: "媒体") { _ in
                 VStack(alignment: .leading, spacing: 20) {
-                    VesperLargeTitle(title: "媒体")
                     if let source = library.selectedSource {
                         Text(verbatim: source.name).font(.headline).padding(.horizontal, 20)
                     }
@@ -45,10 +44,8 @@ struct MediaView: View {
                         }
                     }
                 }
-                .padding(.bottom, 20)
             }
             .refreshable { library.reload() }
-            .vesperRootNavigationTitle("媒体")
         }
     }
 }
@@ -78,7 +75,6 @@ struct VesperEmptyPage<Actions: View>: View {
     let message: LocalizedStringKey
     let symbol: String
     private let actions: Actions
-    @Environment(\.vesperWindowTopInset) private var windowTopInset
 
     init(title: LocalizedStringKey, message: LocalizedStringKey, symbol: String, @ViewBuilder actions: () -> Actions) {
         self.title = title
@@ -88,18 +84,12 @@ struct VesperEmptyPage<Actions: View>: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(spacing: 0) {
-                    VesperLargeTitle(title: title) { actions }
-                    Spacer(minLength: 20)
-                    VesperEmptyContent(message: message, symbol: symbol)
-                    Spacer(minLength: 20)
-                }
-                .frame(minHeight: max(0, geometry.size.height - windowTopInset))
-            }
+        VesperRootScrollView(title: title) { availableHeight in
+            VesperEmptyContent(message: message, symbol: symbol)
+                .frame(minHeight: availableHeight)
+        } actions: {
+            actions
         }
-        .vesperRootNavigationTitle(title)
     }
 }
 

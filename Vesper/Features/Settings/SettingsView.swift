@@ -21,88 +21,83 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VesperLargeTitle(title: "设置")
-                VStack(alignment: .leading, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("应用").font(.subheadline).foregroundStyle(.secondary)
-                            .padding(.horizontal, 16)
-                        VStack(spacing: 0) {
-                            settingsLink(.tabs, title: "标签设置", symbol: "rectangle.3.group")
-                            Divider().padding(.leading, 56)
-                            settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
-                            Divider().padding(.leading, 56)
-                            settingsLink(.logs, title: "运行日志", symbol: "doc.text")
-                            Divider().padding(.leading, 56)
-                            HStack {
-                                SettingsLabel("语言设置", symbol: "globe")
-                                Spacer(minLength: 12)
-                                Picker(selection: $languageCode) {
-                                    Text("跟随系统").tag("system")
-                                    Text(verbatim: "简体中文").tag("zh-Hans")
-                                    Text(verbatim: "繁體中文").tag("zh-Hant")
-                                    Text(verbatim: "English").tag("en")
-                                    Text(verbatim: "Deutsch").tag("de")
-                                    Text(verbatim: "Español").tag("es")
-                                    Text(verbatim: "Français").tag("fr")
-                                    Text(verbatim: "日本語").tag("ja")
-                                    Text(verbatim: "한국어").tag("ko")
-                                } label: { SettingsLabel("语言设置", symbol: "globe") }
-                                .pickerStyle(.menu)
-                                .labelsHidden()
-                                .buttonStyle(.plain)
-                                .fixedSize(horizontal: true, vertical: false)
-                            }
-                            .padding(.leading, 16)
-                            .padding(.trailing, 8)
-                            .padding(.vertical, 16)
+        VesperRootScrollView(title: "设置") { _ in
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("应用").font(.subheadline).foregroundStyle(.secondary)
+                        .padding(.horizontal, 16)
+                    VStack(spacing: 0) {
+                        settingsLink(.tabs, title: "标签设置", symbol: "rectangle.3.group")
+                        Divider().padding(.leading, 56)
+                        settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
+                        Divider().padding(.leading, 56)
+                        settingsLink(.logs, title: "运行日志", symbol: "doc.text")
+                        Divider().padding(.leading, 56)
+                        HStack {
+                            SettingsLabel("语言设置", symbol: "globe")
+                            Spacer(minLength: 12)
+                            Picker(selection: $languageCode) {
+                                Text("跟随系统").tag("system")
+                                Text(verbatim: "简体中文").tag("zh-Hans")
+                                Text(verbatim: "繁體中文").tag("zh-Hant")
+                                Text(verbatim: "English").tag("en")
+                                Text(verbatim: "Deutsch").tag("de")
+                                Text(verbatim: "Español").tag("es")
+                                Text(verbatim: "Français").tag("fr")
+                                Text(verbatim: "日本語").tag("ja")
+                                Text(verbatim: "한국어").tag("ko")
+                            } label: { SettingsLabel("语言设置", symbol: "globe") }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            .buttonStyle(.plain)
+                            .fixedSize(horizontal: true, vertical: false)
                         }
-                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                        .padding(.leading, 16)
+                        .padding(.trailing, 8)
+                        .padding(.vertical, 16)
                     }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("后续功能").font(.subheadline).foregroundStyle(.secondary)
-                            .padding(.horizontal, 16)
-                        VStack(spacing: 0) {
-                            HStack {
-                                SettingsLabel("播放器偏好", symbol: "play.rectangle")
-                                Spacer()
-                                Text("尚未接入").foregroundStyle(.secondary)
-                            }.padding(16)
-                            Divider().padding(.leading, 56)
-                            HStack {
-                                SettingsLabel("IMDb", symbol: "film")
-                                Spacer()
-                                Text("尚未连接").foregroundStyle(.secondary)
-                            }.padding(16)
-                            Divider().padding(.leading, 56)
-                            HStack(spacing: 12) {
-                                Image("TraktIcon")
-                                    .renderingMode(.template)
-                                    .resizable().scaledToFit()
-                                    .frame(width: 20, height: 20)
-                                    .frame(width: 28, height: 28)
-                                    .foregroundStyle(.tint)
-                                    .accessibilityHidden(true)
-                                Text(verbatim: "Trakt").font(.body)
-                                    .foregroundStyle(Color("VesperPrimaryText"))
-                                Spacer()
-                                Text("尚未连接").foregroundStyle(.secondary)
-                            }.padding(16)
-                        }
-                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
-                        Text("播放器和外部服务将在对应阶段接入，当前不会提供无效的开关或连接按钮。")
-                            .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16)
-                    }
-                    Text("Vesper \(version) · Aholic")
-                        .font(.footnote).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                 }
-                .padding(.horizontal, 20)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("后续功能").font(.subheadline).foregroundStyle(.secondary)
+                        .padding(.horizontal, 16)
+                    VStack(spacing: 0) {
+                        HStack {
+                            SettingsLabel("播放器偏好", symbol: "play.rectangle")
+                            Spacer()
+                            Text("尚未接入").foregroundStyle(.secondary)
+                        }.padding(16)
+                        Divider().padding(.leading, 56)
+                        HStack {
+                            SettingsLabel("IMDb", symbol: "film")
+                            Spacer()
+                            Text("尚未连接").foregroundStyle(.secondary)
+                        }.padding(16)
+                        Divider().padding(.leading, 56)
+                        HStack(spacing: 12) {
+                            Image("TraktIcon")
+                                .renderingMode(.template)
+                                .resizable().scaledToFit()
+                                .frame(width: 20, height: 20)
+                                .frame(width: 28, height: 28)
+                                .foregroundStyle(.tint)
+                                .accessibilityHidden(true)
+                            Text(verbatim: "Trakt").font(.body)
+                                .foregroundStyle(Color("VesperPrimaryText"))
+                            Spacer()
+                            Text("尚未连接").foregroundStyle(.secondary)
+                        }.padding(16)
+                    }
+                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                    Text("播放器和外部服务将在对应阶段接入，当前不会提供无效的开关或连接按钮。")
+                        .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16)
+                }
+                Text("Vesper \(version) · Aholic")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
-            .padding(.bottom, 20)
+            .padding(.horizontal, 20)
         }
-        .vesperRootNavigationTitle("设置")
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
