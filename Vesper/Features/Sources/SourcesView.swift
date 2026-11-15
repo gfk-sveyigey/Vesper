@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Photos
 import UniformTypeIdentifiers
 
@@ -65,30 +66,61 @@ struct SourcesView: View {
     }
 
     private var addMenu: some View {
-        Menu {
-            if !library.sources.contains(where: { $0.kind == .photos }) {
-                Button("相册视频", systemImage: "photo") {
-                    Task {
-                        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-                        if status == .authorized || status == .limited {
-                            library.addDeviceSource(kind: .photos, name: VesperLocalization.string("相册视频"))
-                        } else { isShowingError = true }
-                    }
+        SourceAddMenuButton(
+            canAddPhotos: !library.sources.contains(where: { $0.kind == .photos }),
+            canAddLocal: !library.sources.contains(where: { $0.kind == .local }),
+            addPhotos: {
+                Task {
+                    let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+                    if status == .authorized || status == .limited {
+                        library.addDeviceSource(kind: .photos, name: VesperLocalization.string("相册视频"))
+                    } else { isShowingError = true }
                 }
-            }
-            if !library.sources.contains(where: { $0.kind == .local }) {
-                Button("本地视频", systemImage: "folder") { isImporting = true }
-            }
-            Button("Emby", systemImage: "server.rack") { isShowingEmbyNotice = true }
-        } label: {
-            Image(systemName: "plus.circle")
-                .font(.system(size: 22, weight: .regular))
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
-                .glassEffect(.regular.interactive(), in: .circle)
+            },
+            addLocal: { isImporting = true },
+            addEmby: { isShowingEmbyNotice = true }
+        )
+        .frame(width: 44, height: 44)
+    }
+}
+
+/// The native button owns the menu and its presentation anchor directly.
+private struct SourceAddMenuButton: UIViewRepresentable {
+    let canAddPhotos: Bool
+    let canAddLocal: Bool
+    let addPhotos: @MainActor () -> Void
+    let addLocal: @MainActor () -> Void
+    let addEmby: @MainActor () -> Void
+    @Environment(\.locale) private var locale
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        var configuration = UIButton.Configuration.glass()
+        configuration.image = UIImage(systemName: "plus.circle")
+        configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 22, weight: .regular)
+        configuration.cornerStyle = .capsule
+        button.configuration = configuration
+        button.showsMenuAsPrimaryAction = true
+        button.preferredMenuElementOrder = .fixed
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        button.accessibilityLabel = VesperLocalization.string("添加来源")
+        var actions: [UIMenuElement] = []
+        if canAddPhotos {
+            actions.append(UIAction(title: VesperLocalization.string("相册视频"), image: UIImage(systemName: "photo")) { _ in
+                addPhotos()
+            })
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .accessibilityLabel("添加来源")
+        if canAddLocal {
+            actions.append(UIAction(title: VesperLocalization.string("本地视频"), image: UIImage(systemName: "folder")) { _ in
+                addLocal()
+            })
+        }
+        actions.append(UIAction(title: "Emby", image: UIImage(systemName: "server.rack")) { _ in
+            addEmby()
+        })
+        button.menu = UIMenu(children: actions)
     }
 }
