@@ -383,10 +383,12 @@ struct TabSettingsView: View {
             } footer: {
                 Text("打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。")
             }
-            Section("标签栏") {
+            Section {
                 Toggle(isOn: $tabBarCanMinimize) {
                     SettingsLabel("允许标签栏收缩", symbol: "arrow.down.right.and.arrow.up.left")
                 }
+            } header: {
+                Text("标签栏")
             } footer: {
                 Text("关闭后，向下滚动页面时标签栏保持展开。")
             }
