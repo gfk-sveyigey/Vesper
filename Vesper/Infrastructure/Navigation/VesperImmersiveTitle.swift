@@ -6,8 +6,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let actions: Actions
     private let content: Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .largeTitle) private var headerHeight: CGFloat = 84
-    @State private var position = ScrollPosition()
+    @Environment(\.vesperWindowTopInset) private var topInset
+    @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 84
     @State private var scrollOffset: CGFloat = 0
     @State private var headerOffset: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
@@ -25,10 +25,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.38, dampingFraction: 0.88)
     }
 
-    // Reclaim the hidden header's space near the top without changing the
-    // scroll layout on every geometry callback (which feeds back into offset).
-    private var reclaimedSpace: CGFloat {
-        isCollapsed ? max(0, headerHeight - scrollOffset) : 0
+    private var headerHeight: CGFloat {
+        headerContentHeight + topInset
     }
 
     var body: some View {
@@ -38,12 +36,10 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .accessibilityHidden(true)
                 content
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .offset(y: -reclaimedSpace)
                     .padding(.bottom, 20)
             }
             .frame(minHeight: viewportHeight + headerHeight, alignment: .top)
         }
-        .scrollPosition($position)
         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
             ScrollMetrics(offset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
                           height: max(0, geometry.containerSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom))
@@ -53,11 +49,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             updateHeader(at: metrics.offset)
         }
         .onScrollPhaseChange { oldPhase, newPhase in
-            if newPhase == .interacting {
-                animationGeneration += 1
-                isSnapping = false
-            } else if (oldPhase == .interacting || newPhase == .idle),
-                      !isCollapsed, headerOffset > 0.5, scrollOffset > 0.5 {
+            if oldPhase == .interacting, newPhase != .interacting,
+               !isCollapsed, headerOffset > 0.5, scrollOffset > 0.5 {
                 snapHeader()
             }
         }
@@ -71,7 +64,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 actions
             }
             .padding(.horizontal, 20)
-            .frame(height: headerHeight)
+            .frame(height: headerContentHeight)
+            .padding(.top, topInset)
             .frame(maxWidth: .infinity)
             .background(VesperTheme.background)
             .opacity(reduceMotion ? 1 - headerOffset / headerHeight : 1)
@@ -81,6 +75,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             .clipped()
         }
         .clipped()
+        .ignoresSafeArea(.container, edges: .top)
         .navigationTitle(title)
         .toolbar(.hidden, for: .navigationBar)
         .scrollEdgeEffectStyle(.soft, for: .top)
@@ -96,9 +91,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 isCollapsed = false
                 headerOffset = 0
             }
-        } else if isCollapsed {
-            headerOffset = headerHeight
-        } else {
+        } else if !isCollapsed && !isSnapping {
             headerOffset = max(headerOffset, min(offset, headerHeight))
         }
     }
@@ -106,17 +99,13 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private func snapHeader() {
         guard !isSnapping, !isCollapsed else { return }
         isSnapping = true
+        isCollapsed = true
         animationGeneration += 1
         let generation = animationGeneration
         withAnimation(animation, completionCriteria: .logicallyComplete) {
             headerOffset = headerHeight
-            if scrollOffset < headerHeight {
-                position.scrollTo(y: headerHeight)
-            }
         } completion: {
             guard generation == animationGeneration else { return }
-            isCollapsed = scrollOffset > 0.5
-            headerOffset = isCollapsed ? headerHeight : 0
             isSnapping = false
         }
     }
