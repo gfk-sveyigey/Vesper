@@ -189,6 +189,11 @@ private struct RuntimeLogsView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.visible)
+        .alert("暂不支持关闭", isPresented: $isShowingMiniPlayerAvailabilityAlert) {
+            Button("好", role: .cancel) { }
+        } message: {
+            Text("当前系统版本不支持关闭常显迷你播放器。请升级到 iOS 26.1 或更高版本。")
+        }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -345,6 +350,7 @@ struct TabSettingsView: View {
     @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
     @State private var isShowingResetConfirmation = false
     @State private var isShowingOrderSettings = false
+    @State private var isShowingMiniPlayerAvailabilityAlert = false
 
     private var sections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
@@ -386,7 +392,16 @@ struct TabSettingsView: View {
                 Toggle(isOn: $miniPlayerEnabled) {
                     SettingsLabel("启用迷你播放器", symbol: "play.rectangle")
                 }
-                Toggle(isOn: $miniPlayerAlwaysVisible) {
+                Toggle(isOn: Binding(
+                    get: { miniPlayerAlwaysVisible },
+                    set: { value in
+                        guard value || isMiniPlayerVisibilityToggleSupported else {
+                            isShowingMiniPlayerAvailabilityAlert = true
+                            return
+                        }
+                        miniPlayerAlwaysVisible = value
+                    }
+                )) {
                     SettingsLabel("常显迷你播放器", symbol: "eye")
                 }
                 .disabled(!miniPlayerEnabled)
@@ -477,6 +492,11 @@ struct TabSettingsView: View {
         }
 
     }
+    private var isMiniPlayerVisibilityToggleSupported: Bool {
+        if #available(iOS 26.1, *) { return true }
+        return false
+    }
+
     private func setIcon(_ symbol: String, for section: AppSection) {
         let data = icons.data(using: .utf8) ?? Data()
         var values = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
