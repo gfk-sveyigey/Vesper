@@ -188,6 +188,7 @@ private struct RuntimeLogsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .contentMargins(.top, 16, for: .scrollContent)
         .scrollContentBackground(.visible)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -219,7 +220,7 @@ private struct RuntimeLogsView: View {
         }
         .onAppear { store.setRetention(days: retentionDays) }
         .onChange(of: retentionDays) { _, _ in store.setRetention(days: retentionDays) }
-        .confirmationDialog("确定清空所有日志？", isPresented: $isShowingClearConfirmation, titleVisibility: .visible) {
+        .alert("确定清空所有日志？", isPresented: $isShowingClearConfirmation) {
             Button("清空日志", role: .destructive) { store.clear() }
             Button("取消", role: .cancel) { }
         }
@@ -331,6 +332,7 @@ private struct AppearanceSettingsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .contentMargins(.top, 16, for: .scrollContent)
         .scrollContentBackground(.visible)
     }
 }
@@ -440,6 +442,7 @@ struct TabSettingsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .contentMargins(.top, 16, for: .scrollContent)
         .scrollContentBackground(.visible)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
