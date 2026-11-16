@@ -47,7 +47,7 @@ struct MediaSource: Identifiable, Codable, Equatable, Sendable {
     let kind: Kind
     var folderBookmark: Data? = nil
     var behavior: DemoSourceBehavior
-    var capabilities: SourceCapabilities { [.browse] }
+    var capabilities: SourceCapabilities { kind == .demo ? [.browse] : [.browse, .playback] }
 }
 
 enum SourceFailure: Error, Equatable {
@@ -62,16 +62,7 @@ struct DemoSourceAdapter: SourceAdapter {
     func media(in source: MediaSource) async throws -> [MediaItem] {
         if source.kind == .local {
             #if os(iOS)
-            let url: URL
-            if let bookmark = source.folderBookmark {
-                var stale = false
-                url = try URL(resolvingBookmarkData: bookmark, options: [], bookmarkDataIsStale: &stale)
-            } else {
-                guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-                    throw SourceFailure.unavailable
-                }
-                url = documentsURL
-            }
+            let url = try source.localFolderURL()
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let urls = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isRegularFileKey])

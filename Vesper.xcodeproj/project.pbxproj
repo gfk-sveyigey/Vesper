@@ -1,5 +1,19 @@
 // !$*UTF8*$!
 { archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
+D8F7AEDA8BE3823B9E477052 = { isa = PBXFileReference; lastKnownFileType = text; path = "Vesper/Resources/PlaybackNotices.txt"; sourceTree = SOURCE_ROOT; };
+FC33B2272245701E2B133B7B = { isa = PBXBuildFile; fileRef = D8F7AEDA8BE3823B9E477052; };
+EAE3EFDF80ACC04A878444D7 = { isa = PBXFileReference; lastKnownFileType = text; path = "Vesper/Resources/KSPlayer-GPL-3.0.txt"; sourceTree = SOURCE_ROOT; };
+527874EBED736908D8AD5617 = { isa = PBXBuildFile; fileRef = EAE3EFDF80ACC04A878444D7; };
+8636B89FA9C575479576009B = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Infrastructure/Playback/PlaybackResourceResolver.swift"; sourceTree = SOURCE_ROOT; };
+24D95B4A61E7D6C20D495B73 = { isa = PBXBuildFile; fileRef = 8636B89FA9C575479576009B; };
+23813B14AD970B819E5CC657 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Infrastructure/Playback/PlaybackSession.swift"; sourceTree = SOURCE_ROOT; };
+E5F00B8ED34E093308F3BE5B = { isa = PBXBuildFile; fileRef = 23813B14AD970B819E5CC657; };
+B15D8AD0F75E360F571701DE = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Features/Player/PlayerScreen.swift"; sourceTree = SOURCE_ROOT; };
+E07D485E9EDF0C870E17E1F9 = { isa = PBXBuildFile; fileRef = B15D8AD0F75E360F571701DE; };
+F32593571BEEDA08396F8D3B = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/kingslay/KSPlayer.git"; requirement = { kind = exactVersion; version = 2.3.4; }; };
+5A2B9B2C0B9AF99F6BDEB8F3 = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/kingslay/FFmpegKit.git"; requirement = { kind = exactVersion; version = 6.1.3; }; };
+23C7AE937DCC712CC6835E7E = { isa = XCSwiftPackageProductDependency; package = F32593571BEEDA08396F8D3B; productName = KSPlayer; };
+0CDC264974EE982FF93D616E = { isa = PBXBuildFile; productRef = 23C7AE937DCC712CC6835E7E; };
 4C1D10000000000000000018 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Infrastructure/Sources/SourceLibrary.swift"; sourceTree = SOURCE_ROOT; };
 4C1D10000000000000000019 = { isa = PBXBuildFile; fileRef = 4C1D10000000000000000018; };
 3B61161996AE19CD4A8AF215 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/App/VesperApp.swift"; sourceTree = SOURCE_ROOT; };
@@ -36,10 +50,10 @@ CF8A4D27E1C506A7C75A76BE = { isa = PBXBuildFile; fileRef = 3685E330EC5277A9DD566
 4C1D10000000000000000013 = { isa = PBXBuildFile; fileRef = 4C1D10000000000000000012; };
 7D1043473D55BFA90E8530D3 = { isa = PBXFileReference; explicitFileType = wrapper.application; path = Vesper.app; sourceTree = BUILT_PRODUCTS_DIR; };
 FBDC4F23F93125BBEEAE800C = { isa = PBXGroup; children = (7D1043473D55BFA90E8530D3,); name = Products; sourceTree = "<group>"; };
-64292B1C2B2E13EAD8788FC8 = { isa = PBXGroup; children = (4C1D10000000000000000018,3B61161996AE19CD4A8AF215,7D4BFF35CA76ECCE15BC43E3,8ACB6CD7DFE444ED3415D338,6E85E87AE8E694F3C5B8AACB,0968EA69BE87D628C6015667,C86CB24BAE19C93A1E242DDE,6BF9E09A86973787E16DE5F3,8B775A26B7F05CD1C88AE7FA,3685E330EC5277A9DD5661C6,4C1D10000000000000000007,4C1D1000000000000000000A,4C1D10000000000000000012,FBDC4F23F93125BBEEAE800C,); sourceTree = "<group>"; };
-BCE16DD0260827ECF338C787 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (4C1D10000000000000000019,ED8021FD7B1820769E42B71B,7DB9E0EA6A5230326FF08D92,0E3FA22FD5D7B23F55572CFC,85BEDA6665684C05B12372A7,F0AB4C00F18658038019822C,DC2A5832F8D5315D30011575,8073E27F6D74BEAAA73348B8,1424BF349CD72B549963FE90,4C1D1000000000000000000B,4C1D10000000000000000013,); runOnlyForDeploymentPostprocessing = 0; };
-0189424A5A60FED329FA868E = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (CF8A4D27E1C506A7C75A76BE,4C1D10000000000000000001,); runOnlyForDeploymentPostprocessing = 0; };
-7561BFB015D8F536760CB671 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+64292B1C2B2E13EAD8788FC8 = { isa = PBXGroup; children = (D8F7AEDA8BE3823B9E477052,EAE3EFDF80ACC04A878444D7,8636B89FA9C575479576009B,23813B14AD970B819E5CC657,B15D8AD0F75E360F571701DE,4C1D10000000000000000018,3B61161996AE19CD4A8AF215,7D4BFF35CA76ECCE15BC43E3,8ACB6CD7DFE444ED3415D338,6E85E87AE8E694F3C5B8AACB,0968EA69BE87D628C6015667,C86CB24BAE19C93A1E242DDE,6BF9E09A86973787E16DE5F3,8B775A26B7F05CD1C88AE7FA,3685E330EC5277A9DD5661C6,4C1D10000000000000000007,4C1D1000000000000000000A,4C1D10000000000000000012,FBDC4F23F93125BBEEAE800C,); sourceTree = "<group>"; };
+BCE16DD0260827ECF338C787 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (24D95B4A61E7D6C20D495B73,E5F00B8ED34E093308F3BE5B,E07D485E9EDF0C870E17E1F9,4C1D10000000000000000019,ED8021FD7B1820769E42B71B,7DB9E0EA6A5230326FF08D92,0E3FA22FD5D7B23F55572CFC,85BEDA6665684C05B12372A7,F0AB4C00F18658038019822C,DC2A5832F8D5315D30011575,8073E27F6D74BEAAA73348B8,1424BF349CD72B549963FE90,4C1D1000000000000000000B,4C1D10000000000000000013,); runOnlyForDeploymentPostprocessing = 0; };
+0189424A5A60FED329FA868E = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (FC33B2272245701E2B133B7B,527874EBED736908D8AD5617,CF8A4D27E1C506A7C75A76BE,4C1D10000000000000000001,); runOnlyForDeploymentPostprocessing = 0; };
+7561BFB015D8F536760CB671 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (0CDC264974EE982FF93D616E,); runOnlyForDeploymentPostprocessing = 0; };
 89E1FD6268CC0F221A2BE178 = { isa = XCBuildConfiguration; name = Debug; buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 26.0; CLANG_ENABLE_MODULES = YES; }; };
 7082CC0B6FC1282FCEABD07A = { isa = XCBuildConfiguration; name = Debug; buildSettings = {
  ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -62,6 +76,6 @@ E6DE6C99132752C914FEF632 = { isa = XCBuildConfiguration; name = Release; buildSe
  CODE_SIGN_STYLE = Automatic; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; };
 01DF1D3A7F02866ECA6BB742 = { isa = XCConfigurationList; buildConfigurations = (89E1FD6268CC0F221A2BE178,E6DE6C99132752C914FEF632,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 8D8B67C81BE4F695571BC034 = { isa = XCConfigurationList; buildConfigurations = (7082CC0B6FC1282FCEABD07A,639A7CA24D39909E713B47F7,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-0E8A3AD980EC179856012B7E = { isa = PBXNativeTarget; buildConfigurationList = 8D8B67C81BE4F695571BC034; buildPhases = (BCE16DD0260827ECF338C787,7561BFB015D8F536760CB671,0189424A5A60FED329FA868E,); buildRules = (); dependencies = (); name = Vesper; productName = Vesper; productReference = 7D1043473D55BFA90E8530D3; productType = "com.apple.product-type.application"; };
-98F54143AB4E86B28C3AFEE0 = { isa = PBXProject; attributes = { LastUpgradeCheck = 2600; }; buildConfigurationList = 01DF1D3A7F02866ECA6BB742; compatibilityVersion = "Xcode 14.0"; developmentRegion = zh-Hans; knownRegions = ("zh-Hans",en,ja,ko,es,fr,de,"zh-Hant",Base,); mainGroup = 64292B1C2B2E13EAD8788FC8; productRefGroup = FBDC4F23F93125BBEEAE800C; projectDirPath = ""; projectRoot = ""; targets = (0E8A3AD980EC179856012B7E,); };
+0E8A3AD980EC179856012B7E = { isa = PBXNativeTarget; buildConfigurationList = 8D8B67C81BE4F695571BC034; buildPhases = (BCE16DD0260827ECF338C787,7561BFB015D8F536760CB671,0189424A5A60FED329FA868E,); buildRules = (); dependencies = (); packageProductDependencies = (23C7AE937DCC712CC6835E7E,); name = Vesper; productName = Vesper; productReference = 7D1043473D55BFA90E8530D3; productType = "com.apple.product-type.application"; };
+98F54143AB4E86B28C3AFEE0 = { isa = PBXProject; attributes = { LastUpgradeCheck = 2600; }; buildConfigurationList = 01DF1D3A7F02866ECA6BB742; compatibilityVersion = "Xcode 14.0"; developmentRegion = zh-Hans; knownRegions = ("zh-Hans",en,ja,ko,es,fr,de,"zh-Hant",Base,); mainGroup = 64292B1C2B2E13EAD8788FC8; productRefGroup = FBDC4F23F93125BBEEAE800C; packageReferences = (F32593571BEEDA08396F8D3B,5A2B9B2C0B9AF99F6BDEB8F3,); projectDirPath = ""; projectRoot = ""; targets = (0E8A3AD980EC179856012B7E,); };
 }; rootObject = 98F54143AB4E86B28C3AFEE0; }

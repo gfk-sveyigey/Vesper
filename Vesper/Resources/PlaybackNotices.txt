@@ -1,0 +1,12 @@
+KSPlayer 2.3.4 — GPL version 3
+Copyright (c) KSPlayer contributors / kingslay
+Source: https://github.com/kingslay/KSPlayer/tree/bdfa2da39bb18865b317c4ffd08cdef5f8efc043
+License: KSPlayer-GPL-3.0.txt, bundled with this application.
+
+FFmpegKit 6.1.3 and its bundled libraries
+Source and component licenses: https://github.com/kingslay/FFmpegKit/tree/85b77c589de0360c111de16752db86b60496d70b
+Includes FFmpeg and additional codec, rendering, subtitle and networking libraries.
+See upstream source for individual component copyright and license notices.
+
+Vesper playback integration source:
+https://github.com/gfk-sveyigey/Vesper

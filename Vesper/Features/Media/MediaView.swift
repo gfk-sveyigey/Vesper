@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MediaView: View {
     @EnvironmentObject private var library: SourceLibrary
+    @EnvironmentObject private var playback: PlaybackSession
     @AppStorage("navigation.icons") private var icons = "{}"
 
     var body: some View {
@@ -22,17 +23,28 @@ struct MediaView: View {
                         } else {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 20) {
                                 ForEach(items) { item in
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Image(systemName: "film")
-                                            .font(.largeTitle)
-                                            .frame(maxWidth: .infinity)
-                                            .frame(height: 150)
-                                            .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 12))
-                                        Text(verbatim: item.title).font(.headline)
-                                        Text(library.selectedSource?.kind == .demo ? "演示内容，不可播放" : "播放功能尚未接入").font(.caption).foregroundStyle(.secondary)
+                                    Button {
+                                        guard let source = library.selectedSource else { return }
+                                        playback.play(item, in: source, queue: items)
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Image(systemName: "play.rectangle")
+                                                .font(.largeTitle)
+                                                .frame(maxWidth: .infinity)
+                                                .frame(height: 150)
+                                                .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 12))
+                                            Text(verbatim: item.title).font(.headline)
+                                            if library.selectedSource?.kind == .demo {
+                                                Text("演示内容，不可播放").font(.caption).foregroundStyle(.secondary)
+                                            }
+                                        }
+                                        .contentShape(Rectangle())
                                     }
-                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(library.selectedSource?.capabilities.contains(.playback) != true)
+                                    .accessibilityLabel(Text(verbatim: item.title))
                                 }
+                            }
                             .padding(.horizontal, 20)
                             }
                     case .failed(let error):

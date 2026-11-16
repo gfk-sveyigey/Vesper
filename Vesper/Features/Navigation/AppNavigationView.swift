@@ -17,12 +17,12 @@ struct AppNavigationView: View {
     @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
     @State private var selection: NavigationTab
     @StateObject private var library = SourceLibrary()
+    @StateObject private var playback = PlaybackSession()
     @State private var mediaPath = NavigationPath()
     @State private var sourcesPath = NavigationPath()
     @State private var historyPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
     @State private var searchQuery = ""
-    @State private var isPlayerPresented = false
     @Namespace private var playerTransition
 
     init() {
@@ -55,19 +55,9 @@ struct AppNavigationView: View {
 
     private var tabs: some View {
         accessoryContent
-            .fullScreenCover(isPresented: $isPlayerPresented) {
-                NavigationStack {
-                    ContentUnavailableView("未在播放", systemImage: "play.rectangle",
-                        description: Text("选择媒体后即可开始播放。"))
-                        .navigationTitle("播放器")
-                        .toolbarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("关闭", systemImage: "chevron.down") { isPlayerPresented = false }
-                            }
-                        }
-                }
-                .navigationTransition(.zoom(sourceID: "player", in: playerTransition))
+            .fullScreenCover(isPresented: $playback.isPresented) {
+                PlayerScreen(session: playback)
+                    .navigationTransition(.zoom(sourceID: "player", in: playerTransition))
             }
     }
 
@@ -76,13 +66,13 @@ struct AppNavigationView: View {
         if #available(iOS 26.1, *) {
             tabContent
                 .tabViewBottomAccessory(isEnabled: shouldShowMiniPlayer) {
-                    MiniPlayerAccessory { isPlayerPresented = true }
+                    MiniPlayerAccessory(session: playback) { playback.isPresented = true }
                         .matchedTransitionSource(id: "player", in: playerTransition)
                 }
         } else if shouldShowMiniPlayer {
             tabContent
                 .tabViewBottomAccessory {
-                    MiniPlayerAccessory { isPlayerPresented = true }
+                    MiniPlayerAccessory(session: playback) { playback.isPresented = true }
                         .matchedTransitionSource(id: "player", in: playerTransition)
                 }
         } else {
@@ -134,13 +124,11 @@ struct AppNavigationView: View {
         .tabBarMinimizeBehavior(tabBarCanMinimize ? .onScrollDown : .never)
         .tabViewSearchActivation(.searchTabSelection)
         .environmentObject(library)
+        .environmentObject(playback)
         .background(VesperTheme.background.ignoresSafeArea())
     }
 
-    // Playback sessions are not connected yet; this becomes true when a
-    // playable session is added. The always-visible option keeps the current
-    // empty accessory available until then.
-    private var hasPlayableContent: Bool { false }
+    private var hasPlayableContent: Bool { playback.currentItem != nil }
     private var shouldShowMiniPlayer: Bool {
         miniPlayerEnabled && (miniPlayerAlwaysVisible || hasPlayableContent)
     }
@@ -176,9 +164,10 @@ struct AppNavigationView: View {
 }
 
 /// TabView supplies the native glass surface and moves this accessory inline
-/// when minimizing. Transport stays disabled until a real session exists.
+/// when minimizing. Controls share the same app-owned playback session.
 private struct MiniPlayerAccessory: View {
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+    @ObservedObject var session: PlaybackSession
     let openPlayer: () -> Void
 
     private var isCompact: Bool { placement == .inline }
@@ -190,7 +179,7 @@ private struct MiniPlayerAccessory: View {
                     Image(systemName: "play.rectangle")
                         .font(isCompact ? .body : .title2)
                         .frame(width: isCompact ? 24 : 36, height: isCompact ? 24 : 36)
-                    Text("未在播放")
+                    Text(verbatim: session.currentItem?.title ?? String(localized: "未在播放"))
                         .font(isCompact ? .footnote.weight(.medium) : .subheadline.weight(.medium))
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -199,10 +188,17 @@ private struct MiniPlayerAccessory: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("打开播放器")
-            Button("播放", systemImage: "play.fill") {}.disabled(true)
+            if session.isLoading {
+                ProgressView().controlSize(.small)
+            } else {
+                Button(session.isPlaying ? "暂停" : "播放", systemImage: session.isPlaying ? "pause.fill" : "play.fill") {
+                    session.togglePlayback()
+                }
+                .disabled(!session.canControl)
                 .labelStyle(.iconOnly)
+            }
             if !isCompact {
-                Button("下一项", systemImage: "forward.end.fill") {}.disabled(true)
+                Button("下一项", systemImage: "forward.end.fill") { session.next() }.disabled(!session.hasNext)
                     .labelStyle(.iconOnly)
             }
         }

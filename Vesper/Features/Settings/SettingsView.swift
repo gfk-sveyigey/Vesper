@@ -2,13 +2,14 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs
+    case tabs, appearance, logs, licenses
 
     var title: LocalizedStringKey {
         switch self {
         case .tabs: "标签设置"
         case .appearance: "外观设置"
         case .logs: "运行日志"
+        case .licenses: "开源许可"
         }
     }
 }
@@ -98,6 +99,7 @@ struct SettingsView: View {
                     Text("播放器和外部服务将在对应阶段接入，当前不会提供无效的开关或连接按钮。")
                         .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16)
                 }
+                settingsLink(.licenses, title: "开源许可", symbol: "doc.plaintext")
                 Text("Vesper \(version) · Aholic")
                     .font(.footnote).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -110,6 +112,7 @@ struct SettingsView: View {
                 case .tabs: TabSettingsView()
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()
+                case .licenses: PlaybackLicensesView()
                 }
             }
             .vesperNavigationTitle(route.title)
@@ -631,5 +634,24 @@ private struct AppIconChoices: View {
             .accessibilityAddTraits(.isSelected)
         }
         .padding(.vertical, 8)
+    }
+}
+
+private struct PlaybackLicensesView: View {
+    private var notices: String {
+        ["PlaybackNotices", "KSPlayer-GPL-3.0"].compactMap { name in
+            Bundle.main.url(forResource: name, withExtension: "txt")
+                .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        }.joined(separator: "\n\n")
+    }
+
+    var body: some View {
+        ScrollView {
+            Text(verbatim: notices)
+                .font(.footnote)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+        }
     }
 }
