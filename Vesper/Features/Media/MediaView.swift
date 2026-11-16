@@ -46,7 +46,7 @@ struct MediaView: View {
                                 }
                             }
                             .padding(.horizontal, 20)
-                            }
+                        }
                     case .failed(let error):
                         ContentUnavailableView {
                             Label(LocalizedStringKey(error == .offline ? "来源离线" : "无法加载来源"), systemImage: error == .offline ? "wifi.slash" : "exclamationmark.triangle")

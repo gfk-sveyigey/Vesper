@@ -27,7 +27,7 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
         guard let currentItem, let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return false }
         return index + 1 < queue.count
     }
-    var canControl: Bool { layer != nil && errorMessage == nil && !isLoading }
+    var canControl: Bool { layer != nil && errorMessage == nil }
     var canSeek: Bool { canControl && duration > 0 && layer?.player.seekable == true }
 
     func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem]) {
@@ -130,6 +130,7 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
         isLoading = state == .preparing || state == .buffering
         if state == .playedToTheEnd {
             currentTime = duration
+            UIApplication.shared.isIdleTimerDisabled = false
         }
         log("状态：\(state)")
     }
@@ -146,6 +147,7 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
         isLoading = false
         if let error {
             errorMessage = error.localizedDescription
+            UIApplication.shared.isIdleTimerDisabled = false
             log("播放失败：\(error.localizedDescription)")
         }
     }
