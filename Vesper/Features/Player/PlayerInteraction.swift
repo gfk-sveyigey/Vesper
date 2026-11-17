@@ -263,20 +263,38 @@ final class PlayerSystemVolume: ObservableObject {
     @Published private(set) var value: Float = AVAudioSession.sharedInstance().outputVolume
     let view = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 160, height: 40))
     private var observation: NSKeyValueObservation?
+    private var pendingValue: (value: Float, deadline: Date)?
+    private var reconciliation: Task<Void, Never>?
 
     init() {
         view.showsRouteButton = false
         observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] _, change in
             guard let value = change.newValue else { return }
-            Task { @MainActor in self?.value = value }
+            Task { @MainActor in
+                guard let self else { return }
+                if let pending = self.pendingValue {
+                    if abs(value - pending.value) < 0.015 { self.pendingValue = nil }
+                    else if Date() < pending.deadline { return }
+                    else { self.pendingValue = nil }
+                }
+                self.value = value
+            }
         }
     }
     func set(_ value: Float) {
         guard let slider = view.subviews.compactMap({ $0 as? UISlider }).first else { return }
         let value = min(1, max(0, value))
+        pendingValue = (value, Date().addingTimeInterval(0.5))
         slider.setValue(value, animated: false)
         slider.sendActions(for: .touchUpInside)
         self.value = value
+        reconciliation?.cancel()
+        reconciliation = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(550)) } catch { return }
+            guard let self, self.pendingValue != nil else { return }
+            self.pendingValue = nil
+            self.value = AVAudioSession.sharedInstance().outputVolume
+        }
     }
 }
 

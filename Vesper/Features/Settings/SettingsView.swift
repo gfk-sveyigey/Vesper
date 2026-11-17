@@ -569,7 +569,7 @@ struct SettingsIntroCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16).settingsCardBorder()
+        .padding(16).settingsCardBackground()
     }
 }
 
@@ -639,15 +639,16 @@ private struct PlaybackLicensesView: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
-                .settingsCardBorder()
+                .settingsCardBackground()
             }
             .padding(.horizontal, 16)
         }
         .contentMargins(.top, 0, for: .scrollContent)
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
     }
 }
 
-/// One scroll container owns independently outlined, self-sizing setting cards.
+/// System grouped colors adapt to appearance and accessibility contrast.
 struct SettingsPage<Content: View>: View {
     private let content: Content
     init(@ViewBuilder content: () -> Content) { self.content = content() }
@@ -657,7 +658,7 @@ struct SettingsPage<Content: View>: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 24)
         }
-        .background(VesperTheme.background)
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
     }
 }
 
@@ -678,7 +679,7 @@ struct SettingsSection<Rows: View, Footer: View>: View {
                     }
                 }
             }
-            .settingsCardBorder()
+            .settingsCardBackground()
             footer.font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 12)
         }
         .buttonStyle(.plain)
@@ -714,8 +715,7 @@ extension SettingsPicker where Label == Text {
 }
 
 extension View {
-    func settingsCardBorder() -> some View {
-        background(VesperTheme.background, in: RoundedRectangle(cornerRadius: 16))
-            .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(.gray.opacity(0.45), lineWidth: 0.7) }
+    func settingsCardBackground() -> some View {
+        background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
     }
 }

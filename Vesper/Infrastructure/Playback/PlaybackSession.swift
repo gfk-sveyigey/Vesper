@@ -47,6 +47,9 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     private var progressRestored = false
     private var lastProgressSave = Date.distantPast
     private let progressStorageKey = "player.savedProgress"
+    private let durationStorageKey = "player.savedDurations"
+    @Published private(set) var savedProgressRevision = 0
+    private var suppressedProgressID: MediaID?
 
     override init() {
         super.init()
@@ -98,6 +101,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         saveProgress()
         tearDownPlayer()
         progressRestored = false
+        suppressedProgressID = nil
         currentItem = item
         currentTime = 0
         duration = 0
@@ -392,17 +396,47 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     private func saveProgress() {
-        guard PlaybackPreferences.remembersProgress, progressRestored, let key = progressKey,
+        guard PlaybackPreferences.remembersProgress, progressRestored, suppressedProgressID != currentItem?.id, let key = progressKey,
               duration > 0, currentTime.isFinite else { return }
         var values = UserDefaults.standard.dictionary(forKey: progressStorageKey) as? [String: Double] ?? [:]
-        if currentTime >= duration - 2 { values.removeValue(forKey: key) }
-        else { values[key] = max(0, currentTime) }
+        var durations = UserDefaults.standard.dictionary(forKey: durationStorageKey) as? [String: Double] ?? [:]
+        if currentTime >= duration - 2 || currentTime <= 0 {
+            values.removeValue(forKey: key); durations.removeValue(forKey: key)
+        } else { values[key] = max(0, currentTime); durations[key] = duration }
         UserDefaults.standard.set(values, forKey: progressStorageKey)
+        UserDefaults.standard.set(durations, forKey: durationStorageKey)
+        savedProgressRevision += 1
         lastProgressSave = Date()
     }
 
     func clearSavedProgress() {
         UserDefaults.standard.removeObject(forKey: progressStorageKey)
+        UserDefaults.standard.removeObject(forKey: durationStorageKey)
+        savedProgressRevision += 1
+    }
+
+    func savedProgress(for item: MediaItem) -> Double {
+        guard PlaybackPreferences.remembersProgress else { return 0 }
+        let key = item.id.sourceID.uuidString + ":" + item.id.localID
+        let value = UserDefaults.standard.dictionary(forKey: progressStorageKey)?[key] as? Double ?? 0
+        return value.isFinite ? max(0, value) : 0
+    }
+
+    func savedDuration(for item: MediaItem) -> Double {
+        let key = item.id.sourceID.uuidString + ":" + item.id.localID
+        let value = UserDefaults.standard.dictionary(forKey: durationStorageKey)?[key] as? Double ?? 0
+        return value.isFinite ? max(0, value) : 0
+    }
+
+    func clearSavedProgress(for item: MediaItem) {
+        let key = item.id.sourceID.uuidString + ":" + item.id.localID
+        var values = UserDefaults.standard.dictionary(forKey: progressStorageKey) as? [String: Double] ?? [:]
+        var durations = UserDefaults.standard.dictionary(forKey: durationStorageKey) as? [String: Double] ?? [:]
+        values.removeValue(forKey: key); durations.removeValue(forKey: key)
+        UserDefaults.standard.set(values, forKey: progressStorageKey)
+        UserDefaults.standard.set(durations, forKey: durationStorageKey)
+        if currentItem?.id == item.id { suppressedProgressID = item.id }
+        savedProgressRevision += 1
     }
 
     private func restoreProgressIfNeeded() {

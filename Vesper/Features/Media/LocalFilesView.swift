@@ -151,6 +151,9 @@ struct LocalFilesView<SourceMenu: View>: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
+                        if !entry.isDirectory, playback.savedProgress(for: mediaItem(entry)) > 0 {
+                            Button("清除播放进度", systemImage: "clock.arrow.circlepath") { playback.clearSavedProgress(for: mediaItem(entry)) }
+                        }
                         Button("重命名", systemImage: "pencil") {
                             renameEntry = entry
                             name = entry.name
@@ -177,7 +180,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                             .font(.system(size: 48)).foregroundStyle(.tint)
                     }
             } else if VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
-                MediaThumbnail(source: source, item: mediaItem(entry))
+                MediaThumbnail(source: source, item: mediaItem(entry), playback: playback)
             } else {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color("VesperSecondaryBackground"))

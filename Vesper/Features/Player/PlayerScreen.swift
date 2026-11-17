@@ -167,7 +167,7 @@ struct PlayerScreen: View {
         .onChange(of: session.isSeeking) { _, _ in autoHideRevision += 1 }
         .onChange(of: session.errorMessage) { _, message in if message != nil { revealControls() } }
         .onChange(of: session.playbackNotice) { _, message in if message != nil { showingNotice = true; revealControls() } }
-        .onChange(of: volume.value) { _, _ in if session.isMuted { session.unmute() } }
+        .onChange(of: volume.value) { old, new in if new > 0.001 && old != new && session.isMuted { session.unmute() } }
         .onChange(of: voiceOver) { _, _ in revealControls() }
         .onChange(of: panel) { _, _ in revealControls() }
         .onChange(of: scenePhase) { _, phase in if phase != .active && isScrubbing { finishScrubbing(commit: scrubPreviews) } }
@@ -209,6 +209,23 @@ struct PlayerScreen: View {
         .frame(height: 44)
     }
 
+    private var audioIsMuted: Bool { session.isMuted || volume.value <= 0.001 }
+    private var displayedVolume: Double { audioIsMuted ? 0 : Double(volume.value) }
+    private var volumeSymbol: String {
+        if audioIsMuted { return "speaker.slash.fill" }
+        if volume.value < 0.34 { return "speaker.wave.1.fill" }
+        if volume.value < 0.67 { return "speaker.wave.2.fill" }
+        return "speaker.wave.3.fill"
+    }
+    private func toggleAudioMute() {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
+            if audioIsMuted {
+                session.unmute()
+                if volume.value <= 0.001 { volume.set(0.1) }
+            } else { session.toggleMute() }
+        }
+    }
+
     private func volumeControl(width: CGFloat) -> some View {
         ZStack(alignment: .trailing) {
             HStack(spacing: 12) {
@@ -217,16 +234,15 @@ struct PlayerScreen: View {
                         ZStack(alignment: .leading) {
                             Capsule().fill(.white.opacity(0.2))
                             Rectangle().fill(.white)
-                                .frame(width: geometry.size.width * CGFloat(session.isMuted ? 0 : volume.value))
+                                .frame(width: geometry.size.width * CGFloat(displayedVolume))
                         }
                         .frame(height: 8).clipShape(Capsule())
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: session.isMuted)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
                     }
                     .frame(height: 8)
                     .padding(.leading, 16)
                 }
-                Image(systemName: session.isMuted || volume.value == 0 ? "speaker.slash.fill" : "speaker.wave.3.fill",
-                      variableValue: Double(volume.value))
+                Image(systemName: volumeSymbol)
                     .font(.system(size: 17, weight: .medium))
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 44, height: 44)
@@ -235,7 +251,7 @@ struct PlayerScreen: View {
             PlayerVolumeTouchSurface(expanded: volumeExpanded, tapped: { onIcon in
                 revealControls()
                 if !volumeExpanded { volumeExpanded = true }
-                else if onIcon { session.toggleMute() }
+                else if onIcon { toggleAudioMute() }
                 else { volumeExpanded = false }
             }, dragged: { translation, phase in
                 guard volumeExpanded else { return }
@@ -255,10 +271,10 @@ struct PlayerScreen: View {
         .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: volumeExpanded)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("音量")
-        .accessibilityValue(Text(verbatim: String(format: "%d%%", Int(volume.value * 100))))
+        .accessibilityValue(Text(verbatim: String(format: "%d%%", Int(displayedVolume * 100))))
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { revealControls(); volumeExpanded.toggle() }
-        .accessibilityAction(named: Text(session.isMuted ? "取消静音" : "静音")) { session.toggleMute() }
+        .accessibilityAction(named: Text(audioIsMuted ? "取消静音" : "静音")) { toggleAudioMute() }
         .accessibilityAdjustableAction { direction in
             session.unmute()
             volume.set(volume.value + (direction == .increment ? 0.05 : -0.05))
@@ -593,10 +609,6 @@ struct PlayerScreen: View {
     private func handleTap(_ region: PlayerGestureRegion, _ fingers: Int, _ double: Bool) {
         guard !menuPresented, panel == nil else { return }
         if controlsVisible {
-            if volumeExpanded {
-                if !double && fingers == 1 { volumeExpanded = false; revealControls() }
-                return
-            }
             // The visible overlay only accepts its buttons and a one-finger
             // background tap to hide. Playback/brightness/volume gestures are
             // reserved for the unobstructed video.
@@ -628,7 +640,7 @@ struct PlayerScreen: View {
         case .volumeUp, .volumeDown:
             session.unmute(); volume.set(volume.value + (action == .volumeUp ? 0.1 : -0.1))
             showHUD(String(format: VesperLocalization.string("音量 %d%%"), Int(volume.value * 100)), symbol: "speaker.wave.2.fill")
-        case .mute: session.toggleMute()
+        case .mute: toggleAudioMute()
         case .showRegions: regionsVisible = true; regionRevision += 1
         case .playlist: requestPanel(.queue)
         case .synopsis: requestPanel(.synopsis)

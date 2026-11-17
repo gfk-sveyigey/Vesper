@@ -40,7 +40,7 @@ struct MediaView: View {
                                     } label: {
                                         VStack(alignment: .leading, spacing: 8) {
                                             if let source = library.selectedSource {
-                                                MediaThumbnail(source: source, item: item)
+                                                MediaThumbnail(source: source, item: item, playback: playback)
                                             }
                                             Text(verbatim: item.title).font(.headline)
                                                 .lineLimit(1).truncationMode(.tail)
@@ -53,6 +53,11 @@ struct MediaView: View {
                                     .buttonStyle(.plain)
                                     .disabled(library.selectedSource?.capabilities.contains(.playback) != true)
                                     .accessibilityLabel(Text(verbatim: item.title))
+                                    .contextMenu {
+                                        if playback.savedProgress(for: item) > 0 {
+                                            Button("清除播放进度", systemImage: "clock.arrow.circlepath") { playback.clearSavedProgress(for: item) }
+                                        }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 20)

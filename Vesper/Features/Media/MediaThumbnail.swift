@@ -6,6 +6,7 @@ import AVFoundation
 struct MediaThumbnail: View {
     let source: MediaSource
     let item: MediaItem
+    var playback: PlaybackSession? = nil
     @State private var image: UIImage?
 
     var body: some View {
@@ -25,6 +26,11 @@ struct MediaThumbnail: View {
             }
         }
         .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        .overlay(alignment: .bottomLeading) {
+            if let playback {
+                ThumbnailPlaybackProgress(session: playback, source: source, item: item)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .accessibilityHidden(true)
         .task(id: item.id) {
@@ -40,8 +46,10 @@ struct MediaThumbnail: View {
 private final class MediaThumbnailLoader {
     static let shared = MediaThumbnailLoader()
     private let cache = NSCache<NSString, NSData>()
+    private let durationCache = NSCache<NSString, NSNumber>()
 
     private init() {
+        durationCache.countLimit = 256
         cache.countLimit = 160
         cache.totalCostLimit = 32 * 1024 * 1024
     }
@@ -77,10 +85,75 @@ private final class MediaThumbnailLoader {
         }
     }
 
+    func duration(_ item: MediaItem, source: MediaSource) async -> Double {
+        guard item.id.sourceID == source.id, !Task.isCancelled else { return 0 }
+        switch source.kind {
+        case .photos:
+            let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            guard status == .authorized || status == .limited else { return 0 }
+            return PHAsset.fetchAssets(withLocalIdentifiers: [item.id.localID], options: nil).firstObject?.duration ?? 0
+        case .local:
+            guard let resource = try? await PlaybackResourceResolver().resolve(item, source: source) else { return 0 }
+            defer { resource.release() }
+            let values = try? resource.url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            let key = "\(source.id):\(item.id.localID):\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values?.fileSize ?? 0)" as NSString
+            if let cached = durationCache.object(forKey: key) { return cached.doubleValue }
+            let asset = AVURLAsset(url: resource.url)
+            guard let time = try? await asset.load(.duration), time.seconds.isFinite, time.seconds > 0, !Task.isCancelled else { return 0 }
+            durationCache.setObject(NSNumber(value: time.seconds), forKey: key)
+            return time.seconds
+        case .demo: return 0
+        }
+    }
+
     private func remember(_ data: Data?, key: NSString) -> Data? {
         guard !Task.isCancelled, let data else { return nil }
         cache.setObject(data as NSData, forKey: key, cost: data.count)
         return data
+    }
+}
+
+/// Only persisted progress is shown, and only while progress retention is enabled.
+private struct ThumbnailPlaybackProgress: View {
+    @ObservedObject var session: PlaybackSession
+    let source: MediaSource
+    let item: MediaItem
+    @AppStorage("player.rememberProgress") private var remembersProgress = true
+    @State private var duration: Double = 0
+    private var progress: Double { remembersProgress ? session.savedProgress(for: item) : 0 }
+    private var total: Double { duration > 0 ? duration : session.savedDuration(for: item) }
+    var body: some View {
+        Group {
+            if progress > 0 && total > 0 {
+                HStack(spacing: 5) {
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.white.opacity(0.35))
+                            Capsule().fill(.white)
+                                .frame(width: geometry.size.width * CGFloat(min(1, max(0, progress / total))))
+                        }
+                    }
+                    .frame(maxWidth: 42).frame(height: 3)
+                    Text(verbatim: timeLabel(total)).font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 7).padding(.vertical, 6)
+                .background(.black.opacity(0.65), in: Capsule())
+                .padding(6)
+            }
+        }
+        .task(id: progress > 0 ? item.id : nil) {
+            guard progress > 0 else { return }
+            let result = await MediaThumbnailLoader.shared.duration(item, source: source)
+            guard !Task.isCancelled else { return }
+            duration = result
+        }
+    }
+    private func timeLabel(_ seconds: Double) -> String {
+        let seconds = Int(max(0, seconds))
+        if seconds >= 3600 { return String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60) }
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
 

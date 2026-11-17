@@ -163,14 +163,14 @@ private struct GestureRegionSettingsView: View {
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     GestureRangeSlider(lower: $split2, upper: .constant(1), singleHandle: true)
                 }
-                .padding(16).settingsCardBorder()
+                .padding(16).settingsCardBackground()
                 VStack(alignment: .leading, spacing: 12) {
                     Text("三区域").font(.headline)
                     Text(verbatim: "\(Int((splitFirst * 100).rounded()))% / \(Int(((splitSecond - splitFirst) * 100).rounded()))% / \(Int(((1 - splitSecond) * 100).rounded()))%")
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     GestureRangeSlider(lower: $splitFirst, upper: $splitSecond)
                 }
-                .padding(16).settingsCardBorder()
+                .padding(16).settingsCardBackground()
             }
             .padding(.horizontal, 16).padding(.bottom, 20)
         }
