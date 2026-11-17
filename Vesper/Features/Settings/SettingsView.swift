@@ -28,25 +28,14 @@ struct SettingsView: View {
 
     var body: some View {
         VesperRootScrollView(title: "设置") {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("应用").font(.subheadline).foregroundStyle(.secondary)
-                        .padding(.horizontal, 16)
-                    VStack(spacing: 0) {
-                        settingsLink(.tabs, title: "标签设置", symbol: "rectangle.3.group")
-                        Divider().padding(.leading, 56)
-                        settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
-                        Divider().padding(.leading, 56)
-                        settingsLink(.logs, title: "运行日志", symbol: "doc.text")
-                        Divider().padding(.leading, 56)
-                        settingsLink(.playback, title: "播放设置", symbol: "play.circle")
-                        Divider().padding(.leading, 56)
-                        settingsLink(.gestures, title: "播放手势", symbol: "hand.draw")
-                        Divider().padding(.leading, 56)
-                        settingsLink(.subtitles, title: "字幕设置", symbol: "captions.bubble")
-                        Divider().padding(.leading, 56)
-                        settingsLink(.danmaku, title: "弹幕设置", symbol: "text.bubble")
-                        Divider().padding(.leading, 56)
+            VStack(alignment: .leading, spacing: 32) {
+                VStack(spacing: 0) {
+                    settingsLink(.tabs, title: "标签设置", symbol: "rectangle.3.group")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.logs, title: "运行日志", symbol: "doc.text")
+                    Divider().padding(.leading, 52)
                         HStack {
                             SettingsLabel("语言设置", symbol: "globe")
                             Spacer(minLength: 12)
@@ -68,19 +57,23 @@ struct SettingsView: View {
                         }
                         .padding(.leading, 16)
                         .padding(.trailing, 8)
-                        .padding(.vertical, 16)
-                    }
-                    .background(VesperTheme.background, in: RoundedRectangle(cornerRadius: 20))
+                        .padding(.vertical, 12)
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("后续功能").font(.subheadline).foregroundStyle(.secondary)
-                        .padding(.horizontal, 16)
-                    VStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    settingsLink(.playback, title: "播放设置", symbol: "play.circle")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.gestures, title: "播放手势", symbol: "hand.draw")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.subtitles, title: "字幕设置", symbol: "captions.bubble")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.danmaku, title: "弹幕设置", symbol: "text.bubble")
+                }
+                VStack(spacing: 0) {
                         HStack {
                             SettingsLabel("IMDb", symbol: "film")
                             Spacer()
                             Text("尚未连接").foregroundStyle(.secondary)
-                        }.padding(16)
+                        }.padding(12)
                         Divider().padding(.leading, 56)
                         HStack(spacing: 12) {
                             Image("TraktIcon")
@@ -94,18 +87,14 @@ struct SettingsView: View {
                                 .foregroundStyle(Color("VesperPrimaryText"))
                             Spacer()
                             Text("尚未连接").foregroundStyle(.secondary)
-                        }.padding(16)
-                    }
-                    .background(VesperTheme.background, in: RoundedRectangle(cornerRadius: 20))
-                    Text("外部服务尚未连接。")
-                        .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16)
+                        }.padding(12)
                 }
                 settingsLink(.licenses, title: "开源许可", symbol: "doc.plaintext")
                 Text("Vesper \(version) · Aholic")
                     .font(.footnote).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 16)
         }
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
@@ -136,7 +125,7 @@ struct SettingsView: View {
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
             }
-            .padding(16)
+            .padding(12)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -160,7 +149,7 @@ private struct RuntimeLogsView: View {
                 SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看运行日志，设置保留时间，或分享完整日志文件以协助排查问题。")
 
                 if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
-                Section("保留规则") {
+                Section {
                     Picker(selection: $retentionDays) {
                         Text("无限制").tag(0)
                         ForEach([1, 3, 7, 14, 30, 90], id: \.self) { days in
@@ -169,7 +158,7 @@ private struct RuntimeLogsView: View {
                     } label: { Text("保留时间") }
                     .pickerStyle(.menu)
                 }
-                Section(String(format: VesperLocalization.string("日志（%d）"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [store.entries.count])) {
+                Section {
                     if store.entries.isEmpty {
                         ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
                     } else {
@@ -189,6 +178,8 @@ private struct RuntimeLogsView: View {
         }
         .listStyle(.insetGrouped)
         .contentMargins(.top, 16, for: .scrollContent)
+        .listSectionSpacing(28)
+        .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
         .toolbar {
@@ -329,7 +320,7 @@ private struct AppearanceSettingsView: View {
                 } footer: {
                     Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
                 }
-                Section("更换图标") {
+                Section {
                     AppIconChoices()
                 }
             }
@@ -337,6 +328,8 @@ private struct AppearanceSettingsView: View {
         }
         .listStyle(.insetGrouped)
         .contentMargins(.top, 16, for: .scrollContent)
+        .listSectionSpacing(28)
+        .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
     }
@@ -376,8 +369,6 @@ struct TabSettingsView: View {
                             }
                         )) { SettingsLabel(LocalizedStringKey(section.title), symbol: section.symbol) }
                     }
-                } header: {
-                    Text("显示标签")
                 } footer: {
                     Text("关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。")
                 }
@@ -395,8 +386,6 @@ struct TabSettingsView: View {
                     Toggle(isOn: $tabBarCanMinimize) {
                         SettingsLabel("允许标签栏收缩", symbol: "arrow.down.right.and.arrow.up.left")
                     }
-                } header: {
-                    Text("标签栏")
                 } footer: {
                     Text("关闭后，向下滚动页面时标签栏保持展开。")
                 }
@@ -410,12 +399,10 @@ struct TabSettingsView: View {
                         }
                         .disabled(!miniPlayerEnabled)
                     }
-                } header: {
-                    Text("迷你播放器")
                 } footer: {
                     Text("关闭常显后，仅在有可播放内容时显示迷你播放器。")
                 }
-                Section("标签图标") {
+                Section {
                     HStack(alignment: .top, spacing: 10) {
                         ForEach(sections) { section in
                             Menu {
@@ -451,6 +438,8 @@ struct TabSettingsView: View {
         }
         .listStyle(.insetGrouped)
         .contentMargins(.top, 16, for: .scrollContent)
+        .listSectionSpacing(28)
+        .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
         .toolbar {
@@ -559,6 +548,8 @@ private struct TabOrderSettingsView: View {
             .listRowBackground(VesperTheme.background)
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(28)
+        .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
         .environment(\.editMode, .constant(.active))
@@ -566,7 +557,7 @@ private struct TabOrderSettingsView: View {
 }
 
 /// Introductory row within the native grouped list; scales with Dynamic Type.
-private struct SettingsIntroCard: View {
+struct SettingsIntroCard: View {
     let title: LocalizedStringKey
     let symbol: String
     let description: LocalizedStringKey
@@ -657,11 +648,14 @@ private struct PlaybackLicensesView: View {
 
     var body: some View {
         ScrollView {
-            Text(verbatim: notices)
+            VStack(alignment: .leading, spacing: 16) {
+                SettingsIntroCard(title: "开源许可", symbol: "doc.plaintext", description: "查看播放器和第三方组件的开源许可。")
+                Text(verbatim: notices)
                 .font(.footnote)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
+            }
         }
     }
 }

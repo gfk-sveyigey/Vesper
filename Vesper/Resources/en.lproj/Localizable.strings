@@ -340,3 +340,27 @@
 "%+d 秒" = "%+d s";
 
 "外部服务尚未连接。" = "External services are not connected yet.";
+
+"更多设置" = "More Settings";
+
+"后台播放" = "Background Playback";
+
+"后台播放方式" = "Background Playback Mode";
+
+"音频播放" = "Audio Playback";
+
+"画中画播放" = "Picture in Picture Playback";
+
+"回到前台自动续播" = "Resume on Return to App";
+
+"保留播放进度" = "Remember Playback Position";
+
+"设置后台播放方式、自动续播、进度保存和跳转时长。" = "Configure background playback, automatic resume, saved positions, and skip intervals.";
+
+"调整文字字幕的字号和背景。" = "Adjust text subtitle font size and background.";
+
+"管理播放时显示的弹幕。" = "Manage on-screen danmaku during playback.";
+
+"为播放器的不同区域设置单指和多指操作。" = "Configure one-finger and multi-finger actions for each player region.";
+
+"查看播放器和第三方组件的开源许可。" = "View open-source licenses for the player and third-party components.";

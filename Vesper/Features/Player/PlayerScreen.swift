@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum PlayerPanel: String, Identifiable {
-    case queue, gestures, danmaku, subtitles, settings
+    case queue, gestures, danmaku, subtitles
     var id: String { rawValue }
 }
 
@@ -271,8 +271,18 @@ struct PlayerScreen: View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.25)).frame(height: isScrubbing ? 12 : 8)
-                Capsule().fill(.white.opacity(0.35)).frame(width: geometry.size.width * fraction(session.bufferedTime), height: isScrubbing ? 12 : 8)
-                Capsule().fill(.white).frame(width: geometry.size.width * fraction(isScrubbing ? scrubTime : session.currentTime), height: isScrubbing ? 12 : 8)
+                Capsule().fill(.white.opacity(0.35))
+                    .frame(height: isScrubbing ? 12 : 8)
+                    .frame(maxWidth: .infinity)
+                    .mask(alignment: .leading) {
+                        Rectangle().frame(width: geometry.size.width * fraction(session.bufferedTime))
+                    }
+                Capsule().fill(.white)
+                    .frame(height: isScrubbing ? 12 : 8)
+                    .frame(maxWidth: .infinity)
+                    .mask(alignment: .leading) {
+                        Rectangle().frame(width: geometry.size.width * fraction(isScrubbing ? scrubTime : session.currentTime))
+                    }
             }
             .frame(height: 44)
             .contentShape(Rectangle())
@@ -339,12 +349,7 @@ struct PlayerScreen: View {
                 menuAction(VesperLocalization.string(session.fillsScreen ? "完整显示" : "填满屏幕"), symbol: "aspectratio") { session.toggleFill() }
             ]),
             UIMenu(options: .displayInline, children: [audioMenu(), subtitleMenu(), speedMenu()]),
-            UIMenu(title: VesperLocalization.string("播放设置"), options: .displayInline, children: [
-                menuAction(VesperLocalization.string("播放设置"), symbol: "gearshape") { requestPanel(.settings) },
-                menuAction(VesperLocalization.string("弹幕设置"), symbol: "text.bubble") { requestPanel(.danmaku) },
-                menuAction(VesperLocalization.string("字幕设置"), symbol: "textformat.size") { requestPanel(.subtitles) },
-                menuAction(VesperLocalization.string("播放手势"), symbol: "hand.draw") { requestPanel(.gestures) }
-            ])
+            UIMenu(options: .displayInline, children: [moreSettingsMenu()])
         ])
     }
 
@@ -363,13 +368,8 @@ struct PlayerScreen: View {
                 landscapeMenu("播放速度", symbol: "speedometer", menu: speedMenu)
             }
             .glassEffect(.regular.interactive(), in: Capsule())
-            HStack(spacing: 0) {
-                actionButton("播放设置", symbol: "gearshape") { requestPanel(.settings) }
-                actionButton("弹幕设置", symbol: "text.bubble") { requestPanel(.danmaku) }
-                actionButton("字幕设置", symbol: "textformat.size") { requestPanel(.subtitles) }
-                actionButton("播放手势", symbol: "hand.draw") { requestPanel(.gestures) }
-            }
-            .glassEffect(.regular.interactive(), in: Capsule())
+            landscapeMenu("更多设置", symbol: "gearshape", menu: moreSettingsMenu)
+                .glassEffect(.regular.interactive(), in: Circle())
         }
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -379,11 +379,17 @@ struct PlayerScreen: View {
             .frame(width: 44, height: 44)
     }
 
-    private func actionButton(_ title: LocalizedStringKey, symbol: String, action: @escaping () -> Void) -> some View {
-        Button { revealControls(); action() } label: {
-            Image(systemName: symbol).font(.system(size: 17, weight: .medium)).frame(width: 44, height: 44)
-        }
-        .buttonStyle(.plain).accessibilityLabel(Text(title))
+    private func actionButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        PlayerActionButton(title: VesperLocalization.string(title), symbol: symbol) { revealControls(); action() }
+            .frame(width: 44, height: 44)
+    }
+
+    private func moreSettingsMenu() -> UIMenu {
+        UIMenu(title: VesperLocalization.string("更多设置"), image: UIImage(systemName: "gearshape"), children: [
+            menuAction(VesperLocalization.string("弹幕设置"), symbol: "text.bubble") { requestPanel(.danmaku) },
+            menuAction(VesperLocalization.string("字幕设置"), symbol: "textformat.size") { requestPanel(.subtitles) },
+            menuAction(VesperLocalization.string("播放手势"), symbol: "hand.draw") { requestPanel(.gestures) }
+        ])
     }
 
     private func requestPanel(_ selected: PlayerPanel) {
@@ -475,7 +481,6 @@ struct PlayerScreen: View {
                 case .gestures: PlayerGestureSettingsView()
                 case .danmaku: DanmakuSettingsView()
                 case .subtitles: SubtitleSettingsView()
-                case .settings: PlaybackSettingsView(session: session)
                 case .queue:
                     List(session.queue) { item in
                         Button {

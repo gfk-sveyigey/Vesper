@@ -2,6 +2,7 @@ import AVFoundation
 @preconcurrency import AVKit
 import MediaPlayer
 import Combine
+import SwiftUI
 @preconcurrency import KSPlayer
 import UIKit
 
@@ -37,6 +38,11 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     private var pendingSeek: (time: TimeInterval, resume: Bool)?
     private var seekInFlight = false
     private let subtitleModel = SubtitleModel()
+    private var backgroundResumePending = false
+    private var appIsInBackground = false
+    private var progressRestored = false
+    private var lastProgressSave = Date.distantPast
+    private let progressStorageKey = "player.savedProgress"
 
     override init() {
         super.init()
@@ -82,7 +88,9 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         request?.cancel()
         generation = UUID()
         let token = generation
+        saveProgress()
         tearDownPlayer()
+        progressRestored = false
         currentItem = item
         currentTime = 0
         duration = 0
@@ -193,7 +201,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         pipObservation = nil
         pipController = candidate
         candidate.delegate = self
-        candidate.canStartPictureInPictureAutomaticallyFromInline = true
+        candidate.canStartPictureInPictureAutomaticallyFromInline = PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
         isPictureInPicturePossible = candidate.isPictureInPicturePossible
         let identity = ObjectIdentifier(candidate)
         pipObservation = candidate.observe(\.isPictureInPicturePossible, options: [.new]) { [weak self] _, change in
@@ -228,6 +236,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func pictureInPictureController(_ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
         guard controller === pipController else { return }
+        if appIsInBackground { backgroundResumePending = isPlaying; pause() }
         playbackNotice = error.localizedDescription
         log("画中画启动失败：\(error.localizedDescription)")
     }
@@ -237,6 +246,72 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         restoringPiP = true
         if isPresented { completionHandler(true) }
         else { restorePiPCompletion = completionHandler; isPresented = true }
+    }
+
+    func refreshPlaybackPreferences() {
+        pipController?.canStartPictureInPictureAutomaticallyFromInline = PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
+    }
+
+    func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .inactive:
+            refreshPlaybackPreferences()
+        case .background:
+            appIsInBackground = true
+            saveProgress()
+            guard isPlaying else { return }
+            guard PlaybackPreferences.backgroundEnabled else {
+                backgroundResumePending = true
+                pipController?.stopPictureInPicture()
+                pause()
+                return
+            }
+            if PlaybackPreferences.backgroundMode == "pip" && !isPictureInPictureActive {
+                configurePictureInPicture()
+                if let pipController, pipController.isPictureInPicturePossible {
+                    pipController.startPictureInPicture()
+                } else {
+                    backgroundResumePending = true
+                    pause()
+                    playbackNotice = VesperLocalization.string("当前视频暂不支持画中画。")
+                }
+            }
+        case .active:
+            appIsInBackground = false
+            if backgroundResumePending {
+                backgroundResumePending = false
+                if PlaybackPreferences.resumeOnForeground { layer?.play() }
+            }
+        @unknown default: break
+        }
+    }
+
+    private var progressKey: String? {
+        guard externalFile == nil, let id = currentItem?.id else { return nil }
+        return id.sourceID.uuidString + ":" + id.localID
+    }
+
+    private func saveProgress() {
+        guard PlaybackPreferences.remembersProgress, progressRestored, let key = progressKey,
+              duration > 0, currentTime.isFinite else { return }
+        var values = UserDefaults.standard.dictionary(forKey: progressStorageKey) as? [String: Double] ?? [:]
+        if currentTime >= duration - 2 { values.removeValue(forKey: key) }
+        else { values[key] = max(0, currentTime) }
+        UserDefaults.standard.set(values, forKey: progressStorageKey)
+        lastProgressSave = Date()
+    }
+
+    func clearSavedProgress() {
+        UserDefaults.standard.removeObject(forKey: progressStorageKey)
+    }
+
+    private func restoreProgressIfNeeded() {
+        guard !progressRestored, canSeek else { return }
+        progressRestored = true
+        guard PlaybackPreferences.remembersProgress, let key = progressKey,
+              let saved = UserDefaults.standard.dictionary(forKey: progressStorageKey)?[key] as? Double,
+              saved > 0, saved < duration - 2 else { return }
+        seek(to: saved, resume: isPlaying)
     }
 
     func setPlaybackRate(_ rate: Float) {
@@ -305,6 +380,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func stop() {
+        saveProgress()
+        backgroundResumePending = false
         request?.cancel()
         request = nil
         generation = UUID()
@@ -357,6 +434,11 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         videoView = layer.player.view
         isPlaying = state.isPlaying
         isLoading = state == .preparing || state == .buffering
+        if appIsInBackground && !PlaybackPreferences.backgroundEnabled && state.isPlaying {
+            backgroundResumePending = true
+            layer.pause()
+            return
+        }
         if state == .readyToPlay {
             layer.player.playbackRate = playbackRate
             layer.player.contentMode = fillsScreen ? .scaleAspectFill : .scaleAspectFit
@@ -371,6 +453,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         refreshTracks()
         if state == .playedToTheEnd {
             currentTime = duration
+            saveProgress()
             UIApplication.shared.isIdleTimerDisabled = false
         }
         log("状态：\(state)")
@@ -385,6 +468,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         refreshTracks()
         updateSubtitles()
         configurePictureInPicture()
+        restoreProgressIfNeeded()
+        if Date().timeIntervalSince(lastProgressSave) >= 5 && !isSeeking { saveProgress() }
     }
 
     func player(layer: KSPlayerLayer, finish error: Error?) {

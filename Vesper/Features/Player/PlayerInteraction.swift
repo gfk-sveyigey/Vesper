@@ -221,6 +221,7 @@ struct PlayerMenuButton: UIViewRepresentable {
         button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
         button.tintColor = .white
         button.showsMenuAsPrimaryAction = true
+        button.preferredMenuElementOrder = .fixed
         button.accessibilityLabel = accessibilityTitle
         return button
     }
@@ -255,5 +256,29 @@ struct PlayerMenuButton: UIViewRepresentable {
             if let animator { animator.addCompletion(finished) }
             else { finished() }
         }
+    }
+}
+
+/// Use a native control for direct actions beside native menu controls so the
+/// glass group does not create different hit-testing paths for its children.
+struct PlayerActionButton: UIViewRepresentable {
+    let title: String
+    let symbol: String
+    var action: () -> Void
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.tintColor = .white
+        button.addAction(UIAction { _ in context.coordinator.action() }, for: .touchUpInside)
+        return button
+    }
+    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.action = action
+        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)), for: .normal)
+        button.accessibilityLabel = title
+    }
+    final class Coordinator {
+        var action: () -> Void
+        init(action: @escaping () -> Void) { self.action = action }
     }
 }

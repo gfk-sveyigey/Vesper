@@ -9,6 +9,7 @@ struct PlayerGestureSettingsView: View {
     var body: some View {
         Form {
             Group {
+                SettingsIntroCard(title: "播放手势", symbol: "hand.draw", description: "为播放器的不同区域设置单指和多指操作。")
                 Section {
                     Picker("手指数", selection: $fingers) {
                         Text("单指").tag(1)
@@ -20,12 +21,14 @@ struct PlayerGestureSettingsView: View {
                     Text("区域控制手势仅在控制层隐藏时生效，滑动以手势开始的位置为准。控制层显示时，单指单击空白区域即可隐藏；按钮和进度条独立操作。")
                 }
                 ForEach(PlayerGestureRegion.allCases) { region in
-                    Section(region.title) {
+                    Section {
                         ForEach(PlayerGestureKind.allCases) { kind in
-                            Picker(kind.title, selection: binding(kind, region)) {
+                            Picker(selection: binding(kind, region)) {
                                 ForEach(PlayerGestureAction.choices(for: kind)) { action in
                                     Text(action.title).tag(action)
                                 }
+                            } label: {
+                                HStack { Text(region.title); Spacer(); Text(kind.title).foregroundStyle(.secondary) }
                             }
                         }
                     }
@@ -43,6 +46,8 @@ struct PlayerGestureSettingsView: View {
             }
             .listRowBackground(VesperTheme.background)
         }
+        .listSectionSpacing(28)
+        .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
         .navigationTitle("播放手势")

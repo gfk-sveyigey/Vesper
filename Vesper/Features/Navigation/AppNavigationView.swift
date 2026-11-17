@@ -8,6 +8,7 @@ private enum NavigationTab: Hashable {
 /// Native tabs own their page hierarchies so scroll tracking, safe areas and
 /// the bottom accessory are coordinated by SwiftUI rather than sibling Hosts.
 struct AppNavigationView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
     @AppStorage("navigation.icons") private var icons = "{}"
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
@@ -68,6 +69,7 @@ struct AppNavigationView: View {
         .onChange(of: playback.isPresented) { _, presented in
             PlayerOrientationPolicy.update(presented)
         }
+        .onChange(of: scenePhase) { _, phase in playback.handleScenePhase(phase) }
         .task { presentNextIncomingVideo() }
         .onChange(of: incomingVideos.videos.map(\.id)) { _, _ in presentNextIncomingVideo() }
         .onChange(of: incomingVideos.nonVideoCount) { _, _ in presentNextIncomingVideo() }
