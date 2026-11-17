@@ -311,7 +311,7 @@ struct PlayerVolumeTouchSurface: UIViewRepresentable {
             addGestureRecognizer(tap)
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             !(gestureRecognizer is UIPanGestureRecognizer) || expanded
         }
         @objc private func tap(_ sender: UITapGestureRecognizer) {
