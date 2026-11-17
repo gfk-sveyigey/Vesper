@@ -183,9 +183,12 @@ private struct GestureRegionSettingsView: View {
         GeometryReader { geometry in
             HStack(spacing: 1) {
                 ForEach(0..<(edges.count - 1), id: \.self) { index in
-                    Text(verbatim: "\(Int(((edges[index + 1] - edges[index]) * 100).rounded()))%")
-                        .font(.title3.monospacedDigit().semibold())
-                        .frame(width: max(0, geometry.size.width * (edges[index + 1] - edges[index]) - 1), height: geometry.size.height)
+                    let fraction: Double = edges[index + 1] - edges[index]
+                    let percentage: Int = Int((fraction * 100).rounded())
+                    let width: CGFloat = max(0, geometry.size.width * CGFloat(fraction) - 1)
+                    Text(verbatim: "\(percentage)%")
+                        .font(Font.title3.weight(.semibold).monospacedDigit())
+                        .frame(width: width, height: geometry.size.height)
                         .background(Color.accentColor.opacity(0.18))
                 }
             }
