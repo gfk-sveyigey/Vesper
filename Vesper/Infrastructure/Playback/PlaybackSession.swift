@@ -8,7 +8,7 @@ import UIKit
 /// A single app-owned session. Tabs and player presentation never own or reset
 /// the decoder. KSPlayer APIs are contained here, outside navigation code.
 @MainActor
-final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, AVPictureInPictureControllerDelegate {
+final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, @preconcurrency AVPictureInPictureControllerDelegate {
     @Published private(set) var currentItem: MediaItem?
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false

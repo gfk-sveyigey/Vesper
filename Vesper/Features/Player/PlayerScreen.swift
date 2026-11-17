@@ -59,7 +59,7 @@ struct PlayerScreen: View {
                 // Independent placement keeps the transport centered on the
                 // actual video, regardless of header/title/progress height.
                 transportControls
-                    .position(x: geometry.size.width / 2,
+                    .position(x: (geometry.size.width + geometry.safeAreaInsets.trailing - geometry.safeAreaInsets.leading) / 2,
                               y: (geometry.size.height + geometry.safeAreaInsets.bottom - geometry.safeAreaInsets.top) / 2)
                     .opacity(controlsVisible && session.errorMessage == nil && !session.isLoading ? 1 : 0)
                     .allowsHitTesting(controlsVisible && session.errorMessage == nil && !session.isLoading)
