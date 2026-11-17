@@ -51,7 +51,7 @@ struct VideoImportSheet: View {
                         saveError = nil
                         Task {
                             do {
-                                let url = try await VideoImporter.shared.importVideo(from: file.url)
+                                let url = try await VideoImporter.shared.importVideo(file)
                                 AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [VideoImport] 文件保存成功")
                                 saved(url)
                             } catch {

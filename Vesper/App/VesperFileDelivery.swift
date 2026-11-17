@@ -26,7 +26,8 @@ final class VesperFileDeliveryDelegate: NSObject, UIApplicationDelegate {
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
         FileDeliveryLog.write("App 收到打开文件事件，参数=\(options.keys.map(\.rawValue).sorted())")
-        return FileDeliveryRouter.receive(url, origin: "app.open")
+        let openInPlace = options[.openInPlace] as? Bool ?? false
+        return FileDeliveryRouter.receive(url, origin: "app.open", requiresCopy: !openInPlace)
     }
 
     func application(
@@ -81,7 +82,7 @@ final class VesperFileSceneDelegate: NSObject, UIWindowSceneDelegate {
     private func receive(_ contexts: Set<UIOpenURLContext>, origin: String) {
         for context in contexts.sorted(by: { $0.url.absoluteString < $1.url.absoluteString }) {
             FileDeliveryLog.write("文件交付 origin=\(origin) openInPlace=\(context.options.openInPlace)")
-            FileDeliveryRouter.receive(context.url, origin: origin)
+            FileDeliveryRouter.receive(context.url, origin: origin, requiresCopy: !context.options.openInPlace)
         }
     }
 }
@@ -98,7 +99,7 @@ enum FileDeliveryRouter {
     private static var recent: [URL: Receipt] = [:]
 
     @discardableResult
-    static func receive(_ url: URL, origin: String) -> Bool {
+    static func receive(_ url: URL, origin: String, requiresCopy: Bool = true) -> Bool {
         FileDeliveryLog.write("入口=\(origin) scheme=\(url.scheme ?? "nil") extension=\(url.pathExtension)")
         // A control event sent from Safari tests the same external URL callbacks
         // without depending on a file provider or document-type association.
@@ -117,7 +118,7 @@ enum FileDeliveryRouter {
             return true
         }
         recent[key] = Receipt(time: now, origins: [origin])
-        IncomingVideoReceiver.shared.receive(url)
+        IncomingVideoReceiver.shared.receive(url, requiresCopy: requiresCopy)
         return true
     }
 

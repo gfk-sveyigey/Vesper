@@ -106,7 +106,7 @@ struct SourcesView: View {
         // Keep the selected file accessible until the shared receiver owns it.
         // Preview presentation starts only after the picker sheet has dismissed.
         withExtendedLifetime(access) {
-            FileDeliveryRouter.receive(access.url, origin: "documentPicker")
+            FileDeliveryRouter.receive(access.url, origin: "documentPicker", requiresCopy: false)
         }
     }
 

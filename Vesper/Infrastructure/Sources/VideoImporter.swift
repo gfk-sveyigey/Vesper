@@ -20,6 +20,35 @@ actor VideoImporter {
             UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true
     }
 
+    /// Some Open In deliveries require copying before the provider revokes access.
+    /// This is a temporary preview/playback resource, not a saved library item.
+    func prepare(_ access: IncomingFileAccess, requiresCopy: Bool) throws -> IncomingFileAccess {
+        guard requiresCopy else { return access }
+        let manager = FileManager.default
+        let directory = manager.temporaryDirectory
+            .appendingPathComponent("Vesper-import-\(UUID().uuidString)", isDirectory: true)
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(access.url.lastPathComponent)
+        do {
+            var coordinationError: NSError?
+            var copyError: Error?
+            NSFileCoordinator().coordinate(readingItemAt: access.url, options: [], error: &coordinationError) { readable in
+                do {
+                    guard (try readable.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true else {
+                        throw ImportFailure.unreadable
+                    }
+                    try manager.copyItem(at: readable, to: destination)
+                } catch { copyError = error }
+            }
+            if let coordinationError { throw coordinationError }
+            if let copyError { throw copyError }
+            return IncomingFileAccess(url: destination, temporaryDirectory: directory)
+        } catch {
+            try? manager.removeItem(at: directory)
+            throw error
+        }
+    }
+
     func inspect(_ access: IncomingFileAccess) -> Inspection {
         let url = access.url
         guard url.isFileURL else { return .unreadable }
@@ -99,13 +128,15 @@ actor VideoImporter {
         }
     }
 
-    func importVideo(from incoming: URL) throws -> URL {
+    func importVideo(_ file: IncomingVideo) throws -> URL {
+        // Retain the same access owner used by preview and playback throughout
+        // the copy, rather than reconstructing a URL or reacquiring permission.
+        let incoming = file.url
         guard incoming.isFileURL,
               Self.isVideoType(incoming) else {
             throw ImportFailure.unsupported
         }
-        let scoped = incoming.startAccessingSecurityScopedResource()
-        defer { if scoped { incoming.stopAccessingSecurityScopedResource() } }
+        defer { withExtendedLifetime(file.access) {} }
         let manager = FileManager.default
         let documents = try manager.url(for: .documentDirectory, in: .userDomainMask,
                                        appropriateFor: nil, create: true)
@@ -120,7 +151,7 @@ actor VideoImporter {
         var coordinationError: NSError?
         var copyError: Error?
         // Coordinates access with Files/iCloud and other document providers.
-        NSFileCoordinator().coordinate(readingItemAt: source, options: [], error: &coordinationError) { readable in
+        NSFileCoordinator().coordinate(readingItemAt: incoming, options: [], error: &coordinationError) { readable in
             do {
                 guard (try readable.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true else {
                     throw ImportFailure.unreadable
