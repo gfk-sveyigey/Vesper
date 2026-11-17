@@ -9,7 +9,7 @@ struct PlayerGestureSettingsView: View {
 
     var body: some View {
         let _ = revision
-        SettingsPage {
+        SettingsPage(usesLazyLayout: false) {
             SettingsIntroCard(title: "播放手势", symbol: "hand.draw", description: "为每种手势选择区域与动作。")
             SettingsSection {
                 Button { showingRanges = true } label: {
@@ -21,19 +21,8 @@ struct PlayerGestureSettingsView: View {
                     Label("组合手势设置", systemImage: "arrow.up.arrow.down")
                 }
             }
-            ForEach(1...2, id: \.self) { fingers in
-                ForEach(PlayerGesturePair.allCases.filter { pair in
-                    (!pair.needsTwoFingers || fingers == 2) && PlayerGesturePreferences.pairEnabled(pair, fingers)
-                }) { pair in
-                    gestureSection(pair.positive, fingers: fingers, pair: pair)
-                }
-            }
-            ForEach(1...2, id: \.self) { fingers in
-                ForEach(PlayerGestureKind.allCases.filter { kind in
-                    (!kind.needsTwoFingers || fingers == 2) && !isCombined(kind, fingers)
-                }) { kind in
-                    gestureSection(kind, fingers: fingers, pair: nil)
-                }
+            ForEach(gestureEntries) { entry in
+                gestureSection(entry.kind, fingers: entry.fingers, pair: entry.pair)
             }
         }
         .contentMargins(.top, 0, for: .scrollContent)
@@ -60,6 +49,25 @@ struct PlayerGestureSettingsView: View {
                 .presentationDetents([.custom(GesturePairsDetent.self)])
                 .presentationDragIndicator(.visible)
         }
+    }
+
+    // Flatten the dynamic groups so identity includes both finger count and
+    // paired/independent mode, rather than relying on nested lazy ForEach IDs.
+    private var gestureEntries: [GestureSettingsEntry] {
+        var entries: [GestureSettingsEntry] = []
+        for fingers in 1...2 {
+            for pair in PlayerGesturePair.allCases where
+                (!pair.needsTwoFingers || fingers == 2) && PlayerGesturePreferences.pairEnabled(pair, fingers) {
+                entries.append(GestureSettingsEntry(fingers: fingers, kind: pair.positive, pair: pair))
+            }
+        }
+        for fingers in 1...2 {
+            for kind in PlayerGestureKind.allCases where
+                (!kind.needsTwoFingers || fingers == 2) && !isCombined(kind, fingers) {
+                entries.append(GestureSettingsEntry(fingers: fingers, kind: kind, pair: nil))
+            }
+        }
+        return entries
     }
 
     private func isCombined(_ kind: PlayerGestureKind, _ fingers: Int) -> Bool {
@@ -115,11 +123,21 @@ struct PlayerGestureSettingsView: View {
     }
 }
 
+private struct GestureSettingsEntry: Identifiable {
+    let fingers: Int
+    let kind: PlayerGestureKind
+    let pair: PlayerGesturePair?
+    var id: String {
+        if let pair { return "\(fingers).pair.\(pair.rawValue)" }
+        return "\(fingers).single.\(kind.rawValue)"
+    }
+}
+
 private struct GesturePairSettingsView: View {
     let changed: () -> Void
     @State private var revision = 0
     var body: some View {
-        SettingsPage {
+        SettingsPage(usesLazyLayout: false) {
             ForEach(1...2, id: \.self) { fingers in
                 SettingsSection {
                     Text(fingers == 1 ? "单指" : "双指").font(.headline)

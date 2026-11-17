@@ -651,12 +651,22 @@ private struct PlaybackLicensesView: View {
 /// System grouped colors adapt to appearance and accessibility contrast.
 struct SettingsPage<Content: View>: View {
     private let content: Content
-    init(@ViewBuilder content: () -> Content) { self.content = content() }
+    private let usesLazyLayout: Bool
+    init(usesLazyLayout: Bool = true, @ViewBuilder content: () -> Content) {
+        self.usesLazyLayout = usesLazyLayout
+        self.content = content()
+    }
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 20) { content }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 24)
+            Group {
+                if usesLazyLayout {
+                    LazyVStack(alignment: .leading, spacing: 20) { content }
+                } else {
+                    VStack(alignment: .leading, spacing: 20) { content }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
         }
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
     }
