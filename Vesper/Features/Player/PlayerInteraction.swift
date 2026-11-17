@@ -282,3 +282,43 @@ struct PlayerActionButton: UIViewRepresentable {
         init(action: @escaping () -> Void) { self.action = action }
     }
 }
+
+/// One stable hit surface owns both tap and pan; the volume rendering and
+/// hidden MPVolumeView never overlap its touch targets.
+struct PlayerVolumeTouchSurface: UIViewRepresentable {
+    var expanded: Bool
+    var tapped: (Bool) -> Void
+    var dragged: (CGFloat, UIGestureRecognizer.State) -> Void
+    func makeUIView(context: Context) -> TouchView { TouchView() }
+    func updateUIView(_ view: TouchView, context: Context) {
+        view.expanded = expanded
+        view.tapped = tapped
+        view.dragged = dragged
+    }
+    final class TouchView: UIView, UIGestureRecognizerDelegate {
+        var expanded = false
+        var tapped: ((Bool) -> Void)?
+        var dragged: ((CGFloat, UIGestureRecognizer.State) -> Void)?
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .clear
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(pan(_:)))
+            pan.maximumNumberOfTouches = 1
+            pan.delegate = self
+            addGestureRecognizer(pan)
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tap(_:)))
+            tap.require(toFail: pan)
+            addGestureRecognizer(tap)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            !(gestureRecognizer is UIPanGestureRecognizer) || expanded
+        }
+        @objc private func tap(_ sender: UITapGestureRecognizer) {
+            tapped?(sender.location(in: self).x >= bounds.width - 44)
+        }
+        @objc private func pan(_ sender: UIPanGestureRecognizer) {
+            dragged?(sender.translation(in: self).x, sender.state)
+        }
+    }
+}

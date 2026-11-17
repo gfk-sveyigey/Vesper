@@ -364,3 +364,25 @@
 "为播放器的不同区域设置单指和多指操作。" = "Ein- und Mehrfingergesten für jeden Player-Bereich konfigurieren.";
 
 "查看播放器和第三方组件的开源许可。" = "Open-Source-Lizenzen des Players und der Drittanbieterkomponenten ansehen.";
+
+"播放选项" = "Wiedergabeoptionen";
+
+"音频" = "Audio";
+
+"视频简介" = "Videobeschreibung";
+
+"详细信息" = "Details";
+
+"暂无视频简介" = "Keine Beschreibung verfügbar";
+
+"无法读取视频信息" = "Videoinformationen können nicht gelesen werden";
+
+"文件名" = "Dateiname";
+
+"文件大小" = "Dateigröße";
+
+"分辨率" = "Auflösung";
+
+"时长" = "Dauer";
+
+"外部视频" = "Externes Video";

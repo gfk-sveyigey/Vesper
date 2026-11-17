@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum PlayerPanel: String, Identifiable {
-    case queue, gestures, danmaku, subtitles
+    case queue, gestures, danmaku, subtitles, synopsis, details
     var id: String { rawValue }
 }
 
@@ -15,6 +15,7 @@ struct PlayerScreen: View {
     @State private var controlsVisible = false
     @State private var autoHideRevision = 0
     @State private var volumeExpanded = false
+    @State private var volumeDragStart: Float?
     @State private var menuPresented = false
     @State private var scrubShowsControls = true
     @State private var scrubPreviews = true
@@ -119,6 +120,11 @@ struct PlayerScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .foregroundStyle(.white).tint(.white)
         }
+        .background {
+            PlayerVolumeBridge(volume: volume)
+                .frame(width: 160, height: 44)
+                .opacity(0.01).allowsHitTesting(false).accessibilityHidden(true)
+        }
         .preferredColorScheme(.dark)
         .statusBarHidden(!controlsVisible)
         .persistentSystemOverlays(controlsVisible ? .visible : .hidden)
@@ -175,50 +181,82 @@ struct PlayerScreen: View {
     }
 
     private func topControls(availableWidth: CGFloat) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            glassButton("关闭", symbol: "xmark") { session.stop() }
-            HStack(spacing: 0) {
-                Button { revealControls(); session.startPictureInPicture() } label: {
-                    Image(systemName: "pip.enter").font(.system(size: 17, weight: .medium))
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .disabled(!session.isPictureInPicturePossible)
-                .accessibilityLabel("画中画")
-                PlayerAirPlayButton().frame(width: 44, height: 44).accessibilityLabel("投屏")
-            }
-            .glassEffect(.regular.interactive(), in: Capsule())
-            Spacer(minLength: 8)
-            HStack(spacing: 0) {
-                if volumeExpanded {
-                    Button { revealControls(); volumeExpanded = false } label: {
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                            .frame(width: 28, height: 44)
+        ZStack(alignment: .trailing) {
+            HStack(spacing: 10) {
+                glassButton("关闭", symbol: "xmark") { session.stop() }
+                HStack(spacing: 0) {
+                    Button { revealControls(); session.startPictureInPicture() } label: {
+                        Image(systemName: "pip.enter").font(.system(size: 17, weight: .medium))
+                            .frame(width: 44, height: 44)
                     }
-                    .buttonStyle(.plain).accessibilityLabel("收起音量")
+                    .buttonStyle(.plain)
+                    .disabled(!session.isPictureInPicturePossible)
+                    .accessibilityLabel("画中画")
+                    PlayerAirPlayButton().frame(width: 44, height: 44).accessibilityLabel("投屏")
                 }
-                // A single native volume view stays attached while the same
-                // glass capsule expands, including hardware-volume updates.
-                PlayerVolumeBridge(volume: volume)
-                    .frame(width: volumeExpanded ? min(140, max(64, availableWidth - 244)) : 0, height: 44)
-                    .clipped().opacity(volumeExpanded ? 1 : 0)
-                    .allowsHitTesting(volumeExpanded).accessibilityHidden(!volumeExpanded)
-                Button {
-                    revealControls()
-                    if volumeExpanded { session.toggleMute() }
-                    else { volumeExpanded = true }
-                } label: {
-                    Image(systemName: session.isMuted || volume.value == 0 ? "speaker.slash.fill" : "speaker.wave.3.fill",
-                          variableValue: Double(volume.value))
-                        .font(.system(size: 17, weight: .medium))
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(volumeExpanded ? (session.isMuted ? "取消静音" : "静音") : "音量")
+                .glassEffect(.regular.interactive(), in: Capsule())
+                Spacer(minLength: 0)
             }
-            .glassEffect(.regular.interactive(), in: Capsule())
-            .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: volumeExpanded)
+            .opacity(volumeExpanded ? 0 : 1)
+            .allowsHitTesting(!volumeExpanded)
+            .accessibilityHidden(volumeExpanded)
+            volumeControl(width: min(240, availableWidth))
+        }
+        .frame(height: 44)
+    }
+
+    private func volumeControl(width: CGFloat) -> some View {
+        ZStack(alignment: .trailing) {
+            HStack(spacing: 12) {
+                if volumeExpanded {
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.white.opacity(0.2))
+                            Rectangle().fill(.white)
+                                .frame(width: geometry.size.width * CGFloat(session.isMuted ? 0 : volume.value))
+                        }
+                        .frame(height: 8).clipShape(Capsule())
+                    }
+                    .frame(height: 8)
+                    .padding(.leading, 16)
+                }
+                Image(systemName: session.isMuted || volume.value == 0 ? "speaker.slash.fill" : "speaker.wave.3.fill",
+                      variableValue: Double(volume.value))
+                    .font(.system(size: 17, weight: .medium))
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 44, height: 44)
+            }
+            .allowsHitTesting(false)
+            PlayerVolumeTouchSurface(expanded: volumeExpanded, tapped: { onIcon in
+                revealControls()
+                if !volumeExpanded { volumeExpanded = true }
+                else if onIcon { session.toggleMute() }
+                else { volumeExpanded = false }
+            }, dragged: { translation, phase in
+                guard volumeExpanded else { return }
+                if phase == .began {
+                    volumeDragStart = volume.value
+                }
+                guard let start = volumeDragStart else { return }
+                session.unmute()
+                volume.set(start + Float(translation / max(width - 32, 1)))
+                if phase == .ended || phase == .cancelled || phase == .failed {
+                    volumeDragStart = nil
+                }
+            })
+        }
+        .frame(width: volumeExpanded ? width : 44, height: 44)
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: volumeExpanded)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("音量")
+        .accessibilityValue(Text(verbatim: String(format: "%d%%", Int(volume.value * 100))))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { revealControls(); volumeExpanded.toggle() }
+        .accessibilityAction(named: Text(session.isMuted ? "取消静音" : "静音")) { session.toggleMute() }
+        .accessibilityAdjustableAction { direction in
+            session.unmute()
+            volume.set(volume.value + (direction == .increment ? 0.05 : -0.05))
         }
     }
 
@@ -250,10 +288,11 @@ struct PlayerScreen: View {
                         .lineLimit(1).truncationMode(.middle)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if landscape { landscapeActions }
-                else { moreMenu(landscape: false) }
+                if landscape { expandedPlaybackOptions }
+                else { playbackOptionsMenu }
             }
             progressRow
+            bottomActions(landscape: landscape)
         }
     }
 
@@ -308,14 +347,16 @@ struct PlayerScreen: View {
         }
     }
 
-    private func moreMenu(landscape: Bool) -> some View {
-        PlayerMenuButton(makeMenu: { makeMoreMenu(landscape: landscape) }, visibilityChanged: menuVisibilityChanged)
-        .frame(width: 44, height: 44)
-        .glassEffect(.regular.interactive(), in: Circle())
+    private var playbackOptionsMenu: some View {
+        PlayerMenuButton(symbol: "slider.horizontal.3", accessibilityTitle: VesperLocalization.string("播放选项"),
+                         makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu()]) },
+                         visibilityChanged: menuVisibilityChanged)
+            .frame(width: 44, height: 44)
+            .glassEffect(.regular.interactive(), in: Circle())
     }
 
     private func speedMenu() -> UIMenu {
-        UIMenu(title: VesperLocalization.string("播放速度"), children:
+        UIMenu(title: VesperLocalization.string("播放速度"), image: UIImage(systemName: "speedometer"), children:
             [Float(0.5), 0.75, 1, 1.25, 1.5, 2].map { rate in
                 menuAction(String(format: "%g×", Double(rate)), selected: session.playbackRate == rate) { session.setPlaybackRate(rate) }
             }
@@ -328,7 +369,7 @@ struct PlayerScreen: View {
             menuAction(track.name, selected: track.isSelected) { session.selectSubtitle(track.id) }
         }
         if session.subtitleTracks.isEmpty { actions.append(menuAction(VesperLocalization.string("无内嵌字幕"), enabled: false) { }) }
-        return UIMenu(title: VesperLocalization.string("字幕"), children: actions)
+        return UIMenu(title: VesperLocalization.string("字幕"), image: UIImage(systemName: "captions.bubble"), children: actions)
     }
 
     private func audioMenu() -> UIMenu {
@@ -336,42 +377,38 @@ struct PlayerScreen: View {
             menuAction(track.name, selected: track.isSelected) { session.selectAudio(track.id) }
         }
         if actions.isEmpty { actions.append(menuAction(VesperLocalization.string("无可用音轨"), enabled: false) { }) }
-        return UIMenu(title: VesperLocalization.string("音轨"), children: actions)
+        return UIMenu(title: VesperLocalization.string("音频"), image: UIImage(systemName: "waveform"), children: actions)
     }
 
-    private func makeMoreMenu(landscape: Bool) -> UIMenu {
-        UIMenu(children: [
-            UIMenu(options: .displayInline, children: [
-                menuAction(VesperLocalization.string("播放列表"), symbol: "list.bullet", enabled: !session.queue.isEmpty) { requestPanel(.queue) }
-            ]),
-            UIMenu(options: .displayInline, children: [
-                menuAction(VesperLocalization.string(landscape ? "竖屏" : "横屏"), symbol: "rotate.right") { requestRotation(!landscape) },
-                menuAction(VesperLocalization.string(session.fillsScreen ? "完整显示" : "填满屏幕"), symbol: "aspectratio") { session.toggleFill() }
-            ]),
-            UIMenu(options: .displayInline, children: [audioMenu(), subtitleMenu(), speedMenu()]),
-            UIMenu(options: .displayInline, children: [moreSettingsMenu()])
-        ])
+    private var expandedPlaybackOptions: some View {
+        HStack(spacing: 16) {
+            landscapeMenu("播放速度", symbol: "speedometer", menu: speedMenu)
+            landscapeMenu("音频", symbol: "waveform", menu: audioMenu)
+            landscapeMenu("字幕", symbol: "captions.bubble", menu: subtitleMenu)
+        }
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("播放选项")
+        .fixedSize(horizontal: true, vertical: false)
     }
 
-    private var landscapeActions: some View {
-        HStack(spacing: 8) {
-            glassButton("播放列表", symbol: "list.bullet", size: 44) { requestPanel(.queue) }
+    private func bottomActions(landscape: Bool) -> some View {
+        HStack(spacing: landscape ? 12 : 4) {
+            independentAction("视频简介", symbol: "text.alignleft") { requestPanel(.synopsis) }
+            independentAction("详细信息", symbol: "info.circle") { requestPanel(.details) }
+            Spacer(minLength: 0)
+            independentAction("播放列表", symbol: "list.bullet") { requestPanel(.queue) }
                 .disabled(session.queue.isEmpty)
-            HStack(spacing: 0) {
-                actionButton("竖屏", symbol: "rotate.right") { requestRotation(false) }
-                actionButton(session.fillsScreen ? "完整显示" : "填满屏幕", symbol: "aspectratio") { session.toggleFill() }
-            }
-            .glassEffect(.regular.interactive(), in: Capsule())
-            HStack(spacing: 0) {
-                landscapeMenu("音轨", symbol: "waveform", menu: audioMenu)
-                landscapeMenu("字幕", symbol: "captions.bubble", menu: subtitleMenu)
-                landscapeMenu("播放速度", symbol: "speedometer", menu: speedMenu)
-            }
-            .glassEffect(.regular.interactive(), in: Capsule())
+            independentAction(landscape ? "竖屏" : "横屏", symbol: "rotate.right") { requestRotation(!landscape) }
+            independentAction(session.fillsScreen ? "完整显示" : "填满屏幕", symbol: "aspectratio") { session.toggleFill() }
             landscapeMenu("更多设置", symbol: "gearshape", menu: moreSettingsMenu)
                 .glassEffect(.regular.interactive(), in: Circle())
         }
-        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func independentAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        actionButton(title, symbol: symbol, action: action)
+            .glassEffect(.regular.interactive(), in: Circle())
     }
 
     private func landscapeMenu(_ title: String, symbol: String, menu: @escaping () -> UIMenu) -> some View {
@@ -448,7 +485,7 @@ struct PlayerScreen: View {
                     .background(.black.opacity(subtitleBackground ? 0.45 : 0), in: RoundedRectangle(cornerRadius: 6))
             }
         }
-        .padding(.horizontal, 20).padding(.bottom, controlsVisible ? 126 : (isScrubbing ? 68 : 24))
+        .padding(.horizontal, 20).padding(.bottom, controlsVisible ? 178 : (isScrubbing ? 68 : 24))
         .frame(maxWidth: .infinity)
     }
 
@@ -481,6 +518,8 @@ struct PlayerScreen: View {
                 case .gestures: PlayerGestureSettingsView()
                 case .danmaku: DanmakuSettingsView()
                 case .subtitles: SubtitleSettingsView()
+                case .synopsis: PlayerMediaInfoView(session: session, showsDetails: false)
+                case .details: PlayerMediaInfoView(session: session, showsDetails: true)
                 case .queue:
                     List(session.queue) { item in
                         Button {
@@ -536,6 +575,10 @@ struct PlayerScreen: View {
     private func handleTap(_ region: PlayerGestureRegion, _ fingers: Int, _ double: Bool) {
         guard !menuPresented, panel == nil else { return }
         if controlsVisible {
+            if volumeExpanded {
+                if !double && fingers == 1 { volumeExpanded = false; revealControls() }
+                return
+            }
             // The visible overlay only accepts its buttons and a one-finger
             // background tap to hide. Playback/brightness/volume gestures are
             // reserved for the unobstructed video.
@@ -618,7 +661,7 @@ struct PlayerScreen: View {
     private func setControlsVisible(_ visible: Bool) {
         autoHideRevision += 1
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { controlsVisible = visible }
-        if !visible { volumeExpanded = false }
+        if !visible { volumeExpanded = false; volumeDragStart = nil }
     }
     private func rotate(landscape: Bool) {
         guard let scene = session.videoView?.window?.windowScene else { return }
@@ -632,6 +675,54 @@ struct PlayerScreen: View {
         return String(format: "%d:%02d", value / 60, value % 60)
     }
 }
+private struct PlayerMediaInfoView: View {
+    @ObservedObject var session: PlaybackSession
+    let showsDetails: Bool
+    @State private var details: PlaybackVideoDetails?
+    @State private var loading = true
+    var body: some View {
+        List {
+            Section {
+                Text(verbatim: session.currentItem?.title ?? "").font(.headline).textSelection(.enabled)
+                if let subtitle = session.currentItem?.subtitle { Text(verbatim: subtitle).foregroundStyle(.secondary) }
+            }
+            if loading { ProgressView() }
+            if showsDetails {
+                Section {
+                    if let details {
+                        LabeledContent("文件名") { Text(verbatim: details.fileName).textSelection(.enabled) }
+                        LabeledContent("来源") { Text(verbatim: details.sourceName) }
+                        if let dimensions = details.dimensions { LabeledContent("分辨率") { Text(verbatim: dimensions) } }
+                        if let bytes = details.byteCount {
+                            LabeledContent("文件大小") { Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
+                        }
+                    }
+                    if session.duration > 0 {
+                        LabeledContent("时长") {
+                            Text(verbatim: Duration.seconds(session.duration).formatted(.time(pattern: .hourMinuteSecond)))
+                        }
+                    }
+                    if !loading && details == nil { Text("无法读取视频信息").foregroundStyle(.secondary) }
+                }
+            } else if !loading {
+                Section {
+                    if let synopsis = details?.synopsis { Text(verbatim: synopsis).textSelection(.enabled) }
+                    else { Text("暂无视频简介").foregroundStyle(.secondary) }
+                }
+            }
+        }
+        .navigationTitle(showsDetails ? "详细信息" : "视频简介")
+        .toolbarTitleDisplayMode(.inline)
+        .task(id: session.currentItem?.id) {
+            loading = true
+            let result = await session.mediaDetails()
+            guard !Task.isCancelled else { return }
+            details = result
+            loading = false
+        }
+    }
+}
+
 /// Only mounts the existing rendering view. Dismissal detaches its surface,
 /// while the app-owned session continues decoding and playing audio.
 struct PlayerVideoSurface: UIViewRepresentable {

@@ -314,6 +314,36 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         seek(to: saved, resume: isPlaying)
     }
 
+    func mediaDetails() async -> PlaybackVideoDetails? {
+        guard let resource else { return nil }
+        let token = generation
+        let url = resource.url
+        let asset = AVURLAsset(url: url)
+        let tracks = (try? await asset.loadTracks(withMediaType: .video)) ?? []
+        var dimensions: String?
+        if let track = tracks.first,
+           let size = try? await track.load(.naturalSize),
+           let transform = try? await track.load(.preferredTransform) {
+            let transformed = size.applying(transform)
+            dimensions = "\(Int(abs(transformed.width).rounded())) × \(Int(abs(transformed.height).rounded()))"
+        }
+        var synopsis: String?
+        if let metadata = try? await asset.load(.commonMetadata) {
+            for item in metadata where item.commonKey == .commonKeyDescription {
+                if let text = try? await item.load(.stringValue), !text.isEmpty {
+                    synopsis = text
+                    break
+                }
+            }
+        }
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        let fileName = externalFile?.name ?? (source?.kind == .local ? URL(fileURLWithPath: currentItem?.id.localID ?? "").lastPathComponent : currentItem?.title)
+        guard generation == token else { return nil }
+        return PlaybackVideoDetails(fileName: fileName ?? "", dimensions: dimensions,
+                                    byteCount: values?.fileSize, synopsis: synopsis,
+                                    sourceName: source?.name ?? VesperLocalization.string("外部视频"))
+    }
+
     func setPlaybackRate(_ rate: Float) {
         guard [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(rate) else { return }
         playbackRate = rate
@@ -494,4 +524,12 @@ struct PlaybackTrack: Identifiable, Equatable {
     let id: Int32
     let name: String
     let isSelected: Bool
+}
+
+struct PlaybackVideoDetails: Sendable {
+    let fileName: String
+    let dimensions: String?
+    let byteCount: Int?
+    let synopsis: String?
+    let sourceName: String
 }
