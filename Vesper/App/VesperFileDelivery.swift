@@ -100,6 +100,12 @@ enum FileDeliveryRouter {
     @discardableResult
     static func receive(_ url: URL, origin: String) -> Bool {
         FileDeliveryLog.write("入口=\(origin) scheme=\(url.scheme ?? "nil") extension=\(url.pathExtension)")
+        // A control event sent from Safari tests the same external URL callbacks
+        // without depending on a file provider or document-type association.
+        if url.scheme?.lowercased() == "vesper-import-diagnostic", url.host == "ping" {
+            FileDeliveryLog.write("外部 URL 诊断成功，入口=\(origin)")
+            return true
+        }
         guard url.isFileURL else { return false }
         let now = ContinuousClock.now
         recent = recent.filter { $0.value.time.duration(to: now) < .seconds(2) }
