@@ -206,3 +206,35 @@
 "目标位置已有同名文件或文件夹。" = "A file or folder with this name already exists at the destination.";
 
 "不能移动到原位置、文件夹自身或其子文件夹。" = "Cannot move to the original location, the folder itself, or its subfolders.";
+
+"正在加载" = "Loading";
+
+"无法旋转屏幕" = "Unable to Rotate Screen";
+
+"更多" = "More";
+
+"完整显示" = "Fit to Screen";
+
+"填满屏幕" = "Fill Screen";
+
+"播放速度" = "Playback Speed";
+
+"字幕与音轨" = "Subtitles & Audio";
+
+"播放列表" = "Playlist";
+
+"横屏" = "Landscape";
+
+"竖屏" = "Portrait";
+
+"画面" = "Picture";
+
+"音轨" = "Audio Tracks";
+
+"无可用音轨" = "No audio tracks available";
+
+"字幕" = "Subtitles";
+
+"关闭字幕" = "Subtitles Off";
+
+"无内嵌字幕" = "No embedded subtitles";

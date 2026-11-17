@@ -206,3 +206,35 @@
 "目标位置已有同名文件或文件夹。" = "Am Ziel existiert bereits eine Datei oder ein Ordner mit diesem Namen.";
 
 "不能移动到原位置、文件夹自身或其子文件夹。" = "Das ursprüngliche Ziel, der Ordner selbst und seine Unterordner sind nicht zulässig.";
+
+"正在加载" = "Wird geladen";
+
+"无法旋转屏幕" = "Bildschirm kann nicht gedreht werden";
+
+"更多" = "Mehr";
+
+"完整显示" = "An Bildschirm anpassen";
+
+"填满屏幕" = "Bildschirm füllen";
+
+"播放速度" = "Wiedergabegeschwindigkeit";
+
+"字幕与音轨" = "Untertitel und Audio";
+
+"播放列表" = "Wiedergabeliste";
+
+"横屏" = "Querformat";
+
+"竖屏" = "Hochformat";
+
+"画面" = "Bild";
+
+"音轨" = "Audiospuren";
+
+"无可用音轨" = "Keine Audiospuren verfügbar";
+
+"字幕" = "Untertitel";
+
+"关闭字幕" = "Untertitel aus";
+
+"无内嵌字幕" = "Keine eingebetteten Untertitel";

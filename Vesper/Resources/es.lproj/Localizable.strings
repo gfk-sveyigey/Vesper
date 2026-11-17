@@ -206,3 +206,35 @@
 "目标位置已有同名文件或文件夹。" = "Ya existe un archivo o carpeta con este nombre en el destino.";
 
 "不能移动到原位置、文件夹自身或其子文件夹。" = "No se puede mover a la ubicación original, a la propia carpeta ni a sus subcarpetas.";
+
+"正在加载" = "Cargando";
+
+"无法旋转屏幕" = "No se puede girar la pantalla";
+
+"更多" = "Más";
+
+"完整显示" = "Ajustar a la pantalla";
+
+"填满屏幕" = "Llenar pantalla";
+
+"播放速度" = "Velocidad de reproducción";
+
+"字幕与音轨" = "Subtítulos y audio";
+
+"播放列表" = "Lista de reproducción";
+
+"横屏" = "Horizontal";
+
+"竖屏" = "Vertical";
+
+"画面" = "Imagen";
+
+"音轨" = "Pistas de audio";
+
+"无可用音轨" = "No hay pistas de audio disponibles";
+
+"字幕" = "Subtítulos";
+
+"关闭字幕" = "Desactivar subtítulos";
+
+"无内嵌字幕" = "Sin subtítulos integrados";

@@ -15,12 +15,22 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
     @Published private(set) var errorMessage: String?
     @Published private(set) var videoView: UIView?
     @Published var isPresented = false
+    @Published private(set) var playbackRate: Float = 1
+    @Published private(set) var fillsScreen = false
+    @Published private(set) var bufferedTime: TimeInterval = 0
+    @Published private(set) var isSeeking = false
+    @Published private(set) var audioTracks: [PlaybackTrack] = []
+    @Published private(set) var subtitleTracks: [PlaybackTrack] = []
+    @Published private(set) var selectedSubtitleID: Int32?
+    @Published private(set) var subtitleText = ""
+    @Published private(set) var subtitleImage: UIImage?
+    private let subtitleModel = SubtitleModel()
 
     private var layer: KSPlayerLayer?
     private var resource: ResolvedPlaybackResource?
     private var request: Task<Void, Never>?
     private var generation = UUID()
-    private var queue: [MediaItem] = []
+    @Published private(set) var queue: [MediaItem] = []
     private var source: MediaSource?
     private var externalFile: IncomingVideo?
 
@@ -78,10 +88,13 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
                 try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
                 try AVAudioSession.sharedInstance().setActive(true)
                 let options = KSOptions()
+                options.startPlayRate = self.playbackRate
+                options.isSeekImageSubtitle = true
                 let player = KSPlayerLayer(url: resolved.url, isAutoPlay: false, options: options)
                 self.layer = player
                 player.delegate = self
                 self.videoView = player.player.view
+                player.player.contentMode = self.fillsScreen ? .scaleAspectFill : .scaleAspectFit
                 player.play()
             } catch {
                 guard let self, !Task.isCancelled, self.generation == token else { return }
@@ -98,11 +111,74 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
         if isPlaying { layer.pause() } else { layer.play() }
     }
 
-    func seek(to time: TimeInterval) {
-        guard canSeek, time.isFinite else { return }
+    func pause() { layer?.pause() }
+
+    func seek(to time: TimeInterval, resume: Bool? = nil) {
+        guard canSeek, time.isFinite, let layer else { return }
         let target = min(max(0, time), duration)
-        layer?.seek(time: target, autoPlay: isPlaying) { _ in }
+        let token = generation
+        isSeeking = true
+        layer.seek(time: target, autoPlay: resume ?? isPlaying) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.generation == token else { return }
+                self.isSeeking = false
+                self.updateSubtitles()
+            }
+        }
         currentTime = target
+    }
+
+    func setPlaybackRate(_ rate: Float) {
+        guard [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(rate) else { return }
+        playbackRate = rate
+        layer?.player.playbackRate = rate
+    }
+
+    func toggleFill() {
+        fillsScreen.toggle()
+        layer?.player.contentMode = fillsScreen ? .scaleAspectFill : .scaleAspectFit
+    }
+
+    func playQueued(_ item: MediaItem) {
+        guard let source, queue.contains(where: { $0.id == item.id }) else { return }
+        load(item, source: source)
+    }
+
+    func selectAudio(_ id: Int32) {
+        guard let player = layer?.player,
+              let track = player.tracks(mediaType: .audio).first(where: { $0.trackID == id }) else { return }
+        player.select(track: track)
+        refreshTracks()
+    }
+
+    func selectSubtitle(_ id: Int32?) {
+        guard let player = layer?.player else { return }
+        subtitleModel.selectedSubtitleInfo = nil
+        if let id, let track = player.tracks(mediaType: .subtitle).first(where: { $0.trackID == id }) {
+            player.select(track: track)
+            subtitleModel.selectedSubtitleInfo = player.subtitleDataSouce?.infos.first { $0.subtitleID == String(id) }
+        } else {
+            for track in player.tracks(mediaType: .subtitle) { track.isEnabled = false }
+        }
+        selectedSubtitleID = id
+        updateSubtitles()
+        refreshTracks()
+    }
+
+    private func refreshTracks() {
+        guard let player = layer?.player else { return }
+        let audio = player.tracks(mediaType: .audio).map { PlaybackTrack(id: $0.trackID, name: $0.name, isSelected: $0.isEnabled) }
+        let subtitles = player.tracks(mediaType: .subtitle).map { PlaybackTrack(id: $0.trackID, name: $0.name, isSelected: $0.trackID == selectedSubtitleID) }
+        if audioTracks != audio { audioTracks = audio }
+        if subtitleTracks != subtitles { subtitleTracks = subtitles }
+    }
+
+    private func updateSubtitles() {
+        _ = subtitleModel.subtitle(currentTime: currentTime)
+        let text = subtitleModel.parts.compactMap { $0.text?.string }.joined(separator: "\n")
+        if subtitleText != text { subtitleText = text }
+        let image = subtitleModel.parts.compactMap(\.image).first
+        if subtitleImage !== image { subtitleImage = image }
     }
 
     func next() {
@@ -141,6 +217,15 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
         layer = nil
         resource?.release()
         resource = nil
+        subtitleModel.selectedSubtitleInfo = nil
+        _ = subtitleModel.subtitle(currentTime: 0)
+        subtitleText = ""
+        subtitleImage = nil
+        selectedSubtitleID = nil
+        audioTracks = []
+        subtitleTracks = []
+        bufferedTime = 0
+        isSeeking = false
         isPlaying = false
     }
 
@@ -149,6 +234,12 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
         videoView = layer.player.view
         isPlaying = state.isPlaying
         isLoading = state == .preparing || state == .buffering
+        if state == .readyToPlay {
+            layer.player.playbackRate = playbackRate
+            layer.player.contentMode = fillsScreen ? .scaleAspectFill : .scaleAspectFit
+            for track in layer.player.tracks(mediaType: .subtitle) { track.isEnabled = false }
+        }
+        refreshTracks()
         if state == .playedToTheEnd {
             currentTime = duration
             UIApplication.shared.isIdleTimerDisabled = false
@@ -160,6 +251,10 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
         guard layer === self.layer else { return }
         self.currentTime = currentTime.isFinite ? max(0, currentTime) : 0
         duration = totalTime.isFinite ? max(0, totalTime) : 0
+        let playable = layer.player.playableTime
+        bufferedTime = playable.isFinite ? min(duration, max(currentTime, playable)) : currentTime
+        refreshTracks()
+        updateSubtitles()
     }
 
     func player(layer: KSPlayerLayer, finish error: Error?) {
@@ -178,4 +273,10 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
     private func log(_ message: String) {
         AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [Playback] \(message)")
     }
+}
+
+struct PlaybackTrack: Identifiable, Equatable {
+    let id: Int32
+    let name: String
+    let isSelected: Bool
 }
