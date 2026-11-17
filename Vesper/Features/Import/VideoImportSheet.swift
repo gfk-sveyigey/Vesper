@@ -77,7 +77,7 @@ struct VideoImportSheet: View {
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭", systemImage: "xmark") { dismiss() }.disabled(saving)
+                    Button("关闭", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly).disabled(saving)
                 }
             }
         }

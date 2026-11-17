@@ -2,11 +2,14 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs, licenses, gestures
+    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku
 
     var title: LocalizedStringKey {
         switch self {
-        case .gestures: "播放器手势"
+        case .gestures: "播放手势"
+        case .playback: "播放设置"
+        case .subtitles: "字幕设置"
+        case .danmaku: "弹幕设置"
         case .tabs: "标签设置"
         case .appearance: "外观设置"
         case .logs: "运行日志"
@@ -16,6 +19,7 @@ private enum SettingsRoute: Hashable {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject private var playback: PlaybackSession
     @AppStorage("language.code") private var languageCode = "system"
 
     private var version: String {
@@ -35,13 +39,13 @@ struct SettingsView: View {
                         Divider().padding(.leading, 56)
                         settingsLink(.logs, title: "运行日志", symbol: "doc.text")
                         Divider().padding(.leading, 56)
-                        placeholderSetting("播放设置", symbol: "play.circle")
+                        settingsLink(.playback, title: "播放设置", symbol: "play.circle")
                         Divider().padding(.leading, 56)
-                        settingsLink(.gestures, title: "播放器手势", symbol: "hand.draw")
+                        settingsLink(.gestures, title: "播放手势", symbol: "hand.draw")
                         Divider().padding(.leading, 56)
-                        placeholderSetting("字幕设置", symbol: "captions.bubble")
+                        settingsLink(.subtitles, title: "字幕设置", symbol: "captions.bubble")
                         Divider().padding(.leading, 56)
-                        placeholderSetting("弹幕设置", symbol: "text.bubble")
+                        settingsLink(.danmaku, title: "弹幕设置", symbol: "text.bubble")
                         Divider().padding(.leading, 56)
                         HStack {
                             SettingsLabel("语言设置", symbol: "globe")
@@ -66,18 +70,12 @@ struct SettingsView: View {
                         .padding(.trailing, 8)
                         .padding(.vertical, 16)
                     }
-                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                    .background(VesperTheme.background, in: RoundedRectangle(cornerRadius: 20))
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("后续功能").font(.subheadline).foregroundStyle(.secondary)
                         .padding(.horizontal, 16)
                     VStack(spacing: 0) {
-                        HStack {
-                            SettingsLabel("播放器偏好", symbol: "play.rectangle")
-                            Spacer()
-                            Text("尚未接入").foregroundStyle(.secondary)
-                        }.padding(16)
-                        Divider().padding(.leading, 56)
                         HStack {
                             SettingsLabel("IMDb", symbol: "film")
                             Spacer()
@@ -98,8 +96,8 @@ struct SettingsView: View {
                             Text("尚未连接").foregroundStyle(.secondary)
                         }.padding(16)
                     }
-                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
-                    Text("播放器和外部服务将在对应阶段接入，当前不会提供无效的开关或连接按钮。")
+                    .background(VesperTheme.background, in: RoundedRectangle(cornerRadius: 20))
+                    Text("外部服务尚未连接。")
                         .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16)
                 }
                 settingsLink(.licenses, title: "开源许可", symbol: "doc.plaintext")
@@ -113,6 +111,9 @@ struct SettingsView: View {
             Group {
                 switch route {
                 case .gestures: PlayerGestureSettingsView()
+                case .playback: PlaybackSettingsView(session: playback)
+                case .subtitles: SubtitleSettingsView()
+                case .danmaku: DanmakuSettingsView()
                 case .tabs: TabSettingsView()
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()
@@ -122,17 +123,6 @@ struct SettingsView: View {
             .vesperNavigationTitle(route.title)
             .vesperNavigationStyle(.inline)
         }
-    }
-
-    private func placeholderSetting(_ title: LocalizedStringKey, symbol: String) -> some View {
-        HStack {
-            SettingsLabel(title, symbol: symbol)
-            Spacer()
-            Text("尚未接入")
-                .foregroundStyle(.secondary)
-        }
-        .padding(16)
-        .contentShape(Rectangle())
     }
 
     private func settingsLink(_ route: SettingsRoute, title: LocalizedStringKey, symbol: String) -> some View {
@@ -166,37 +156,41 @@ private struct RuntimeLogsView: View {
 
     var body: some View {
         List {
-            SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看运行日志，设置保留时间，或分享完整日志文件以协助排查问题。")
+            Group {
+                SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看运行日志，设置保留时间，或分享完整日志文件以协助排查问题。")
 
-            if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
-            Section("保留规则") {
-                Picker(selection: $retentionDays) {
-                    Text("无限制").tag(0)
-                    ForEach([1, 3, 7, 14, 30, 90], id: \.self) { days in
-                        Text(String(format: VesperLocalization.string("%d 天"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [days])).tag(days)
-                    }
-                } label: { Text("保留时间") }
-                .pickerStyle(.menu)
-            }
-            Section(String(format: VesperLocalization.string("日志（%d）"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [store.entries.count])) {
-                if store.entries.isEmpty {
-                    ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
-                } else {
-                    ForEach(store.entries.suffix(loadedCount).reversed()) { entry in
-                        Text(entry.message)
-                            .font(.system(.footnote, design: .monospaced))
-                            .contextMenu {
-                                Button("复制日志", systemImage: "doc.on.doc") {
-                                    UIPasteboard.general.string = entry.message
+                if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
+                Section("保留规则") {
+                    Picker(selection: $retentionDays) {
+                        Text("无限制").tag(0)
+                        ForEach([1, 3, 7, 14, 30, 90], id: \.self) { days in
+                            Text(String(format: VesperLocalization.string("%d 天"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [days])).tag(days)
+                        }
+                    } label: { Text("保留时间") }
+                    .pickerStyle(.menu)
+                }
+                Section(String(format: VesperLocalization.string("日志（%d）"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [store.entries.count])) {
+                    if store.entries.isEmpty {
+                        ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
+                    } else {
+                        ForEach(store.entries.suffix(loadedCount).reversed()) { entry in
+                            Text(entry.message)
+                                .font(.system(.footnote, design: .monospaced))
+                                .contextMenu {
+                                    Button("复制日志", systemImage: "doc.on.doc") {
+                                        UIPasteboard.general.string = entry.message
+                                    }
                                 }
-                            }
+                        }
                     }
                 }
             }
+            .listRowBackground(VesperTheme.background)
         }
         .listStyle(.insetGrouped)
         .contentMargins(.top, 16, for: .scrollContent)
-        .scrollContentBackground(.visible)
+        .scrollContentBackground(.hidden)
+        .background(VesperTheme.background)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -312,35 +306,39 @@ private struct AppearanceSettingsView: View {
 
     var body: some View {
         Form {
-            SettingsIntroCard(title: "外观设置", symbol: "paintpalette", description: "选择喜欢的主题、主题色和应用图标，让 Vesper 更符合你的偏好。")
+            Group {
+                SettingsIntroCard(title: "外观设置", symbol: "paintpalette", description: "选择喜欢的主题、主题色和应用图标，让 Vesper 更符合你的偏好。")
 
-            Section {
-                Picker(selection: $appearanceMode) {
-                    Text("跟随系统").tag("system")
-                    Text("深色").tag("dark")
-                    Text("浅色").tag("light")
-                } label: { Text("主题") }
-                .pickerStyle(.menu)
-                ColorPicker(selection: Binding(
-                    get: { VesperTheme.accent(accent) },
-                    set: { color in
-                        if let identifier = VesperTheme.accentIdentifier(for: color) {
-                            accent = identifier
+                Section {
+                    Picker(selection: $appearanceMode) {
+                        Text("跟随系统").tag("system")
+                        Text("深色").tag("dark")
+                        Text("浅色").tag("light")
+                    } label: { Text("主题") }
+                    .pickerStyle(.menu)
+                    ColorPicker(selection: Binding(
+                        get: { VesperTheme.accent(accent) },
+                        set: { color in
+                            if let identifier = VesperTheme.accentIdentifier(for: color) {
+                                accent = identifier
+                            }
                         }
-                    }
-                ), supportsOpacity: false) { Text("主题色") }
-                Button("重置主题色") { accent = "vesper" }
-                    .disabled(accent == "vesper")
-            } footer: {
-                Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
+                    ), supportsOpacity: false) { Text("主题色") }
+                    Button("重置主题色") { accent = "vesper" }
+                        .disabled(accent == "vesper")
+                } footer: {
+                    Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
+                }
+                Section("更换图标") {
+                    AppIconChoices()
+                }
             }
-            Section("更换图标") {
-                AppIconChoices()
-            }
+            .listRowBackground(VesperTheme.background)
         }
         .listStyle(.insetGrouped)
         .contentMargins(.top, 16, for: .scrollContent)
-        .scrollContentBackground(.visible)
+        .scrollContentBackground(.hidden)
+        .background(VesperTheme.background)
     }
 }
 
@@ -363,94 +361,98 @@ struct TabSettingsView: View {
 
     var body: some View {
         List {
-            SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "调整标签排列顺序和图标。")
+            Group {
+                SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "调整标签排列顺序和图标。")
 
-            Section {
-                ForEach(sections.filter { $0 != .settings }) { section in
-                    Toggle(isOn: Binding(
-                        get: { !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
-                        set: { visible in
-                            var values = Set(hidden.split(separator: ",").map(String.init))
-                            if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
-                            hidden = values.sorted().joined(separator: ",")
-                            if !visible && defaultTab == section.rawValue { defaultTab = "settings" }
+                Section {
+                    ForEach(sections.filter { $0 != .settings }) { section in
+                        Toggle(isOn: Binding(
+                            get: { !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
+                            set: { visible in
+                                var values = Set(hidden.split(separator: ",").map(String.init))
+                                if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
+                                hidden = values.sorted().joined(separator: ",")
+                                if !visible && defaultTab == section.rawValue { defaultTab = "settings" }
+                            }
+                        )) { SettingsLabel(LocalizedStringKey(section.title), symbol: section.symbol) }
+                    }
+                } header: {
+                    Text("显示标签")
+                } footer: {
+                    Text("关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。")
+                }
+                Section {
+                    Picker("默认标签页", selection: $defaultTab) {
+                        ForEach(sections.filter { $0 == .settings || !hidden.split(separator: ",").contains(Substring($0.rawValue)) }) { section in
+                            Text(section.title).tag(section.rawValue)
                         }
-                    )) { SettingsLabel(LocalizedStringKey(section.title), symbol: section.symbol) }
-                }
-            } header: {
-                Text("显示标签")
-            } footer: {
-                Text("关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。")
-            }
-            Section {
-                Picker("默认标签页", selection: $defaultTab) {
-                    ForEach(sections.filter { $0 == .settings || !hidden.split(separator: ",").contains(Substring($0.rawValue)) }) { section in
-                        Text(section.title).tag(section.rawValue)
                     }
+                    .pickerStyle(.menu)
+                } footer: {
+                    Text("打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。")
                 }
-                .pickerStyle(.menu)
-            } footer: {
-                Text("打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。")
-            }
-            Section {
-                Toggle(isOn: $tabBarCanMinimize) {
-                    SettingsLabel("允许标签栏收缩", symbol: "arrow.down.right.and.arrow.up.left")
-                }
-            } header: {
-                Text("标签栏")
-            } footer: {
-                Text("关闭后，向下滚动页面时标签栏保持展开。")
-            }
-            Section {
-                Toggle(isOn: $miniPlayerEnabled) {
-                    SettingsLabel("启用迷你播放器", symbol: "play.rectangle")
-                }
-                if #available(iOS 26.1, *) {
-                    Toggle(isOn: $miniPlayerAlwaysVisible) {
-                        SettingsLabel("常显迷你播放器", symbol: "eye")
+                Section {
+                    Toggle(isOn: $tabBarCanMinimize) {
+                        SettingsLabel("允许标签栏收缩", symbol: "arrow.down.right.and.arrow.up.left")
                     }
-                    .disabled(!miniPlayerEnabled)
+                } header: {
+                    Text("标签栏")
+                } footer: {
+                    Text("关闭后，向下滚动页面时标签栏保持展开。")
                 }
-            } header: {
-                Text("迷你播放器")
-            } footer: {
-                Text("关闭常显后，仅在有可播放内容时显示迷你播放器。")
-            }
-            Section("标签图标") {
-                HStack(alignment: .top, spacing: 10) {
-                    ForEach(sections) { section in
-                        Menu {
-                            ForEach(section.iconChoices, id: \.self) { symbol in
-                                Button { setIcon(symbol, for: section) } label: {
-                                    Label {
-                                        Text(iconTitle(symbol))
-                                    } icon: { Image(systemName: symbol) }
+                Section {
+                    Toggle(isOn: $miniPlayerEnabled) {
+                        SettingsLabel("启用迷你播放器", symbol: "play.rectangle")
+                    }
+                    if #available(iOS 26.1, *) {
+                        Toggle(isOn: $miniPlayerAlwaysVisible) {
+                            SettingsLabel("常显迷你播放器", symbol: "eye")
+                        }
+                        .disabled(!miniPlayerEnabled)
+                    }
+                } header: {
+                    Text("迷你播放器")
+                } footer: {
+                    Text("关闭常显后，仅在有可播放内容时显示迷你播放器。")
+                }
+                Section("标签图标") {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(sections) { section in
+                            Menu {
+                                ForEach(section.iconChoices, id: \.self) { symbol in
+                                    Button { setIcon(symbol, for: section) } label: {
+                                        Label {
+                                            Text(iconTitle(symbol))
+                                        } icon: { Image(systemName: symbol) }
+                                    }
                                 }
+                            } label: {
+                                VStack(spacing: 8) {
+                                    Image(systemName: section.symbol)
+    .font(.system(size: 24, weight: .medium))
+                                        .foregroundStyle(.tint)
+                                    Text(section.title)
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 88)
+                                .background(VesperTheme.background, in: RoundedRectangle(cornerRadius: 16))
+                                .contentShape(RoundedRectangle(cornerRadius: 16))
                             }
-                        } label: {
-                            VStack(spacing: 8) {
-                                Image(systemName: section.symbol)
-.font(.system(size: 24, weight: .medium))
-                                    .foregroundStyle(.tint)
-                                Text(section.title)
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.primary)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 88)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-                            .contentShape(RoundedRectangle(cornerRadius: 16))
+                            .accessibilityHint("更换图标")
                         }
-                        .accessibilityHint("更换图标")
                     }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
             }
+            .listRowBackground(VesperTheme.background)
         }
         .listStyle(.insetGrouped)
         .contentMargins(.top, 16, for: .scrollContent)
-        .scrollContentBackground(.visible)
+        .scrollContentBackground(.hidden)
+        .background(VesperTheme.background)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -543,18 +545,22 @@ private struct TabOrderSettingsView: View {
 
     var body: some View {
         List {
-            ForEach(sections) { section in
-                Label(section.title, systemImage: section.symbol)
+            Group {
+                ForEach(sections) { section in
+                    Label(section.title, systemImage: section.symbol)
+                }
+                .onMove { offsets, destination in
+                    var updated = sections
+                    updated.move(fromOffsets: offsets, toOffset: destination)
+                    // Shared storage updates both the settings list and native tabs.
+                    order = updated.map(\.rawValue).joined(separator: ",")
+                }
             }
-            .onMove { offsets, destination in
-                var updated = sections
-                updated.move(fromOffsets: offsets, toOffset: destination)
-                // Shared storage updates both the settings list and native tabs.
-                order = updated.map(\.rawValue).joined(separator: ",")
-            }
+            .listRowBackground(VesperTheme.background)
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.visible)
+        .scrollContentBackground(.hidden)
+        .background(VesperTheme.background)
         .environment(\.editMode, .constant(.active))
     }
 }
@@ -584,7 +590,7 @@ private struct SettingsIntroCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 26))
+            .background(VesperTheme.background, in: RoundedRectangle(cornerRadius: 26))
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)

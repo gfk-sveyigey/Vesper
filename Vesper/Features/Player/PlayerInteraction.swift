@@ -189,7 +189,10 @@ final class PlayerSystemVolume: ObservableObject {
 
 struct PlayerVolumeBridge: UIViewRepresentable {
     let volume: PlayerSystemVolume
-    func makeUIView(context: Context) -> MPVolumeView { volume.view }
+    func makeUIView(context: Context) -> MPVolumeView {
+        volume.view.tintColor = .white
+        return volume.view
+    }
     func updateUIView(_ view: MPVolumeView, context: Context) { }
 }
 
@@ -208,15 +211,17 @@ struct PlayerAirPlayButton: UIViewRepresentable {
 /// Playback ticks may update the surrounding SwiftUI view while it is open;
 /// neither the active menu nor its actions are replaced until dismissal.
 struct PlayerMenuButton: UIViewRepresentable {
+    var symbol = "ellipsis"
+    var accessibilityTitle = VesperLocalization.string("更多")
     var makeMenu: () -> UIMenu
     var visibilityChanged: (Bool) -> Void
 
     func makeUIView(context: Context) -> MenuButton {
         let button = MenuButton(type: .system)
-        button.setImage(UIImage(systemName: "ellipsis", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
+        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
         button.tintColor = .white
         button.showsMenuAsPrimaryAction = true
-        button.accessibilityLabel = VesperLocalization.string("更多")
+        button.accessibilityLabel = accessibilityTitle
         return button
     }
     func updateUIView(_ button: MenuButton, context: Context) {
@@ -243,10 +248,10 @@ struct PlayerMenuButton: UIViewRepresentable {
                                              willEndFor configuration: UIContextMenuConfiguration,
                                              animator: (any UIContextMenuInteractionAnimating)?) {
             super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
-            let finished = { [weak self] in
-                self?.isMenuShowing = false
-                self?.visibilityChanged?(false)
-            }
+            // Notify at dismissal start so sheet actions don't wait for the
+            // full menu animation; freeze its contents until completion.
+            visibilityChanged?(false)
+            let finished: () -> Void = { [weak self] in self?.isMenuShowing = false }
             if let animator { animator.addCompletion(finished) }
             else { finished() }
         }

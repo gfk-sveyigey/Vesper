@@ -318,3 +318,25 @@
 "区域控制手势仅在控制层隐藏时生效，滑动以手势开始的位置为准。控制层显示时，单指单击空白区域即可隐藏；按钮和进度条独立操作。" = "Bereichsgesten funktionieren nur bei ausgeblendeter Steuerung und gelten für den Startbereich. Bei sichtbarer Steuerung blendet ein Tippen auf einen freien Bereich sie aus. Tasten und Fortschrittsleiste funktionieren separat.";
 
 "默认单指单击切换控制层；隐藏时双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量；任意区域左右滑动快退或快进。多指手势默认无操作。" = "Ein Tippen schaltet die Steuerung um. Bei ausgeblendeter Steuerung: Doppeltippen links springt zurück, Mitte pausiert oder startet, rechts springt vor. Vertikal wischen: links Helligkeit, rechts Lautstärke. Horizontal wischen ändert in allen Bereichen die Position. Mehrfingergesten sind nicht zugewiesen.";
+
+"选择视频" = "Video auswählen";
+
+"播放手势" = "Wiedergabegesten";
+
+"收起音量" = "Lautstärke einklappen";
+
+"播放设置" = "Wiedergabeeinstellungen";
+
+"字幕设置" = "Untertiteleinstellungen";
+
+"字幕字号" = "Untertitelgröße";
+
+"字幕背景" = "Untertitelhintergrund";
+
+"字幕预览" = "Untertitelvorschau";
+
+"在播放器的字幕菜单中选择视频内的字幕轨道。字号和背景设置应用于文字字幕。" = "Wähle im Untertitelmenü eine eingebettete Spur. Schriftgröße und Hintergrund gelten für Textuntertitel.";
+
+"%+d 秒" = "%+d Sek.";
+
+"外部服务尚未连接。" = "Externe Dienste sind noch nicht verbunden.";

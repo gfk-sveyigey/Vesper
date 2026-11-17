@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 
 struct LocalFilesView<SourceMenu: View>: View {
     let source: MediaSource
@@ -17,12 +19,26 @@ struct LocalFilesView<SourceMenu: View>: View {
     @State private var renameEntry: LocalFileEntry?
     @State private var deleteEntry: LocalFileEntry?
     @State private var movingEntry: LocalFileEntry?
+    @State private var isShowingVideoPicker = false
+    @State private var hasVideoPickerDismissed = true
+    @State private var pickedVideoAccess: IncomingFileAccess?
 
     var body: some View {
         Group {
             if directory.isEmpty {
                 VesperRootScrollView(title: "媒体") { files } actions: {
                     HStack(spacing: 0) {
+                        Button("选择视频", systemImage: "square.and.arrow.down") {
+                            FileDeliveryLog.write("打开视频文件选择器，asCopy=true")
+                            pickedVideoAccess = nil
+                            hasVideoPickerDismissed = false
+                            isShowingVideoPicker = true
+                        }
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 17, weight: .medium))
+                        .frame(width: 44, height: 44)
+                        .buttonStyle(.plain)
+                        .disabled(busy)
                         Button("新建文件夹", systemImage: "folder.badge.plus", action: createFolder)
                             .labelStyle(.iconOnly)
                             .font(.system(size: 17, weight: .medium))
@@ -44,6 +60,13 @@ struct LocalFilesView<SourceMenu: View>: View {
                         }
                     }
             }
+        }
+        .sheet(isPresented: $isShowingVideoPicker, onDismiss: videoPickerDismissed) {
+            VideoDocumentPicker { access in
+                pickedVideoAccess = access
+                isShowingVideoPicker = false
+                deliverPickedVideoIfReady()
+            } onCancel: { isShowingVideoPicker = false }
         }
         .task(id: source.id) { await reload() }
         .refreshable { await reload() }
@@ -81,6 +104,25 @@ struct LocalFilesView<SourceMenu: View>: View {
         .alert("文件操作失败", isPresented: $isShowingError) {
             Button("好", role: .cancel) { }
         } message: { Text(verbatim: errorMessage ?? "") }
+    }
+
+    private func videoPickerDismissed() {
+        FileDeliveryLog.write("文档选择器已关闭，待处理文件=\(pickedVideoAccess != nil)")
+        hasVideoPickerDismissed = true
+        deliverPickedVideoIfReady()
+    }
+
+    private func deliverPickedVideoIfReady() {
+        // UIKit can deliver didPickDocumentsAt either before or after SwiftUI's
+        // onDismiss. Both callbacks must retry delivery once their event arrives.
+        guard hasVideoPickerDismissed, let access = pickedVideoAccess else { return }
+        pickedVideoAccess = nil
+        FileDeliveryLog.write("文档选择与关闭均已完成，交付视频检查")
+        // Keep the selected file accessible until the shared receiver owns it.
+        // Preview presentation starts only after the picker sheet has dismissed.
+        withExtendedLifetime(access) {
+            FileDeliveryRouter.receive(access.url, origin: "documentPicker", requiresCopy: false)
+        }
     }
 
     private var files: some View {
@@ -259,7 +301,7 @@ private struct LocalMoveView: View {
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消", role: .cancel) { dismiss() }.disabled(busy)
+                    Button("关闭", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly).disabled(busy)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("移到此处") { move() }.disabled(busy || loading || !canMoveHere)
@@ -301,6 +343,55 @@ private struct LocalMoveView: View {
                 errorMessage = error.localizedDescription
                 isShowingError = true
             }
+        }
+    }
+}
+
+/// Use the documented delegate and retain copy-mode delivery for file providers.
+private struct VideoDocumentPicker: UIViewControllerRepresentable {
+    let onPick: (IncomingFileAccess) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick, onCancel: onCancel)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        FileDeliveryLog.write("原生文档选择器已创建，delegate 已绑定")
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIDocumentPickerViewController, context: Context) {
+        context.coordinator.onPick = onPick
+        context.coordinator.onCancel = onCancel
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        var onPick: (IncomingFileAccess) -> Void
+        var onCancel: () -> Void
+
+        init(onPick: @escaping (IncomingFileAccess) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            FileDeliveryLog.write("原生文档选择回调，文件数量=\(urls.count)")
+            guard let url = urls.first else {
+                onCancel()
+                return
+            }
+            FileDeliveryLog.write("原生文档选择成功，extension=\(url.pathExtension)")
+            onPick(IncomingFileAccess(url: url))
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            FileDeliveryLog.write("原生文档选择器已取消")
+            onCancel()
         }
     }
 }

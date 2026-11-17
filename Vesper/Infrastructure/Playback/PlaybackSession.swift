@@ -41,6 +41,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     override init() {
         super.init()
         KSOptions.canBackgroundPlay = true
+        let savedRate = UserDefaults.standard.float(forKey: "player.playbackRate")
+        if [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(savedRate) { playbackRate = savedRate }
     }
 
     private var layer: KSPlayerLayer?
@@ -240,6 +242,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     func setPlaybackRate(_ rate: Float) {
         guard [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(rate) else { return }
         playbackRate = rate
+        UserDefaults.standard.set(rate, forKey: "player.playbackRate")
         layer?.player.playbackRate = rate
     }
 

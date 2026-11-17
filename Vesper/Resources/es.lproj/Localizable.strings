@@ -318,3 +318,25 @@
 "区域控制手势仅在控制层隐藏时生效，滑动以手势开始的位置为准。控制层显示时，单指单击空白区域即可隐藏；按钮和进度条独立操作。" = "Los gestos por zona solo funcionan con los controles ocultos y usan la zona inicial. Con los controles visibles, toca un área vacía con un dedo para ocultarlos. Los botones y la barra de progreso funcionan por separado.";
 
 "默认单指单击切换控制层；隐藏时双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量；任意区域左右滑动快退或快进。多指手势默认无操作。" = "Un toque con un dedo alterna los controles. Ocultos: doble toque a la izquierda para retroceder, en el centro para pausar o continuar, a la derecha para avanzar. Deslizamiento vertical: brillo a la izquierda y volumen a la derecha. Deslizar horizontalmente cambia la posición en cualquier zona. Los gestos con varios dedos no tienen acción predeterminada.";
+
+"选择视频" = "Elegir vídeo";
+
+"播放手势" = "Gestos de reproducción";
+
+"收起音量" = "Contraer volumen";
+
+"播放设置" = "Ajustes de reproducción";
+
+"字幕设置" = "Ajustes de subtítulos";
+
+"字幕字号" = "Tamaño de subtítulos";
+
+"字幕背景" = "Fondo de subtítulos";
+
+"字幕预览" = "Vista previa de subtítulos";
+
+"在播放器的字幕菜单中选择视频内的字幕轨道。字号和背景设置应用于文字字幕。" = "Selecciona una pista integrada en el menú de subtítulos. El tamaño y el fondo se aplican a los subtítulos de texto.";
+
+"%+d 秒" = "%+d s";
+
+"外部服务尚未连接。" = "Los servicios externos aún no están conectados.";

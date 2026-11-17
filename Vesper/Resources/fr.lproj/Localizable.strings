@@ -318,3 +318,25 @@
 "区域控制手势仅在控制层隐藏时生效，滑动以手势开始的位置为准。控制层显示时，单指单击空白区域即可隐藏；按钮和进度条独立操作。" = "Les gestes par zone fonctionnent uniquement lorsque les commandes sont masquées, selon la zone de départ. Lorsqu’elles sont visibles, touchez une zone vide avec un doigt pour les masquer. Les boutons et la barre de progression fonctionnent séparément.";
 
 "默认单指单击切换控制层；隐藏时双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量；任意区域左右滑动快退或快进。多指手势默认无操作。" = "Un toucher à un doigt affiche ou masque les commandes. Masquées : deux touchers à gauche pour reculer, au centre pour pause ou reprise, à droite pour avancer. Balayage vertical : luminosité à gauche, volume à droite. Le balayage horizontal change la position dans toutes les zones. Les gestes à plusieurs doigts ne sont pas attribués par défaut.";
+
+"选择视频" = "Choisir une vidéo";
+
+"播放手势" = "Gestes de lecture";
+
+"收起音量" = "Réduire le volume";
+
+"播放设置" = "Réglages de lecture";
+
+"字幕设置" = "Réglages des sous-titres";
+
+"字幕字号" = "Taille des sous-titres";
+
+"字幕背景" = "Arrière-plan des sous-titres";
+
+"字幕预览" = "Aperçu des sous-titres";
+
+"在播放器的字幕菜单中选择视频内的字幕轨道。字号和背景设置应用于文字字幕。" = "Choisissez une piste intégrée dans le menu des sous-titres. La taille et l’arrière-plan s’appliquent aux sous-titres textuels.";
+
+"%+d 秒" = "%+d s";
+
+"外部服务尚未连接。" = "Les services externes ne sont pas encore connectés.";
