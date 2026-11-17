@@ -221,12 +221,13 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             guard pipSourceIdentity != sourceIdentity else { return }
             let source = AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer: displayLayer, playbackDelegate: self)
             candidate = AVPictureInPictureController(contentSource: source)
-        } else if let playerLayer = engineController.playerLayer {
+        } else {
+            let playerLayer = engineController.playerLayer
             sourceIdentity = ObjectIdentifier(playerLayer)
             guard pipSourceIdentity != sourceIdentity else { return }
             candidate = AVPictureInPictureController(playerLayer: playerLayer)
             nativePlayer = playerLayer.player
-        } else { return }
+        }
         guard let candidate else { return }
         pipController?.delegate = nil
         pipController?.stopPictureInPicture()
@@ -265,6 +266,9 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     // full-screen controls. Decoder-only play/pause bypasses KSPlayerLayer.state.
     func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
         guard controller === pipController, let layer else { return }
+        guard !appIsInBackground || PlaybackPreferences.backgroundEnabled else {
+            layer.pause(); isPlaying = false; controller.invalidatePlaybackState(); return
+        }
         if playing { layer.play() } else { layer.pause() }
         isPlaying = playing
         controller.invalidatePlaybackState()
