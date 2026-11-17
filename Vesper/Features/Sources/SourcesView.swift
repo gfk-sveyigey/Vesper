@@ -9,6 +9,7 @@ struct SourcesView: View {
     @State private var isShowingError = false
     @State private var isShowingEmbyNotice = false
     @State private var isShowingVideoPicker = false
+    @State private var hasVideoPickerDismissed = true
     @State private var pickedVideoAccess: IncomingFileAccess?
 
     var body: some View {
@@ -50,6 +51,7 @@ struct SourcesView: View {
             DiagnosticVideoPicker { access in
                 pickedVideoAccess = access
                 isShowingVideoPicker = false
+                deliverPickedVideoIfReady()
             } onCancel: {
                 isShowingVideoPicker = false
             }
@@ -74,6 +76,8 @@ struct SourcesView: View {
             Divider()
             Button("选择视频（诊断）", systemImage: "doc.badge.gearshape") {
                 FileDeliveryLog.write("打开原生文档选择器，诊断过滤类型=public.data，asCopy=true")
+                pickedVideoAccess = nil
+                hasVideoPickerDismissed = false
                 isShowingVideoPicker = true
             }
         } label: {
@@ -89,8 +93,16 @@ struct SourcesView: View {
 
     private func videoPickerDismissed() {
         FileDeliveryLog.write("文档选择器已关闭，待处理文件=\(pickedVideoAccess != nil)")
-        guard let access = pickedVideoAccess else { return }
+        hasVideoPickerDismissed = true
+        deliverPickedVideoIfReady()
+    }
+
+    private func deliverPickedVideoIfReady() {
+        // UIKit can deliver didPickDocumentsAt either before or after SwiftUI's
+        // onDismiss. Both callbacks must retry delivery once their event arrives.
+        guard hasVideoPickerDismissed, let access = pickedVideoAccess else { return }
         pickedVideoAccess = nil
+        FileDeliveryLog.write("文档选择与关闭均已完成，交付视频检查")
         // Keep the selected file accessible until the shared receiver owns it.
         // Preview presentation starts only after the picker sheet has dismissed.
         withExtendedLifetime(access) {
