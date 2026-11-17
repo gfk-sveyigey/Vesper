@@ -45,8 +45,13 @@ struct PlaybackResourceResolver {
         case .local:
             let folder = try source.localFolderURL()
             let scoped = folder.startAccessingSecurityScopedResource()
-            let file = folder.appendingPathComponent(item.id.localID)
-            guard file.deletingLastPathComponent().standardizedFileURL == folder.standardizedFileURL,
+            let base = folder.resolvingSymlinksInPath().standardizedFileURL
+            let file = base.appendingPathComponent(item.id.localID).standardizedFileURL
+            guard !item.id.localID.hasPrefix("/"),
+                  !item.id.localID.split(separator: "/").contains(".."),
+                  file.resolvingSymlinksInPath().standardizedFileURL == file,
+                  file.pathComponents.starts(with: base.pathComponents),
+                  file != base,
                   (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
                   FileManager.default.isReadableFile(atPath: file.path) else {
                 if scoped { folder.stopAccessingSecurityScopedResource() }

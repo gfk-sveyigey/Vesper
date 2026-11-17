@@ -176,3 +176,33 @@
 "将恢复标签的排列顺序、图标、显示状态和默认标签页。" = "Se restablecerán el orden, los iconos, la visibilidad y la pestaña predeterminada.";
 
 "选择视频（诊断）" = "Elegir vídeo (diagnóstico)";
+
+"新建文件夹" = "Nueva carpeta";
+
+"重命名" = "Renombrar";
+
+"名称" = "Nombre";
+
+"保存" = "Guardar";
+
+"移动" = "Mover";
+
+"删除项目？" = "¿Eliminar elemento?";
+
+"请输入完整文件名，包括扩展名。" = "Introduce el nombre completo del archivo, incluida la extensión.";
+
+"删除后无法恢复；删除文件夹会同时删除其中的所有文件。" = "La eliminación no se puede deshacer. También se eliminará todo el contenido de la carpeta.";
+
+"文件操作失败" = "Error de operación";
+
+"上一级" = "Carpeta superior";
+
+"移到此处" = "Mover aquí";
+
+"名称不能为空，且不能包含斜杠或冒号。" = "Introduce un nombre sin barras ni dos puntos.";
+
+"无法访问本地来源以外的位置或符号链接。" = "No se puede acceder a ubicaciones fuera del origen ni a enlaces simbólicos.";
+
+"目标位置已有同名文件或文件夹。" = "Ya existe un archivo o carpeta con este nombre en el destino.";
+
+"不能移动到原位置、文件夹自身或其子文件夹。" = "No se puede mover a la ubicación original, a la propia carpeta ni a sus subcarpetas.";

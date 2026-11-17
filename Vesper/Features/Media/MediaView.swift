@@ -6,6 +6,17 @@ struct MediaView: View {
     @AppStorage("navigation.icons") private var icons = "{}"
 
     var body: some View {
+        Group {
+            if let source = library.selectedSource, source.kind == .local {
+                LocalFilesView(source: source) { mediaSourceMenu }
+                    .id(source.id)
+            } else {
+                mediaContent
+            }
+        }
+    }
+
+    private var mediaContent: some View {
         VesperRootScrollView(title: "媒体") {
             VStack(alignment: .leading, spacing: 20) {
                 if library.selectedSource == nil {

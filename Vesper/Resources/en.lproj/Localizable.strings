@@ -176,3 +176,33 @@
 "将恢复标签的排列顺序、图标、显示状态和默认标签页。" = "Tab order, icons, visibility and the default tab will be reset.";
 
 "选择视频（诊断）" = "Choose Video (Diagnostics)";
+
+"新建文件夹" = "New Folder";
+
+"重命名" = "Rename";
+
+"名称" = "Name";
+
+"保存" = "Save";
+
+"移动" = "Move";
+
+"删除项目？" = "Delete item?";
+
+"请输入完整文件名，包括扩展名。" = "Enter the full filename, including its extension.";
+
+"删除后无法恢复；删除文件夹会同时删除其中的所有文件。" = "Deletion cannot be undone. Deleting a folder also deletes all its contents.";
+
+"文件操作失败" = "File Operation Failed";
+
+"上一级" = "Parent Folder";
+
+"移到此处" = "Move Here";
+
+"名称不能为空，且不能包含斜杠或冒号。" = "Enter a name without slashes or colons.";
+
+"无法访问本地来源以外的位置或符号链接。" = "Locations outside this source and symbolic links cannot be accessed.";
+
+"目标位置已有同名文件或文件夹。" = "A file or folder with this name already exists at the destination.";
+
+"不能移动到原位置、文件夹自身或其子文件夹。" = "Cannot move to the original location, the folder itself, or its subfolders.";
