@@ -16,7 +16,7 @@ struct PlayerGestureSettingsView: View {
                 }
                 .pickerStyle(.segmented)
             } footer: {
-                Text("播放器按水平方向均分为左、中、右三个区域，滑动以手势开始的位置为准。按钮和进度条使用各自的操作，不触发区域手势。")
+                Text("区域控制手势仅在控制层隐藏时生效，滑动以手势开始的位置为准。控制层显示时，单指单击空白区域即可隐藏；按钮和进度条独立操作。")
             }
             ForEach(PlayerGestureRegion.allCases) { region in
                 Section(region.title) {
@@ -37,7 +37,7 @@ struct PlayerGestureSettingsView: View {
                 }
                 Button("恢复默认", role: .destructive) { confirmingReset = true }
             } footer: {
-                Text("默认单指单击显示控制层；双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量。多指手势默认无操作。")
+                Text("默认单指单击切换控制层；隐藏时双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量；任意区域左右滑动快退或快进。多指手势默认无操作。")
             }
         }
         .navigationTitle("播放器手势")

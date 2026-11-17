@@ -312,3 +312,9 @@
 "播放器按水平方向均分为左、中、右三个区域，滑动以手势开始的位置为准。按钮和进度条使用各自的操作，不触发区域手势。" = "The player is divided into left, center, and right thirds. Swipes use the region where they begin. Buttons and the progress bar have separate controls.";
 
 "默认单指单击显示控制层；双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量。多指手势默认无操作。" = "With one finger, tap to show controls; double-tap left to skip back, center to pause or resume, and right to skip forward. Swipe vertically on the left for brightness or the right for volume. Multi-finger gestures are unassigned by default.";
+
+"显示或隐藏控制层" = "Show or Hide Controls";
+
+"区域控制手势仅在控制层隐藏时生效，滑动以手势开始的位置为准。控制层显示时，单指单击空白区域即可隐藏；按钮和进度条独立操作。" = "Region gestures work only when controls are hidden and use the region where the swipe begins. With controls visible, tap an empty area with one finger to hide them. Buttons and the progress bar work separately.";
+
+"默认单指单击切换控制层；隐藏时双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量；任意区域左右滑动快退或快进。多指手势默认无操作。" = "By default, a one-finger tap toggles controls. When hidden, double-tap left to skip back, center to pause or resume, or right to skip forward. Swipe vertically on the left for brightness or right for volume. Swipe horizontally in any region to seek. Multi-finger gestures are unassigned by default.";

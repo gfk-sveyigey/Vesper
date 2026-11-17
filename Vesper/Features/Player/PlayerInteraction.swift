@@ -58,7 +58,7 @@ enum PlayerGestureAction: String, CaseIterable, Identifiable {
     var title: LocalizedStringKey {
         switch self {
         case .none: "无操作"
-        case .controls: "显示控制层"
+        case .controls: "显示或隐藏控制层"
         case .playback: "暂停或继续播放"
         case .backward: "快退"
         case .forward: "快进"
@@ -83,7 +83,7 @@ enum PlayerGesturePreferences {
         case .tap: return .controls
         case .doubleTap: return region == .left ? .backward : (region == .right ? .forward : .playback)
         case .vertical: return region == .left ? .brightness : (region == .right ? .volume : .none)
-        case .horizontal: return .none
+        case .horizontal: return .seek
         }
     }
     static var skipInterval: Double {
@@ -202,4 +202,53 @@ struct PlayerAirPlayButton: UIViewRepresentable {
         return view
     }
     func updateUIView(_ view: AVRoutePickerView, context: Context) { }
+}
+
+/// Own a stable native menu anchor and observe its public UIKit lifecycle.
+/// Playback ticks may update the surrounding SwiftUI view while it is open;
+/// neither the active menu nor its actions are replaced until dismissal.
+struct PlayerMenuButton: UIViewRepresentable {
+    var makeMenu: () -> UIMenu
+    var visibilityChanged: (Bool) -> Void
+
+    func makeUIView(context: Context) -> MenuButton {
+        let button = MenuButton(type: .system)
+        button.setImage(UIImage(systemName: "ellipsis", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
+        button.tintColor = .white
+        button.showsMenuAsPrimaryAction = true
+        button.accessibilityLabel = VesperLocalization.string("更多")
+        return button
+    }
+    func updateUIView(_ button: MenuButton, context: Context) {
+        button.visibilityChanged = visibilityChanged
+        if !button.isMenuShowing { button.menu = makeMenu() }
+    }
+    static func dismantleUIView(_ button: MenuButton, coordinator: ()) {
+        button.visibilityChanged = nil
+        button.menu = nil
+    }
+
+    final class MenuButton: UIButton {
+        var isMenuShowing = false
+        var visibilityChanged: ((Bool) -> Void)?
+
+        override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                             willDisplayMenuFor configuration: UIContextMenuConfiguration,
+                                             animator: (any UIContextMenuInteractionAnimating)?) {
+            super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
+            isMenuShowing = true
+            visibilityChanged?(true)
+        }
+        override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                             willEndFor configuration: UIContextMenuConfiguration,
+                                             animator: (any UIContextMenuInteractionAnimating)?) {
+            super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
+            let finished = { [weak self] in
+                self?.isMenuShowing = false
+                self?.visibilityChanged?(false)
+            }
+            if let animator { animator.addCompletion(finished) }
+            else { finished() }
+        }
+    }
 }
