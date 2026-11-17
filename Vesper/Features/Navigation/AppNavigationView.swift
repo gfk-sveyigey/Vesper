@@ -81,12 +81,7 @@ struct AppNavigationView: View {
                 playAfterPreviewDismiss = file
                 previewVideo = nil
             } saved: { _ in
-                library.selectImportedVideos(name: VesperLocalization.string("本地视频"))
-                if visibleSections.contains(.media) {
-                    mediaPath = NavigationPath()
-                    selection = .section(.media)
-                }
-                previewVideo = nil
+                library.registerImportedVideos(name: VesperLocalization.string("本地视频"))
             }
         }
         .alert("视频导入", isPresented: $isShowingImportNotice) {

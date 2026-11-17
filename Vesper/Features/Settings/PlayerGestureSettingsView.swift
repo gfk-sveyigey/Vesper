@@ -4,7 +4,8 @@ import UIKit
 struct PlayerGestureSettingsView: View {
     @State private var revision = 0
     @State private var confirmingReset = false
-    @State private var activeSheet: GestureSettingsSheet?
+    @State private var showingRegions = false
+    @State private var showingPairs = false
 
     var body: some View {
         let _ = revision
@@ -32,23 +33,27 @@ struct PlayerGestureSettingsView: View {
             Button("恢复默认", role: .destructive) { PlayerGesturePreferences.reset(); revision += 1 }
             Button("取消", role: .cancel) { }
         }
-        .sheet(item: $activeSheet, onDismiss: { revision += 1 }) { destination in
-            NavigationStack {
-                switch destination {
-                case .regions: GestureRegionSettingsView()
-                case .pairs: GesturePairSettingsView(changed: { revision += 1 })
-                }
-            }
-            .presentationDetents([destination.detent])
-            .presentationDragIndicator(.visible)
-            .onAppear { logSheet(destination, event: "presented") }
+        .sheet(isPresented: $showingRegions) {
+            NavigationStack { GestureRegionSettingsView() }
+                .presentationDetents([.custom(GestureRegionsDetent.self)])
+                .presentationDragIndicator(.visible)
+                .onAppear { logSheet(.regions, event: "presented") }
+        }
+        .sheet(isPresented: $showingPairs, onDismiss: { revision += 1 }) {
+            NavigationStack { GesturePairSettingsView(changed: { revision += 1 }) }
+                .presentationDetents([.custom(GesturePairsDetent.self)])
+                .presentationDragIndicator(.visible)
+                .onAppear { logSheet(.pairs, event: "presented") }
         }
     }
 
     private func settingsEntry(_ title: LocalizedStringKey, symbol: String, destination: GestureSettingsSheet) -> some View {
         Button {
             logSheet(destination, event: "tapped")
-            activeSheet = destination
+            switch destination {
+            case .regions: showingRegions = true
+            case .pairs: showingPairs = true
+            }
         } label: {
             HStack(spacing: 12) {
                 Label(title, systemImage: symbol)
@@ -143,12 +148,6 @@ struct PlayerGestureSettingsView: View {
 private enum GestureSettingsSheet: String, Identifiable {
     case regions, pairs
     var id: Self { self }
-    var detent: PresentationDetent {
-        switch self {
-        case .regions: .custom(GestureRegionsDetent.self)
-        case .pairs: .custom(GesturePairsDetent.self)
-        }
-    }
 }
 
 private struct GestureSettingsEntry: Identifiable {
@@ -206,15 +205,11 @@ private struct GestureRegionSettingsView: View {
             .listRowSeparator(.hidden)
             SettingsSection("双区域") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(verbatim: "\(Int((split2 * 100).rounded()))% / \(Int(((1 - split2) * 100).rounded()))%")
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     GestureRangeSlider(lower: $split2, upper: .constant(1), singleHandle: true)
                 }
             }
             SettingsSection("三区域") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(verbatim: "\(Int((splitFirst * 100).rounded()))% / \(Int(((splitSecond - splitFirst) * 100).rounded()))% / \(Int(((1 - splitSecond) * 100).rounded()))%")
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     GestureRangeSlider(lower: $splitFirst, upper: $splitSecond)
                 }
             }
@@ -231,7 +226,7 @@ private struct GestureRegionSettingsView: View {
                     let percentage: Int = Int((fraction * 100).rounded())
                     let width: CGFloat = max(0, geometry.size.width * CGFloat(fraction) - 1)
                     Text(verbatim: "\(percentage)%")
-                        .font(Font.title3.weight(.semibold).monospacedDigit())
+                        .font(Font.headline.monospacedDigit())
                         .frame(width: width, height: geometry.size.height)
                         .background(Color.accentColor.opacity(0.18))
                 }

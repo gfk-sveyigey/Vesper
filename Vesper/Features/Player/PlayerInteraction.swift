@@ -304,6 +304,11 @@ final class PlayerSystemVolume: ObservableObject {
         view.layoutIfNeeded()
         guard let slider = view.subviews.compactMap({ $0 as? UISlider }).first else { return }
         pendingRequest = nil
+        // Always use the full system-volume range, never the current volume as
+        // the upper bound. The observed output is a value, not a route limit.
+        slider.minimumValue = 0
+        slider.maximumValue = 1
+        slider.isEnabled = true
         pendingValue = (requested, Date().addingTimeInterval(0.5))
         slider.setValue(requested, animated: false)
         slider.sendActions(for: .valueChanged)
@@ -316,7 +321,7 @@ final class PlayerSystemVolume: ObservableObject {
             self.pendingValue = nil
             let actual = AVAudioSession.sharedInstance().outputVolume
             if abs(actual - requested) > 0.03 {
-                AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [SystemVolume] requested=\(requested) actual=\(actual)")
+                AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [SystemVolume] requested=\(requested) actual=\(actual) range=0...1")
             }
             self.value = actual
         }

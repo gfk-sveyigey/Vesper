@@ -130,8 +130,7 @@ struct LocalFilesView<SourceMenu: View>: View {
             if loading && entries.isEmpty {
                 ProgressView().padding(40)
             } else if entries.isEmpty {
-                VesperEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
-                    .frame(minHeight: 420)
+                VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
                 ForEach(entries) { entry in
@@ -140,6 +139,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                             NavigationLink {
                                 LocalFilesView(source: source, directory: entry.path, sourceMenu: sourceMenu)
                             } label: { row(entry) }
+                            .contextMenu { fileActions(entry) }
                         } else {
                             Button {
                                 let queue = entries.filter { !$0.isDirectory && VideoImporter.isVideoType(URL(fileURLWithPath: $0.name)) }
@@ -150,18 +150,6 @@ struct LocalFilesView<SourceMenu: View>: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .contextMenu {
-                        if !entry.isDirectory, playback.savedProgress(for: mediaItem(entry)) > 0 {
-                            Button("清除播放进度", systemImage: "clock.arrow.circlepath") { playback.clearSavedProgress(for: mediaItem(entry)) }
-                        }
-                        Button("重命名", systemImage: "pencil") {
-                            renameEntry = entry
-                            name = entry.name
-                            isNaming = true
-                        }
-                        Button("移动", systemImage: "folder") { movingEntry = entry }
-                        Button("删除", systemImage: "trash", role: .destructive) { deleteEntry = entry }
-                    }
                     .disabled(busy)
                 }
             }
@@ -181,6 +169,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                     }
             } else if VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
                 MediaThumbnail(source: source, item: mediaItem(entry), playback: playback)
+                    .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
             } else {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color("VesperSecondaryBackground"))
@@ -197,6 +186,17 @@ struct LocalFilesView<SourceMenu: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityLabel(Text(verbatim: entry.name))
+    }
+
+    @ViewBuilder
+    private func fileActions(_ entry: LocalFileEntry) -> some View {
+        Button("重命名", systemImage: "pencil") {
+            renameEntry = entry
+            name = entry.name
+            isNaming = true
+        }
+        Button("移动", systemImage: "folder") { movingEntry = entry }
+        Button("删除", systemImage: "trash", role: .destructive) { deleteEntry = entry }
     }
 
     private func mediaItem(_ entry: LocalFileEntry) -> MediaItem {

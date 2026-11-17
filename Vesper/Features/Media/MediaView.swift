@@ -20,8 +20,7 @@ struct MediaView: View {
         VesperRootScrollView(title: "媒体") {
             VStack(alignment: .leading, spacing: 20) {
                 if library.selectedSource == nil {
-                    VesperEmptyContent(message: "未选择媒体来源", symbol: AppSection.media.symbol)
-                        .frame(maxWidth: .infinity, minHeight: 420)
+                    VesperCenteredEmptyContent(message: "未选择媒体来源", symbol: AppSection.media.symbol)
                 } else {
                     switch library.content {
                     case .unselected: EmptyView()
@@ -29,8 +28,7 @@ struct MediaView: View {
                         ProgressView().frame(maxWidth: .infinity).padding(40)
                     case .loaded(let items):
                         if items.isEmpty {
-                            VesperEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
-                                .frame(maxWidth: .infinity, minHeight: 420)
+                            VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
                         } else {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
                                 ForEach(items) { item in
@@ -41,6 +39,7 @@ struct MediaView: View {
                                         VStack(alignment: .leading, spacing: 8) {
                                             if let source = library.selectedSource {
                                                 MediaThumbnail(source: source, item: item, playback: playback)
+                                                    .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
                                             }
                                             Text(verbatim: item.title).font(.headline)
                                                 .lineLimit(1).truncationMode(.tail)
@@ -53,11 +52,6 @@ struct MediaView: View {
                                     .buttonStyle(.plain)
                                     .disabled(library.selectedSource?.capabilities.contains(.playback) != true)
                                     .accessibilityLabel(Text(verbatim: item.title))
-                                    .contextMenu {
-                                        if playback.savedProgress(for: item) > 0 {
-                                            Button("清除播放进度", systemImage: "clock.arrow.circlepath") { playback.clearSavedProgress(for: item) }
-                                        }
-                                    }
                                 }
                             }
                             .padding(.horizontal, 20)
@@ -143,8 +137,7 @@ struct VesperEmptyPage<Actions: View>: View {
 
     var body: some View {
         VesperRootScrollView(title: title) {
-            VesperEmptyContent(message: message, symbol: symbol)
-                .frame(maxWidth: .infinity, minHeight: 420)
+            VesperCenteredEmptyContent(message: message, symbol: symbol)
         } actions: {
             actions
         }

@@ -11,6 +11,8 @@ import UIKit
 /// the decoder. KSPlayer APIs are contained here, outside navigation code.
 @MainActor
 final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, @preconcurrency AVPictureInPictureControllerDelegate {
+    @Published private(set) var history: [PlaybackHistoryEntry] = []
+    private var lastHistorySave = Date.distantPast
     @Published private(set) var currentItem: MediaItem?
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
@@ -55,6 +57,10 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     override init() {
         super.init()
+        if let data = UserDefaults.standard.data(forKey: "player.history.v1"),
+           let entries = try? JSONDecoder().decode([PlaybackHistoryEntry].self, from: data) {
+            history = entries
+        }
         refreshPlaybackPreferences()
         preferencesObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .sink { [weak self] _ in
@@ -85,6 +91,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     var canSeek: Bool { canControl && duration > 0 && layer?.player.seekable == true }
 
     func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem]) {
+        recordPlaybackHistory()
         externalFile = nil
         self.queue = queue
         self.source = source
@@ -93,6 +100,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func playExternal(_ file: IncomingVideo) {
+        recordPlaybackHistory()
         externalFile = file
         source = nil
         queue = []
@@ -107,7 +115,9 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         generation = UUID()
         let token = generation
         saveProgress()
+        recordPlaybackHistory()
         tearDownPlayer()
+        lastHistorySave = .distantPast
         progressRestored = false
         suppressedProgressID = nil
         currentItem = item
@@ -165,7 +175,11 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         pipController?.invalidatePlaybackState()
     }
 
-    func pause() { layer?.pause(); pipController?.invalidatePlaybackState() }
+    func pause() {
+        layer?.pause()
+        pipController?.invalidatePlaybackState()
+        recordPlaybackHistory()
+    }
 
     func seek(to time: TimeInterval, resume: Bool? = nil) {
         guard canSeek, time.isFinite else { return }
@@ -375,6 +389,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         case .background:
             appIsInBackground = true
             saveProgress()
+            recordPlaybackHistory()
             if !PlaybackPreferences.backgroundEnabled || PlaybackPreferences.backgroundMode != "pip" { pipController?.stopPictureInPicture() }
             guard isPlaying else { return }
             guard PlaybackPreferences.backgroundEnabled else {
@@ -389,6 +404,20 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             appIsInactive = false
         @unknown default: break
         }
+    }
+
+    private func recordPlaybackHistory() {
+        guard let item = currentItem, let source, source.id == item.id.sourceID, externalFile == nil,
+              currentTime > 0.5, duration > 0 else { return }
+        let entry = PlaybackHistoryEntry(mediaID: item.id, title: item.title, source: source,
+                                         watchedAt: Date(), position: currentTime, duration: duration)
+        history.removeAll { $0.mediaID == item.id }
+        history.insert(entry, at: 0)
+        if history.count > 1000 { history.removeLast(history.count - 1000) }
+        if let data = try? JSONEncoder().encode(history) {
+            UserDefaults.standard.set(data, forKey: "player.history.v1")
+        }
+        lastHistorySave = Date()
     }
 
     private var progressKey: String? {
@@ -654,6 +683,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func stop() {
         saveProgress()
+        recordPlaybackHistory()
         request?.cancel()
         request = nil
         generation = UUID()
@@ -729,6 +759,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         if state == .playedToTheEnd {
             currentTime = duration
             saveProgress()
+            recordPlaybackHistory()
             UIApplication.shared.isIdleTimerDisabled = false
         }
         log("状态：\(state)")
@@ -758,6 +789,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         configurePictureInPicture()
         restoreProgressIfNeeded()
         if Date().timeIntervalSince(lastProgressSave) >= 5 && !isSeeking { saveProgress() }
+        if layer.player.isPlaying && !isSeeking && Date().timeIntervalSince(lastHistorySave) >= 5 { recordPlaybackHistory() }
     }
 
     func player(layer: KSPlayerLayer, finish error: Error?) {
@@ -802,4 +834,15 @@ struct PlaybackQueueInfo: Sendable {
     var duration: Double = 0
     var dimensions: String?
     var byteCount: Int?
+}
+
+struct PlaybackHistoryEntry: Identifiable, Codable {
+    let mediaID: MediaID
+    let title: String
+    let source: MediaSource
+    let watchedAt: Date
+    let position: Double
+    let duration: Double
+    var id: MediaID { mediaID }
+    var item: MediaItem { MediaItem(id: mediaID, title: title, resource: nil) }
 }

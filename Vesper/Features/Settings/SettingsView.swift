@@ -55,8 +55,7 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                             .fixedSize(horizontal: true, vertical: false)
                         }
-                        .padding(.vertical, 12)
-                        .padding(.leading, 12)
+                        .padding(12)
                 }
                 VStack(spacing: 0) {
                     settingsLink(.playback, title: "播放设置", symbol: "play.circle")
@@ -310,7 +309,7 @@ private struct AppearanceSettingsView: View {
                             }
                         }
                     ), supportsOpacity: false) { Text("主题色") }
-                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 0))
+                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
                     Button { confirmingAccentReset = true } label: {
                         Text("重置主题色")
                             .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
@@ -422,14 +421,14 @@ struct TabSettingsView: View {
                                         .foregroundStyle(.primary)
                                 }
                                 .frame(maxWidth: .infinity, minHeight: 88)
-                                .background(VesperTheme.background, in: RoundedRectangle(cornerRadius: 16))
+                                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
                                 .contentShape(RoundedRectangle(cornerRadius: 16))
                             }
                             .accessibilityHint("更换图标")
                         }
                     }
                     .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                    .listRowBackground(Color(uiColor: .systemGroupedBackground))
                     .listRowSeparator(.hidden)
                 }
             }
@@ -477,7 +476,7 @@ struct TabSettingsView: View {
                         }
                     }
             }
-            .presentationDetents([.height(360)])
+            .presentationDetents([.custom(TabOrderDetent.self)])
             .presentationDragIndicator(.hidden)
             .interactiveDismissDisabled(false)
             .presentationBackground(VesperTheme.background)
@@ -529,36 +528,25 @@ private struct TabOrderSettingsView: View {
     var body: some View {
         SettingsPage {
             SettingsSection {
-                ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
-                    HStack {
-                        Label(section.title, systemImage: section.symbol)
-                        Spacer()
-                        Button("上移", systemImage: "arrow.up") { move(index, by: -1) }.labelStyle(.iconOnly).buttonStyle(.borderless).disabled(index == 0)
-                        Button("下移", systemImage: "arrow.down") { move(index, by: 1) }.labelStyle(.iconOnly).buttonStyle(.borderless).disabled(index == sections.count - 1)
-                    }
-                    .draggable(section.rawValue)
-                    .dropDestination(for: String.self) { values, _ in
-                        guard let raw = values.first, let from = sections.firstIndex(where: { $0.rawValue == raw }), from != index else { return false }
-                        var updated = sections
-                        let moving = updated.remove(at: from)
-                        updated.insert(moving, at: index)
-                        order = updated.map(\.rawValue).joined(separator: ",")
-                        return true
-                    }
+                ForEach(sections) { section in
+                    Label(section.title, systemImage: section.symbol)
+                }
+                .onMove { offsets, destination in
+                    var updated = sections
+                    updated.move(fromOffsets: offsets, toOffset: destination)
+                    order = updated.map(\.rawValue).joined(separator: ",")
                 }
             }
         }
-        .contentMargins(.top, 0, for: .scrollContent)
-        .background(VesperTheme.background)
+        .environment(\.editMode, .constant(.active))
+        .scrollDisabled(true)
     }
-    private func move(_ index: Int, by delta: Int) {
-        var values = sections
-        let target = index + delta
-        guard values.indices.contains(target) else { return }
-        values.swapAt(index, target)
-        order = values.map(\.rawValue).joined(separator: ",")
-    }
+}
 
+private struct TabOrderDetent: CustomPresentationDetent {
+    static func height(in context: Context) -> CGFloat? {
+        min(context.maxDetentValue, context.dynamicTypeSize.isAccessibilitySize ? 540 : 360)
+    }
 }
 
 /// Introductory card shared by secondary settings pages.
@@ -713,7 +701,7 @@ struct SettingsPicker<Selection: Hashable, Options: View, Label: View>: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .layoutPriority(1)
         }
-        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 0))
+        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
     }
 }
 

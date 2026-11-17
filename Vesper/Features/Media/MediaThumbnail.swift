@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import AVFoundation
 @preconcurrency import Photos
 
@@ -131,10 +132,12 @@ private struct ThumbnailPlaybackProgress: View {
                         ZStack(alignment: .leading) {
                             Capsule().fill(.white.opacity(0.35))
                             Capsule().fill(.white)
-                                .frame(width: geometry.size.width * CGFloat(min(1, max(0, progress / total))))
+                                .mask(alignment: .leading) {
+                                    Rectangle().frame(width: geometry.size.width * CGFloat(min(1, max(0, progress / total))))
+                                }
                         }
                     }
-                    .frame(width: progressWidth, height: 4.5)
+                    .frame(width: progressWidth, height: 4)
                     Text(verbatim: timeLabel(total)).font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .lineLimit(1).minimumScaleFactor(0.7)
                 }
@@ -206,4 +209,96 @@ private final class PhotoThumbnailRequest {
         if let requestID { PHImageManager.default().cancelImageRequest(requestID) }
         finish(nil)
     }
+}
+
+func mediaTimeLabel(_ time: Double) -> String {
+    let value = time.isFinite ? Int(max(0, time)) : 0
+    return value >= 3600 ? String(format: "%d:%02d:%02d", value / 3600, value / 60 % 60, value % 60)
+        : String(format: "%d:%02d", value / 60, value % 60)
+}
+
+/// Native context previews supply the lift/return animation and dimmed, blurred
+/// background, while keeping the menu's source rectangle on the thumbnail only.
+struct MediaThumbnailMenu<Actions: View>: ViewModifier {
+    let source: MediaSource
+    let item: MediaItem
+    @ObservedObject var playback: PlaybackSession
+    @ViewBuilder let actions: () -> Actions
+    @State private var shareResource: ResolvedPlaybackResource?
+    @State private var showingShare = false
+    @State private var preparingShare = false
+    @State private var shareError: String?
+    @State private var showingShareError = false
+
+    func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                Button("分享", systemImage: "square.and.arrow.up") { share() }
+                    .disabled(preparingShare)
+                if playback.savedProgress(for: item) > 0 {
+                    Button("清除播放进度", systemImage: "clock.arrow.circlepath") { playback.clearSavedProgress(for: item) }
+                }
+                actions()
+            } preview: {
+                MediaThumbnailPreview(source: source, item: item, playback: playback)
+            }
+            .sheet(isPresented: $showingShare, onDismiss: {
+                shareResource?.release()
+                shareResource = nil
+            }) {
+                if let shareResource { MediaVideoShareSheet(url: shareResource.url) }
+            }
+            .alert("无法分享视频", isPresented: $showingShareError) {
+                Button("好", role: .cancel) { }
+            } message: { Text(verbatim: shareError ?? "") }
+    }
+
+    private func share() {
+        guard !preparingShare else { return }
+        preparingShare = true
+        Task { @MainActor in
+            defer { preparingShare = false }
+            do {
+                let resource = try await PlaybackResourceResolver().resolve(item, source: source)
+                guard !Task.isCancelled else { resource.release(); return }
+                shareResource = resource
+                showingShare = true
+            } catch {
+                shareError = error.localizedDescription
+                showingShareError = true
+            }
+        }
+    }
+}
+
+private struct MediaThumbnailPreview: View {
+    let source: MediaSource
+    let item: MediaItem
+    let playback: PlaybackSession
+    @State private var duration: Double = 0
+    private var displayName: String {
+        VideoImporter.isVideoType(URL(fileURLWithPath: item.title)) ? (item.title as NSString).deletingPathExtension : item.title
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            MediaThumbnail(source: source, item: item, playback: playback)
+                .frame(width: 200, height: 300)
+            Text(verbatim: displayName).font(.headline).lineLimit(2)
+            if duration > 0 {
+                Text(verbatim: mediaTimeLabel(duration)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+            } else { ProgressView() }
+        }
+        .padding(14)
+        .frame(width: 228)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+        .task { duration = await MediaThumbnailLoader.shared.duration(item, source: source) }
+    }
+}
+
+private struct MediaVideoShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) { }
 }

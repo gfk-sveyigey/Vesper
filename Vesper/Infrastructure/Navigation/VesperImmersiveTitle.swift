@@ -10,7 +10,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
     @State private var scrollOffset: CGFloat = 0
     @State private var headerOffset: CGFloat = 0
-    @State private var canScroll = false
+    @State private var viewportHeight: CGFloat = 0
     @State private var isSystemScrolling = false
     @State private var isCollapsed = false
     @State private var isSnapping = false
@@ -38,19 +38,19 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 content
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 20)
+                    .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
             }
+            .frame(minHeight: viewportHeight + headerHeight, alignment: .top)
         }
         .scrollClipDisabled()
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)
-        .scrollDisabled(!canScroll)
         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
             ScrollMetrics(
                 offset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
-                canScroll: geometry.contentSize.height + geometry.contentInsets.top
-                    + geometry.contentInsets.bottom > geometry.containerSize.height + 1
+                viewportHeight: max(0, geometry.containerSize.height - geometry.contentInsets.bottom)
             )
         } action: { _, metrics in
-            canScroll = metrics.canScroll
+            viewportHeight = metrics.viewportHeight
             scrollOffset = metrics.offset
             updateHeader(at: metrics.offset)
         }
@@ -148,7 +148,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 
     private struct ScrollMetrics: Equatable {
         let offset: CGFloat
-        let canScroll: Bool
+        let viewportHeight: CGFloat
     }
 
 }
@@ -189,5 +189,26 @@ struct VesperNavigationHeaderLayer: ViewModifier {
                 header.ignoresSafeArea(.container, edges: .top)
             }
         }
+    }
+}
+
+private struct VesperEmptyContentHeightKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 420
+}
+
+extension EnvironmentValues {
+    var vesperEmptyContentHeight: CGFloat {
+        get { self[VesperEmptyContentHeightKey.self] }
+        set { self[VesperEmptyContentHeightKey.self] = newValue }
+    }
+}
+
+struct VesperCenteredEmptyContent: View {
+    let message: LocalizedStringKey
+    let symbol: String
+    @Environment(\.vesperEmptyContentHeight) private var height
+    var body: some View {
+        VesperEmptyContent(message: message, symbol: symbol)
+            .frame(maxWidth: .infinity, minHeight: height)
     }
 }

@@ -146,16 +146,12 @@ final class SourceLibrary: ObservableObject {
         persist()
     }
 
-    /// Imported videos always live in the app's Documents directory.
-    func selectImportedVideos(name: String) {
+    /// Register imported files without changing the user's selected source.
+    func registerImportedVideos(name: String) {
         if let index = sources.firstIndex(where: { $0.kind == .local }) {
             sources[index].folderBookmark = nil
-            selectedID = sources[index].id
         } else {
-            let source = MediaSource(id: UUID(), name: name,
-                                     kind: .local, behavior: .empty)
-            sources.append(source)
-            selectedID = source.id
+            sources.append(MediaSource(id: UUID(), name: name, kind: .local, behavior: .empty))
         }
         persist()
         reload()
