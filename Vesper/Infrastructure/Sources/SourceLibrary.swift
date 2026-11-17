@@ -66,7 +66,7 @@ struct DemoSourceAdapter: SourceAdapter {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let urls = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isRegularFileKey])
-            let extensions: Set<String> = ["mp4", "mov", "m4v", "mkv", "avi", "webm"]
+            let extensions = VideoImporter.videoExtensions
             return urls.filter { extensions.contains($0.pathExtension.lowercased()) }.sorted { $0.lastPathComponent < $1.lastPathComponent }.map {
                 MediaItem(id: MediaID(sourceID: source.id, localID: $0.lastPathComponent), title: $0.deletingPathExtension().lastPathComponent, resource: nil)
             }
@@ -144,6 +144,21 @@ final class SourceLibrary: ObservableObject {
         sources.append(source)
         if selectedID == nil { selectedID = source.id; reload() }
         persist()
+    }
+
+    /// Imported videos always live in the app's Documents directory.
+    func selectImportedVideos() {
+        if let index = sources.firstIndex(where: { $0.kind == .local }) {
+            sources[index].folderBookmark = nil
+            selectedID = sources[index].id
+        } else {
+            let source = MediaSource(id: UUID(), name: VesperLocalization.string("本地视频"),
+                                     kind: .local, behavior: .empty)
+            sources.append(source)
+            selectedID = source.id
+        }
+        persist()
+        reload()
     }
 
     func addDemo(name: String, behavior: DemoSourceBehavior) {

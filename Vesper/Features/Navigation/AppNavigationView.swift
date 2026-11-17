@@ -23,6 +23,8 @@ struct AppNavigationView: View {
     @State private var historyPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
     @State private var searchQuery = ""
+    @State private var importNotice: String?
+    @State private var isShowingImportNotice = false
     @Namespace private var playerTransition
 
     init() {
@@ -50,6 +52,14 @@ struct AppNavigationView: View {
     var body: some View {
         GeometryReader { geometry in
             tabs.environment(\.vesperWindowTopInset, geometry.safeAreaInsets.top)
+        }
+        .onOpenURL { url in
+            Task { await importVideo(url) }
+        }
+        .alert("视频导入", isPresented: $isShowingImportNotice) {
+            Button("好", role: .cancel) { }
+        } message: {
+            Text(verbatim: importNotice ?? "")
         }
     }
 
@@ -131,6 +141,21 @@ struct AppNavigationView: View {
     private var hasPlayableContent: Bool { playback.currentItem != nil }
     private var shouldShowMiniPlayer: Bool {
         miniPlayerEnabled && (miniPlayerAlwaysVisible || hasPlayableContent)
+    }
+
+    private func importVideo(_ url: URL) async {
+        do {
+            let imported = try await VideoImporter.shared.importVideo(from: url)
+            library.selectImportedVideos()
+            if visibleSections.contains(.media) {
+                mediaPath = NavigationPath()
+                selection = .section(.media)
+            }
+            importNotice = String(localized: "已添加到本地视频：") + imported.lastPathComponent
+        } catch {
+            importNotice = String(localized: "导入失败：") + error.localizedDescription
+        }
+        isShowingImportNotice = true
     }
 
     private func rememberSearch() {

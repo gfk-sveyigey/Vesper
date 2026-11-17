@@ -45,3 +45,20 @@ CI must compile the generic iOS device target with Xcode 26. Runtime checks:
 5. Rapidly select videos while Photos downloads: only the latest may play.
 6. Try a missing/corrupt file; retry or switch video without freezing navigation.
 7. Toggle mini-player enabled/always-visible and minimize the tab bar.
+
+## Importing videos from other apps
+
+Vesper registers as an alternate video document viewer. In Files or another app
+that supports Open In, choose Vesper to import MP4, MOV, M4V, MKV, AVI or WebM.
+The app copies the video into Documents, creates/selects the Local Video source,
+and refreshes the media list without starting playback. Existing filenames get
+numeric suffixes; opening a video already at the root of Documents does not
+create a duplicate. External originals are left intact. Only private Inbox
+copies are removed after successful import. File-provider reads are coordinated,
+security-scoped access covers the entire copy, and staging files are never
+published to the media list before completion. Large copies run off the UI thread.
+
+This uses the system document-opening flow, not a separate Share Extension.
+The exact action name/visibility depends on the sending app. Verify both cold
+and warm launch, an iCloud file, duplicate names, an unsupported file, import
+while another video is playing, and a Files URL already inside Documents.
