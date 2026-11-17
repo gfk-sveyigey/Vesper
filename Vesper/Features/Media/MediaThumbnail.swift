@@ -24,7 +24,7 @@ struct MediaThumbnail: View {
                 }
             }
         }
-        .frame(height: 150)
+        .aspectRatio(2.0 / 3.0, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .accessibilityHidden(true)
         .task(id: item.id) {
@@ -100,7 +100,7 @@ private final class PhotoThumbnailRequest {
                 options.resizeMode = .fast
                 options.isNetworkAccessAllowed = true
                 requestID = PHImageManager.default().requestImage(for: asset,
-                    targetSize: CGSize(width: 600, height: 400), contentMode: .aspectFill,
+                    targetSize: CGSize(width: 400, height: 600), contentMode: .aspectFill,
                     options: options) { image, info in
                         guard (info?[PHImageResultIsDegradedKey] as? Bool) != true else { return }
                         let data = image?.jpegData(compressionQuality: 0.8)

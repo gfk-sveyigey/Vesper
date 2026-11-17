@@ -109,7 +109,7 @@ actor VideoImporter {
         guard !Task.isCancelled else { return nil }
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 900, height: 500)
+        generator.maximumSize = CGSize(width: 900, height: 1350)
         do {
             let result = try await generator.image(at: .zero)
             return UIImage(cgImage: result.image).jpegData(compressionQuality: 0.85)

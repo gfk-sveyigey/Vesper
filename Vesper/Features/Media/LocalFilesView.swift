@@ -127,17 +127,23 @@ struct LocalFilesView<SourceMenu: View>: View {
     private func row(_ entry: LocalFileEntry) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if entry.isDirectory {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 48)).foregroundStyle(.tint)
-                    .frame(maxWidth: .infinity).frame(height: 150)
-                    .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 12))
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color("VesperSecondaryBackground"))
+                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                    .overlay {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 48)).foregroundStyle(.tint)
+                    }
             } else if VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
                 MediaThumbnail(source: source, item: mediaItem(entry))
             } else {
-                Image(systemName: "doc")
-                    .font(.largeTitle).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity).frame(height: 150)
-                    .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 12))
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color("VesperSecondaryBackground"))
+                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                    .overlay {
+                        Image(systemName: "doc")
+                            .font(.largeTitle).foregroundStyle(.secondary)
+                    }
             }
             Text(verbatim: entry.isDirectory ? entry.name : (entry.name as NSString).deletingPathExtension)
                 .font(.headline).foregroundStyle(.primary)
