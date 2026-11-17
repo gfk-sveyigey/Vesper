@@ -8,7 +8,7 @@ struct MediaView: View {
     var body: some View {
         Group {
             if let source = library.selectedSource, source.kind == .local {
-                LocalFilesView(source: source) { mediaSourceMenu }
+                LocalFilesView(source: source) { sourceMenuButton }
                     .id(source.id)
             } else {
                 mediaContent
@@ -39,12 +39,11 @@ struct MediaView: View {
                                         playback.play(item, in: source, queue: items)
                                     } label: {
                                         VStack(alignment: .leading, spacing: 8) {
-                                            Image(systemName: "play.rectangle")
-                                                .font(.largeTitle)
-                                                .frame(maxWidth: .infinity)
-                                                .frame(height: 150)
-                                                .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 12))
+                                            if let source = library.selectedSource {
+                                                MediaThumbnail(source: source, item: item)
+                                            }
                                             Text(verbatim: item.title).font(.headline)
+                                                .lineLimit(1).truncationMode(.tail)
                                             if library.selectedSource?.kind == .demo {
                                                 Text("演示内容，不可播放").font(.caption).foregroundStyle(.secondary)
                                             }
@@ -76,6 +75,11 @@ struct MediaView: View {
     }
 
     private var mediaSourceMenu: some View {
+        sourceMenuButton
+            .glassEffect(.regular.interactive(), in: .circle)
+    }
+
+    private var sourceMenuButton: some View {
         Menu {
             ForEach(library.sources) { source in
                 Button {
@@ -93,7 +97,6 @@ struct MediaView: View {
                 .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())
-                .glassEffect(.regular.interactive(), in: .circle)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("选择媒体来源")

@@ -22,16 +22,16 @@ struct LocalFilesView<SourceMenu: View>: View {
         Group {
             if directory.isEmpty {
                 VesperRootScrollView(title: "媒体") { files } actions: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 0) {
                         Button("新建文件夹", systemImage: "folder.badge.plus", action: createFolder)
                             .labelStyle(.iconOnly)
                             .font(.system(size: 17, weight: .medium))
                             .frame(width: 44, height: 44)
-                            .glassEffect(.regular.interactive(), in: .circle)
                             .buttonStyle(.plain)
                             .disabled(busy)
                         sourceMenu()
                     }
+                    .glassEffect(.regular.interactive(), in: .capsule)
                 }
             } else {
                 ScrollView { files.padding(.top, 12).padding(.bottom, 20) }
@@ -91,49 +91,61 @@ struct LocalFilesView<SourceMenu: View>: View {
                 VesperEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
                     .frame(minHeight: 420)
             }
-            ForEach(entries) { entry in
-                Group {
-                    if entry.isDirectory {
-                        NavigationLink {
-                            LocalFilesView(source: source, directory: entry.path, sourceMenu: sourceMenu)
-                        } label: { row(entry) }
-                    } else {
-                        Button {
-                            let queue = entries.filter { !$0.isDirectory && VideoImporter.isVideoType(URL(fileURLWithPath: $0.name)) }
-                                .map(mediaItem)
-                            playback.play(mediaItem(entry), in: source, queue: queue)
-                        } label: { row(entry) }
-                        .disabled(!VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)))
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 20) {
+                ForEach(entries) { entry in
+                    Group {
+                        if entry.isDirectory {
+                            NavigationLink {
+                                LocalFilesView(source: source, directory: entry.path, sourceMenu: sourceMenu)
+                            } label: { row(entry) }
+                        } else {
+                            Button {
+                                let queue = entries.filter { !$0.isDirectory && VideoImporter.isVideoType(URL(fileURLWithPath: $0.name)) }
+                                    .map(mediaItem)
+                                playback.play(mediaItem(entry), in: source, queue: queue)
+                            } label: { row(entry) }
+                            .disabled(!VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)))
+                        }
                     }
-                }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    Button("重命名", systemImage: "pencil") {
-                        renameEntry = entry
-                        name = entry.name
-                        isNaming = true
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("重命名", systemImage: "pencil") {
+                            renameEntry = entry
+                            name = entry.name
+                            isNaming = true
+                        }
+                        Button("移动", systemImage: "folder") { movingEntry = entry }
+                        Button("删除", systemImage: "trash", role: .destructive) { deleteEntry = entry }
                     }
-                    Button("移动", systemImage: "folder") { movingEntry = entry }
-                    Button("删除", systemImage: "trash", role: .destructive) { deleteEntry = entry }
+                    .disabled(busy)
                 }
-                .disabled(busy)
             }
         }
         .padding(.horizontal, 20)
     }
 
     private func row(_ entry: LocalFileEntry) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: entry.isDirectory ? "folder.fill" : "play.rectangle")
-                .font(.title2).foregroundStyle(.tint).frame(width: 36)
-            Text(verbatim: entry.name).lineLimit(2).foregroundStyle(.primary)
-            Spacer(minLength: 8)
-            if entry.isDirectory { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
+        VStack(alignment: .leading, spacing: 8) {
+            if entry.isDirectory {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 48)).foregroundStyle(.tint)
+                    .frame(maxWidth: .infinity).frame(height: 150)
+                    .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 12))
+            } else if VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
+                MediaThumbnail(source: source, item: mediaItem(entry))
+            } else {
+                Image(systemName: "doc")
+                    .font(.largeTitle).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity).frame(height: 150)
+                    .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 12))
+            }
+            Text(verbatim: entry.isDirectory ? entry.name : (entry.name as NSString).deletingPathExtension)
+                .font(.headline).foregroundStyle(.primary)
+                .lineLimit(1).truncationMode(.tail)
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
         .contentShape(Rectangle())
+        .accessibilityLabel(Text(verbatim: entry.name))
     }
 
     private func mediaItem(_ entry: LocalFileEntry) -> MediaItem {

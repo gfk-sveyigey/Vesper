@@ -101,7 +101,13 @@ actor VideoImporter {
     }
 
     func thumbnail(for file: IncomingVideo) async -> Data? {
-        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: file.url))
+        defer { withExtendedLifetime(file.access) {} }
+        return await thumbnail(at: file.url)
+    }
+
+    func thumbnail(at url: URL) async -> Data? {
+        guard !Task.isCancelled else { return nil }
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 900, height: 500)
         do {
@@ -112,9 +118,8 @@ actor VideoImporter {
         }
         // Use the existing GPL decoder for containers the system cannot preview.
         if Task.isCancelled { return nil }
-        if file.width <= 0 || file.height <= 0 { return nil }
         let controller = ThumbnailController(thumbnailCount: 1)
-        guard let frames = try? await controller.generateThumbnail(for: file.url, thumbWidth: 600) else { return nil }
+        guard let frames = try? await controller.generateThumbnail(for: url, thumbWidth: 600) else { return nil }
         return frames.first?.image.jpegData(compressionQuality: 0.85)
     }
 
