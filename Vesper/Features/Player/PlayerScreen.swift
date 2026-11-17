@@ -796,14 +796,19 @@ struct PlayerScreen: View {
     private var regionOverlay: some View {
         GeometryReader { geometry in
             let layouts = activeRegionLayouts
+            let gaps = CGFloat(max(0, layouts.count - 1)) * 8
+            let rowHeight = max(0, (geometry.size.height - gaps) / CGFloat(max(1, layouts.count)))
             VStack(spacing: 8) {
                 ForEach(layouts, id: \.self) { count in
                     let edges = [CGFloat(0)] + PlayerGesturePreferences.boundaries(for: count) + [CGFloat(1)]
+                    let availableWidth = max(0, geometry.size.width - CGFloat(count - 1) * 2)
                     HStack(spacing: 2) {
                         ForEach(Array(PlayerGesturePreferences.regions(for: count).enumerated()), id: \.element.id) { index, region in
-                            Text(count == 1 ? "全部区域" : region.title)
+                            let cellWidth = availableWidth * (edges[index + 1] - edges[index])
+                            let title: LocalizedStringKey = count == 1 ? "全部区域" : region.title
+                            Text(title)
                                 .font(.headline)
-                                .frame(width: max(0, (geometry.size.width - CGFloat(count - 1) * 2) * (edges[index + 1] - edges[index])), height: max(0, (geometry.size.height - CGFloat(max(0, layouts.count - 1)) * 8) / CGFloat(max(1, layouts.count))))
+                                .frame(width: cellWidth, height: rowHeight)
                                 .background(.blue.opacity(0.18))
                         }
                     }
