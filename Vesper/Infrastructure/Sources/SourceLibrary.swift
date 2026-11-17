@@ -147,12 +147,12 @@ final class SourceLibrary: ObservableObject {
     }
 
     /// Imported videos always live in the app's Documents directory.
-    func selectImportedVideos() {
+    func selectImportedVideos(name: String) {
         if let index = sources.firstIndex(where: { $0.kind == .local }) {
             sources[index].folderBookmark = nil
             selectedID = sources[index].id
         } else {
-            let source = MediaSource(id: UUID(), name: VesperLocalization.string("本地视频"),
+            let source = MediaSource(id: UUID(), name: name,
                                      kind: .local, behavior: .empty)
             sources.append(source)
             selectedID = source.id

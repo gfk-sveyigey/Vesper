@@ -53,6 +53,24 @@ struct SourceLibraryChecks {
         precondition(deviceRestored.sources == library.sources)
         library.remove(library.sources[0].id)
 
+        // Importing creates/selects one Documents-backed local source, including
+        // migration from a legacy folder bookmark, without duplicate sources.
+        library.selectImportedVideos(name: "Local")
+        let importedID = library.selectedID
+        precondition(library.sources.count == 1 && library.selectedSource?.kind == .local)
+        precondition(library.selectedSource?.folderBookmark == nil)
+        library.selectImportedVideos(name: "Local")
+        precondition(library.sources.count == 1 && library.selectedID == importedID)
+        library.remove(importedID!)
+        library.addDeviceSource(kind: .local, name: "Legacy", bookmark: Data([1]))
+        let legacyID = library.selectedID
+        library.selectImportedVideos(name: "Local")
+        precondition(library.selectedID == legacyID && library.sources.count == 1)
+        precondition(library.selectedSource?.folderBookmark == nil)
+        let importedRestored = SourceLibrary(defaults: defaults)
+        precondition(importedRestored.sources == library.sources && importedRestored.selectedID == legacyID)
+        library.remove(legacyID!)
+
         // Adapter deliberately ignores cancellation: generation guard must still
         // reject the old source's late completion.
         let race = SourceLibrary(defaults: defaults, adapter: UncooperativeAdapter())

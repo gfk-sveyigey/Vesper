@@ -146,7 +146,7 @@ struct AppNavigationView: View {
     private func importVideo(_ url: URL) async {
         do {
             let imported = try await VideoImporter.shared.importVideo(from: url)
-            library.selectImportedVideos()
+            library.selectImportedVideos(name: VesperLocalization.string("本地视频"))
             if visibleSections.contains(.media) {
                 mediaPath = NavigationPath()
                 selection = .section(.media)
