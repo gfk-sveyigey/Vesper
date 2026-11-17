@@ -1,6 +1,7 @@
 import SwiftUI
 import Photos
 import UniformTypeIdentifiers
+import UIKit
 
 struct SourcesView: View {
     @EnvironmentObject private var library: SourceLibrary
@@ -8,6 +9,7 @@ struct SourcesView: View {
     @State private var isShowingError = false
     @State private var isShowingEmbyNotice = false
     @State private var isShowingVideoPicker = false
+    @State private var pickedVideoAccess: IncomingFileAccess?
 
     var body: some View {
         ZStack {
@@ -44,18 +46,12 @@ struct SourcesView: View {
                 }
             }
         }
-        .fileImporter(
-            isPresented: $isShowingVideoPicker,
-            // Diagnostic only: bypass the provider's movie-type classification.
-            // The shared receiver still checks readability and actual video streams.
-            allowedContentTypes: [.data]
-        ) { result in
-            switch result {
-            case .success(let url):
-                FileDeliveryLog.write("应用内文件选择成功，extension=\(url.pathExtension)")
-                FileDeliveryRouter.receive(url, origin: "fileImporter")
-            case .failure(let error):
-                FileDeliveryLog.write("应用内文件选择未完成，error=\(error.localizedDescription)")
+        .sheet(isPresented: $isShowingVideoPicker, onDismiss: videoPickerDismissed) {
+            DiagnosticVideoPicker { access in
+                pickedVideoAccess = access
+                isShowingVideoPicker = false
+            } onCancel: {
+                isShowingVideoPicker = false
             }
         }
         .alert("无法添加来源", isPresented: $isShowingError) {
@@ -77,7 +73,7 @@ struct SourcesView: View {
             Button("Emby", systemImage: "play.rectangle") { isShowingEmbyNotice = true }
             Divider()
             Button("选择视频（诊断）", systemImage: "doc.badge.gearshape") {
-                FileDeliveryLog.write("打开应用内视频选择器，诊断过滤类型=public.data")
+                FileDeliveryLog.write("打开原生文档选择器，诊断过滤类型=public.data，asCopy=true")
                 isShowingVideoPicker = true
             }
         } label: {
@@ -89,6 +85,17 @@ struct SourcesView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("添加来源")
+    }
+
+    private func videoPickerDismissed() {
+        FileDeliveryLog.write("文档选择器已关闭，待处理文件=\(pickedVideoAccess != nil)")
+        guard let access = pickedVideoAccess else { return }
+        pickedVideoAccess = nil
+        // Keep the selected file accessible until the shared receiver owns it.
+        // Preview presentation starts only after the picker sheet has dismissed.
+        withExtendedLifetime(access) {
+            FileDeliveryRouter.receive(access.url, origin: "documentPicker")
+        }
     }
 
     private func addPhotos() {
@@ -110,6 +117,56 @@ struct SourcesView: View {
             )
         } catch {
             isShowingError = true
+        }
+    }
+}
+
+/// A diagnostic control using UIKit's documented file-selection delegate.
+/// Import a sandbox copy to also remove external in-place access as a variable.
+private struct DiagnosticVideoPicker: UIViewControllerRepresentable {
+    let onPick: (IncomingFileAccess) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick, onCancel: onCancel)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        FileDeliveryLog.write("原生文档选择器已创建，delegate 已绑定")
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIDocumentPickerViewController, context: Context) {
+        context.coordinator.onPick = onPick
+        context.coordinator.onCancel = onCancel
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        var onPick: (IncomingFileAccess) -> Void
+        var onCancel: () -> Void
+
+        init(onPick: @escaping (IncomingFileAccess) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            FileDeliveryLog.write("原生文档选择回调，文件数量=\(urls.count)")
+            guard let url = urls.first else {
+                onCancel()
+                return
+            }
+            FileDeliveryLog.write("原生文档选择成功，extension=\(url.pathExtension)")
+            onPick(IncomingFileAccess(url: url))
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            FileDeliveryLog.write("原生文档选择器已取消")
+            onCancel()
         }
     }
 }
