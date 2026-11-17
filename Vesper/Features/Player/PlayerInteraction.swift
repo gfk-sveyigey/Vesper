@@ -65,7 +65,7 @@ enum PlayerGestureKind: String, CaseIterable, Identifiable {
 
 enum PlayerGestureAction: String, CaseIterable, Identifiable {
     case none, controls, playback, play, pause, backward, forward, brightnessUp, brightnessDown, volumeUp, volumeDown
-    case mute, showRegions, playlist, synopsis, details, rotate, fill, pictureInPicture, close, speedUp, speedDown, moreSettings, subtitles, danmaku, gestures
+    case mute, showRegions, playlist, synopsis, details, rotate, fill, fillScreen, fitScreen, landscape, portrait, pictureInPicture, close, speedUp, speedDown, moreSettings, subtitles, danmaku, gestures
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
@@ -74,6 +74,7 @@ enum PlayerGestureAction: String, CaseIterable, Identifiable {
         case .brightnessUp: "增大亮度"; case .brightnessDown: "减小亮度"; case .volumeUp: "增大音量"; case .volumeDown: "减小音量"
         case .mute: "静音或取消静音"; case .showRegions: "显示区域划分"; case .playlist: "播放列表"
         case .synopsis: "视频简介"; case .details: "详细信息"; case .rotate: "切换屏幕方向"; case .fill: "切换填充方式"
+        case .fillScreen: "填满屏幕"; case .fitScreen: "完整显示"; case .landscape: "横屏"; case .portrait: "竖屏"
         case .pictureInPicture: "画中画"; case .close: "关闭"; case .speedUp: "加快播放速度"; case .speedDown: "减慢播放速度"
         case .moreSettings: "更多设置"; case .subtitles: "字幕设置"; case .danmaku: "弹幕设置"; case .gestures: "播放手势"
         }
@@ -98,12 +99,13 @@ enum PlayerGesturePair: String, CaseIterable, Identifiable {
 }
 
 enum PlayerGesturePairAction: String, CaseIterable, Identifiable {
-    case none, seek, volume, brightness, speed, playback
+    case none, seek, volume, brightness, speed, playback, fill, orientation
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
-        case .none: "无操作"; case .seek: "快进／快退"; case .volume: "增大／减小音量"
+        case .none: "无操作"; case .seek: "调整播放进度"; case .volume: "增大／减小音量"
         case .brightness: "增大／减小亮度"; case .speed: "加快／减慢播放速度"; case .playback: "播放／暂停"
+        case .fill: "调整填充方式"; case .orientation: "调整屏幕方向"
         }
     }
     func action(positive: Bool) -> PlayerGestureAction {
@@ -111,6 +113,7 @@ enum PlayerGesturePairAction: String, CaseIterable, Identifiable {
         case .none: .none; case .seek: positive ? .forward : .backward
         case .volume: positive ? .volumeUp : .volumeDown; case .brightness: positive ? .brightnessUp : .brightnessDown
         case .speed: positive ? .speedUp : .speedDown; case .playback: positive ? .play : .pause
+        case .fill: positive ? .fillScreen : .fitScreen; case .orientation: positive ? .landscape : .portrait
         }
     }
 }
@@ -126,7 +129,7 @@ enum PlayerGesturePreferences {
     }
     static func regions(for count: Int) -> [PlayerGestureRegion] { count == 1 ? [.center] : (count == 2 ? [.left, .right] : PlayerGestureRegion.allCases) }
     static func pairEnabled(_ pair: PlayerGesturePair, _ fingers: Int) -> Bool {
-        UserDefaults.standard.object(forKey: "player.gesture.paired.\(fingers).\(pair.rawValue)") as? Bool ?? false
+        UserDefaults.standard.object(forKey: "player.gesture.paired.\(fingers).\(pair.rawValue)") as? Bool ?? true
     }
     static func layoutID(_ kind: PlayerGestureKind, _ fingers: Int) -> String {
         if let pair = PlayerGesturePair.containing(kind), pairEnabled(pair, fingers) { return "pair.\(pair.rawValue)" }

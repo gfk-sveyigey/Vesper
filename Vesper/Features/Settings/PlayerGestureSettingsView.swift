@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct PlayerGestureSettingsView: View {
     @State private var revision = 0
@@ -8,7 +9,7 @@ struct PlayerGestureSettingsView: View {
 
     var body: some View {
         let _ = revision
-        Form {
+        SettingsPage {
             SettingsIntroCard(title: "播放手势", symbol: "hand.draw", description: "为每种手势选择区域与动作。")
             SettingsSection {
                 Button { showingRanges = true } label: {
@@ -35,10 +36,7 @@ struct PlayerGestureSettingsView: View {
                 }
             }
         }
-        .listSectionSpacing(20)
         .contentMargins(.top, 0, for: .scrollContent)
-        .contentMargins(.horizontal, 16, for: .scrollContent)
-        .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
         .navigationTitle("播放手势")
         .toolbarTitleDisplayMode(.inline)
@@ -54,12 +52,12 @@ struct PlayerGestureSettingsView: View {
         }
         .sheet(isPresented: $showingRanges) {
             NavigationStack { GestureRegionSettingsView() }
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.custom(GestureRegionsDetent.self)])
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingPairs, onDismiss: { revision += 1 }) {
-            NavigationStack { GesturePairSettingsView() }
-                .presentationDetents([.medium, .large])
+            NavigationStack { GesturePairSettingsView(changed: { revision += 1 }) }
+                .presentationDetents([.custom(GesturePairsDetent.self)])
                 .presentationDragIndicator(.visible)
         }
     }
@@ -77,18 +75,18 @@ struct PlayerGestureSettingsView: View {
                 Text(pair?.title ?? kind.title).font(.headline)
             }
             .padding(.vertical, 2)
-            Picker("区域划分", selection: layoutBinding(kind, fingers)) {
+            SettingsPicker("区域划分", selection: layoutBinding(kind, fingers)) {
                 Text("单区域").tag(1); Text("双区域").tag(2); Text("三区域").tag(3)
             }
             .pickerStyle(.menu)
             ForEach(PlayerGesturePreferences.regions(for: count)) { region in
                 if let pair {
-                    Picker(count == 1 ? "全部区域" : region.title, selection: pairActionBinding(pair, region, fingers)) {
+                    SettingsPicker(count == 1 ? "全部区域" : region.title, selection: pairActionBinding(pair, region, fingers)) {
                         ForEach(PlayerGesturePairAction.allCases) { action in Text(action.title).tag(action) }
                     }
                     .pickerStyle(.menu)
                 } else {
-                    Picker(count == 1 ? "全部区域" : region.title, selection: actionBinding(kind, region, fingers)) {
+                    SettingsPicker(count == 1 ? "全部区域" : region.title, selection: actionBinding(kind, region, fingers)) {
                         ForEach(PlayerGestureAction.allCases) { action in Text(action.title).tag(action) }
                     }
                     .pickerStyle(.menu)
@@ -118,10 +116,10 @@ struct PlayerGestureSettingsView: View {
 }
 
 private struct GesturePairSettingsView: View {
-    @Environment(\.dismiss) private var dismiss
+    let changed: () -> Void
     @State private var revision = 0
     var body: some View {
-        Form {
+        SettingsPage {
             ForEach(1...2, id: \.self) { fingers in
                 SettingsSection {
                     Text(fingers == 1 ? "单指" : "双指").font(.headline)
@@ -132,6 +130,7 @@ private struct GesturePairSettingsView: View {
                         } set: { value in
                             UserDefaults.standard.set(value, forKey: "player.gesture.paired.\(fingers).\(pair.rawValue)")
                             revision += 1
+                            changed()
                         })
                     }
                 }
@@ -140,12 +139,10 @@ private struct GesturePairSettingsView: View {
         .contentMargins(.top, 0, for: .scrollContent)
         .scrollContentBackground(.hidden).background(VesperTheme.background)
         .navigationTitle("组合手势设置").toolbarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarLeading) { Button("关闭", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) } }
     }
 }
 
 private struct GestureRegionSettingsView: View {
-    @Environment(\.dismiss) private var dismiss
     @AppStorage("player.gesture.split2") private var split2 = 0.5
     @AppStorage("player.gesture.split3.first") private var splitFirst = 1.0 / 3
     @AppStorage("player.gesture.split3.second") private var splitSecond = 2.0 / 3
@@ -157,14 +154,14 @@ private struct GestureRegionSettingsView: View {
                     preview([0, split2, 1])
                     preview([0, splitFirst, splitSecond, 1])
                 }
-                .aspectRatio(16.0 / 9, contentMode: .fit)
+                .aspectRatio(3.5, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .accessibilityLabel("区域划分预览")
                 VStack(alignment: .leading, spacing: 12) {
                     Text("双区域").font(.headline)
                     Text(verbatim: "\(Int((split2 * 100).rounded()))% / \(Int(((1 - split2) * 100).rounded()))%")
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    Slider(value: $split2, in: 0.15...0.85, step: 0.01).accessibilityLabel("左侧区域比例")
+                    GestureRangeSlider(lower: $split2, upper: .constant(1), singleHandle: true)
                 }
                 .padding(16).settingsCardBorder()
                 VStack(alignment: .leading, spacing: 12) {
@@ -180,7 +177,6 @@ private struct GestureRegionSettingsView: View {
         .contentMargins(.top, 0, for: .scrollContent)
         .background(VesperTheme.background)
         .navigationTitle("区域范围设置").toolbarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarLeading) { Button("关闭", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) } }
     }
 
     private func preview(_ edges: [Double]) -> some View {
@@ -188,46 +184,82 @@ private struct GestureRegionSettingsView: View {
             HStack(spacing: 1) {
                 ForEach(0..<(edges.count - 1), id: \.self) { index in
                     Text(verbatim: "\(Int(((edges[index + 1] - edges[index]) * 100).rounded()))%")
-                        .font(.caption.monospacedDigit().bold())
+                        .font(.title3.monospacedDigit().semibold())
                         .frame(width: max(0, geometry.size.width * (edges[index + 1] - edges[index]) - 1), height: geometry.size.height)
-                        .background(index.isMultiple(of: 2) ? Color.accentColor.opacity(0.25) : Color.accentColor.opacity(0.45))
+                        .background(Color.accentColor.opacity(0.18))
                 }
             }
         }
     }
 }
 
-/// Two handles share one track; neither handle can cross the other or erase a region.
-private struct GestureRangeSlider: View {
+/// Both variants use UISlider's native track and thumb appearance. The two
+/// handles share the same bounds, and hit-testing selects the nearest handle.
+private struct GestureRangeSlider: UIViewRepresentable {
     @Binding var lower: Double
     @Binding var upper: Double
-    @State private var lowerStart: Double?
-    @State private var upperStart: Double?
-    var body: some View {
-        GeometryReader { geometry in
-            let width = max(1, geometry.size.width - 28)
-            ZStack(alignment: .leading) {
-                Capsule().fill(.secondary.opacity(0.2)).frame(height: 4)
-                Capsule().fill(.tint).frame(width: width * (upper - lower), height: 4).offset(x: 14 + width * lower)
-                handle(value: $lower, start: $lowerStart, width: width, limits: 0.15...max(0.15, upper - 0.15), title: "左侧区域边界")
-                handle(value: $upper, start: $upperStart, width: width, limits: min(0.85, lower + 0.15)...0.85, title: "右侧区域边界")
-            }
-            .frame(height: 44)
-        }
-        .frame(height: 44)
+    var singleHandle = false
+    func makeUIView(context: Context) -> RangeView { RangeView() }
+    func updateUIView(_ view: RangeView, context: Context) {
+        view.single = singleHandle
+        view.lower.setValue(Float(lower), animated: false)
+        view.upper.setValue(Float(upper), animated: false)
+        view.changed = { first, second in lower = first; if !singleHandle { upper = second } }
+        view.applyStyle()
     }
-    private func handle(value: Binding<Double>, start: Binding<Double?>, width: CGFloat, limits: ClosedRange<Double>, title: LocalizedStringKey) -> some View {
-        Circle().fill(.white).shadow(color: .black.opacity(0.2), radius: 2, y: 1)
-            .frame(width: 28, height: 28).frame(width: 44, height: 44)
-            .offset(x: width * value.wrappedValue - 8)
-            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
-                if start.wrappedValue == nil { start.wrappedValue = value.wrappedValue }
-                value.wrappedValue = min(limits.upperBound, max(limits.lowerBound, (start.wrappedValue ?? value.wrappedValue) + drag.translation.width / width))
-            }.onEnded { _ in start.wrappedValue = nil })
-            .accessibilityElement().accessibilityLabel(title)
-            .accessibilityValue(Text(verbatim: "\(Int(value.wrappedValue * 100))%"))
-            .accessibilityAdjustableAction { direction in
-                value.wrappedValue = min(limits.upperBound, max(limits.lowerBound, value.wrappedValue + (direction == .increment ? 0.01 : -0.01)))
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: RangeView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 240, height: 44)
+    }
+    final class RangeView: UIView {
+        let lower = UISlider()
+        let upper = UISlider()
+        var single = false
+        var changed: ((Double, Double) -> Void)?
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            addSubview(upper); addSubview(lower)
+            for slider in [lower, upper] {
+                slider.minimumValue = 0; slider.maximumValue = 1
+                slider.addTarget(self, action: #selector(valueChanged(_:)), for: .valueChanged)
             }
+            lower.accessibilityLabel = VesperLocalization.string("左侧区域边界")
+            upper.accessibilityLabel = VesperLocalization.string("右侧区域边界")
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func layoutSubviews() { super.layoutSubviews(); lower.frame = bounds; upper.frame = bounds }
+        func applyStyle() {
+            upper.isHidden = single
+            upper.minimumTrackTintColor = tintColor
+            upper.maximumTrackTintColor = .tertiarySystemFill
+            lower.minimumTrackTintColor = single ? tintColor : .tertiarySystemFill
+            lower.maximumTrackTintColor = single ? .tertiarySystemFill : .clear
+            lower.accessibilityValue = "\(Int((lower.value * 100).rounded()))%"
+            upper.accessibilityValue = "\(Int((upper.value * 100).rounded()))%"
+        }
+        @objc private func valueChanged(_ sender: UISlider) {
+            if sender === lower { lower.value = min(single ? 0.85 : upper.value - 0.15, max(0.15, lower.value)) }
+            else { upper.value = min(0.85, max(lower.value + 0.15, upper.value)) }
+            applyStyle()
+            changed?(Double(lower.value), Double(upper.value))
+        }
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            guard self.point(inside: point, with: event) else { return nil }
+            if single { return lower }
+            let first = lower.thumbRect(forBounds: lower.bounds, trackRect: lower.trackRect(forBounds: lower.bounds), value: lower.value).midX
+            let second = upper.thumbRect(forBounds: upper.bounds, trackRect: upper.trackRect(forBounds: upper.bounds), value: upper.value).midX
+            return abs(point.x - first) <= abs(point.x - second) ? lower : upper
+        }
+    }
+}
+
+private struct GestureRegionsDetent: CustomPresentationDetent {
+    static func height(in context: Context) -> CGFloat? {
+        min(context.maxDetentValue, context.dynamicTypeSize.isAccessibilitySize ? 680 : 470)
+    }
+}
+
+private struct GesturePairsDetent: CustomPresentationDetent {
+    static func height(in context: Context) -> CGFloat? {
+        min(context.maxDetentValue, context.dynamicTypeSize.isAccessibilitySize ? 700 : 500)
     }
 }

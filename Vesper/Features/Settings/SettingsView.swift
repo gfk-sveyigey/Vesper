@@ -142,13 +142,13 @@ private struct RuntimeLogsView: View {
     init() { store = AppLog.runtimeEntries }
 
     var body: some View {
-        List {
+        SettingsPage {
             Group {
                 SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看、保留和分享运行日志。")
 
                 if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
                 SettingsSection {
-                    Picker(selection: $retentionDays) {
+                    SettingsPicker(selection: $retentionDays) {
                         Text("无限制").tag(0)
                         ForEach([1, 3, 7, 14, 30, 90], id: \.self) { days in
                             Text(String(format: VesperLocalization.string("%d 天"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [days])).tag(days)
@@ -173,11 +173,7 @@ private struct RuntimeLogsView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
         .contentMargins(.top, 0, for: .scrollContent)
-        .listSectionSpacing(28)
-        .contentMargins(.horizontal, 16, for: .scrollContent)
-        .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -293,12 +289,12 @@ private struct AppearanceSettingsView: View {
     @AppStorage("appearance.accent") private var accent = "vesper"
 
     var body: some View {
-        Form {
+        SettingsPage {
             Group {
                 SettingsIntroCard(title: "外观设置", symbol: "paintpalette", description: "选择主题、颜色和应用图标。")
 
                 SettingsSection {
-                    Picker(selection: $appearanceMode) {
+                    SettingsPicker(selection: $appearanceMode) {
                         Text("跟随系统").tag("system")
                         Text("深色").tag("dark")
                         Text("浅色").tag("light")
@@ -322,11 +318,7 @@ private struct AppearanceSettingsView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
         .contentMargins(.top, 0, for: .scrollContent)
-        .listSectionSpacing(28)
-        .contentMargins(.horizontal, 16, for: .scrollContent)
-        .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
     }
 }
@@ -349,7 +341,7 @@ struct TabSettingsView: View {
     }
 
     var body: some View {
-        List {
+        SettingsPage {
             Group {
                 SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "调整标签排列顺序和图标。")
 
@@ -369,7 +361,7 @@ struct TabSettingsView: View {
                     Text("关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。")
                 }
                 SettingsSection {
-                    Picker("默认标签页", selection: $defaultTab) {
+                    SettingsPicker("默认标签页", selection: $defaultTab) {
                         ForEach(sections.filter { $0 == .settings || !hidden.split(separator: ",").contains(Substring($0.rawValue)) }) { section in
                             Text(section.title).tag(section.rawValue)
                         }
@@ -431,11 +423,7 @@ struct TabSettingsView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
         .contentMargins(.top, 0, for: .scrollContent)
-        .listSectionSpacing(28)
-        .contentMargins(.horizontal, 16, for: .scrollContent)
-        .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -528,61 +516,60 @@ private struct TabOrderSettingsView: View {
     }
 
     var body: some View {
-        List {
+        SettingsPage {
             SettingsSection {
-                ForEach(sections) { section in
-                    Label(section.title, systemImage: section.symbol)
-                }
-                .onMove { offsets, destination in
-                    var updated = sections
-                    updated.move(fromOffsets: offsets, toOffset: destination)
-                    // Shared storage updates both the settings list and native tabs.
-                    order = updated.map(\.rawValue).joined(separator: ",")
+                ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
+                    HStack {
+                        Label(section.title, systemImage: section.symbol)
+                        Spacer()
+                        Button("上移", systemImage: "arrow.up") { move(index, by: -1) }.labelStyle(.iconOnly).disabled(index == 0)
+                        Button("下移", systemImage: "arrow.down") { move(index, by: 1) }.labelStyle(.iconOnly).disabled(index == sections.count - 1)
+                    }
+                    .draggable(section.rawValue)
+                    .dropDestination(for: String.self) { values, _ in
+                        guard let raw = values.first, let from = sections.firstIndex(where: { $0.rawValue == raw }), from != index else { return false }
+                        var updated = sections
+                        let moving = updated.remove(at: from)
+                        updated.insert(moving, at: index)
+                        order = updated.map(\.rawValue).joined(separator: ",")
+                        return true
+                    }
                 }
             }
         }
-        .listStyle(.insetGrouped)
         .contentMargins(.top, 0, for: .scrollContent)
-        .listSectionSpacing(28)
-        .contentMargins(.horizontal, 16, for: .scrollContent)
-        .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
-        .environment(\.editMode, .constant(.active))
     }
+    private func move(_ index: Int, by delta: Int) {
+        var values = sections
+        let target = index + delta
+        guard values.indices.contains(target) else { return }
+        values.swapAt(index, target)
+        order = values.map(\.rawValue).joined(separator: ",")
+    }
+
 }
 
-/// Introductory row within the native grouped list; scales with Dynamic Type.
+/// Introductory card shared by secondary settings pages.
 struct SettingsIntroCard: View {
     let title: LocalizedStringKey
     let symbol: String
     let description: LocalizedStringKey
     @ScaledMetric(relativeTo: .largeTitle) private var iconSize = 28.0
-
     var body: some View {
-        SettingsSection {
-            HStack(alignment: .center, spacing: 16) {
-                Image(systemName: symbol)
-                    .font(.system(size: iconSize))
-                    .foregroundStyle(.white)
-                    .frame(width: iconSize + 20, height: iconSize + 20)
-                    .background(.tint, in: RoundedRectangle(cornerRadius: 18))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.headline)
-                        .accessibilityAddTraits(.isHeader)
-                    Text(description)
-                        .foregroundStyle(.secondary)
-                        .font(.subheadline)
-                }
+        HStack(alignment: .center, spacing: 16) {
+            Image(systemName: symbol)
+                .font(.system(size: iconSize)).foregroundStyle(.white)
+                .frame(width: iconSize + 20, height: iconSize + 20)
+                .background(.tint, in: RoundedRectangle(cornerRadius: 18))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline).accessibilityAddTraits(.isHeader)
+                Text(description).foregroundStyle(.secondary).font(.subheadline)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .settingsCardBorder()
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16).settingsCardBorder()
     }
 }
 
@@ -660,7 +647,20 @@ private struct PlaybackLicensesView: View {
     }
 }
 
-/// Keep native List/Form rows and draw one continuous outline around a section.
+/// One scroll container owns independently outlined, self-sizing setting cards.
+struct SettingsPage<Content: View>: View {
+    private let content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 20) { content }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 24)
+        }
+        .background(VesperTheme.background)
+    }
+}
+
 struct SettingsSection<Rows: View, Footer: View>: View {
     private let rows: Rows
     private let footer: Footer
@@ -668,13 +668,20 @@ struct SettingsSection<Rows: View, Footer: View>: View {
         self.rows = content(); self.footer = footer()
     }
     var body: some View {
-        Section {
-            Group(subviews: rows) { subviews in
-                ForEach(Array(subviews.enumerated()), id: \.element.id) { index, row in
-                    row.listRowBackground(SettingsSectionRowBackground(first: index == 0, last: index == subviews.count - 1))
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(spacing: 0) {
+                Group(subviews: rows) { subviews in
+                    ForEach(Array(subviews.enumerated()), id: \.element.id) { index, row in
+                        if index > 0 { Divider().padding(.horizontal, 16) }
+                        row.frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                    }
                 }
             }
-        } footer: { footer }
+            .settingsCardBorder()
+            footer.font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 12)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -682,38 +689,27 @@ extension SettingsSection where Footer == EmptyView {
     init(@ViewBuilder content: () -> Rows) { self.init(content: content, footer: { EmptyView() }) }
 }
 
-private struct SettingsSectionRowBackground: View {
-    let first: Bool
-    let last: Bool
+/// A native menu Picker with an explicit row label outside Form/List.
+struct SettingsPicker<Selection: Hashable, Options: View, Label: View>: View {
+    let selection: Binding<Selection>
+    private let options: Options
+    private let label: Label
+    init(selection: Binding<Selection>, @ViewBuilder content: () -> Options, @ViewBuilder label: () -> Label) {
+        self.selection = selection; self.options = content(); self.label = label()
+    }
     var body: some View {
-        UnevenRoundedRectangle(topLeadingRadius: first ? 16 : 0, bottomLeadingRadius: last ? 16 : 0,
-                               bottomTrailingRadius: last ? 16 : 0, topTrailingRadius: first ? 16 : 0)
-            .fill(VesperTheme.background)
-            .overlay { SettingsSectionOutline(first: first, last: last).stroke(.gray.opacity(0.45), lineWidth: 0.7) }
+        HStack(spacing: 12) {
+            label
+            Spacer(minLength: 8)
+            Picker(selection: selection) { options } label: { label }
+                .labelsHidden().pickerStyle(.menu)
+        }
     }
 }
 
-private struct SettingsSectionOutline: Shape {
-    let first: Bool
-    let last: Bool
-    func path(in rect: CGRect) -> Path {
-        let rect = rect.insetBy(dx: 0.5, dy: 0)
-        let radius = min(16.0, rect.height / 2)
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: first ? rect.minY + radius : rect.minY))
-        path.addLine(to: CGPoint(x: rect.minX, y: last ? rect.maxY - radius : rect.maxY))
-        if last {
-            path.addQuadCurve(to: CGPoint(x: rect.minX + radius, y: rect.maxY - 0.5), control: CGPoint(x: rect.minX, y: rect.maxY - 0.5))
-            path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.maxY - 0.5))
-            path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.maxY - radius), control: CGPoint(x: rect.maxX, y: rect.maxY - 0.5))
-        } else { path.move(to: CGPoint(x: rect.maxX, y: rect.maxY)) }
-        path.addLine(to: CGPoint(x: rect.maxX, y: first ? rect.minY + radius : rect.minY))
-        if first {
-            path.addQuadCurve(to: CGPoint(x: rect.maxX - radius, y: rect.minY + 0.5), control: CGPoint(x: rect.maxX, y: rect.minY + 0.5))
-            path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.minY + 0.5))
-            path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.minY + radius), control: CGPoint(x: rect.minX, y: rect.minY + 0.5))
-        }
-        return path
+extension SettingsPicker where Label == Text {
+    init(_ title: LocalizedStringKey, selection: Binding<Selection>, @ViewBuilder content: () -> Options) {
+        self.init(selection: selection, content: content, label: { Text(title) })
     }
 }
 

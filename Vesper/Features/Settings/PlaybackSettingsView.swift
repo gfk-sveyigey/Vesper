@@ -14,25 +14,25 @@ struct PlaybackSettingsView: View {
     @AppStorage("player.rememberProgress") private var remembersProgress = true
     @AppStorage("player.gesture.skipSeconds") private var skipSeconds = 15.0
     var body: some View {
-        Form {
+        SettingsPage {
             Group {
                 SettingsIntroCard(title: "播放设置", symbol: "play.circle", description: "管理后台播放、进度与跳转。")
                 SettingsSection {
                     Toggle("后台播放", isOn: $backgroundEnabled)
-                    Picker("后台播放方式", selection: $backgroundMode) {
+                    SettingsPicker("后台播放方式", selection: $backgroundMode) {
                         Text("音频播放").tag("audio")
                         Text("画中画播放").tag("pip")
                     }
                     .pickerStyle(.menu)
                     .disabled(!backgroundEnabled)
                     Toggle("保留播放进度", isOn: $remembersProgress)
-                    Picker("快进快退时长", selection: $skipSeconds) {
+                    SettingsPicker("快进快退时长", selection: $skipSeconds) {
                         ForEach([5.0, 10, 15, 30], id: \.self) { seconds in
                             Text(verbatim: String(format: VesperLocalization.string("%d 秒"), Int(seconds))).tag(seconds)
                         }
                     }
                     .pickerStyle(.menu)
-                    Picker("默认播放速度", selection: $defaultRate) {
+                    SettingsPicker("默认播放速度", selection: $defaultRate) {
                         ForEach([0.5, 0.75, 1, 1.25, 1.5, 2], id: \.self) { rate in
                             Text(verbatim: String(format: "%g×", Double(rate))).tag(rate)
                         }
@@ -41,9 +41,6 @@ struct PlaybackSettingsView: View {
             }
         }
         .contentMargins(.top, 0, for: .scrollContent)
-        .listSectionSpacing(28)
-        .contentMargins(.horizontal, 16, for: .scrollContent)
-        .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
         .navigationTitle("播放设置")
         .toolbarTitleDisplayMode(.inline)
@@ -59,11 +56,11 @@ struct SubtitleSettingsView: View {
     @AppStorage("player.subtitle.fontSize") private var fontSize = 22.0
     @AppStorage("player.subtitle.background") private var showsBackground = true
     var body: some View {
-        Form {
+        SettingsPage {
             Group {
                 SettingsIntroCard(title: "字幕设置", symbol: "captions.bubble", description: "调整字幕字号与背景。")
                 SettingsSection {
-                    Picker("字幕字号", selection: $fontSize) {
+                    SettingsPicker("字幕字号", selection: $fontSize) {
                         ForEach([18.0, 20, 22, 24, 28, 32], id: \.self) { size in
                             Text(verbatim: String(format: "%g", size)).tag(size)
                         }
@@ -84,9 +81,6 @@ struct SubtitleSettingsView: View {
             }
         }
         .contentMargins(.top, 0, for: .scrollContent)
-        .listSectionSpacing(28)
-        .contentMargins(.horizontal, 16, for: .scrollContent)
-        .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
         .navigationTitle("字幕设置")
         .toolbarTitleDisplayMode(.inline)
@@ -95,16 +89,13 @@ struct SubtitleSettingsView: View {
 
 struct DanmakuSettingsView: View {
     var body: some View {
-        List {
+        SettingsPage {
             Group {
                 SettingsIntroCard(title: "弹幕设置", symbol: "text.bubble", description: "管理播放弹幕。")
                 SettingsSection { Text("尚未接入弹幕来源。").foregroundStyle(.secondary) }
             }
         }
         .contentMargins(.top, 0, for: .scrollContent)
-        .listSectionSpacing(28)
-        .contentMargins(.horizontal, 16, for: .scrollContent)
-        .scrollContentBackground(.hidden)
         .background(VesperTheme.background)
         .navigationTitle("弹幕设置")
         .toolbarTitleDisplayMode(.inline)

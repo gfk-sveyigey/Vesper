@@ -10,7 +10,7 @@ import UIKit
 /// A single app-owned session. Tabs and player presentation never own or reset
 /// the decoder. KSPlayer APIs are contained here, outside navigation code.
 @MainActor
-final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, @preconcurrency AVPictureInPictureControllerDelegate {
+final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, @preconcurrency AVPictureInPictureControllerDelegate, @preconcurrency AVPictureInPictureSampleBufferPlaybackDelegate {
     @Published private(set) var currentItem: MediaItem?
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
@@ -33,7 +33,9 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     @Published private(set) var isPictureInPictureActive = false
     @Published var playbackNotice: String?
     private var pipController: AVPictureInPictureController?
+    private var pipSourceIdentity: ObjectIdentifier?
     private var pipObservation: NSKeyValueObservation?
+    private var pipPlayerObservation: NSKeyValueObservation?
     private var restorePiPCompletion: ((Bool) -> Void)?
     private var restoringPiP = false
     private var pendingSeek: (time: TimeInterval, resume: Bool)?
@@ -49,6 +51,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     override init() {
         super.init()
         KSOptions.canBackgroundPlay = true
+        KSOptions.canStartPictureInPictureAutomaticallyFromInline = false
         let savedRate = UserDefaults.standard.float(forKey: "player.playbackRate")
         if [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(savedRate) { playbackRate = savedRate }
     }
@@ -145,9 +148,10 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     func togglePlayback() {
         guard let layer, errorMessage == nil else { return }
         if isPlaying { layer.pause() } else { layer.play() }
+        pipController?.invalidatePlaybackState()
     }
 
-    func pause() { layer?.pause() }
+    func pause() { layer?.pause(); pipController?.invalidatePlaybackState() }
 
     func seek(to time: TimeInterval, resume: Bool? = nil) {
         guard canSeek, time.isFinite else { return }
@@ -205,13 +209,47 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     private func configurePictureInPicture() {
         guard AVPictureInPictureController.isPictureInPictureSupported(),
-              let candidate = layer?.player.pipController else { return }
-        guard pipController !== candidate else { return }
+              let engineController = layer?.player.pipController else { return }
+        // The engine can replace its controller when its display layer changes.
+        // Never allow either controller to take the system's automatic route.
+        engineController.canStartPictureInPictureAutomaticallyFromInline = false
+        let sourceIdentity: ObjectIdentifier
+        let candidate: AVPictureInPictureController?
+        var nativePlayer: AVPlayer?
+        if let displayLayer = engineController.contentSource?.sampleBufferDisplayLayer {
+            sourceIdentity = ObjectIdentifier(displayLayer)
+            guard pipSourceIdentity != sourceIdentity else { return }
+            let source = AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer: displayLayer, playbackDelegate: self)
+            candidate = AVPictureInPictureController(contentSource: source)
+        } else if let playerLayer = engineController.playerLayer {
+            sourceIdentity = ObjectIdentifier(playerLayer)
+            guard pipSourceIdentity != sourceIdentity else { return }
+            candidate = AVPictureInPictureController(playerLayer: playerLayer)
+            nativePlayer = playerLayer.player
+        } else { return }
+        guard let candidate else { return }
         pipController?.delegate = nil
+        pipController?.stopPictureInPicture()
         pipObservation = nil
         pipController = candidate
+        pipSourceIdentity = sourceIdentity
+        pipPlayerObservation = nativePlayer?.observe(\.timeControlStatus, options: [.new]) { [weak self] _, change in
+            guard let status = change.newValue else { return }
+            Task { @MainActor in
+                guard let self, self.pipSourceIdentity == sourceIdentity, self.isPictureInPictureActive,
+                      !self.isSeeking, !self.isLoading, let layer = self.layer else { return }
+                switch status {
+                case .playing:
+                    if !self.isPlaying { layer.play(); self.isPlaying = true }
+                case .paused:
+                    if self.isPlaying { layer.pause(); self.isPlaying = false }
+                case .waitingToPlayAtSpecifiedRate: break
+                @unknown default: break
+                }
+            }
+        }
         candidate.delegate = self
-        candidate.canStartPictureInPictureAutomaticallyFromInline = PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
+        candidate.canStartPictureInPictureAutomaticallyFromInline = false
         isPictureInPicturePossible = candidate.isPictureInPicturePossible
         let identity = ObjectIdentifier(candidate)
         pipObservation = candidate.observe(\.isPictureInPicturePossible, options: [.new]) { [weak self] _, change in
@@ -222,6 +260,36 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             }
         }
     }
+
+    // Sample-buffer PiP controls must use the same app-owned transport as the
+    // full-screen controls. Decoder-only play/pause bypasses KSPlayerLayer.state.
+    func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
+        guard controller === pipController, let layer else { return }
+        if playing { layer.play() } else { layer.pause() }
+        isPlaying = playing
+        controller.invalidatePlaybackState()
+    }
+
+    func pictureInPictureControllerTimeRangeForPlayback(_ controller: AVPictureInPictureController) -> CMTimeRange {
+        duration > 0 ? CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600))
+            : CMTimeRange(start: .negativeInfinity, duration: .positiveInfinity)
+    }
+
+    func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool { !isPlaying }
+
+    func pictureInPictureController(_ controller: AVPictureInPictureController, didTransitionToRenderSize newRenderSize: CMVideoDimensions) { }
+
+    func pictureInPictureController(_ controller: AVPictureInPictureController, skipByInterval interval: CMTime) async {
+        guard controller === pipController else { return }
+        let target = min(duration, max(0, currentTime + interval.seconds))
+        seek(to: target)
+        for _ in 0..<150 {
+            guard isSeeking, controller === pipController, !Task.isCancelled else { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(_ controller: AVPictureInPictureController) -> Bool { !PlaybackPreferences.backgroundEnabled }
 
     func playerDidAppear() {
         restoringPiP = false
@@ -275,9 +343,11 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func refreshPlaybackPreferences() {
-        let automatic = PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
-        pipController?.canStartPictureInPictureAutomaticallyFromInline = automatic
-        if !automatic && appIsInBackground { pipController?.stopPictureInPicture() }
+        layer?.player.pipController?.canStartPictureInPictureAutomaticallyFromInline = false
+        pipController?.canStartPictureInPictureAutomaticallyFromInline = false
+        if !(PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip") && appIsInBackground {
+            pipController?.stopPictureInPicture()
+        }
     }
 
     func handleScenePhase(_ phase: ScenePhase) {
@@ -566,6 +636,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         pipController?.stopPictureInPicture()
         pipObservation = nil
         pipController = nil
+        pipSourceIdentity = nil
+        pipPlayerObservation = nil
         isPictureInPicturePossible = false
         isPictureInPictureActive = false
         restorePiPCompletion?(false)
@@ -635,6 +707,10 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             } else { self.currentTime = currentTime.isFinite ? max(0, currentTime) : 0 }
         }
         duration = totalTime.isFinite ? max(0, totalTime) : 0
+        if !isSeeking && layer.player.playbackState != .seeking {
+            let playing = layer.player.isPlaying
+            if isPlaying != playing { isPlaying = playing }
+        }
         let playable = layer.player.playableTime
         bufferedTime = playable.isFinite ? min(duration, max(currentTime, playable)) : currentTime
         refreshTracks()

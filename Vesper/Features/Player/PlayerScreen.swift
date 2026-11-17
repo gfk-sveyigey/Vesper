@@ -528,7 +528,7 @@ struct PlayerScreen: View {
             Group {
                 switch selected {
                 case .more:
-                    List {
+                    SettingsPage {
                         SettingsSection {
                             NavigationLink("弹幕设置") { DanmakuSettingsView() }
                             NavigationLink("字幕设置") { SubtitleSettingsView() }
@@ -541,7 +541,7 @@ struct PlayerScreen: View {
                 case .synopsis: PlayerMediaInfoView(session: session, showsDetails: false)
                 case .details: PlayerMediaInfoView(session: session, showsDetails: true)
                 case .queue:
-                    List {
+                    SettingsPage {
                         SettingsSection {
                             ForEach(session.queue) { item in
                                 Button { session.playQueued(item); panel = nil } label: {
@@ -635,6 +635,10 @@ struct PlayerScreen: View {
         case .details: requestPanel(.details)
         case .rotate: requestRotation(!PlayerOrientationPolicy.isLandscape)
         case .fill: session.toggleFill()
+        case .fillScreen: if !session.fillsScreen { session.toggleFill() }
+        case .fitScreen: if session.fillsScreen { session.toggleFill() }
+        case .landscape: requestRotation(true)
+        case .portrait: requestRotation(false)
         case .pictureInPicture: session.startPictureInPicture()
         case .close: session.stop()
         case .speedUp, .speedDown:
@@ -749,7 +753,7 @@ private struct PlayerMediaInfoView: View {
     @State private var details: PlaybackVideoDetails?
     @State private var loading = true
     var body: some View {
-        List {
+        SettingsPage {
             SettingsSection {
                 Text(verbatim: session.currentItem?.title ?? "").font(.headline).textSelection(.enabled)
                 if let subtitle = session.currentItem?.subtitle { Text(verbatim: subtitle).foregroundStyle(.secondary) }

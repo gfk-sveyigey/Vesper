@@ -280,7 +280,7 @@ private struct LocalMoveView: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            SettingsPage {
                 SettingsSection {
                     Text(verbatim: directory.isEmpty ? source.name : directory)
                         .font(.footnote).foregroundStyle(.secondary)

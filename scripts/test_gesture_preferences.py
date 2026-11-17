@@ -25,6 +25,7 @@ assert(PlayerGesturePreferences.action(.doubleTap, .center, 1) == .playback)
 assert(PlayerGesturePreferences.action(.doubleTap, .right, 1) == .forward)
 
 // Different gestures simultaneously use different layouts and shared ratios.
+defaults.set(false, forKey: "player.gesture.paired.1.vertical")
 defaults.set(1, forKey: PlayerGesturePreferences.layoutKey(.tap, 1))
 defaults.set(2, forKey: PlayerGesturePreferences.layoutKey(.up, 1))
 defaults.set(3, forKey: PlayerGesturePreferences.layoutKey(.doubleTap, 1))
@@ -65,8 +66,13 @@ let edges = PlayerGesturePreferences.boundaries(for: 3)
 assert(edges[0] >= 0.15 && edges[1] - edges[0] >= 0.149 && edges[1] <= 0.85)
 PlayerGesturePreferences.reset()
 assert(PlayerGesturePreferences.skipInterval == 30)
-assert(!PlayerGesturePreferences.pairEnabled(.vertical, 1))
+assert(PlayerGesturePreferences.pairEnabled(.vertical, 1))
 assert(PlayerGesturePreferences.count(for: .tap, fingers: 1) == 3)
+for pair in PlayerGesturePair.allCases { assert(PlayerGesturePreferences.pairEnabled(pair, 2)) }
+assert(PlayerGesturePairAction.fill.action(positive: true) == .fillScreen)
+assert(PlayerGesturePairAction.fill.action(positive: false) == .fitScreen)
+assert(PlayerGesturePairAction.orientation.action(positive: true) == .landscape)
+assert(PlayerGesturePairAction.orientation.action(positive: false) == .portrait)
 print("Gesture preference regression checks passed.")
 '''
 with tempfile.TemporaryDirectory(prefix='vesper-gestures-') as directory:
