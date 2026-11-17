@@ -174,3 +174,5 @@
 "打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。" = "Open the selected tab when the app starts. Hidden tabs cannot be the default.";
 
 "将恢复标签的排列顺序、图标、显示状态和默认标签页。" = "Tab order, icons, visibility and the default tab will be reset.";
+
+"选择视频（诊断）" = "Choose Video (Diagnostics)";

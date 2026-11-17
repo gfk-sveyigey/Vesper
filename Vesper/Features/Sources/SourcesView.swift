@@ -1,11 +1,13 @@
 import SwiftUI
 import Photos
+import UniformTypeIdentifiers
 
 struct SourcesView: View {
     @EnvironmentObject private var library: SourceLibrary
     @AppStorage("navigation.icons") private var icons = "{}"
     @State private var isShowingError = false
     @State private var isShowingEmbyNotice = false
+    @State private var isShowingVideoPicker = false
 
     var body: some View {
         ZStack {
@@ -42,6 +44,18 @@ struct SourcesView: View {
                 }
             }
         }
+        .fileImporter(
+            isPresented: $isShowingVideoPicker,
+            allowedContentTypes: [.movie]
+        ) { result in
+            switch result {
+            case .success(let url):
+                FileDeliveryLog.write("应用内文件选择成功，extension=\(url.pathExtension)")
+                FileDeliveryRouter.receive(url, origin: "fileImporter")
+            case .failure(let error):
+                FileDeliveryLog.write("应用内文件选择未完成，error=\(error.localizedDescription)")
+            }
+        }
         .alert("无法添加来源", isPresented: $isShowingError) {
             Button("好", role: .cancel) { }
         } message: { Text("请检查相册访问权限或本地视频文件。") }
@@ -59,6 +73,11 @@ struct SourcesView: View {
                 Button("本地视频", systemImage: "folder") { addLocalVideos() }
             }
             Button("Emby", systemImage: "play.rectangle") { isShowingEmbyNotice = true }
+            Divider()
+            Button("选择视频（诊断）", systemImage: "doc.badge.gearshape") {
+                FileDeliveryLog.write("打开应用内视频选择器")
+                isShowingVideoPicker = true
+            }
         } label: {
             Image(systemName: "folder.badge.plus")
                 .font(.system(size: 17, weight: .medium))

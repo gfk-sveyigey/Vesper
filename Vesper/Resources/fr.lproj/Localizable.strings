@@ -174,3 +174,5 @@
 "打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。" = "Afficher cet onglet au lancement. Un onglet masqué ne peut pas être défini par défaut.";
 
 "将恢复标签的排列顺序、图标、显示状态和默认标签页。" = "L’ordre, les icônes, la visibilité et l’onglet par défaut seront réinitialisés.";
+
+"选择视频（诊断）" = "Choisir une vidéo (diagnostic)";
