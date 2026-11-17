@@ -10,7 +10,7 @@ import UIKit
 /// A single app-owned session. Tabs and player presentation never own or reset
 /// the decoder. KSPlayer APIs are contained here, outside navigation code.
 @MainActor
-final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, @preconcurrency AVPictureInPictureControllerDelegate, @preconcurrency AVPictureInPictureSampleBufferPlaybackDelegate {
+final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, @preconcurrency AVPictureInPictureControllerDelegate {
     @Published private(set) var currentItem: MediaItem?
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
@@ -33,9 +33,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     @Published private(set) var isPictureInPictureActive = false
     @Published var playbackNotice: String?
     private var pipController: AVPictureInPictureController?
-    private var pipSourceIdentity: ObjectIdentifier?
     private var pipObservation: NSKeyValueObservation?
-    private var pipPlayerObservation: NSKeyValueObservation?
+    private var pipStateSynchronization: Task<Void, Never>?
     private var restorePiPCompletion: ((Bool) -> Void)?
     private var restoringPiP = false
     private var pendingSeek: (time: TimeInterval, resume: Bool)?
@@ -53,8 +52,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     override init() {
         super.init()
-        KSOptions.canBackgroundPlay = true
-        KSOptions.canStartPictureInPictureAutomaticallyFromInline = false
+        KSOptions.canBackgroundPlay = PlaybackPreferences.backgroundEnabled
+        KSOptions.canStartPictureInPictureAutomaticallyFromInline = PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
         let savedRate = UserDefaults.standard.float(forKey: "player.playbackRate")
         if [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(savedRate) { playbackRate = savedRate }
     }
@@ -130,7 +129,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
                 let options = KSOptions()
                 options.startPlayRate = self.playbackRate
                 options.isSeekImageSubtitle = true
-                options.canStartPictureInPictureAutomaticallyFromInline = false
+                options.canStartPictureInPictureAutomaticallyFromInline = PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
                 let player = KSPlayerLayer(url: resolved.url, isAutoPlay: false, options: options)
                 self.layer = player
                 player.delegate = self
@@ -206,55 +205,30 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             return
         }
         layer?.player.contentMode = .scaleAspectFit
-        // Use AVKit directly. KSPlayer's isPipActive setter also performs its
-        // own UIKit navigation/dismissal, which this app deliberately avoids.
+        // Reuse KSPlayer's controller and playback delegate. Its isPipActive
+        // wrapper also dismisses UIKit screens/suspends the app, so presentation
+        // remains coordinated with our SwiftUI full-screen player.
         pipController.startPictureInPicture()
+    }
+
+    private var automaticallyStartsPictureInPicture: Bool {
+        PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
     }
 
     private func configurePictureInPicture() {
         guard AVPictureInPictureController.isPictureInPictureSupported(),
-              let engineController = layer?.player.pipController else { return }
-        // The engine can replace its controller when its display layer changes.
-        // Never allow either controller to take the system's automatic route.
-        engineController.canStartPictureInPictureAutomaticallyFromInline = false
-        let sourceIdentity: ObjectIdentifier
-        let candidate: AVPictureInPictureController?
-        var nativePlayer: AVPlayer?
-        if let displayLayer = engineController.contentSource?.sampleBufferDisplayLayer {
-            sourceIdentity = ObjectIdentifier(displayLayer)
-            guard pipSourceIdentity != sourceIdentity else { return }
-            let source = AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer: displayLayer, playbackDelegate: self)
-            candidate = AVPictureInPictureController(contentSource: source)
-        } else {
-            let playerLayer = engineController.playerLayer
-            sourceIdentity = ObjectIdentifier(playerLayer)
-            guard pipSourceIdentity != sourceIdentity else { return }
-            candidate = AVPictureInPictureController(playerLayer: playerLayer)
-            nativePlayer = playerLayer.player
-        }
-        guard let candidate else { return }
+              let candidate = layer?.player.pipController else { return }
+        candidate.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+        guard candidate !== pipController else { return }
         pipController?.delegate = nil
         pipController?.stopPictureInPicture()
         pipObservation = nil
+        pipStateSynchronization?.cancel()
+        pipStateSynchronization = nil
+        // KSPlayer owns the controller, content source, and sample-buffer playback
+        // delegate. Vesper only observes availability and coordinates its UI.
         pipController = candidate
-        pipSourceIdentity = sourceIdentity
-        pipPlayerObservation = nativePlayer?.observe(\.timeControlStatus, options: [.new]) { [weak self] _, change in
-            guard let status = change.newValue else { return }
-            Task { @MainActor in
-                guard let self, self.pipSourceIdentity == sourceIdentity, self.isPictureInPictureActive,
-                      !self.isSeeking, !self.isLoading, let layer = self.layer else { return }
-                switch status {
-                case .playing:
-                    if !self.isPlaying { layer.play(); self.isPlaying = true }
-                case .paused:
-                    if self.isPlaying { layer.pause(); self.isPlaying = false }
-                case .waitingToPlayAtSpecifiedRate: break
-                @unknown default: break
-                }
-            }
-        }
         candidate.delegate = self
-        candidate.canStartPictureInPictureAutomaticallyFromInline = false
         isPictureInPicturePossible = candidate.isPictureInPicturePossible
         let identity = ObjectIdentifier(candidate)
         pipObservation = candidate.observe(\.isPictureInPicturePossible, options: [.new]) { [weak self] _, change in
@@ -266,38 +240,29 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         }
     }
 
-    // Sample-buffer PiP controls must use the same app-owned transport as the
-    // full-screen controls. Decoder-only play/pause bypasses KSPlayerLayer.state.
-    func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
-        guard controller === pipController, let layer else { return }
-        guard !appIsInBackground || PlaybackPreferences.backgroundEnabled else {
-            layer.pause(); isPlaying = false; controller.invalidatePlaybackState(); return
-        }
-        if playing { layer.play() } else { layer.pause() }
-        isPlaying = playing
-        controller.invalidatePlaybackState()
-    }
-
-    func pictureInPictureControllerTimeRangeForPlayback(_ controller: AVPictureInPictureController) -> CMTimeRange {
-        duration > 0 ? CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600))
-            : CMTimeRange(start: .negativeInfinity, duration: .positiveInfinity)
-    }
-
-    func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool { !isPlaying }
-
-    func pictureInPictureController(_ controller: AVPictureInPictureController, didTransitionToRenderSize newRenderSize: CMVideoDimensions) { }
-
-    func pictureInPictureController(_ controller: AVPictureInPictureController, skipByInterval interval: CMTime) async {
-        guard controller === pipController else { return }
-        let target = min(duration, max(0, currentTime + interval.seconds))
-        seek(to: target)
-        for _ in 0..<150 {
-            guard isSeeking, controller === pipController, !Task.isCancelled else { break }
-            try? await Task.sleep(for: .milliseconds(20))
+    private func observePictureInPicturePlayback() {
+        pipStateSynchronization?.cancel()
+        // KSPlayer's PiP controls operate on the decoder directly. Its layer's
+        // timer stops when paused, so observe the engine even while paused and
+        // reconcile transport state without replacing KSPlayer's playback delegate.
+        pipStateSynchronization = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.isPictureInPictureActive, let layer = self.layer else { return }
+                if !self.isSeeking && !self.isLoading {
+                    switch layer.player.playbackState {
+                    case .playing:
+                        if !layer.state.isPlaying { layer.play() }
+                        self.isPlaying = true
+                    case .paused:
+                        if layer.state.isPlaying { layer.pause() }
+                        self.isPlaying = false
+                    default: break
+                    }
+                }
+                do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            }
         }
     }
-
-    func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(_ controller: AVPictureInPictureController) -> Bool { !PlaybackPreferences.backgroundEnabled }
 
     func playerDidAppear() {
         restoringPiP = false
@@ -324,12 +289,15 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             return
         }
         isPictureInPictureActive = true
+        observePictureInPicturePlayback()
         isPresented = false
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
         guard controller === pipController else { return }
         isPictureInPictureActive = false
+        pipStateSynchronization?.cancel()
+        pipStateSynchronization = nil
         restoreVideoContentMode()
         if !restoringPiP && !isPresented && !(appIsInBackground && PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "audio") { pause() }
         restoringPiP = false
@@ -351,10 +319,15 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func refreshPlaybackPreferences() {
-        layer?.player.pipController?.canStartPictureInPictureAutomaticallyFromInline = false
-        pipController?.canStartPictureInPictureAutomaticallyFromInline = false
-        if !(PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip") && appIsInBackground {
-            pipController?.stopPictureInPicture()
+        // The static setting controls KSPlayer's background notification handler;
+        // the instance option also applies if KSPlayer replaces its engine later.
+        KSOptions.canBackgroundPlay = PlaybackPreferences.backgroundEnabled
+        KSOptions.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+        layer?.options.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+        configurePictureInPicture()
+        if appIsInBackground {
+            if !automaticallyStartsPictureInPicture { pipController?.stopPictureInPicture() }
+            if !PlaybackPreferences.backgroundEnabled { pause() }
         }
     }
 
@@ -373,16 +346,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
                 pause()
                 return
             }
-            if PlaybackPreferences.backgroundMode == "pip" && !isPictureInPictureActive {
-                configurePictureInPicture()
-                if let pipController, pipController.isPictureInPicturePossible {
-                    layer?.player.contentMode = .scaleAspectFit
-                    pipController.startPictureInPicture()
-                } else {
-                    pause()
-                    playbackNotice = VesperLocalization.string("当前视频暂不支持画中画。")
-                }
-            }
+            // Automatic PiP is handled by KSPlayer's existing controller, using
+            // the option already applied before the app becomes inactive.
         case .active:
             appIsInBackground = false
             appIsInactive = false
@@ -674,8 +639,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         pipController?.stopPictureInPicture()
         pipObservation = nil
         pipController = nil
-        pipSourceIdentity = nil
-        pipPlayerObservation = nil
+        pipStateSynchronization?.cancel()
+        pipStateSynchronization = nil
         isPictureInPicturePossible = false
         isPictureInPictureActive = false
         restorePiPCompletion?(false)
