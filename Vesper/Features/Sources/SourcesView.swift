@@ -8,7 +8,7 @@ struct SourcesView: View {
     @State private var isShowingEmbyNotice = false
 
     var body: some View {
-        ZStack {
+        Group {
             if library.sources.isEmpty {
                 VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol) { addMenu }
             } else {
