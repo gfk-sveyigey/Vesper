@@ -29,7 +29,6 @@ struct AppNavigationView: View {
     @State private var acknowledgedNonVideoCount = 0
     @State private var importNotice: String?
     @State private var isShowingImportNotice = false
-    @Namespace private var playerTransition
 
     init() {
         let defaults = UserDefaults.standard
@@ -56,6 +55,18 @@ struct AppNavigationView: View {
     var body: some View {
         GeometryReader { geometry in
             tabs.environment(\.vesperWindowTopInset, geometry.safeAreaInsets.top)
+        }
+        .background {
+            // Retain a window-attached rendering surface while PiP is active
+            // or the full-screen player is closed by an external presentation.
+            if !playback.isPresented, let view = playback.videoView {
+                PlayerVideoSurface(videoView: view)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .onChange(of: playback.isPresented) { _, presented in
+            PlayerOrientationPolicy.update(presented)
         }
         .task { presentNextIncomingVideo() }
         .onChange(of: incomingVideos.videos.map(\.id)) { _, _ in presentNextIncomingVideo() }
@@ -85,9 +96,12 @@ struct AppNavigationView: View {
 
     private var tabs: some View {
         accessoryContent
-            .fullScreenCover(isPresented: $playback.isPresented, onDismiss: presentNextIncomingVideo) {
+            .fullScreenCover(isPresented: $playback.isPresented, onDismiss: {
+                PlayerOrientationPolicy.update(false)
+                presentNextIncomingVideo()
+            }) {
                 PlayerScreen(session: playback)
-                    .navigationTransition(.zoom(sourceID: "player", in: playerTransition))
+                    .interactiveDismissDisabled(true)
             }
     }
 
@@ -97,13 +111,11 @@ struct AppNavigationView: View {
             tabContent
                 .tabViewBottomAccessory(isEnabled: shouldShowMiniPlayer) {
                     MiniPlayerAccessory(session: playback) { playback.isPresented = true }
-                        .matchedTransitionSource(id: "player", in: playerTransition)
                 }
         } else if shouldShowMiniPlayer {
             tabContent
                 .tabViewBottomAccessory {
                     MiniPlayerAccessory(session: playback) { playback.isPresented = true }
-                        .matchedTransitionSource(id: "player", in: playerTransition)
                 }
         } else {
             tabContent

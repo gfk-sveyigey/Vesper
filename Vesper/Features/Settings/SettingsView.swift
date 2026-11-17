@@ -2,10 +2,11 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs, licenses
+    case tabs, appearance, logs, licenses, gestures
 
     var title: LocalizedStringKey {
         switch self {
+        case .gestures: "播放器手势"
         case .tabs: "标签设置"
         case .appearance: "外观设置"
         case .logs: "运行日志"
@@ -35,6 +36,8 @@ struct SettingsView: View {
                         settingsLink(.logs, title: "运行日志", symbol: "doc.text")
                         Divider().padding(.leading, 56)
                         placeholderSetting("播放设置", symbol: "play.circle")
+                        Divider().padding(.leading, 56)
+                        settingsLink(.gestures, title: "播放器手势", symbol: "hand.draw")
                         Divider().padding(.leading, 56)
                         placeholderSetting("字幕设置", symbol: "captions.bubble")
                         Divider().padding(.leading, 56)
@@ -109,6 +112,7 @@ struct SettingsView: View {
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
+                case .gestures: PlayerGestureSettingsView()
                 case .tabs: TabSettingsView()
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()

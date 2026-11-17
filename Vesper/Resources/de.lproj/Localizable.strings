@@ -238,3 +238,77 @@
 "关闭字幕" = "Untertitel aus";
 
 "无内嵌字幕" = "Keine eingebetteten Untertitel";
+
+"播放器手势" = "Player-Gesten";
+
+"左侧区域" = "Linker Bereich";
+
+"中间区域" = "Mittlerer Bereich";
+
+"右侧区域" = "Rechter Bereich";
+
+"双击" = "Doppelt tippen";
+
+"上下滑动" = "Vertikal wischen";
+
+"左右滑动" = "Horizontal wischen";
+
+"无操作" = "Keine Aktion";
+
+"显示控制层" = "Steuerung anzeigen";
+
+"暂停或继续播放" = "Pause oder Wiedergabe";
+
+"快退" = "Zurückspringen";
+
+"快进" = "Vorspringen";
+
+"调节亮度" = "Helligkeit anpassen";
+
+"调节音量" = "Lautstärke anpassen";
+
+"调整播放进度" = "Wiedergabeposition ändern";
+
+"手指数" = "Fingeranzahl";
+
+"单指" = "Ein Finger";
+
+"双指" = "Zwei Finger";
+
+"三指" = "Drei Finger";
+
+"快进快退时长" = "Sprungintervall";
+
+"恢复默认手势？" = "Gesten zurücksetzen?";
+
+"画中画" = "Bild im Bild";
+
+"投屏" = "AirPlay";
+
+"音量" = "Lautstärke";
+
+"静音" = "Stummschalten";
+
+"取消静音" = "Ton einschalten";
+
+"亮度 %d%%" = "Helligkeit %d%%";
+
+"音量 %d%%" = "Lautstärke %d%%";
+
+"当前视频暂不支持画中画。" = "Bild im Bild ist für dieses Video derzeit nicht verfügbar.";
+
+"播放进度" = "Wiedergabefortschritt";
+
+"无法播放" = "Wiedergabe nicht möglich";
+
+"暂停" = "Pause";
+
+"弹幕设置" = "Danmaku-Einstellungen";
+
+"尚未接入弹幕来源。" = "Es ist noch keine Danmaku-Quelle verbunden.";
+
+"%d 秒" = "%d Sekunden";
+
+"播放器按水平方向均分为左、中、右三个区域，滑动以手势开始的位置为准。按钮和进度条使用各自的操作，不触发区域手势。" = "Der Player ist in drei Bereiche unterteilt. Wischgesten gelten für den Startbereich. Tasten und Fortschrittsleiste werden separat bedient.";
+
+"默认单指单击显示控制层；双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量。多指手势默认无操作。" = "Einmal tippen zeigt die Steuerung. Doppeltippen: links zurück, Mitte Pause/Wiedergabe, rechts vorwärts. Vertikal wischen: links Helligkeit, rechts Lautstärke. Mehrfingergesten sind standardmäßig nicht zugewiesen.";

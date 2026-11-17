@@ -238,3 +238,77 @@
 "关闭字幕" = "Desactivar subtítulos";
 
 "无内嵌字幕" = "Sin subtítulos integrados";
+
+"播放器手势" = "Gestos del reproductor";
+
+"左侧区域" = "Zona izquierda";
+
+"中间区域" = "Zona central";
+
+"右侧区域" = "Zona derecha";
+
+"双击" = "Doble toque";
+
+"上下滑动" = "Deslizar verticalmente";
+
+"左右滑动" = "Deslizar horizontalmente";
+
+"无操作" = "Sin acción";
+
+"显示控制层" = "Mostrar controles";
+
+"暂停或继续播放" = "Pausar o continuar";
+
+"快退" = "Retroceder";
+
+"快进" = "Avanzar";
+
+"调节亮度" = "Ajustar brillo";
+
+"调节音量" = "Ajustar volumen";
+
+"调整播放进度" = "Cambiar posición de reproducción";
+
+"手指数" = "Número de dedos";
+
+"单指" = "Un dedo";
+
+"双指" = "Dos dedos";
+
+"三指" = "Tres dedos";
+
+"快进快退时长" = "Intervalo de salto";
+
+"恢复默认手势？" = "¿Restablecer gestos?";
+
+"画中画" = "Imagen dentro de imagen";
+
+"投屏" = "AirPlay";
+
+"音量" = "Volumen";
+
+"静音" = "Silenciar";
+
+"取消静音" = "Activar sonido";
+
+"亮度 %d%%" = "Brillo %d%%";
+
+"音量 %d%%" = "Volumen %d%%";
+
+"当前视频暂不支持画中画。" = "Imagen dentro de imagen no está disponible para este vídeo actualmente.";
+
+"播放进度" = "Progreso de reproducción";
+
+"无法播放" = "No se puede reproducir";
+
+"暂停" = "Pausar";
+
+"弹幕设置" = "Ajustes de comentarios flotantes";
+
+"尚未接入弹幕来源。" = "Aún no se ha conectado una fuente de comentarios flotantes.";
+
+"%d 秒" = "%d segundos";
+
+"播放器按水平方向均分为左、中、右三个区域，滑动以手势开始的位置为准。按钮和进度条使用各自的操作，不触发区域手势。" = "El reproductor se divide en tres zonas. Los deslizamientos usan la zona inicial. Los botones y la barra de progreso funcionan por separado.";
+
+"默认单指单击显示控制层；双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量。多指手势默认无操作。" = "Un toque muestra los controles. Doble toque: izquierda para retroceder, centro para pausar o continuar, derecha para avanzar. Deslizar verticalmente ajusta brillo a la izquierda y volumen a la derecha. Los gestos con varios dedos no tienen acción predeterminada.";

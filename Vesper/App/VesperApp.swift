@@ -3,6 +3,7 @@ import UIKit
 
 @main
 struct VesperApp: App {
+    @UIApplicationDelegateAdaptor(VesperAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var incomingVideos = IncomingVideoReceiver.shared
     @AppStorage("appearance.mode") private var appearanceMode = "system"

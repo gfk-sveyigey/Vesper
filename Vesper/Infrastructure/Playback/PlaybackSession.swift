@@ -1,4 +1,6 @@
 import AVFoundation
+@preconcurrency import AVKit
+import MediaPlayer
 import Combine
 @preconcurrency import KSPlayer
 import UIKit
@@ -6,7 +8,7 @@ import UIKit
 /// A single app-owned session. Tabs and player presentation never own or reset
 /// the decoder. KSPlayer APIs are contained here, outside navigation code.
 @MainActor
-final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
+final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, AVPictureInPictureControllerDelegate {
     @Published private(set) var currentItem: MediaItem?
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
@@ -24,7 +26,22 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
     @Published private(set) var selectedSubtitleID: Int32?
     @Published private(set) var subtitleText = ""
     @Published private(set) var subtitleImage: UIImage?
+    @Published private(set) var isMuted = false
+    @Published private(set) var isPictureInPicturePossible = false
+    @Published private(set) var isPictureInPictureActive = false
+    @Published var playbackNotice: String?
+    private var pipController: AVPictureInPictureController?
+    private var pipObservation: NSKeyValueObservation?
+    private var restorePiPCompletion: ((Bool) -> Void)?
+    private var restoringPiP = false
+    private var pendingSeek: (time: TimeInterval, resume: Bool)?
+    private var seekInFlight = false
     private let subtitleModel = SubtitleModel()
+
+    override init() {
+        super.init()
+        KSOptions.canBackgroundPlay = true
+    }
 
     private var layer: KSPlayerLayer?
     private var resource: ResolvedPlaybackResource?
@@ -90,10 +107,13 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
                 let options = KSOptions()
                 options.startPlayRate = self.playbackRate
                 options.isSeekImageSubtitle = true
+                options.canStartPictureInPictureAutomaticallyFromInline = false
                 let player = KSPlayerLayer(url: resolved.url, isAutoPlay: false, options: options)
                 self.layer = player
                 player.delegate = self
                 self.videoView = player.player.view
+                player.player.allowsExternalPlayback = true
+                player.player.isMuted = self.isMuted
                 player.player.contentMode = self.fillsScreen ? .scaleAspectFill : .scaleAspectFit
                 player.play()
             } catch {
@@ -114,18 +134,107 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
     func pause() { layer?.pause() }
 
     func seek(to time: TimeInterval, resume: Bool? = nil) {
-        guard canSeek, time.isFinite, let layer else { return }
+        guard canSeek, time.isFinite else { return }
         let target = min(max(0, time), duration)
-        let token = generation
+        pendingSeek = (target, resume ?? isPlaying)
+        currentTime = target
         isSeeking = true
-        layer.seek(time: target, autoPlay: resume ?? isPlaying) { [weak self] _ in
+        performPendingSeek()
+    }
+
+    // Coalesce scrub previews: at most one decoder seek is in flight, and the
+    // final release target always replaces any older preview waiting behind it.
+    private func performPendingSeek() {
+        guard !seekInFlight, let next = pendingSeek, let layer else { return }
+        pendingSeek = nil
+        seekInFlight = true
+        let token = generation
+        layer.seek(time: next.time, autoPlay: next.resume) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
-                self.isSeeking = false
-                self.updateSubtitles()
+                self.seekInFlight = false
+                if self.pendingSeek != nil { self.performPendingSeek() }
+                else {
+                    self.isSeeking = false
+                    self.updateSubtitles()
+                }
             }
         }
-        currentTime = target
+    }
+
+    func toggleMute() {
+        isMuted.toggle()
+        layer?.player.isMuted = isMuted
+    }
+
+    func unmute() {
+        isMuted = false
+        layer?.player.isMuted = false
+    }
+
+    func startPictureInPicture() {
+        configurePictureInPicture()
+        guard let pipController, pipController.isPictureInPicturePossible else {
+            playbackNotice = String(localized: "当前视频暂不支持画中画。")
+            return
+        }
+        // Use AVKit directly. KSPlayer's isPipActive setter also performs its
+        // own UIKit navigation/dismissal, which this app deliberately avoids.
+        pipController.startPictureInPicture()
+    }
+
+    private func configurePictureInPicture() {
+        guard AVPictureInPictureController.isPictureInPictureSupported(),
+              let candidate = layer?.player.pipController else { return }
+        guard pipController !== candidate else { return }
+        pipController?.delegate = nil
+        pipObservation = nil
+        pipController = candidate
+        candidate.delegate = self
+        candidate.canStartPictureInPictureAutomaticallyFromInline = true
+        isPictureInPicturePossible = candidate.isPictureInPicturePossible
+        let identity = ObjectIdentifier(candidate)
+        pipObservation = candidate.observe(\.isPictureInPicturePossible, options: [.new]) { [weak self] _, change in
+            let possible = change.newValue ?? false
+            Task { @MainActor in
+                guard let self, let current = self.pipController, ObjectIdentifier(current) == identity else { return }
+                self.isPictureInPicturePossible = possible
+            }
+        }
+    }
+
+    func playerDidAppear() {
+        restoringPiP = false
+        if isPictureInPictureActive { pipController?.stopPictureInPicture() }
+        let completion = restorePiPCompletion
+        restorePiPCompletion = nil
+        completion?(true)
+    }
+
+    func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        guard controller === pipController else { return }
+        isPictureInPictureActive = true
+        isPresented = false
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+        guard controller === pipController else { return }
+        isPictureInPictureActive = false
+        if !restoringPiP && !isPresented { pause() }
+        restoringPiP = false
+    }
+
+    func pictureInPictureController(_ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
+        guard controller === pipController else { return }
+        playbackNotice = error.localizedDescription
+        log("画中画启动失败：\(error.localizedDescription)")
+    }
+
+    func pictureInPictureController(_ controller: AVPictureInPictureController, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+        guard controller === pipController else { completionHandler(false); return }
+        restoringPiP = true
+        if isPresented { completionHandler(true) }
+        else { restorePiPCompletion = completionHandler; isPresented = true }
     }
 
     func setPlaybackRate(_ rate: Float) {
@@ -210,6 +319,17 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
     }
 
     private func tearDownPlayer() {
+        pipController?.delegate = nil
+        pipController?.stopPictureInPicture()
+        pipObservation = nil
+        pipController = nil
+        isPictureInPicturePossible = false
+        isPictureInPictureActive = false
+        restorePiPCompletion?(false)
+        restorePiPCompletion = nil
+        restoringPiP = false
+        pendingSeek = nil
+        seekInFlight = false
         layer?.delegate = nil
         layer?.stop()
         videoView?.removeFromSuperview()
@@ -237,6 +357,12 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
         if state == .readyToPlay {
             layer.player.playbackRate = playbackRate
             layer.player.contentMode = fillsScreen ? .scaleAspectFill : .scaleAspectFit
+            layer.player.allowsExternalPlayback = true
+            layer.player.isMuted = isMuted
+            var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+            info[MPMediaItemPropertyTitle] = currentItem?.title
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+            configurePictureInPicture()
             for track in layer.player.tracks(mediaType: .subtitle) { track.isEnabled = false }
         }
         refreshTracks()
@@ -255,6 +381,7 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
         bufferedTime = playable.isFinite ? min(duration, max(currentTime, playable)) : currentTime
         refreshTracks()
         updateSubtitles()
+        configurePictureInPicture()
     }
 
     func player(layer: KSPlayerLayer, finish error: Error?) {

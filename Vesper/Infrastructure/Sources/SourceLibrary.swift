@@ -18,6 +18,7 @@ struct MediaItem: Identifiable, Hashable, Sendable {
     let id: MediaID
     let title: String
     let resource: PlayableResource?
+    var subtitle: String? = nil
 }
 
 struct SourceCapabilities: OptionSet, Sendable {

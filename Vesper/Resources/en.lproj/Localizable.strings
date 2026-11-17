@@ -238,3 +238,77 @@
 "关闭字幕" = "Subtitles Off";
 
 "无内嵌字幕" = "No embedded subtitles";
+
+"播放器手势" = "Player Gestures";
+
+"左侧区域" = "Left Region";
+
+"中间区域" = "Center Region";
+
+"右侧区域" = "Right Region";
+
+"双击" = "Double Tap";
+
+"上下滑动" = "Vertical Swipe";
+
+"左右滑动" = "Horizontal Swipe";
+
+"无操作" = "No Action";
+
+"显示控制层" = "Show Controls";
+
+"暂停或继续播放" = "Pause or Resume";
+
+"快退" = "Skip Backward";
+
+"快进" = "Skip Forward";
+
+"调节亮度" = "Adjust Brightness";
+
+"调节音量" = "Adjust Volume";
+
+"调整播放进度" = "Seek";
+
+"手指数" = "Fingers";
+
+"单指" = "One Finger";
+
+"双指" = "Two Fingers";
+
+"三指" = "Three Fingers";
+
+"快进快退时长" = "Skip Interval";
+
+"恢复默认手势？" = "Reset Gestures?";
+
+"画中画" = "Picture in Picture";
+
+"投屏" = "AirPlay";
+
+"音量" = "Volume";
+
+"静音" = "Mute";
+
+"取消静音" = "Unmute";
+
+"亮度 %d%%" = "Brightness %d%%";
+
+"音量 %d%%" = "Volume %d%%";
+
+"当前视频暂不支持画中画。" = "Picture in Picture is not currently available for this video.";
+
+"播放进度" = "Playback Progress";
+
+"无法播放" = "Unable to Play";
+
+"暂停" = "Pause";
+
+"弹幕设置" = "Danmaku Settings";
+
+"尚未接入弹幕来源。" = "No danmaku provider has been connected yet.";
+
+"%d 秒" = "%d seconds";
+
+"播放器按水平方向均分为左、中、右三个区域，滑动以手势开始的位置为准。按钮和进度条使用各自的操作，不触发区域手势。" = "The player is divided into left, center, and right thirds. Swipes use the region where they begin. Buttons and the progress bar have separate controls.";
+
+"默认单指单击显示控制层；双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量。多指手势默认无操作。" = "With one finger, tap to show controls; double-tap left to skip back, center to pause or resume, and right to skip forward. Swipe vertically on the left for brightness or the right for volume. Multi-finger gestures are unassigned by default.";

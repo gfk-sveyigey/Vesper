@@ -2,112 +2,127 @@ import SwiftUI
 import UIKit
 
 private enum PlayerPanel: String, Identifiable {
-    case settings, tracks, queue
+    case queue, gestures, danmaku
     var id: String { rawValue }
 }
 
 struct PlayerScreen: View {
     @ObservedObject var session: PlaybackSession
+    @StateObject private var volume = PlayerSystemVolume()
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var controlsVisible = true
     @State private var autoHideRevision = 0
+    @State private var volumeExpanded = false
     @State private var scrubTime: Double = 0
+    @State private var scrubStart: Double = 0
     @State private var isScrubbing = false
     @State private var resumeAfterScrub = false
+    @State private var lastPreview = Date.distantPast
     @State private var panel: PlayerPanel?
-    @State private var rotationScene: UIWindowScene?
+    @State private var gestureAction = PlayerGestureAction.none
+    @State private var gestureStart: Double = 0
+    @State private var originalBrightness: CGFloat?
+    @State private var brightnessScreen: UIScreen?
+    @State private var hudText = ""
+    @State private var hudSymbol = ""
+    @State private var hudRevision = 0
     @State private var rotationError: String?
-    @State private var isShowingRotationError = false
+    @State private var showingNotice = false
 
     private var canAutoHide: Bool {
         controlsVisible && session.isPlaying && !session.isLoading && !session.isSeeking
-            && !isScrubbing && panel == nil && !voiceOver && session.errorMessage == nil
+            && !isScrubbing && !volumeExpanded && panel == nil && !voiceOver && session.errorMessage == nil
     }
+    private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
 
     var body: some View {
         GeometryReader { geometry in
-            let landscape = geometry.size.width > geometry.size.height
             ZStack {
                 Color.black.ignoresSafeArea()
                 if let view = session.videoView {
-                    PlayerVideoSurface(videoView: view)
+                    PlayerVideoSurface(videoView: view, isActive: session.isPresented)
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
                 }
-                Color.clear
-                    .contentShape(Rectangle())
+                PlayerGestureSurface(tapped: handleTap, panned: handlePan)
                     .ignoresSafeArea()
-                    .gesture(TapGesture(count: 2).exclusively(before: TapGesture(count: 1))
-                        .onEnded { event in
-                            switch event {
-                            case .first:
-                                session.togglePlayback()
-                                revealControls()
-                            case .second:
-                                if voiceOver { revealControls() }
-                                else { setControlsVisible(!controlsVisible) }
-                            }
-                        })
                     .accessibilityHidden(true)
-                subtitles(landscape: landscape)
+                subtitles
                     .allowsHitTesting(false)
-                if controlsVisible {
-                    LinearGradient(colors: [.black.opacity(0.7), .clear, .clear, .black.opacity(0.8)],
-                                   startPoint: .top, endPoint: .bottom)
-                        .ignoresSafeArea().allowsHitTesting(false)
-                    VStack(spacing: 0) {
-                        topControls
-                        Spacer(minLength: 0)
-                        if session.errorMessage == nil, session.currentItem != nil,
-                           !session.isLoading, !session.isSeeking {
-                            transportControls
-                        }
-                        Spacer(minLength: 0)
-                        bottomControls(landscape: landscape)
-                    }
-                    .padding(.horizontal, landscape ? 28 : 20)
-                    .padding(.vertical, 12)
+                LinearGradient(colors: [.black.opacity(0.6), .clear, .clear, .black.opacity(0.75)],
+                               startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea()
+                    .opacity(controlsVisible ? 1 : 0)
+                    .allowsHitTesting(false)
+                // Independent placement keeps the transport centered on the
+                // actual video, regardless of header/title/progress height.
+                transportControls
+                    .position(x: geometry.size.width / 2,
+                              y: (geometry.size.height + geometry.safeAreaInsets.bottom - geometry.safeAreaInsets.top) / 2)
+                    .opacity(controlsVisible && session.errorMessage == nil && !session.isLoading ? 1 : 0)
+                    .allowsHitTesting(controlsVisible && session.errorMessage == nil && !session.isLoading)
+                    .accessibilityHidden(!controlsVisible || session.errorMessage != nil || session.isLoading)
+                VStack {
+                    topControls
+                    Spacer(minLength: 0)
+                    bottomControls(landscape: geometry.size.width > geometry.size.height)
                 }
-                if session.isLoading || session.isSeeking {
+                .padding(.horizontal, geometry.size.width > geometry.size.height ? 28 : 20)
+                .padding(.vertical, 12)
+                // Keep the Menu mounted while fading the controls, so a
+                // system menu never loses its presentation anchor mid-use.
+                .opacity(controlsVisible ? 1 : 0)
+                .allowsHitTesting(controlsVisible)
+                .accessibilityHidden(!controlsVisible)
+                if (session.isLoading || session.isSeeking) && !isScrubbing {
                     ProgressView().controlSize(.large).tint(.white)
+                        .allowsHitTesting(false).accessibilityLabel("正在加载")
+                }
+                if !hudText.isEmpty {
+                    Label { Text(verbatim: hudText) } icon: { Image(systemName: hudSymbol) }
+                        .font(.headline.monospacedDigit()).padding(16)
+                        .glassEffect(.regular, in: Capsule())
+                        .offset(y: -70)
                         .allowsHitTesting(false)
-                        .accessibilityLabel("正在加载")
                 }
-                if let message = session.errorMessage {
-                    errorContent(message)
-                } else if session.currentItem == nil {
-                    Text("未在播放").foregroundStyle(.white)
-                }
+                if let message = session.errorMessage { errorContent(message) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .foregroundStyle(.white)
-            .tint(.white)
+            .foregroundStyle(.white).tint(.white)
+        }
+        .background {
+            // Keep MPVolumeView window-attached for public system-volume
+            // updates. The visible expanded control binds to this same volume.
+            PlayerVolumeBridge(volume: volume)
+                .frame(width: 160, height: 40)
+                .opacity(0.01).allowsHitTesting(false).accessibilityHidden(true)
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(!controlsVisible)
         .persistentSystemOverlays(controlsVisible ? .visible : .hidden)
+        .interactiveDismissDisabled(true)
         .sheet(item: $panel, onDismiss: revealControls) { selected in
             panelContent(selected)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .preferredColorScheme(.dark)
         }
-        .alert("无法旋转屏幕", isPresented: $isShowingRotationError) {
-            Button("好", role: .cancel) { }
-        } message: { Text(verbatim: rotationError ?? "") }
+        .alert("播放器", isPresented: $showingNotice) {
+            Button("好", role: .cancel) { session.playbackNotice = nil; rotationError = nil }
+        } message: { Text(verbatim: rotationError ?? session.playbackNotice ?? "") }
         .onAppear {
+            PlayerOrientationPolicy.update(true, scene: session.videoView?.window?.windowScene)
+            session.playerDidAppear()
+            brightnessScreen = screen
+            originalBrightness = screen?.brightness
             scrubTime = session.currentTime
             revealControls()
         }
         .onDisappear {
-            if isScrubbing {
-                session.seek(to: scrubTime, resume: resumeAfterScrub)
-                isScrubbing = false
-            }
-            if let scene = rotationScene {
-                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
-            }
+            if isScrubbing { finishScrubbing() }
+            if let originalBrightness { brightnessScreen?.brightness = originalBrightness }
         }
         .onChange(of: session.currentTime) { _, time in
             if !isScrubbing { scrubTime = min(time, max(session.duration, 1)) }
@@ -118,150 +133,210 @@ struct PlayerScreen: View {
             revealControls()
         }
         .onChange(of: session.isPlaying) { _, playing in
-            if !playing { revealControls() }
-            else { autoHideRevision += 1 }
+            if !playing { revealControls() } else { autoHideRevision += 1 }
         }
         .onChange(of: session.isLoading) { _, _ in autoHideRevision += 1 }
         .onChange(of: session.isSeeking) { _, _ in autoHideRevision += 1 }
         .onChange(of: session.errorMessage) { _, message in if message != nil { revealControls() } }
+        .onChange(of: session.playbackNotice) { _, message in if message != nil { showingNotice = true; revealControls() } }
         .onChange(of: voiceOver) { _, _ in revealControls() }
         .onChange(of: panel) { _, _ in revealControls() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active && isScrubbing { finishScrubbing() } }
         .task(id: autoHideRevision) {
             guard canAutoHide else { return }
-            do { try await Task.sleep(for: .seconds(3)) }
-            catch { return }
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
             guard !Task.isCancelled, canAutoHide else { return }
             setControlsVisible(false)
+        }
+        .task(id: hudRevision) {
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            guard !Task.isCancelled else { return }
+            hudText = ""
         }
     }
 
     private var topControls: some View {
-        HStack(spacing: 12) {
-            control("收起", symbol: "chevron.down") { session.isPresented = false }
-            Text(verbatim: session.currentItem?.title ?? String(localized: "播放器"))
-                .font(.headline).lineLimit(1).truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            control("更多", symbol: "ellipsis") { panel = .settings }
+        HStack(alignment: .top, spacing: 10) {
+            glassButton("关闭", symbol: "xmark") { session.stop() }
+            HStack(spacing: 0) {
+                Button { revealControls(); session.startPictureInPicture() } label: {
+                    Image(systemName: "pip.enter").font(.system(size: 17, weight: .medium))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .disabled(!session.isPictureInPicturePossible)
+                .accessibilityLabel("画中画")
+                PlayerAirPlayButton().frame(width: 44, height: 44).accessibilityLabel("投屏")
+            }
+            .glassEffect(.regular.interactive(), in: Capsule())
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 10) {
+                glassButton("音量", symbol: session.isMuted || volume.value == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill") {
+                    volumeExpanded.toggle()
+                }
+                if volumeExpanded {
+                    HStack(spacing: 8) {
+                        Button { session.toggleMute() } label: {
+                            Image(systemName: session.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.plain).accessibilityLabel(session.isMuted ? "取消静音" : "静音")
+                        Slider(value: Binding(get: { volume.value }, set: { session.unmute(); volume.set($0) }), in: 0...1)
+                            .frame(width: 120).accessibilityLabel("音量")
+                            .padding(.trailing, 16)
+                    }
+                    .glassEffect(.regular.interactive(), in: Capsule())
+                }
+            }
         }
     }
 
     private var transportControls: some View {
-        HStack(spacing: 40) {
-            control("后退15秒", symbol: "gobackward.15", size: 54) {
-                session.seek(to: session.currentTime - 15)
+        HStack(spacing: 36) {
+            glassButton("快退", symbol: skipSymbol(backward: true), size: 54) {
+                session.seek(to: session.currentTime - PlayerGesturePreferences.skipInterval)
             }.disabled(!session.canSeek)
-            control(session.isPlaying ? "暂停" : "播放",
-                    symbol: session.isPlaying ? "pause.fill" : "play.fill", size: 76) {
+            glassButton(session.isPlaying ? "暂停" : "播放",
+                        symbol: session.isPlaying ? "pause.fill" : "play.fill", size: 76) {
                 session.togglePlayback()
             }.disabled(!session.canControl)
-            control("前进15秒", symbol: "goforward.15", size: 54) {
-                session.seek(to: session.currentTime + 15)
+            glassButton("快进", symbol: skipSymbol(backward: false), size: 54) {
+                session.seek(to: session.currentTime + PlayerGesturePreferences.skipInterval)
             }.disabled(!session.canSeek)
         }
+        .fixedSize()
     }
 
     private func bottomControls(landscape: Bool) -> some View {
-        VStack(spacing: 6) {
-            if isScrubbing {
-                Text(timeLabel(scrubTime)).font(.headline.monospacedDigit())
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.black.opacity(0.6), in: Capsule())
-            }
-            ZStack {
-                GeometryReader { geometry in
-                    Capsule().fill(.white.opacity(0.2))
-                        .frame(width: geometry.size.width * bufferedFraction, height: 3)
-                        .frame(maxHeight: .infinity)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    if let subtitle = session.currentItem?.subtitle, !subtitle.isEmpty {
+                        Text(verbatim: subtitle).font(.caption).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
+                    }
+                    Text(verbatim: session.currentItem?.title ?? String(localized: "未在播放"))
+                        .font(landscape ? .headline : .title3.weight(.semibold))
+                        .lineLimit(1).truncationMode(.middle)
                 }
-                .padding(.horizontal, 2)
-                .allowsHitTesting(false)
-                Slider(value: $scrubTime, in: 0...max(session.duration, 1), onEditingChanged: scrubChanged)
-                    .disabled(!session.canSeek)
-                    .accessibilityLabel("播放进度")
-                    .accessibilityValue(timeLabel(isScrubbing ? scrubTime : session.currentTime))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                moreMenu(landscape: landscape)
             }
-            .frame(height: 32)
-            HStack {
+            HStack(spacing: 10) {
                 Text(timeLabel(isScrubbing ? scrubTime : session.currentTime))
-                Spacer()
-                Text(timeLabel(session.duration))
+                    .frame(minWidth: 40, alignment: .leading)
+                progressBar
+                Text(timeLabel(session.duration)).frame(minWidth: 40, alignment: .trailing)
             }
             .font(.caption.monospacedDigit())
-            .foregroundStyle(.white.opacity(0.8))
-            HStack(spacing: landscape ? 20 : 8) {
-                Button {
-                    revealControls()
-                    panel = .settings
-                } label: {
-                    Text(rateLabel).font(.subheadline.weight(.semibold)).frame(minWidth: 44, minHeight: 44)
-                }
-                .accessibilityLabel("播放速度")
-                .accessibilityValue(rateLabel)
-                control("字幕与音轨", symbol: "captions.bubble") { panel = .tracks }
-                control("播放列表", symbol: "list.bullet") { panel = .queue }
-                    .disabled(session.queue.isEmpty)
-                Spacer(minLength: 0)
-                control(session.fillsScreen ? "完整显示" : "填满屏幕",
-                        symbol: session.fillsScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") {
-                    session.toggleFill()
-                }
-                control(landscape ? "竖屏" : "横屏", symbol: landscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate") {
-                    rotate(landscape: !landscape)
-                }
-            }
-            .buttonStyle(.plain)
         }
     }
 
-    private var bufferedFraction: CGFloat {
-        guard session.duration > 0 else { return 0 }
-        return CGFloat(min(1, max(0, session.bufferedTime / session.duration)))
+    private var progressBar: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.25)).frame(height: isScrubbing ? 6 : 4)
+                Capsule().fill(.white.opacity(0.35)).frame(width: geometry.size.width * fraction(session.bufferedTime), height: isScrubbing ? 6 : 4)
+                Capsule().fill(.white).frame(width: geometry.size.width * fraction(isScrubbing ? scrubTime : session.currentTime), height: isScrubbing ? 6 : 4)
+            }
+            .frame(height: 44)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    guard session.canSeek else { return }
+                    if !isScrubbing { beginScrubbing() }
+                    updateScrubbing(scrubStart + Double(value.translation.width / max(geometry.size.width, 1)) * session.duration)
+                }
+                .onEnded { _ in if isScrubbing { finishScrubbing() } })
+        }
+        .frame(height: 44)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("播放进度")
+        .accessibilityValue(timeLabel(isScrubbing ? scrubTime : session.currentTime))
+        .accessibilityAdjustableAction { direction in
+            session.seek(to: session.currentTime + (direction == .increment ? PlayerGesturePreferences.skipInterval : -PlayerGesturePreferences.skipInterval))
+            revealControls()
+        }
     }
 
-    private func subtitles(landscape: Bool) -> some View {
+    private func moreMenu(landscape: Bool) -> some View {
+        Menu {
+            Menu("播放速度") {
+                ForEach([Float(0.5), 0.75, 1, 1.25, 1.5, 2], id: \.self) { rate in
+                    Button { session.setPlaybackRate(rate); revealControls() } label: {
+                        if session.playbackRate == rate { Label(String(format: "%g×", Double(rate)), systemImage: "checkmark") }
+                        else { Text(verbatim: String(format: "%g×", Double(rate))) }
+                    }
+                }
+            }
+            Menu("字幕") {
+                Button { session.selectSubtitle(nil); revealControls() } label: {
+                    Label("关闭字幕", systemImage: session.selectedSubtitleID == nil ? "checkmark" : "captions.bubble")
+                }
+                ForEach(session.subtitleTracks) { track in
+                    Button { session.selectSubtitle(track.id); revealControls() } label: {
+                        Label(track.name, systemImage: track.isSelected ? "checkmark" : "captions.bubble")
+                    }
+                }
+                if session.subtitleTracks.isEmpty { Text("无内嵌字幕") }
+            }
+            Menu("音轨") {
+                ForEach(session.audioTracks) { track in
+                    Button { session.selectAudio(track.id); revealControls() } label: {
+                        Label(track.name, systemImage: track.isSelected ? "checkmark" : "waveform")
+                    }
+                }
+                if session.audioTracks.isEmpty { Text("无可用音轨") }
+            }
+            Button("弹幕设置", systemImage: "text.bubble") { panel = .danmaku }
+            Button("播放列表", systemImage: "list.bullet") { panel = .queue }.disabled(session.queue.isEmpty)
+            Button("播放器手势", systemImage: "hand.draw") { panel = .gestures }
+            Divider()
+            Button(session.fillsScreen ? "完整显示" : "填满屏幕", systemImage: "aspectratio") { session.toggleFill(); revealControls() }
+            Button(landscape ? "竖屏" : "横屏", systemImage: "rotate.right") { rotate(landscape: !landscape) }
+        } label: {
+            Image(systemName: "ellipsis").font(.system(size: 17, weight: .semibold))
+                .frame(width: 44, height: 44).contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Circle())
+        .accessibilityLabel("更多")
+    }
+
+    private var subtitles: some View {
         VStack {
             Spacer()
             if let image = session.subtitleImage {
-                Image(uiImage: image).resizable().scaledToFit()
-                    .frame(maxHeight: landscape ? 100 : 180)
+                Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 140)
             }
             if !session.subtitleText.isEmpty {
                 Text(verbatim: session.subtitleText)
-                    .font(.system(size: landscape ? 22 : 20, weight: .semibold))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white)
-                    .shadow(color: .black, radius: 2, x: 1, y: 1)
+                    .font(.system(size: 22, weight: .semibold)).multilineTextAlignment(.center)
+                    .foregroundStyle(.white).shadow(color: .black, radius: 2, x: 1, y: 1)
                     .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, controlsVisible ? 155 : 24)
+        .padding(.horizontal, 20).padding(.bottom, controlsVisible ? 126 : 24)
         .frame(maxWidth: .infinity)
     }
 
-    private func control(_ title: LocalizedStringKey, symbol: String, size: CGFloat = 44,
-                         action: @escaping () -> Void) -> some View {
-        Button {
-            revealControls()
-            action()
-        } label: {
+    private func glassButton(_ title: LocalizedStringKey, symbol: String, size: CGFloat = 44,
+                             action: @escaping () -> Void) -> some View {
+        Button { revealControls(); action() } label: {
             Image(systemName: symbol)
-                .font(.system(size: size == 76 ? 36 : (size == 54 ? 27 : 18), weight: .semibold))
-                .frame(width: size, height: size)
-                .background(.black.opacity(0.25), in: Circle())
-                .contentShape(Circle())
+                .font(.system(size: size == 76 ? 32 : (size == 54 ? 23 : 17), weight: .medium))
+                .frame(width: size, height: size).contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Circle())
         .accessibilityLabel(Text(title))
     }
 
     private func errorContent(_ message: String) -> some View {
         VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle").font(.largeTitle)
             Text("无法播放").font(.headline)
             Text(verbatim: message).font(.subheadline).multilineTextAlignment(.center)
-            Button("重试") { session.retry(); revealControls() }.buttonStyle(.borderedProminent)
+            Button("重试") { session.retry(); revealControls() }.buttonStyle(.glass)
         }
         .padding(24).background(.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 20))
         .padding(.horizontal, 30)
@@ -269,121 +344,131 @@ struct PlayerScreen: View {
 
     private func panelContent(_ selected: PlayerPanel) -> some View {
         NavigationStack {
-            List {
+            Group {
                 switch selected {
-                case .settings:
-                    Section("播放速度") {
-                        ForEach([Float(0.5), 0.75, 1, 1.25, 1.5, 2], id: \.self) { rate in
-                            Button {
-                                session.setPlaybackRate(rate)
-                            } label: {
-                                selectionRow(String(format: "%g×", Double(rate)), selected: session.playbackRate == rate)
-                            }
-                        }
-                    }
-                    Section("画面") {
-                        Button {
-                            session.toggleFill()
-                        } label: {
-                            Label(session.fillsScreen ? "完整显示" : "填满屏幕", systemImage: "aspectratio")
-                        }
-                    }
-                    Section {
-                        Button("停止播放", role: .destructive) { panel = nil; session.stop() }
-                    }
-                case .tracks:
-                    Section("音轨") {
-                        if session.audioTracks.isEmpty { Text("无可用音轨").foregroundStyle(.secondary) }
-                        ForEach(session.audioTracks) { track in
-                            Button { session.selectAudio(track.id) } label: {
-                                selectionRow(track.name, selected: track.isSelected)
-                            }
-                        }
-                    }
-                    Section("字幕") {
-                        Button { session.selectSubtitle(nil) } label: {
-                            selectionRow(String(localized: "关闭字幕"), selected: session.selectedSubtitleID == nil)
-                        }
-                        if session.subtitleTracks.isEmpty { Text("无内嵌字幕").foregroundStyle(.secondary) }
-                        ForEach(session.subtitleTracks) { track in
-                            Button { session.selectSubtitle(track.id) } label: {
-                                selectionRow(track.name, selected: track.isSelected)
-                            }
-                        }
-                    }
+                case .gestures: PlayerGestureSettingsView()
+                case .danmaku:
+                    ContentUnavailableView("弹幕设置", systemImage: "text.bubble", description: Text("尚未接入弹幕来源。"))
+                        .navigationTitle("弹幕设置")
                 case .queue:
-                    ForEach(session.queue) { item in
+                    List(session.queue) { item in
                         Button {
                             session.playQueued(item)
                             panel = nil
                         } label: {
-                            selectionRow(item.title, selected: item.id == session.currentItem?.id)
+                            HStack {
+                                Text(verbatim: item.title).lineLimit(2)
+                                Spacer()
+                                if item.id == session.currentItem?.id { Image(systemName: "checkmark") }
+                            }
                         }
                     }
+                    .navigationTitle("播放列表")
                 }
             }
-            .navigationTitle(panelTitle(selected))
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { panel = nil }
-                }
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { panel = nil } }
             }
         }
     }
 
-    private func selectionRow(_ title: String, selected: Bool) -> some View {
-        HStack {
-            Text(verbatim: title).lineLimit(2)
-            Spacer()
-            if selected { Image(systemName: "checkmark").foregroundStyle(.tint) }
-        }
-        .accessibilityAddTraits(selected ? .isSelected : [])
+    private func beginScrubbing() {
+        guard session.canSeek else { return }
+        resumeAfterScrub = session.isPlaying
+        scrubStart = session.currentTime
+        scrubTime = scrubStart
+        isScrubbing = true
+        lastPreview = .distantPast
+        session.pause()
+        revealControls()
     }
-
-    private func panelTitle(_ selected: PlayerPanel) -> LocalizedStringKey {
-        switch selected {
-        case .settings: "播放设置"
-        case .tracks: "字幕与音轨"
-        case .queue: "播放列表"
+    private func updateScrubbing(_ target: Double) {
+        scrubTime = min(session.duration, max(0, target))
+        if Date().timeIntervalSince(lastPreview) >= 0.15 {
+            lastPreview = Date()
+            session.seek(to: scrubTime, resume: false)
         }
     }
-
-    private var rateLabel: String { String(format: "%g×", Double(session.playbackRate)) }
-
-    private func scrubChanged(_ editing: Bool) {
-        if editing {
-            resumeAfterScrub = session.isPlaying
-            isScrubbing = true
-            session.pause()
-        } else {
-            isScrubbing = false
-            session.seek(to: scrubTime, resume: resumeAfterScrub)
-        }
+    private func finishScrubbing() {
+        let target = scrubTime
+        isScrubbing = false
+        session.seek(to: target, resume: resumeAfterScrub)
         revealControls()
     }
 
-    private func revealControls() { setControlsVisible(true) }
-
-    private func setControlsVisible(_ visible: Bool) {
-        autoHideRevision += 1
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-            controlsVisible = visible
+    private func handleTap(_ region: PlayerGestureRegion, _ fingers: Int, _ double: Bool) {
+        let action = PlayerGesturePreferences.action(double ? .doubleTap : .tap, region, fingers)
+        switch action {
+        case .controls: revealControls()
+        case .playback: session.togglePlayback(); revealControls()
+        case .backward, .forward:
+            let delta = PlayerGesturePreferences.skipInterval * (action == .backward ? -1 : 1)
+            session.seek(to: session.currentTime + delta)
+            showHUD(timeLabel(session.currentTime), symbol: skipSymbol(backward: delta < 0))
+        default: break
         }
     }
 
-    private func rotate(landscape: Bool) {
-        guard let scene = session.videoView?.window?.windowScene else { return }
-        rotationScene = scene
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: landscape ? .landscape : .portrait)) { error in
-            Task { @MainActor in
-                rotationError = error.localizedDescription
-                isShowingRotationError = true
-                revealControls()
+    private func handlePan(_ region: PlayerGestureRegion, _ fingers: Int, _ kind: PlayerGestureKind,
+                           _ delta: CGFloat, _ phase: UIGestureRecognizer.State) {
+        if phase == .began {
+            gestureAction = PlayerGesturePreferences.action(kind, region, fingers)
+            switch gestureAction {
+            case .brightness:
+                if originalBrightness == nil { brightnessScreen = screen; originalBrightness = screen?.brightness }
+                gestureStart = Double(screen?.brightness ?? 0.5)
+            case .volume: gestureStart = Double(volume.value)
+            case .seek: beginScrubbing()
+            default: break
             }
         }
+        switch gestureAction {
+        case .brightness:
+            let value = min(1, max(0, gestureStart + Double(delta) * 1.5))
+            screen?.brightness = CGFloat(value)
+            showHUD(String(format: VesperLocalization.string("亮度 %d%%"), Int(value * 100)), symbol: "sun.max.fill")
+        case .volume:
+            let value = min(1, max(0, gestureStart + Double(delta) * 1.5))
+            session.unmute()
+            volume.set(Float(value))
+            showHUD(String(format: VesperLocalization.string("音量 %d%%"), Int(value * 100)), symbol: "speaker.wave.2.fill")
+        case .seek:
+            if isScrubbing {
+                updateScrubbing(scrubStart + Double(delta) * session.duration)
+                showHUD(timeLabel(scrubTime), symbol: "play.rectangle")
+            }
+        default: break
+        }
+        if phase == .ended || phase == .cancelled || phase == .failed {
+            if gestureAction == .seek && isScrubbing { finishScrubbing() }
+            gestureAction = .none
+            autoHideRevision += 1
+        }
     }
 
+    private func showHUD(_ text: String, symbol: String) {
+        hudText = text; hudSymbol = symbol; hudRevision += 1
+    }
+    private func skipSymbol(backward: Bool) -> String {
+        "\(backward ? "gobackward" : "goforward").\(Int(PlayerGesturePreferences.skipInterval))"
+    }
+    private func fraction(_ time: Double) -> CGFloat {
+        guard session.duration > 0 else { return 0 }
+        return CGFloat(min(1, max(0, time / session.duration)))
+    }
+    private func revealControls() { setControlsVisible(true) }
+    private func setControlsVisible(_ visible: Bool) {
+        autoHideRevision += 1
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { controlsVisible = visible }
+        if !visible { volumeExpanded = false }
+    }
+    private func rotate(landscape: Bool) {
+        guard let scene = session.videoView?.window?.windowScene else { return }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: landscape ? .landscape : .portrait)) { error in
+            Task { @MainActor in rotationError = error.localizedDescription; showingNotice = true; revealControls() }
+        }
+    }
     private func timeLabel(_ seconds: TimeInterval) -> String {
         let value = Int(max(0, seconds.isFinite ? seconds : 0))
         if value >= 3600 { return String(format: "%d:%02d:%02d", value / 3600, value / 60 % 60, value % 60) }
@@ -392,12 +477,17 @@ struct PlayerScreen: View {
 }
 /// Only mounts the existing rendering view. Dismissal detaches its surface,
 /// while the app-owned session continues decoding and playing audio.
-private struct PlayerVideoSurface: UIViewRepresentable {
+struct PlayerVideoSurface: UIViewRepresentable {
     let videoView: UIView
+    var isActive = true
 
     func makeUIView(context: Context) -> UIView { UIView() }
 
     func updateUIView(_ host: UIView, context: Context) {
+        guard isActive else {
+            if videoView.superview === host { videoView.removeFromSuperview() }
+            return
+        }
         guard videoView.superview !== host else { return }
         host.subviews.forEach { $0.removeFromSuperview() }
         videoView.removeFromSuperview()
