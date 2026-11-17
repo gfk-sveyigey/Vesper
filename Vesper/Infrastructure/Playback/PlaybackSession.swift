@@ -350,7 +350,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             if let descriptions = try? await track.load(.formatDescriptions) {
                 for format in descriptions {
                     technical.append(.init(label: "视频编码", value: "\(prefix) · \(Self.codecName(format))"))
-                    let extensions = CMFormatDescriptionGetExtensions(format) as NSDictionary
+                    let extensions = (CMFormatDescriptionGetExtensions(format) as? [String: Any]) ?? [:]
                     for (key, label) in [("ColorPrimaries", "色彩原色"), ("TransferFunction", "传递函数"), ("YCbCrMatrix", "色彩矩阵"), ("BitsPerComponent", "位深")] {
                         if let value = extensions[key] { technical.append(.init(label: label, value: String(describing: value))) }
                     }

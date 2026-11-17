@@ -43,7 +43,7 @@ struct PlayerGestureSettingsView: View {
                                     Text(action.title).tag(action)
                                 }
                             } label: {
-                                HStack { Text(region.title); Spacer(); Text(kind.title).foregroundStyle(.secondary) }
+                                HStack { Text(regionCount == 1 ? "全部区域" : region.title); Spacer(); Text(kind.title).foregroundStyle(.secondary) }
                             }
                         }
                     }
