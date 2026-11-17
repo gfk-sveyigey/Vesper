@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 @preconcurrency import Photos
 @preconcurrency import AVKit
 import MediaPlayer
@@ -11,6 +12,7 @@ import UIKit
 /// the decoder. KSPlayer APIs are contained here, outside navigation code.
 @MainActor
 final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, @preconcurrency AVPictureInPictureControllerDelegate {
+    @Published private(set) var currentDecoder = PlaybackPreferences.preferredDecoder
     @Published private(set) var history: [PlaybackHistoryEntry] = []
     private var lastHistorySave = Date.distantPast
     @Published private(set) var currentItem: MediaItem?
@@ -48,6 +50,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     private let subtitleModel = SubtitleModel()
     private var appIsInBackground = false
     private var appIsInactive = false
+    private var decoderRestore: (time: Double, resume: Bool)?
     private var progressRestored = false
     private var lastProgressSave = Date.distantPast
     private let progressStorageKey = "player.savedProgress"
@@ -110,7 +113,17 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         load(item, source: nil)
     }
 
-    private func load(_ item: MediaItem, source: MediaSource?) {
+    func setCurrentDecoder(_ decoder: PlaybackDecoder) {
+        guard decoder != currentDecoder, let item = currentItem else { return }
+        let position = currentTime
+        let playing = isPlaying
+        let rate = playbackRate
+        log("切换解码方式：\(decoder.rawValue)，位置=\(position)，继续播放=\(playing)")
+        load(item, source: source, decoder: decoder, position: position, resume: playing, rate: rate)
+    }
+
+    private func load(_ item: MediaItem, source: MediaSource?, decoder: PlaybackDecoder? = nil,
+                      position: Double? = nil, resume: Bool = true, rate: Float? = nil) {
         request?.cancel()
         generation = UUID()
         let token = generation
@@ -118,7 +131,9 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         recordPlaybackHistory()
         tearDownPlayer()
         lastHistorySave = .distantPast
-        progressRestored = false
+        decoderRestore = position.map { ($0, resume) }
+        progressRestored = position != nil
+        currentDecoder = decoder ?? PlaybackPreferences.preferredDecoder
         suppressedProgressID = nil
         currentItem = item
         currentTime = 0
@@ -127,6 +142,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         isLoading = true
         let savedRate = UserDefaults.standard.float(forKey: "player.playbackRate")
         playbackRate = [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(savedRate) ? savedRate : 1
+        if let rate { playbackRate = rate }
+        let selectedDecoder = currentDecoder
         let external = externalFile
         request = Task { [weak self] in
             do {
@@ -146,7 +163,11 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
                 try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
                 try AVAudioSession.sharedInstance().setActive(true)
                 self.refreshPlaybackPreferences()
+                KSOptions.firstPlayerType = selectedDecoder == .software ? KSMEPlayer.self : KSAVPlayer.self
+                KSOptions.secondPlayerType = selectedDecoder == .software ? nil : KSMEPlayer.self
                 let options = KSOptions()
+                options.hardwareDecode = selectedDecoder == .hardware
+                options.startPlayTime = position ?? 0
                 options.startPlayRate = self.playbackRate
                 options.isSeekImageSubtitle = true
                 options.canStartPictureInPictureAutomaticallyFromInline = PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
@@ -158,7 +179,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
                 player.player.allowsExternalPlayback = true
                 player.player.isMuted = self.isMuted
                 player.player.contentMode = self.fillsScreen ? .scaleAspectFill : .scaleAspectFit
-                player.play()
+                if resume { player.play() } else { player.prepareToPlay() }
             } catch {
                 guard let self, !Task.isCancelled, self.generation == token else { return }
                 self.tearDownPlayer()
@@ -404,6 +425,14 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             appIsInactive = false
             pruneUnavailableHistory()
             if isPictureInPictureActive { isPresented = false }
+            else if let layer {
+                // Reattach the native rendering layer even when playback was
+                // paused before backgrounding. Never resume audio implicitly.
+                layer.player.enterForeground()
+                restoreVideoContentMode()
+                if !isPlaying && canSeek { seek(to: currentTime, resume: false) }
+                log("前台恢复画面：playing=\(isPlaying) position=\(currentTime)")
+            }
         @unknown default: break
         }
     }
@@ -430,7 +459,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
               duration > 0, currentTime.isFinite else { return }
         var values = UserDefaults.standard.dictionary(forKey: progressStorageKey) as? [String: Double] ?? [:]
         var durations = UserDefaults.standard.dictionary(forKey: durationStorageKey) as? [String: Double] ?? [:]
-        if currentTime >= duration - 2 || currentTime <= 0 {
+        if currentTime >= duration - min(2, duration * 0.05) || currentTime <= 0 {
             values.removeValue(forKey: key); durations.removeValue(forKey: key)
         } else { values[key] = max(0, currentTime); durations[key] = duration }
         UserDefaults.standard.set(values, forKey: progressStorageKey)
@@ -548,7 +577,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         progressRestored = true
         guard PlaybackPreferences.remembersProgress, let key = progressKey,
               let saved = UserDefaults.standard.dictionary(forKey: progressStorageKey)?[key] as? Double,
-              saved > 0, saved < duration - 2 else { return }
+              saved > 0, saved < duration - min(2, duration * 0.05) else { return }
         seek(to: saved, resume: isPlaying)
     }
 
@@ -582,14 +611,13 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
                 technical.append(.init(label: "画面比例", value: "\(w / divisor):\(h / divisor)"))
             }
             if let rate = try? await track.load(.nominalFrameRate), rate > 0 { technical.append(.init(label: "帧率", value: String(format: "%.3f fps", rate))) }
-            if let rate = try? await track.load(.estimatedDataRate), rate > 0 { technical.append(.init(label: "视频码率", value: String(format: "%.2f Mb/s", rate / 1_000_000))) }
+            if let rate = try? await track.load(.estimatedDataRate), rate > 0 { technical.append(.init(label: "视频码率", value: Self.bitRateLabel(Double(rate)))) }
             if let descriptions = try? await track.load(.formatDescriptions) {
                 for format in descriptions {
                     technical.append(.init(label: "视频编码", value: "\(prefix) · \(Self.codecName(format))"))
-                    let extensions = (CMFormatDescriptionGetExtensions(format) as? [String: Any]) ?? [:]
-                    for (key, label) in [("ColorPrimaries", "色彩原色"), ("TransferFunction", "传递函数"), ("YCbCrMatrix", "色彩矩阵"), ("BitsPerComponent", "位深")] {
-                        if let value = extensions[key] { technical.append(.init(label: label, value: String(describing: value))) }
-                    }
+                    technical += Self.videoColorDetails(format)
+                    let size = CMVideoFormatDescriptionGetPresentationDimensions(format, usePixelAspectRatio: true, useCleanAperture: true)
+                    if size.width > 0 && size.height > 0 { technical.append(.init(label: "显示尺寸", value: "\(Int(size.width)) × \(Int(size.height))")) }
                 }
             }
         }
@@ -598,10 +626,11 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         for (index, track) in audioTracks.enumerated() {
             let prefix = "Audio \(index + 1)"
             if let language = try? await track.load(.languageCode) { technical.append(.init(label: "音频语言", value: "\(prefix) · \(language)")) }
-            if let rate = try? await track.load(.estimatedDataRate), rate > 0 { technical.append(.init(label: "音频码率", value: String(format: "%.0f kb/s", rate / 1000))) }
+            if let rate = try? await track.load(.estimatedDataRate), rate > 0 { technical.append(.init(label: "音频码率", value: Self.bitRateLabel(Double(rate)))) }
             if let descriptions = try? await track.load(.formatDescriptions) {
                 for format in descriptions {
                     technical.append(.init(label: "音频编码", value: "\(prefix) · \(Self.codecName(format))"))
+                    technical += Self.audioLayoutDetails(format)
                     if let stream = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee {
                         technical.append(.init(label: "采样率", value: String(format: "%.0f Hz", stream.mSampleRate)))
                         technical.append(.init(label: "声道数", value: String(stream.mChannelsPerFrame)))
@@ -611,12 +640,22 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             }
         }
         if let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, duration > 0 {
-            technical.append(.init(label: "总码率", value: String(format: "%.2f Mb/s", Double(bytes) * 8 / duration / 1_000_000)))
+            technical.append(.init(label: "总码率", value: Self.bitRateLabel(Double(bytes) * 8 / duration)))
         }
-        technical.append(.init(label: "容器格式", value: url.pathExtension.uppercased()))
+        technical.append(.init(label: "容器格式", value: Self.containerName(url)))
         // FFmpeg-backed formats may not expose AVAsset tracks. Read the
         // active decoder's public metadata rather than dropping their details.
         if let player = layer?.player {
+            if tracks.isEmpty {
+                let size = player.naturalSize
+                if size.width > 0 && size.height > 0 {
+                    var w = Int(size.width.rounded()), h = Int(size.height.rounded())
+                    let originalW = w, originalH = h
+                    while h != 0 { (w, h) = (h, w % h) }
+                    let divisor = max(1, w)
+                    technical.append(.init(label: "画面比例", value: "\(originalW / divisor):\(originalH / divisor)"))
+                }
+            }
             if dimensions == nil {
                 let size = player.naturalSize
                 if size.width > 0 && size.height > 0 { dimensions = "\(Int(size.width)) × \(Int(size.height))" }
@@ -624,11 +663,13 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             for type in [AVMediaType.video, .audio] where (type == .video ? tracks.isEmpty : audioTracks.isEmpty) {
                 for track in player.tracks(mediaType: type) {
                     let video = type == .video
-                    if track.bitRate > 0 { technical.append(.init(label: video ? "视频码率" : "音频码率", value: String(format: "%.0f kb/s", Double(track.bitRate) / 1000))) }
-                    if track.bitDepth > 0 { technical.append(.init(label: "位深", value: "\(track.bitDepth) bit")) }
+                    if track.bitRate > 0 { technical.append(.init(label: video ? "视频码率" : "音频码率", value: Self.bitRateLabel(Double(track.bitRate)))) }
+                    if track.bitDepth > 0 { technical.append(.init(label: video ? "视频位深" : "音频位深", value: "\(track.bitDepth) bit")) }
                     if video && track.nominalFrameRate > 0 { technical.append(.init(label: "帧率", value: String(format: "%.3f fps", track.nominalFrameRate))) }
                     if let format = track.formatDescription {
                         technical.append(.init(label: video ? "视频编码" : "音频编码", value: Self.codecName(format)))
+                        if video { technical += Self.videoColorDetails(format) }
+                        else { technical += Self.audioLayoutDetails(format) }
                         if !video, let stream = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee {
                             technical.append(.init(label: "采样率", value: String(format: "%.0f Hz", stream.mSampleRate)))
                             technical.append(.init(label: "声道数", value: String(stream.mChannelsPerFrame)))
@@ -652,6 +693,58 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         return PlaybackVideoDetails(fileName: fileName ?? "", dimensions: dimensions,
                                     byteCount: values?.fileSize, synopsis: synopsis,
                                     sourceName: source?.name ?? VesperLocalization.string("外部视频"), technical: technical)
+    }
+
+    private static func bitRateLabel(_ bitsPerSecond: Double) -> String {
+        guard bitsPerSecond.isFinite, bitsPerSecond > 0 else { return "—" }
+        if bitsPerSecond >= 1_000_000 { return String(format: "%.2f Mbit/s", bitsPerSecond / 1_000_000) }
+        if bitsPerSecond >= 1_000 { return String(format: "%.1f kbit/s", bitsPerSecond / 1_000) }
+        return String(format: "%.0f bit/s", bitsPerSecond)
+    }
+
+    private static func containerName(_ url: URL) -> String {
+        if url.isFileURL, let handle = try? FileHandle(forReadingFrom: url) {
+            defer { try? handle.close() }
+            if let data = try? handle.read(upToCount: 64) {
+                let bytes = Array(data)
+                if bytes.count >= 12, String(bytes: bytes[4..<8], encoding: .ascii) == "ftyp" {
+                    return String(bytes: bytes[8..<12], encoding: .ascii) == "qt  " ? "QuickTime / MOV" : "ISO BMFF / MP4"
+                }
+                if bytes.starts(with: [0x1A, 0x45, 0xDF, 0xA3]) { return "Matroska / WebM" }
+                if bytes.starts(with: Array("FLV".utf8)) { return "FLV" }
+                if bytes.starts(with: Array("OggS".utf8)) { return "Ogg" }
+                if bytes.first == 0x47 { return "MPEG-TS" }
+                if bytes.count >= 12, String(bytes: bytes[8..<12], encoding: .ascii) == "AVI " { return "AVI" }
+            }
+        }
+        return url.pathExtension.isEmpty ? "—" : url.pathExtension.uppercased()
+    }
+
+    private static func videoColorDetails(_ format: CMFormatDescription) -> [PlaybackDetailField] {
+        let extensions = (CMFormatDescriptionGetExtensions(format) as? [String: Any]) ?? [:]
+        var fields: [PlaybackDetailField] = []
+        let transfer = String(describing: extensions["TransferFunction"] ?? "")
+        let codec = codecName(format)
+        let range: String
+        if ["dvhe", "dvh1", "dva1", "dvav"].contains(codec) { range = "Dolby Vision" }
+        else if transfer.contains("2084") { range = "HDR (PQ / HDR10)" }
+        else if transfer.contains("HLG") { range = "HDR (HLG)" }
+        else { range = "SDR" }
+        fields.append(.init(label: "动态范围", value: range))
+        for (key, label) in [("ColorPrimaries", "色彩原色"), ("TransferFunction", "传递函数"), ("YCbCrMatrix", "色彩矩阵"), ("BitsPerComponent", "视频位深"), ("FullRangeVideo", "全范围色彩")] {
+            if let value = extensions[key] { fields.append(.init(label: label, value: String(describing: value))) }
+        }
+        return fields
+    }
+
+    private static func audioLayoutDetails(_ format: CMFormatDescription) -> [PlaybackDetailField] {
+        var layoutSize = 0
+        guard let layout = CMAudioFormatDescriptionGetChannelLayout(format, sizeOut: &layoutSize) else { return [] }
+        var name: CFString?
+        var size = UInt32(MemoryLayout<CFString?>.size)
+        let status = AudioFormatGetProperty(kAudioFormatProperty_ChannelLayoutName, UInt32(layoutSize), layout, &size, &name)
+        let value = status == noErr ? name.map { $0 as String } : nil
+        return [.init(label: "声道布局", value: value ?? String(format: "0x%08X", layout.pointee.mChannelLayoutTag))]
     }
 
     private static func codecName(_ description: CMFormatDescription) -> String {
@@ -818,6 +911,13 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             return
         }
         if state == .readyToPlay {
+            currentDecoder = layer.player is KSAVPlayer || layer.options.hardwareDecode ? .hardware : .software
+            if let restore = decoderRestore {
+                decoderRestore = nil
+                currentTime = restore.time
+                seekLanding = (restore.time, Date().addingTimeInterval(3))
+                layer.seek(time: restore.time, autoPlay: restore.resume) { _ in }
+            }
             layer.player.playbackRate = playbackRate
             layer.player.contentMode = fillsScreen ? .scaleAspectFill : .scaleAspectFit
             layer.player.allowsExternalPlayback = true

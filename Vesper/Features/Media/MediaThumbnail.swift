@@ -137,7 +137,7 @@ private struct ThumbnailPlaybackProgress: View {
     private var total: Double { duration > 0 ? duration : session.savedDuration(for: item) }
     var body: some View {
         Group {
-            if progress > 0 && total > 3 {
+            if progress > 0 && total > 0 {
                 ThumbnailProgressBadge(position: progress, total: total)
             }
         }
@@ -164,19 +164,19 @@ private struct ThumbnailProgressBadge: View {
         VStack(alignment: .leading, spacing: 5) {
             if let title { Text(verbatim: title).font(.caption).lineLimit(1).truncationMode(.tail) }
             HStack(spacing: 5) {
-                if total > 3 {
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.35))
-                        Capsule().fill(.white)
-                            .mask(alignment: .leading) {
-                                Rectangle().frame(width: geometry.size.width * fraction)
-                            }
+                if total > 0 {
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.white.opacity(0.35))
+                            Capsule().fill(.white)
+                                .mask(alignment: .leading) {
+                                    Rectangle().frame(width: geometry.size.width * fraction)
+                                }
+                        }
                     }
+                    .frame(width: progressWidth, height: 4)
                 }
-                .frame(width: progressWidth, height: 4)
-                }
-                Text(verbatim: showsPosition && total > 3 ? "\(mediaTimeLabel(position)) / \(mediaTimeLabel(total))" : mediaTimeLabel(total))
+                Text(verbatim: showsPosition && total > 0 ? "\(mediaTimeLabel(position)) / \(mediaTimeLabel(total))" : mediaTimeLabel(total))
                     .font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
             }
         }

@@ -538,3 +538,21 @@
 "无法分享视频" = "동영상을 공유할 수 없습니다";
 
 "查看时间" = "시청 시간";
+
+"优先解码方式" = "Preferred Decoding Method";
+"硬件解码" = "Hardware Decoding";
+"软件解码" = "Software Decoding";
+"文件信息" = "File Information";
+"视频信息" = "Video Information";
+"音频信息" = "Audio Information";
+"封装格式" = "Container Format";
+"编码格式" = "Codec";
+"码率" = "Bit Rate";
+"语言" = "Language";
+"轨道数量" = "Track Count";
+"动态范围" = "Dynamic Range";
+"全范围色彩" = "Full Color Range";
+"显示尺寸" = "Display Dimensions";
+"声道布局" = "Channel Layout";
+"创建时间" = "Created";
+"修改时间" = "Modified";

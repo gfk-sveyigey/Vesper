@@ -8,6 +8,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var topInset
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
+    @ScaledMetric(relativeTo: .largeTitle) private var titleLineHeight: CGFloat = 41
     @State private var scrollOffset: CGFloat = 0
     @State private var headerOffset: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
@@ -30,6 +31,10 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 
     private var headerHeight: CGFloat {
         headerContentHeight + topInset
+    }
+
+    private var contentReachesTitleOffset: CGFloat {
+        headerContentHeight - max(0, (headerContentHeight - titleLineHeight) / 2)
     }
 
     var body: some View {
@@ -83,7 +88,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             if oldPhase == .interacting, newPhase != .interacting,
                !isCollapsed, headerOffset > 0.5, scrollOffset > 0.5 {
-                settleHeader(collapsed: headerOffset >= headerHeight * 0.45)
+                settleHeader(collapsed: headerOffset >= headerHeight * 0.1125 || scrollOffset > contentReachesTitleOffset)
             }
         }
         .preference(key: VesperRootHeaderKey.self, value: AnyView(header))
@@ -118,9 +123,13 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .frame(height: headerContentHeight)
         .padding(.top, topInset)
         .frame(maxWidth: .infinity)
+        .background {
+            Rectangle().fill(.ultraThinMaterial)
+                .opacity(headerOffset > 0 ? 1 : 0)
+        }
         .compositingGroup()
         .blur(radius: 8 * min(1, max(0, headerOffset / headerHeight)))
-        .opacity(reduceMotion ? 1 - headerOffset / headerHeight : 1)
+        .opacity(1 - min(1, max(0, headerOffset / headerHeight)))
         .offset(y: reduceMotion ? 0 : -headerOffset)
         .allowsHitTesting(!isCollapsed && headerOffset < headerHeight)
         .accessibilityHidden(isCollapsed)

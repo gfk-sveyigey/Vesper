@@ -60,7 +60,7 @@ struct PlayerScreen: View {
                         .allowsHitTesting(false)
                 }
                 PlayerGestureSurface(tapped: handleTap, held: { region, fingers in
-                    guard !controlsVisible, !menuPresented, panel == nil else { return }
+                    guard !regionsVisible, !controlsVisible, !menuPresented, panel == nil else { return }
                     performGestureAction(PlayerGesturePreferences.action(.longPress, region, fingers))
                 }, panned: handlePan)
                     .ignoresSafeArea()
@@ -470,10 +470,19 @@ struct PlayerScreen: View {
     }
 
     private func moreSettingsMenu() -> UIMenu {
-        UIMenu(children: [
-            menuAction(VesperLocalization.string("弹幕设置"), symbol: "text.bubble") { requestPanel(.danmaku) },
-            menuAction(VesperLocalization.string("字幕设置"), symbol: "textformat.size") { requestPanel(.subtitles) },
-            menuAction(VesperLocalization.string("播放手势"), symbol: "hand.draw") { requestPanel(.gestures) }
+        let decoding = UIMenu(title: VesperLocalization.string(session.currentDecoder.title), image: UIImage(systemName: "cpu"), children:
+            PlaybackDecoder.allCases.map { decoder in
+                UIAction(title: VesperLocalization.string(decoder.title), state: decoder == session.currentDecoder ? .on : .off) { _ in
+                    session.setCurrentDecoder(decoder)
+                }
+            })
+        return UIMenu(children: [
+            UIMenu(options: .displayInline, children: [decoding]),
+            UIMenu(options: .displayInline, children: [
+                menuAction(VesperLocalization.string("弹幕设置"), symbol: "text.bubble") { requestPanel(.danmaku) },
+                menuAction(VesperLocalization.string("字幕设置"), symbol: "textformat.size") { requestPanel(.subtitles) },
+                menuAction(VesperLocalization.string("播放手势"), symbol: "hand.draw") { requestPanel(.gestures) }
+            ])
         ])
     }
 
@@ -634,6 +643,7 @@ struct PlayerScreen: View {
 
     private func handleTap(_ region: PlayerGestureRegion, _ fingers: Int, _ double: Bool) {
         guard !menuPresented, panel == nil else { return }
+        if regionsVisible { regionsVisible = false; return }
         if controlsVisible {
             // The visible overlay only accepts its buttons and a one-finger
             // background tap to hide. Playback/brightness/volume gestures are
@@ -674,7 +684,7 @@ struct PlayerScreen: View {
     }
 
     private func performGestureAction(_ action: PlayerGestureAction) {
-        if action != .none && ![.backward, .forward, .brightnessUp, .brightnessDown, .volumeUp, .volumeDown].contains(action) {
+        if action != .none && action != .controls && ![.backward, .forward, .brightnessUp, .brightnessDown, .volumeUp, .volumeDown].contains(action) {
             let message: String
             switch action {
             case .playback: message = VesperLocalization.string(session.isPlaying ? "暂停" : "播放")
@@ -729,7 +739,7 @@ struct PlayerScreen: View {
     private func handlePan(_ region: PlayerGestureRegion, _ fingers: Int, _ kind: PlayerGestureKind,
                            _ delta: CGFloat, _ phase: UIGestureRecognizer.State) {
         if phase == .began {
-            guard !controlsVisible, !menuPresented, panel == nil else { gestureAction = .none; return }
+            guard !regionsVisible, !controlsVisible, !menuPresented, panel == nil else { gestureAction = .none; return }
             activeRegionCount = PlayerGesturePreferences.count(for: kind, fingers: fingers)
             gestureAction = PlayerGesturePreferences.action(kind, region, fingers)
             gestureStart = 0
@@ -769,21 +779,40 @@ struct PlayerScreen: View {
         }
     }
 
+    private var activeRegionLayouts: [Int] {
+        let counts = (1...2).flatMap { fingers in
+            PlayerGestureKind.allCases.compactMap { kind -> Int? in
+                guard !kind.needsTwoFingers || fingers == 2 else { return nil }
+                let count = PlayerGesturePreferences.count(for: kind, fingers: fingers)
+                let active = PlayerGesturePreferences.regions(for: count).contains {
+                    PlayerGesturePreferences.action(kind, $0, fingers) != .none
+                }
+                return active ? count : nil
+            }
+        }
+        return Array(Set(counts)).sorted()
+    }
+
     private var regionOverlay: some View {
         GeometryReader { geometry in
-            let edges = [CGFloat(0)] + PlayerGesturePreferences.boundaries(for: activeRegionCount) + [CGFloat(1)]
-            HStack(spacing: 0) {
-                ForEach(Array(PlayerGesturePreferences.regions(for: activeRegionCount).enumerated()), id: \.element.id) { index, region in
-                    Text(activeRegionCount == 1 ? "全部区域" : region.title)
-                        .font(.headline).frame(width: geometry.size.width * (edges[index + 1] - edges[index]), height: geometry.size.height)
-                        .background(.blue.opacity(0.18))
-                        .border(.white.opacity(0.65), width: 1)
+            let layouts = activeRegionLayouts
+            VStack(spacing: 8) {
+                ForEach(layouts, id: \.self) { count in
+                    let edges = [CGFloat(0)] + PlayerGesturePreferences.boundaries(for: count) + [CGFloat(1)]
+                    HStack(spacing: 2) {
+                        ForEach(Array(PlayerGesturePreferences.regions(for: count).enumerated()), id: \.element.id) { index, region in
+                            Text(count == 1 ? "全部区域" : region.title)
+                                .font(.headline)
+                                .frame(width: max(0, (geometry.size.width - CGFloat(count - 1) * 2) * (edges[index + 1] - edges[index])), height: max(0, (geometry.size.height - CGFloat(max(0, layouts.count - 1)) * 8) / CGFloat(max(1, layouts.count))))
+                                .background(.blue.opacity(0.18))
+                        }
+                    }
                 }
             }
         }
         .allowsHitTesting(false)
         .task(id: regionRevision) {
-            try? await Task.sleep(for: .seconds(3))
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
             if !Task.isCancelled { regionsVisible = false }
         }
     }
@@ -829,13 +858,24 @@ private struct PlayerMediaInfoView: View {
     @State private var details: PlaybackVideoDetails?
     @State private var loading = true
     private func detailGroup(_ field: PlaybackDetailField) -> Int {
-        if ["音轨数量", "音频语言", "音频码率", "音频编码", "采样率", "声道数", "音频位深"].contains(field.label) { return 2 }
+        if ["音轨数量", "音频语言", "音频码率", "音频编码", "采样率", "声道数", "音频位深", "声道布局"].contains(field.label) { return 2 }
         if ["容器格式", "总码率", "创建时间", "修改时间"].contains(field.label) { return 0 }
         return 1
     }
+    private func detailLabel(_ label: String) -> String {
+        switch label {
+        case "视频编码", "音频编码": return "编码格式"
+        case "视频码率", "音频码率": return "码率"
+        case "音频语言": return "语言"
+        case "音频位深", "视频位深": return "位深"
+        case "视频轨道数量": return "轨道数量"
+        case "容器格式": return "封装格式"
+        default: return label
+        }
+    }
     private func detailFields(_ details: PlaybackVideoDetails, group: Int) -> some View {
         ForEach(Array(details.technical.filter { detailGroup($0) == group }.enumerated()), id: \.offset) { _, field in
-            LabeledContent { Text(verbatim: field.value).textSelection(.enabled) } label: { Text(LocalizedStringKey(field.label)) }
+            LabeledContent { Text(verbatim: field.value).textSelection(.enabled) } label: { Text(LocalizedStringKey(detailLabel(field.label))) }
         }
     }
     var body: some View {

@@ -23,7 +23,7 @@ struct HistoryView: View {
                 VesperRootScrollView(title: "记录") {
                     LazyVStack(alignment: .leading, spacing: 24) {
                         ForEach(groups) { group in
-                            VStack(alignment: .leading, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 0) {
                                 Text(verbatim: library.sources.first(where: { $0.id == group.id })?.name ?? group.source.name)
                                     .font(.headline).foregroundStyle(.secondary)
                                     .padding(.horizontal, 20)
@@ -45,7 +45,8 @@ struct HistoryView: View {
                                             .accessibilityLabel(Text(verbatim: entry.title))
                                         }
                                     }
-
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 12)
                                 }
                                 .scrollIndicators(.hidden)
                                 .contentMargins(.horizontal, 0, for: .scrollContent)
