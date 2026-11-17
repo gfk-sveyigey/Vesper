@@ -403,6 +403,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             appIsInBackground = false
             appIsInactive = false
             pruneUnavailableHistory()
+            if isPictureInPictureActive { isPresented = false }
         @unknown default: break
         }
     }
@@ -565,6 +566,11 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             dimensions = "\(Int(abs(transformed.width).rounded())) × \(Int(abs(transformed.height).rounded()))"
         }
         var technical: [PlaybackDetailField] = []
+        technical.append(.init(label: "视频轨道数量", value: String(tracks.count)))
+        if let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]) {
+            if let date = values.creationDate { technical.append(.init(label: "创建时间", value: date.formatted())) }
+            if let date = values.contentModificationDate { technical.append(.init(label: "修改时间", value: date.formatted())) }
+        }
         for (index, track) in tracks.enumerated() {
             let prefix = "Video \(index + 1)"
             if let size = try? await track.load(.naturalSize), size.height != 0 {

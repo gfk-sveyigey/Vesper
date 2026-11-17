@@ -53,7 +53,9 @@ struct VideoImportSheet: View {
                             do {
                                 let url = try await VideoImporter.shared.importVideo(file)
                                 AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [VideoImport] 文件保存成功")
+                                saving = false
                                 saved(url)
+                                dismiss()
                             } catch {
                                 AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [VideoImport] 保存失败：\(error.localizedDescription)")
                                 saveError = error.localizedDescription

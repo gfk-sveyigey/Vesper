@@ -51,11 +51,11 @@ enum PlayerGestureRegion: String, CaseIterable, Identifiable {
 }
 
 enum PlayerGestureKind: String, CaseIterable, Identifiable {
-    case tap, doubleTap, up, down, left, right, pinchIn, pinchOut
+    case tap, doubleTap, longPress, up, down, left, right, pinchIn, pinchOut
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
-        case .tap: "单击"; case .doubleTap: "双击"; case .up: "向上滑动"; case .down: "向下滑动"
+        case .longPress: "长按"; case .tap: "单击"; case .doubleTap: "双击"; case .up: "向上滑动"; case .down: "向下滑动"
         case .left: "向左滑动"; case .right: "向右滑动"; case .pinchIn: "捏合"; case .pinchOut: "张开"
         }
     }
@@ -169,6 +169,7 @@ enum PlayerGesturePreferences {
     static func action(_ kind: PlayerGestureKind, _ region: PlayerGestureRegion, _ fingers: Int) -> PlayerGestureAction {
         if let pair = PlayerGesturePair.containing(kind), pairEnabled(pair, fingers) { return pairAction(pair, region, fingers).action(positive: kind == pair.positive) }
         if let saved = UserDefaults.standard.string(forKey: key(kind, region, fingers)), let action = PlayerGestureAction(rawValue: saved) { return action }
+        if kind == .longPress { return .none }
         if fingers == 2 { return kind == .doubleTap ? .close : .none }
         switch kind {
         case .tap: return .controls
@@ -196,12 +197,14 @@ private extension CGFloat {
 /// Only the unobstructed video receives playback gestures; native controls own their touches.
 struct PlayerGestureSurface: UIViewRepresentable {
     var tapped: (PlayerGestureRegion, Int, Bool) -> Void
+    var held: (PlayerGestureRegion, Int) -> Void
     var panned: (PlayerGestureRegion, Int, PlayerGestureKind, CGFloat, UIGestureRecognizer.State) -> Void
     func makeUIView(context: Context) -> GestureView { GestureView() }
-    func updateUIView(_ view: GestureView, context: Context) { view.tapped = tapped; view.panned = panned }
+    func updateUIView(_ view: GestureView, context: Context) { view.tapped = tapped; view.panned = panned; view.held = held }
 
     final class GestureView: UIView, UIGestureRecognizerDelegate {
         var tapped: ((PlayerGestureRegion, Int, Bool) -> Void)?
+        var held: ((PlayerGestureRegion, Int) -> Void)?
         var panned: ((PlayerGestureRegion, Int, PlayerGestureKind, CGFloat, UIGestureRecognizer.State) -> Void)?
         private var region = PlayerGestureRegion.center
         private var fingers = 1
@@ -223,6 +226,13 @@ struct PlayerGestureSurface: UIViewRepresentable {
                 for other in taps where other.numberOfTouchesRequired > tap.numberOfTouchesRequired { tap.require(toFail: other) }
                 addGestureRecognizer(tap)
             }
+            for count in 1...2 {
+                let hold = UILongPressGestureRecognizer(target: self, action: #selector(hold(_:)))
+                hold.numberOfTouchesRequired = count
+                hold.minimumPressDuration = 0.5
+                addGestureRecognizer(hold)
+                for tap in taps { tap.require(toFail: hold) }
+            }
             let pan = UIPanGestureRecognizer(target: self, action: #selector(pan(_:)))
             pan.maximumNumberOfTouches = 2
             addGestureRecognizer(pan)
@@ -234,18 +244,31 @@ struct PlayerGestureSurface: UIViewRepresentable {
             let kind: PlayerGestureKind = sender.numberOfTapsRequired == 2 ? .doubleTap : .tap
             tapped?(PlayerGesturePreferences.region(at: sender.location(in: self), width: bounds.width, kind: kind, fingers: sender.numberOfTouchesRequired), sender.numberOfTouchesRequired, sender.numberOfTapsRequired == 2)
         }
+        @objc private func hold(_ sender: UILongPressGestureRecognizer) {
+            guard sender.state == .began else { return }
+            let fingers = sender.numberOfTouchesRequired
+            held?(PlayerGesturePreferences.region(at: sender.location(in: self), width: bounds.width, kind: .longPress, fingers: fingers), fingers)
+        }
         @objc private func pan(_ sender: UIPanGestureRecognizer) {
             let delta = sender.translation(in: self)
             if sender.state == .began {
-                let location = sender.location(in: self)
                 fingers = sender.numberOfTouches
-                axis = abs(delta.y) >= abs(delta.x) ? (delta.y < 0 ? .up : .down) : (delta.x < 0 ? .left : .right)
-                if let axis { region = PlayerGesturePreferences.region(at: CGPoint(x: location.x - delta.x, y: location.y - delta.y), width: bounds.width, kind: axis, fingers: fingers) }
+                axis = nil
+            }
+            var phase = sender.state
+            if axis == nil {
+                guard max(abs(delta.x), abs(delta.y)) >= 18 else { return }
+                let horizontal = abs(delta.x) > abs(delta.y) * 1.2
+                let vertical = abs(delta.y) > abs(delta.x) * 1.2
+                guard horizontal || vertical else { return }
+                axis = horizontal ? (delta.x < 0 ? .left : .right) : (delta.y < 0 ? .up : .down)
+                if let axis { region = PlayerGesturePreferences.region(at: CGPoint(x: sender.location(in: self).x - delta.x, y: sender.location(in: self).y - delta.y), width: bounds.width, kind: axis, fingers: fingers) }
+                phase = .began
             }
             guard let axis else { return }
             let fraction = (axis == .up || axis == .down) ? delta.y / max(bounds.height, 1) : delta.x / max(bounds.width, 1)
             let sign: CGFloat = (axis == .up || axis == .left) ? -1 : 1
-            panned?(region, fingers, axis, max(0, fraction * sign), sender.state)
+            panned?(region, fingers, axis, max(0, fraction * sign), phase)
             if [.ended, .cancelled, .failed].contains(sender.state) { self.axis = nil }
         }
         @objc private func pinch(_ sender: UIPinchGestureRecognizer) {
@@ -319,6 +342,8 @@ final class PlayerSystemVolume: ObservableObject {
         // Preserve the native route's range; map normalized volume into it.
         let nativeValue = slider.minimumValue + requested * (slider.maximumValue - slider.minimumValue)
         pendingValue = (requested, Date().addingTimeInterval(0.5))
+        slider.isUserInteractionEnabled = true
+        slider.isEnabled = true
         slider.setValue(nativeValue, animated: false)
         slider.sendActions(for: .valueChanged)
         slider.sendActions(for: .touchUpInside)
@@ -346,6 +371,7 @@ final class PlayerSystemVolume: ObservableObject {
     }
 
     final class SystemVolumeView: MPVolumeView {
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool { false }
         override func layoutSubviews() {
             super.layoutSubviews()
             // Keep the native volume control attached and active, but render our

@@ -24,6 +24,10 @@ assert(PlayerGesturePreferences.action(.doubleTap, .left, 1) == .backward)
 assert(PlayerGesturePreferences.action(.doubleTap, .center, 1) == .playback)
 assert(PlayerGesturePreferences.action(.doubleTap, .right, 1) == .forward)
 
+for fingers in 1...2 {
+    assert(PlayerGesturePreferences.count(for: .longPress, fingers: fingers) == 1)
+    assert(PlayerGesturePreferences.action(.longPress, .center, fingers) == .none)
+}
 // Product defaults use a distinct layout for each gesture and finger count.
 assert(PlayerGesturePreferences.count(for: .up, fingers: 1) == 2)
 assert(PlayerGesturePreferences.count(for: .down, fingers: 1) == 2)

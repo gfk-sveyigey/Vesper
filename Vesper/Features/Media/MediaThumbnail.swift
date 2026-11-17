@@ -38,6 +38,7 @@ struct MediaThumbnail: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(Rectangle())
         .accessibilityHidden(true)
         .task(id: "\(item.id):\(aspectRatio)") {
             image = nil
@@ -136,7 +137,7 @@ private struct ThumbnailPlaybackProgress: View {
     private var total: Double { duration > 0 ? duration : session.savedDuration(for: item) }
     var body: some View {
         Group {
-            if progress > 0 && total > 0 {
+            if progress > 0 && total > 3 {
                 ThumbnailProgressBadge(position: progress, total: total)
             }
         }
@@ -161,8 +162,9 @@ private struct ThumbnailProgressBadge: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            if let title { Text(verbatim: title).lineLimit(1).truncationMode(.tail) }
+            if let title { Text(verbatim: title).font(.caption).lineLimit(1).truncationMode(.tail) }
             HStack(spacing: 5) {
+                if total > 3 {
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
                         Capsule().fill(.white.opacity(0.35))
@@ -173,8 +175,9 @@ private struct ThumbnailProgressBadge: View {
                     }
                 }
                 .frame(width: progressWidth, height: 4)
-                Text(verbatim: showsPosition ? "\(mediaTimeLabel(position)) / \(mediaTimeLabel(total))" : mediaTimeLabel(total))
-                    .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                Text(verbatim: showsPosition && total > 3 ? "\(mediaTimeLabel(position)) / \(mediaTimeLabel(total))" : mediaTimeLabel(total))
+                    .font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
             }
         }
         .foregroundStyle(.white)

@@ -26,6 +26,8 @@ struct HistoryView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text(verbatim: library.sources.first(where: { $0.id == group.id })?.name ?? group.source.name)
                                     .font(.headline).foregroundStyle(.secondary)
+                                    .padding(.horizontal, 20)
+
                                 ScrollView(.horizontal) {
                                     LazyHStack(spacing: 12) {
                                         ForEach(group.entries) { entry in
@@ -36,19 +38,21 @@ struct HistoryView: View {
                                                 MediaThumbnail(source: source, item: entry.item, playback: playback, historyEntry: entry)
                                                     .frame(width: 132, height: 198)
                                             }
+                                            .contentShape(Rectangle())
+                                            .clipped()
                                             .buttonStyle(.plain)
                                             .modifier(MediaThumbnailMenu(source: source, item: entry.item, playback: playback, historyEntry: entry) { EmptyView() })
                                             .accessibilityLabel(Text(verbatim: entry.title))
                                         }
                                     }
-                                    .scrollTargetLayout()
+
                                 }
                                 .scrollIndicators(.hidden)
-                                .scrollTargetBehavior(.viewAligned)
+                                .contentMargins(.horizontal, 0, for: .scrollContent)
                             }
                         }
                     }
-                    .padding(.horizontal, 20)
+
                 }
             }
         }

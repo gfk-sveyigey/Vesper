@@ -401,7 +401,7 @@ struct TabSettingsView: View {
                 } footer: {
                     Text("关闭常显后，仅在有可播放内容时显示迷你播放器。")
                 }
-                SettingsSection {
+                Section {
                     HStack(alignment: .top, spacing: 10) {
                         ForEach(sections) { section in
                             Menu {
@@ -429,7 +429,7 @@ struct TabSettingsView: View {
                         }
                     }
                     .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color(uiColor: .systemGroupedBackground))
+                    .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                 }
             }

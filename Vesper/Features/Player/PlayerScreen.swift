@@ -59,7 +59,10 @@ struct PlayerScreen: View {
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
                 }
-                PlayerGestureSurface(tapped: handleTap, panned: handlePan)
+                PlayerGestureSurface(tapped: handleTap, held: { region, fingers in
+                    guard !controlsVisible, !menuPresented, panel == nil else { return }
+                    performGestureAction(PlayerGesturePreferences.action(.longPress, region, fingers))
+                }, panned: handlePan)
                     .ignoresSafeArea()
                     .accessibilityHidden(true)
                 subtitles
@@ -125,10 +128,10 @@ struct PlayerScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .foregroundStyle(.white).tint(.white)
         }
-        .background {
+        .overlay(alignment: .topLeading) {
             PlayerVolumeBridge(volume: volume)
                 .frame(width: 160, height: 44)
-                .allowsHitTesting(false).accessibilityHidden(true)
+                .accessibilityHidden(true)
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(!controlsVisible)
@@ -244,17 +247,17 @@ struct PlayerScreen: View {
     private func volumeControl(width: CGFloat) -> some View {
         ZStack(alignment: .trailing) {
             GeometryReader { geometry in
+                let trackWidth = max(0, geometry.size.width - 72)
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.2))
                     Rectangle().fill(.white)
-                        .frame(width: geometry.size.width * CGFloat(displayedVolume))
+                        .frame(width: trackWidth * CGFloat(displayedVolume))
                 }
-                .frame(height: 8).clipShape(Capsule())
+                .frame(width: trackWidth, height: 8).clipShape(Capsule())
+                .offset(x: 16)
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
             }
             .frame(height: 8)
-            .padding(.leading, 16)
-            .padding(.trailing, 56)
             .opacity(volumeExpanded ? 1 : 0)
             .clipped()
             .allowsHitTesting(false)
@@ -577,14 +580,15 @@ struct PlayerScreen: View {
                 case .synopsis: PlayerMediaInfoView(session: session, showsDetails: false)
                 case .details: PlayerMediaInfoView(session: session, showsDetails: true)
                 case .queue:
-                    SettingsPage {
-                        SettingsSection {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
                             ForEach(session.queue) { item in
                                 Button { session.playQueued(item); panel = nil } label: {
                                     PlayerQueueRow(session: session, item: item)
+                                        .padding(.vertical, 6)
+                                        .padding(.horizontal, 16)
                                 }
                                 .buttonStyle(.plain)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
                             }
                         }
                     }
@@ -642,7 +646,43 @@ struct PlayerScreen: View {
         performGestureAction(action)
     }
 
+    private func gestureActionLabel(_ action: PlayerGestureAction) -> String {
+        switch action {
+        case .controls: return "显隐控制层"
+        case .play: return "播放"
+        case .pause: return "暂停"
+        case .showRegions: return "显示区域划分"
+        case .playlist: return "播放列表"
+        case .synopsis: return "视频简介"
+        case .details: return "详细信息"
+        case .rotate: return "切换屏幕方向"
+        case .fill: return "切换填充方式"
+        case .fillScreen: return "填满屏幕"
+        case .fitScreen: return "完整显示"
+        case .landscape: return "横屏"
+        case .portrait: return "竖屏"
+        case .pictureInPicture: return "画中画"
+        case .close: return "退出播放"
+        case .speedUp: return "加快播放速度"
+        case .speedDown: return "减慢播放速度"
+        case .moreSettings: return "更多设置"
+        case .subtitles: return "字幕设置"
+        case .danmaku: return "弹幕设置"
+        case .gestures: return "播放手势"
+        default: return "播放"
+        }
+    }
+
     private func performGestureAction(_ action: PlayerGestureAction) {
+        if action != .none && ![.backward, .forward, .brightnessUp, .brightnessDown, .volumeUp, .volumeDown].contains(action) {
+            let message: String
+            switch action {
+            case .playback: message = VesperLocalization.string(session.isPlaying ? "暂停" : "播放")
+            case .mute: message = VesperLocalization.string(audioIsMuted ? "取消静音" : "静音")
+            default: message = VesperLocalization.string(action.rawValue == "controls" ? "显隐控制层" : gestureActionLabel(action))
+            }
+            showHUD(message, symbol: "checkmark")
+        }
         switch action {
         case .none: break
         case .controls: setControlsVisible(!controlsVisible)
@@ -788,35 +828,36 @@ private struct PlayerMediaInfoView: View {
     let showsDetails: Bool
     @State private var details: PlaybackVideoDetails?
     @State private var loading = true
+    private func detailGroup(_ field: PlaybackDetailField) -> Int {
+        if ["音轨数量", "音频语言", "音频码率", "音频编码", "采样率", "声道数", "音频位深"].contains(field.label) { return 2 }
+        if ["容器格式", "总码率", "创建时间", "修改时间"].contains(field.label) { return 0 }
+        return 1
+    }
+    private func detailFields(_ details: PlaybackVideoDetails, group: Int) -> some View {
+        ForEach(Array(details.technical.filter { detailGroup($0) == group }.enumerated()), id: \.offset) { _, field in
+            LabeledContent { Text(verbatim: field.value).textSelection(.enabled) } label: { Text(LocalizedStringKey(field.label)) }
+        }
+    }
     var body: some View {
         SettingsPage {
-            SettingsSection {
-                Text(verbatim: session.currentItem?.title ?? "").font(.headline).textSelection(.enabled)
-                if let subtitle = session.currentItem?.subtitle { Text(verbatim: subtitle).foregroundStyle(.secondary) }
-            }
             if loading { ProgressView() }
             if showsDetails {
-                SettingsSection {
-                    if let details {
+                if let details {
+                    SettingsSection("文件信息") {
                         LabeledContent("文件名") { Text(verbatim: details.fileName).textSelection(.enabled) }
                         LabeledContent("来源") { Text(verbatim: details.sourceName) }
-                        ForEach(Array(details.technical.enumerated()), id: \.offset) { _, field in
-                            LabeledContent { Text(verbatim: field.value).textSelection(.enabled) } label: {
-                                Text(LocalizedStringKey(field.label))
-                            }
-                        }
-                        if let dimensions = details.dimensions { LabeledContent("分辨率") { Text(verbatim: dimensions) } }
                         if let bytes = details.byteCount {
                             LabeledContent("文件大小") { Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
                         }
+                        LabeledContent("时长") { Text(verbatim: mediaTimeLabel(session.duration)) }
+                        detailFields(details, group: 0)
                     }
-                    if session.duration > 0 {
-                        LabeledContent("时长") {
-                            Text(verbatim: Duration.seconds(session.duration).formatted(.time(pattern: .hourMinuteSecond)))
-                        }
+                    SettingsSection("视频信息") {
+                        if let dimensions = details.dimensions { LabeledContent("分辨率") { Text(verbatim: dimensions) } }
+                        detailFields(details, group: 1)
                     }
-                    if !loading && details == nil { Text("无法读取视频信息").foregroundStyle(.secondary) }
-                }
+                    SettingsSection("音频信息") { detailFields(details, group: 2) }
+                } else if !loading { Text("无法读取视频信息").foregroundStyle(.secondary) }
             } else if !loading {
                 SettingsSection {
                     if let synopsis = details?.synopsis { Text(verbatim: synopsis).textSelection(.enabled) }
@@ -848,7 +889,7 @@ private struct PlayerQueueRow: View {
         HStack(spacing: 14) {
             if let source = session.queueSource {
                 MediaThumbnail(source: source, item: item, aspectRatio: 16.0 / 9.0, logsQueueDiagnostics: true)
-                    .frame(width: 128, height: 72)
+                    .frame(width: 104, height: 58.5)
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(verbatim: (item.title as NSString).deletingPathExtension)

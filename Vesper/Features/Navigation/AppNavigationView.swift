@@ -259,6 +259,7 @@ private struct MiniPlayerAccessory: View {
                 ProgressView().controlSize(.small)
             } else {
                 Button(session.isPlaying ? "暂停" : "播放", systemImage: session.isPlaying ? "pause.fill" : "play.fill") {
+                    if !session.isPlaying && !session.isPictureInPictureActive { openPlayer() }
                     session.togglePlayback()
                 }
                 .disabled(!session.canControl)

@@ -80,9 +80,9 @@ struct LocalFilesView<SourceMenu: View>: View {
         } message: {
             if renameEntry?.isDirectory == false { Text("请输入完整文件名，包括扩展名。") }
         }
-        .confirmationDialog("删除项目？", isPresented: Binding(
+        .alert("删除项目？", isPresented: Binding(
             get: { deleteEntry != nil }, set: { if !$0 { deleteEntry = nil } }
-        ), titleVisibility: .visible) {
+        )) {
             if let entry = deleteEntry {
                 Button("删除", role: .destructive) {
                     deleteEntry = nil
