@@ -21,6 +21,7 @@ struct VesperApp: App {
         WindowGroup {
             AppNavigationView()
                 .environmentObject(incomingVideos)
+                .onOpenURL { FileDeliveryRouter.receive($0, origin: "swiftui.open") }
                 .tint(VesperTheme.accent(accent))
                 .preferredColorScheme(VesperTheme.colorScheme(appearanceMode))
                 .environment(\.locale, VesperLocalization.locale(for: languageCode))

@@ -52,9 +52,12 @@ Vesper registers only video document types (public.movie, AVI, MKV and WebM).
 UIApplicationDelegateAdaptor configures VesperFileSceneDelegate using the public
 SwiftUI integration documented by Apple. SwiftUI still owns all windows and views.
 The scene delegate forwards cold-start connectionOptions.urlContexts and warm
-scene(_:openURLContexts:) events into IncomingVideoReceiver.shared. The SwiftUI
-App observes that same instance, so early files remain queued until the UI is ready.
-There is one delivery path; a second SwiftUI onOpenURL handler cannot duplicate it.
+scene(_:openURLContexts:) events. AppDelegate launch/open callbacks, scene/app
+user activities containing file URLs, and SwiftUI onOpenURL forwarding all feed
+FileDeliveryRouter and then IncomingVideoReceiver.shared. The SwiftUI App observes
+that same receiver, so early files remain queued until the UI is ready. Overlapping
+cross-callback deliveries of the same file within two seconds are merged; a later
+intentional event from the same callback can still reopen the preview.
 The receiver acquires security scope immediately and retains pending files. The actor checks actual readability first; unreadable URLs are silently
 ignored. Readable files must have a video type and an actual FFmpeg video stream
 (audio-only or renamed text files are rejected with an alert).
@@ -111,3 +114,10 @@ Runtime log loading accepts ISO-8601 timestamps both with and without fractional
 seconds. Playback and import callers write whole-second timestamps; silently
 dropping those on restart previously made URL-delivery diagnosis unreliable.
 Confirm that VideoImport entries survive terminating and reopening Vesper.
+
+URL-context counts of zero at launch describe only one input channel. Log launch
+option keys and user-activity types/keys as well as native and SwiftUI URL events
+before concluding no document was handed over. Only file URLs from these inputs
+are accepted; no general URL or text document type is registered. When testing,
+record whether Vesper is installed directly or hosted by a container, since a host
+can change which system callbacks reach the guest app. No private host APIs are used.
