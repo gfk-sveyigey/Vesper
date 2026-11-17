@@ -18,7 +18,7 @@
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>NSPhotoLibraryUsageDescription</key><string>浏览相册中的视频以添加媒体来源。</string>
 <key>UIFileSharingEnabled</key><true/>
-<key>LSSupportsOpeningDocumentsInPlace</key><true/>
+<key>LSSupportsOpeningDocumentsInPlace</key><false/>
 <key>CFBundleDocumentTypes</key>
 <array><dict>
     <key>CFBundleTypeName</key><string>Video</string>
