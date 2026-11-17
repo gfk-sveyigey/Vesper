@@ -4,23 +4,14 @@ import UIKit
 struct PlayerGestureSettingsView: View {
     @State private var revision = 0
     @State private var confirmingReset = false
-    @State private var showingRanges = false
-    @State private var showingPairs = false
+    @State private var activeSheet: GestureSettingsSheet?
 
     var body: some View {
         let _ = revision
         SettingsPage(usesLazyLayout: false) {
             SettingsIntroCard(title: "播放手势", symbol: "hand.draw", description: "为每种手势选择区域与动作。")
-            SettingsSection {
-                Button { showingRanges = true } label: {
-                    Label("区域范围设置", systemImage: "rectangle.split.3x1")
-                }
-            }
-            SettingsSection {
-                Button { showingPairs = true } label: {
-                    Label("组合手势设置", systemImage: "arrow.up.arrow.down")
-                }
-            }
+            settingsEntry("区域范围设置", symbol: "rectangle.split.3x1", destination: .regions)
+            settingsEntry("组合手势设置", symbol: "arrow.up.arrow.down", destination: .pairs)
             ForEach(gestureEntries) { entry in
                 gestureSection(entry.kind, fingers: entry.fingers, pair: entry.pair)
             }
@@ -39,16 +30,43 @@ struct PlayerGestureSettingsView: View {
             Button("恢复默认", role: .destructive) { PlayerGesturePreferences.reset(); revision += 1 }
             Button("取消", role: .cancel) { }
         }
-        .sheet(isPresented: $showingRanges) {
-            NavigationStack { GestureRegionSettingsView() }
-                .presentationDetents([.custom(GestureRegionsDetent.self)])
-                .presentationDragIndicator(.visible)
+        .sheet(item: $activeSheet, onDismiss: { revision += 1 }) { destination in
+            NavigationStack {
+                switch destination {
+                case .regions: GestureRegionSettingsView()
+                case .pairs: GesturePairSettingsView(changed: { revision += 1 })
+                }
+            }
+            .presentationDetents([destination.detent])
+            .presentationDragIndicator(.visible)
+            .onAppear { logSheet(destination, event: "presented") }
         }
-        .sheet(isPresented: $showingPairs, onDismiss: { revision += 1 }) {
-            NavigationStack { GesturePairSettingsView(changed: { revision += 1 }) }
-                .presentationDetents([.custom(GesturePairsDetent.self)])
-                .presentationDragIndicator(.visible)
+    }
+
+    private func settingsEntry(_ title: LocalizedStringKey, symbol: String, destination: GestureSettingsSheet) -> some View {
+        Button {
+            logSheet(destination, event: "tapped")
+            activeSheet = destination
+        } label: {
+            HStack(spacing: 12) {
+                Label(title, systemImage: symbol)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+            .settingsCardBackground()
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("gestureSettings.\(destination.rawValue)")
+    }
+
+    private func logSheet(_ destination: GestureSettingsSheet, event: String) {
+        AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [GestureSettings] \(destination.rawValue) \(event)")
     }
 
     // Flatten the dynamic groups so identity includes both finger count and
@@ -119,6 +137,17 @@ struct PlayerGestureSettingsView: View {
         Binding { PlayerGesturePreferences.pairAction(pair, region, fingers) } set: { value in
             UserDefaults.standard.set(value.rawValue, forKey: PlayerGesturePreferences.pairKey(pair, region, fingers))
             revision += 1
+        }
+    }
+}
+
+private enum GestureSettingsSheet: String, Identifiable {
+    case regions, pairs
+    var id: Self { self }
+    var detent: PresentationDetent {
+        switch self {
+        case .regions: .custom(GestureRegionsDetent.self)
+        case .pairs: .custom(GesturePairsDetent.self)
         }
     }
 }
