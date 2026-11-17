@@ -79,7 +79,7 @@ The exact action name/visibility depends on the sending app. Verify on iOS 26:
 1. Receive a local MP4 with Vesper stopped, then repeat with it already open.
 2. Receive MKV/WebM, portrait and metadata-less videos; preview fallback is allowed.
 3. Deliver an unreadable URL: no sheet, alert, source or playback changes.
-4. Deliver readable text, text renamed to .mp4 and audio renamed to .mp4: alert only.
+4. Deliver readable text, empty files, and text/images/audio renamed to .mp4: alert only.
 5. Dismiss a preview: no local copy or source creation.
 6. Direct Play, minimize and reopen: video continues, library stays unchanged.
 7. Save a video twice: both copies remain; save a Documents video: no duplicate.

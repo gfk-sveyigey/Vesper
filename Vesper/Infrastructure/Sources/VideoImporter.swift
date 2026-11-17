@@ -30,7 +30,8 @@ actor VideoImporter {
                   let handle = try? FileHandle(forReadingFrom: readable) else { return }
             defer { try? handle.close() }
             // Opening the handle alone does not prove that the provider can read data.
-            guard (try? handle.read(upToCount: 1)) != nil else { return }
+            do { _ = try handle.read(upToCount: 1) }
+            catch { return }
             guard Self.isVideoType(readable) else { result = .notVideo; return }
             // Inspect actual streams, not just the filename. FFmpeg also handles
             // MKV/WebM, which AVFoundation may not recognize on iOS.
@@ -43,6 +44,14 @@ actor VideoImporter {
             guard avformat_open_input(&context, readable.path, nil, &options) >= 0,
                   let opened = context,
                   avformat_find_stream_info(opened, nil) >= 0 else { result = .notVideo; return }
+            if let name = opened.pointee.iformat?.pointee.name {
+                let demuxer = String(cString: name)
+                let imageFormats: Set<String> = ["image2", "image2pipe", "gif", "apng", "ico"]
+                if demuxer.hasSuffix("_pipe") || imageFormats.contains(demuxer) {
+                    result = .notVideo
+                    return
+                }
+            }
             var dimensions: (Int, Int)?
             for index in 0..<Int(opened.pointee.nb_streams) {
                 guard let stream = opened.pointee.streams[index],
