@@ -46,7 +46,9 @@ struct SourcesView: View {
         }
         .fileImporter(
             isPresented: $isShowingVideoPicker,
-            allowedContentTypes: [.movie]
+            // Diagnostic only: bypass the provider's movie-type classification.
+            // The shared receiver still checks readability and actual video streams.
+            allowedContentTypes: [.data]
         ) { result in
             switch result {
             case .success(let url):
@@ -75,7 +77,7 @@ struct SourcesView: View {
             Button("Emby", systemImage: "play.rectangle") { isShowingEmbyNotice = true }
             Divider()
             Button("选择视频（诊断）", systemImage: "doc.badge.gearshape") {
-                FileDeliveryLog.write("打开应用内视频选择器")
+                FileDeliveryLog.write("打开应用内视频选择器，诊断过滤类型=public.data")
                 isShowingVideoPicker = true
             }
         } label: {
