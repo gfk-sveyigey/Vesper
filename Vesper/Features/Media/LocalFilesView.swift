@@ -91,7 +91,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                 VesperEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
                     .frame(minHeight: 420)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 20) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
                 ForEach(entries) { entry in
                     Group {
                         if entry.isDirectory {

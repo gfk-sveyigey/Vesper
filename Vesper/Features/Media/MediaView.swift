@@ -32,7 +32,7 @@ struct MediaView: View {
                             VesperEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
                                 .frame(maxWidth: .infinity, minHeight: 420)
                         } else {
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 20) {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
                                 ForEach(items) { item in
                                     Button {
                                         guard let source = library.selectedSource else { return }
