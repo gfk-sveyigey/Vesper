@@ -106,3 +106,8 @@ URL event and receiver validation. An app opening alone does not confirm file
 handoff. Confirm actual receipt on device for both a terminated app and an already
 running app, as well as delivery while a player/preview is presented. Build success
 checks compilation, not the Files app's runtime delivery.
+
+Runtime log loading accepts ISO-8601 timestamps both with and without fractional
+seconds. Playback and import callers write whole-second timestamps; silently
+dropping those on restart previously made URL-delivery diagnosis unreliable.
+Confirm that VideoImport entries survive terminating and reopening Vesper.

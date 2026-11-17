@@ -23,10 +23,12 @@ final class RuntimeLogEntries: ObservableObject {
     init() {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let wholeSecondsFormatter = ISO8601DateFormatter()
         let text = (try? String(contentsOf: Self.fileURL, encoding: .utf8)) ?? ""
         entries = text.split(separator: "\n").compactMap { line in
             guard let firstSpace = line.firstIndex(of: " "),
-                  let date = formatter.date(from: String(line[..<firstSpace])) else { return nil }
+                  let date = formatter.date(from: String(line[..<firstSpace]))
+                    ?? wholeSecondsFormatter.date(from: String(line[..<firstSpace])) else { return nil }
             return RuntimeLogEntry(timestamp: date, message: String(line))
         }
         retentionDays = max(0, UserDefaults.standard.object(forKey: "runtimeLogs.retentionDays") as? Int ?? 7)
