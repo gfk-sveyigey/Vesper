@@ -28,9 +28,11 @@ struct IncomingVideo: Identifiable, Sendable {
     var name: String { url.lastPathComponent }
 }
 
-/// App-level receiver retains incoming URLs even before the root view appears.
+/// The native scene delegate and SwiftUI use the same receiver, including
+/// delivery before the root view appears.
 @MainActor
 final class IncomingVideoReceiver: ObservableObject {
+    static let shared = IncomingVideoReceiver()
     @Published private(set) var videos: [IncomingVideo] = []
     @Published private(set) var nonVideoCount = 0
     private var requests: [IncomingFileAccess] = []

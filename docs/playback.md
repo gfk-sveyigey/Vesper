@@ -49,9 +49,13 @@ CI must compile the generic iOS device target with Xcode 26. Runtime checks:
 ## Receiving videos from other apps
 
 Vesper registers only video document types (public.movie, AVI, MKV and WebM).
-An app-owned IncomingVideoReceiver handles onOpenURL at the WindowGroup root,
-acquires security scope immediately and retains pending files until the UI is
-ready. The actor checks actual readability first; unreadable URLs are silently
+UIApplicationDelegateAdaptor configures VesperFileSceneDelegate using the public
+SwiftUI integration documented by Apple. SwiftUI still owns all windows and views.
+The scene delegate forwards cold-start connectionOptions.urlContexts and warm
+scene(_:openURLContexts:) events into IncomingVideoReceiver.shared. The SwiftUI
+App observes that same instance, so early files remain queued until the UI is ready.
+There is one delivery path; a second SwiftUI onOpenURL handler cannot duplicate it.
+The receiver acquires security scope immediately and retains pending files. The actor checks actual readability first; unreadable URLs are silently
 ignored. Readable files must have a video type and an actual FFmpeg video stream
 (audio-only or renamed text files are rejected with an alert).
 
@@ -70,7 +74,8 @@ or thumbnail does not prevent the user choosing an action.
 
 Copies and FFmpeg probing run outside the main actor. File-provider reads/copies
 are coordinated, and temporary staging files do not appear in the media list.
-VideoImport logs identify URL receipt, unreadable rejection, invalid video and
+VideoImport logs identify app startup/build, scene configuration/connection, native
+URL delivery, receiver URL receipt, unreadable rejection, invalid video and
 successful validation without logging the full external path.
 
 This uses the system document-opening flow, not a separate Share Extension.
@@ -86,3 +91,18 @@ The exact action name/visibility depends on the sending app. Verify on iOS 26:
 8. Receive another video while playing or while a preview is open: previews queue
    without overlapping sheet/full-screen transitions.
 9. Test iCloud/provider access, a file deleted after inspection and a failed save.
+
+### Native file-delivery entry points
+
+Apple documents the custom scene delegate approach for SwiftUI here:
+https://developer.apple.com/documentation/swiftui/uiapplicationdelegateadaptor
+Cold-start file contexts are available in scene connection options:
+https://developer.apple.com/documentation/uikit/uiscenedelegate/scene(_:willconnectto:options:)
+Warm file contexts arrive via:
+https://developer.apple.com/documentation/uikit/uiscenedelegate/scene(_:openurlcontexts:)
+
+When diagnosing a failed receipt, distinguish app/scene startup from a nonempty
+URL event and receiver validation. An app opening alone does not confirm file
+handoff. Confirm actual receipt on device for both a terminated app and an already
+running app, as well as delivery while a player/preview is presented. Build success
+checks compilation, not the Files app's runtime delivery.
