@@ -429,7 +429,7 @@ struct TabSettingsView: View {
                         }
                     }
                     .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
+                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                     .listRowSeparator(.hidden)
                 }
             }
@@ -533,8 +533,8 @@ private struct TabOrderSettingsView: View {
                     HStack {
                         Label(section.title, systemImage: section.symbol)
                         Spacer()
-                        Button("上移", systemImage: "arrow.up") { move(index, by: -1) }.labelStyle(.iconOnly).disabled(index == 0)
-                        Button("下移", systemImage: "arrow.down") { move(index, by: 1) }.labelStyle(.iconOnly).disabled(index == sections.count - 1)
+                        Button("上移", systemImage: "arrow.up") { move(index, by: -1) }.labelStyle(.iconOnly).buttonStyle(.borderless).disabled(index == 0)
+                        Button("下移", systemImage: "arrow.down") { move(index, by: 1) }.labelStyle(.iconOnly).buttonStyle(.borderless).disabled(index == sections.count - 1)
                     }
                     .draggable(section.rawValue)
                     .dropDestination(for: String.self) { values, _ in
