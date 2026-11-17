@@ -47,7 +47,8 @@ actor VideoImporter {
             for index in 0..<Int(opened.pointee.nb_streams) {
                 guard let stream = opened.pointee.streams[index],
                       let codec = stream.pointee.codecpar,
-                      codec.pointee.codec_type == AVMEDIA_TYPE_VIDEO else { continue }
+                      codec.pointee.codec_type == AVMEDIA_TYPE_VIDEO,
+                      stream.pointee.disposition & AV_DISPOSITION_ATTACHED_PIC == 0 else { continue }
                 dimensions = (Int(codec.pointee.width), Int(codec.pointee.height))
                 break
             }
@@ -65,11 +66,15 @@ actor VideoImporter {
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: file.url))
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 900, height: 500)
-        if let result = try? await generator.image(at: .zero) {
+        do {
+            let result = try await generator.image(at: .zero)
             return UIImage(cgImage: result.image).jpegData(compressionQuality: 0.85)
+        } catch {
+            // Unsupported containers use the GPL decoder below.
         }
         // Use the existing GPL decoder for containers the system cannot preview.
-        guard !Task.isCancelled, file.width > 0, file.height > 0 else { return nil }
+        if Task.isCancelled { return nil }
+        if file.width <= 0 || file.height <= 0 { return nil }
         let controller = ThumbnailController(thumbnailCount: 1)
         guard let frames = try? await controller.generateThumbnail(for: file.url, thumbWidth: 600) else { return nil }
         return frames.first?.image.jpegData(compressionQuality: 0.85)
