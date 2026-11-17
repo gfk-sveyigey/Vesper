@@ -402,21 +402,20 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         case .active:
             appIsInBackground = false
             appIsInactive = false
+            pruneUnavailableHistory()
         @unknown default: break
         }
     }
 
     private func recordPlaybackHistory() {
         guard let item = currentItem, let source, source.id == item.id.sourceID, externalFile == nil,
-              currentTime > 0.5, duration > 0 else { return }
+              suppressedProgressID != item.id, currentTime > 0.5, duration > 0 else { return }
         let entry = PlaybackHistoryEntry(mediaID: item.id, title: item.title, source: source,
                                          watchedAt: Date(), position: currentTime, duration: duration)
         history.removeAll { $0.mediaID == item.id }
         history.insert(entry, at: 0)
         if history.count > 1000 { history.removeLast(history.count - 1000) }
-        if let data = try? JSONEncoder().encode(history) {
-            UserDefaults.standard.set(data, forKey: "player.history.v1")
-        }
+        persistHistory()
         lastHistorySave = Date()
     }
 
@@ -442,6 +441,9 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     func clearSavedProgress() {
         UserDefaults.standard.removeObject(forKey: progressStorageKey)
         UserDefaults.standard.removeObject(forKey: durationStorageKey)
+        if let currentItem { suppressedProgressID = currentItem.id }
+        history.removeAll()
+        persistHistory()
         savedProgressRevision += 1
     }
 
@@ -466,7 +468,78 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         UserDefaults.standard.set(values, forKey: progressStorageKey)
         UserDefaults.standard.set(durations, forKey: durationStorageKey)
         if currentItem?.id == item.id { suppressedProgressID = item.id }
+        history.removeAll { $0.mediaID == item.id }
+        persistHistory()
         savedProgressRevision += 1
+    }
+
+    /// Called after a successful file deletion; directory deletion also removes
+    /// descendant entries. Suppress the active item so a later stop cannot save it again.
+    func removePlaybackData(sourceID: UUID, path: String, includingDescendants: Bool) {
+        removePlaybackData { id in
+            id.sourceID == sourceID && (id.localID == path || (includingDescendants && id.localID.hasPrefix(path + "/")))
+        }
+    }
+
+    private func removePlaybackData(matching matches: (MediaID) -> Bool) {
+        if let currentItem, matches(currentItem.id) { suppressedProgressID = currentItem.id }
+        history.removeAll { matches($0.mediaID) }
+        for storageKey in [progressStorageKey, durationStorageKey] {
+            var values = UserDefaults.standard.dictionary(forKey: storageKey) as? [String: Double] ?? [:]
+            for key in Array(values.keys) {
+                guard let separator = key.firstIndex(of: ":"),
+                      let sourceID = UUID(uuidString: String(key[..<separator])) else { continue }
+                let id = MediaID(sourceID: sourceID, localID: String(key[key.index(after: separator)...]))
+                if matches(id) { values.removeValue(forKey: key) }
+            }
+            UserDefaults.standard.set(values, forKey: storageKey)
+        }
+        persistHistory()
+        savedProgressRevision += 1
+    }
+
+    private func persistHistory() {
+        if let data = try? JSONEncoder().encode(history) {
+            UserDefaults.standard.set(data, forKey: "player.history.v1")
+        }
+    }
+
+    /// Reconcile files deleted outside Vesper when returning to the app. A loss
+    /// of permission alone is not evidence that a video was deleted.
+    func pruneUnavailableHistory() {
+        var missing = Set<MediaID>()
+        let photoAccess = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        for entry in history {
+            switch entry.source.kind {
+            case .local:
+                guard let root = try? entry.source.localFolderURL() else { continue }
+                let scoped = root.startAccessingSecurityScopedResource()
+                defer { if scoped { root.stopAccessingSecurityScopedResource() } }
+                guard FileManager.default.isReadableFile(atPath: root.path) else { continue }
+                let path = entry.mediaID.localID
+                guard !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else {
+                    missing.insert(entry.mediaID)
+                    continue
+                }
+                do {
+                    let values = try root.appendingPathComponent(path).resourceValues(forKeys: [.isRegularFileKey])
+                    if values.isRegularFile != true { missing.insert(entry.mediaID) }
+                } catch {
+                    let failure = error as NSError
+                    if failure.domain == NSCocoaErrorDomain,
+                       [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(failure.code) {
+                        missing.insert(entry.mediaID)
+                    }
+                }
+            case .photos:
+                if photoAccess == .authorized,
+                   PHAsset.fetchAssets(withLocalIdentifiers: [entry.mediaID.localID], options: nil).count == 0 {
+                    missing.insert(entry.mediaID)
+                }
+            case .demo: break
+            }
+        }
+        if !missing.isEmpty { removePlaybackData { missing.contains($0) } }
     }
 
     private func restoreProgressIfNeeded() {

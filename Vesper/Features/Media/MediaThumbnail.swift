@@ -8,6 +8,7 @@ struct MediaThumbnail: View {
     let source: MediaSource
     let item: MediaItem
     var playback: PlaybackSession? = nil
+    var historyEntry: PlaybackHistoryEntry? = nil
     @State private var image: UIImage?
 
     var body: some View {
@@ -28,7 +29,9 @@ struct MediaThumbnail: View {
         }
         .aspectRatio(2.0 / 3.0, contentMode: .fit)
         .overlay(alignment: .bottomLeading) {
-            if let playback {
+            if let historyEntry {
+                ThumbnailProgressBadge(position: historyEntry.position, total: historyEntry.duration, showsPosition: true)
+            } else if let playback {
                 ThumbnailPlaybackProgress(session: playback, source: source, item: item)
             }
         }
@@ -121,39 +124,12 @@ private struct ThumbnailPlaybackProgress: View {
     let item: MediaItem
     @AppStorage("player.rememberProgress") private var remembersProgress = true
     @State private var duration: Double = 0
-    @ScaledMetric(relativeTo: .caption2) private var progressWidth = 20.0
     private var progress: Double { remembersProgress ? session.savedProgress(for: item) : 0 }
     private var total: Double { duration > 0 ? duration : session.savedDuration(for: item) }
     var body: some View {
         Group {
             if progress > 0 && total > 0 {
-                HStack(spacing: 5) {
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(.white.opacity(0.35))
-                            Capsule().fill(.white)
-                                .mask(alignment: .leading) {
-                                    Rectangle().frame(width: geometry.size.width * CGFloat(min(1, max(0, progress / total))))
-                                }
-                        }
-                    }
-                    .frame(width: progressWidth, height: 4)
-                    Text(verbatim: timeLabel(total)).font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8).padding(.bottom, 8)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .bottomLeading)
-                .background {
-                    Rectangle().fill(.ultraThinMaterial)
-                        .overlay {
-                            LinearGradient(colors: [.clear, .black.opacity(0.3)], startPoint: .top, endPoint: .bottom)
-                        }
-                        .mask {
-                            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                        }
-                        .environment(\.colorScheme, .dark)
-                }
+                ThumbnailProgressBadge(position: progress, total: total)
             }
         }
         .task(id: progress > 0 ? item.id : nil) {
@@ -163,10 +139,46 @@ private struct ThumbnailPlaybackProgress: View {
             duration = result
         }
     }
-    private func timeLabel(_ seconds: Double) -> String {
-        let seconds = Int(max(0, seconds))
-        if seconds >= 3600 { return String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60) }
-        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+}
+
+private struct ThumbnailProgressBadge: View {
+    let position: Double
+    let total: Double
+    var showsPosition = false
+    @ScaledMetric(relativeTo: .caption2) private var progressWidth = 20.0
+    private var fraction: CGFloat {
+        guard total.isFinite, position.isFinite, total > 0 else { return 0 }
+        return CGFloat(min(1, max(0, position / total)))
+    }
+    var body: some View {
+        HStack(spacing: 5) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.35))
+                    Capsule().fill(.white)
+                        .mask(alignment: .leading) {
+                            Rectangle().frame(width: geometry.size.width * fraction)
+                        }
+                }
+            }
+            .frame(width: progressWidth, height: 4)
+            Text(verbatim: showsPosition ? "\(mediaTimeLabel(position)) / \(mediaTimeLabel(total))" : mediaTimeLabel(total))
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 8).padding(.bottom, 8)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .bottomLeading)
+        .background {
+            Rectangle().fill(.ultraThinMaterial)
+                .overlay {
+                    LinearGradient(colors: [.clear, .black.opacity(0.3)], startPoint: .top, endPoint: .bottom)
+                }
+                .mask {
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                }
+                .environment(\.colorScheme, .dark)
+        }
     }
 }
 
@@ -223,6 +235,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     let source: MediaSource
     let item: MediaItem
     @ObservedObject var playback: PlaybackSession
+    var historyEntry: PlaybackHistoryEntry? = nil
     @ViewBuilder let actions: () -> Actions
     @State private var shareResource: ResolvedPlaybackResource?
     @State private var showingShare = false
@@ -235,12 +248,12 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
             .contextMenu {
                 Button("分享", systemImage: "square.and.arrow.up") { share() }
                     .disabled(preparingShare)
-                if playback.savedProgress(for: item) > 0 {
+                if playback.savedProgress(for: item) > 0 || playback.history.contains(where: { $0.mediaID == item.id }) {
                     Button("清除播放进度", systemImage: "clock.arrow.circlepath") { playback.clearSavedProgress(for: item) }
                 }
                 actions()
             } preview: {
-                MediaThumbnailPreview(source: source, item: item, playback: playback)
+                MediaThumbnailPreview(source: source, item: item, playback: playback, historyEntry: historyEntry)
             }
             .sheet(isPresented: $showingShare, onDismiss: {
                 shareResource?.release()
@@ -275,16 +288,22 @@ private struct MediaThumbnailPreview: View {
     let source: MediaSource
     let item: MediaItem
     let playback: PlaybackSession
+    var historyEntry: PlaybackHistoryEntry? = nil
     @State private var duration: Double = 0
     private var displayName: String {
         VideoImporter.isVideoType(URL(fileURLWithPath: item.title)) ? (item.title as NSString).deletingPathExtension : item.title
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            MediaThumbnail(source: source, item: item, playback: playback)
+            MediaThumbnail(source: source, item: item, playback: playback, historyEntry: historyEntry)
                 .frame(width: 200, height: 300)
             Text(verbatim: displayName).font(.headline).lineLimit(2)
-            if duration > 0 {
+            if let historyEntry {
+                Text(verbatim: "\(mediaTimeLabel(historyEntry.position)) / \(mediaTimeLabel(historyEntry.duration))")
+                    .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                (Text("查看时间") + Text(" ") + Text(historyEntry.watchedAt, format: .dateTime.year().month().day().hour().minute()))
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if duration > 0 {
                 Text(verbatim: mediaTimeLabel(duration)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
             } else { ProgressView() }
         }

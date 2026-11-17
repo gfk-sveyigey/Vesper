@@ -86,7 +86,7 @@ struct LocalFilesView<SourceMenu: View>: View {
             if let entry = deleteEntry {
                 Button("删除", role: .destructive) {
                     deleteEntry = nil
-                    perform(affecting: entry) { root in
+                    perform(affecting: entry, removesMedia: true) { root in
                         try await LocalFileStore.shared.delete(root: root, entry: entry)
                     }
                 }
@@ -223,14 +223,19 @@ struct LocalFilesView<SourceMenu: View>: View {
         }
     }
 
-    private func perform(affecting entry: LocalFileEntry?, operation: @escaping (URL) async throws -> Void) {
+    private func perform(affecting entry: LocalFileEntry?, removesMedia: Bool = false, operation: @escaping (URL) async throws -> Void) {
         guard !busy else { return }
         busy = true
         Task { @MainActor in
             defer { busy = false }
             do {
                 try await operation(source.localFolderURL())
-                if let entry { stopPlayback(affectedBy: entry) }
+                if let entry {
+                    stopPlayback(affectedBy: entry)
+                    if removesMedia {
+                        playback.removePlaybackData(sourceID: source.id, path: entry.path, includingDescendants: entry.isDirectory)
+                    }
+                }
                 library.reload()
                 await reload()
             } catch { showError(error) }

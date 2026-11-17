@@ -16,44 +16,43 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        if playback.history.isEmpty {
-            VesperEmptyPage(title: "记录", message: "无记录", symbol: AppSection.history.symbol)
-        } else {
-            VesperRootScrollView(title: "记录") {
-                LazyVStack(alignment: .leading, spacing: 24) {
-                    ForEach(groups) { group in
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(verbatim: library.sources.first(where: { $0.id == group.id })?.name ?? group.source.name)
-                                .font(.headline).foregroundStyle(.secondary)
-                            ForEach(group.entries) { entry in
-                                Button {
-                                    let source = library.sources.first(where: { $0.id == group.id }) ?? group.source
-                                    playback.play(entry.item, in: source, queue: group.entries.map(\.item))
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        MediaThumbnail(source: group.source, item: entry.item)
-                                            .frame(width: 52, height: 78)
-                                        VStack(alignment: .leading, spacing: 5) {
-                                            Text(verbatim: entry.title).font(.headline).lineLimit(2)
-                                            Text(verbatim: "\(mediaTimeLabel(entry.position)) / \(mediaTimeLabel(entry.duration))")
-                                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                                            Text(entry.watchedAt, style: .date).font(.caption).foregroundStyle(.secondary)
+        Group {
+            if playback.history.isEmpty {
+                VesperEmptyPage(title: "记录", message: "无记录", symbol: AppSection.history.symbol)
+            } else {
+                VesperRootScrollView(title: "记录") {
+                    LazyVStack(alignment: .leading, spacing: 24) {
+                        ForEach(groups) { group in
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(verbatim: library.sources.first(where: { $0.id == group.id })?.name ?? group.source.name)
+                                    .font(.headline).foregroundStyle(.secondary)
+                                ScrollView(.horizontal) {
+                                    LazyHStack(spacing: 12) {
+                                        ForEach(group.entries) { entry in
+                                            let source = library.sources.first(where: { $0.id == group.id }) ?? group.source
+                                            Button {
+                                                playback.play(entry.item, in: source, queue: group.entries.map(\.item))
+                                            } label: {
+                                                MediaThumbnail(source: source, item: entry.item, playback: playback, historyEntry: entry)
+                                                    .frame(width: 132, height: 198)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .modifier(MediaThumbnailMenu(source: source, item: entry.item, playback: playback, historyEntry: entry) { EmptyView() })
+                                            .accessibilityLabel(Text(verbatim: entry.title))
                                         }
-                                        Spacer(minLength: 0)
-                                        Image(systemName: "play.fill").foregroundStyle(.tint)
                                     }
-                                    .padding(12)
-                                    .contentShape(Rectangle())
+                                    .scrollTargetLayout()
                                 }
-                                .buttonStyle(.plain)
-                                .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 16))
+                                .scrollIndicators(.hidden)
+                                .scrollTargetBehavior(.viewAligned)
                             }
                         }
                     }
+                    .padding(.horizontal, 20)
                 }
-                .padding(.horizontal, 20)
             }
         }
+        .onAppear { playback.pruneUnavailableHistory() }
     }
 }
 

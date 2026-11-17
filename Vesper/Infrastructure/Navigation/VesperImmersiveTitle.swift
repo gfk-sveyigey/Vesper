@@ -15,6 +15,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var isCollapsed = false
     @State private var isSnapping = false
     @State private var animationGeneration = 0
+    @State private var expandedScrollOrigin: CGFloat = 0
+    @State private var isReturningToExpanded = false
 
     init(title: LocalizedStringKey, @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
@@ -58,23 +60,30 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             if newPhase == .animating {
                 animationGeneration += 1
                 isSnapping = false
+                isReturningToExpanded = false
                 isSystemScrolling = true
-                // Start revealing immediately, independently of the distance
-                // the system still has to scroll back to the top.
+                expandedScrollOrigin = 0
+                // System scroll-to-top reveals content and Header together.
                 withAnimation(animation) {
                     isCollapsed = false
                     headerOffset = 0
                 }
-            } else if newPhase == .interacting || newPhase == .idle {
-                if isSystemScrolling && scrollOffset <= 0.5 {
-                    headerOffset = 0
-                    isCollapsed = false
+            } else if newPhase == .interacting {
+                isSystemScrolling = false
+                if isReturningToExpanded {
+                    animationGeneration += 1
+                    isReturningToExpanded = false
+                    isSnapping = false
+                    expandedScrollOrigin = scrollOffset
                 }
+            } else if newPhase == .idle {
+                if isReturningToExpanded { expandedScrollOrigin = scrollOffset }
+                isReturningToExpanded = false
                 isSystemScrolling = false
             }
             if oldPhase == .interacting, newPhase != .interacting,
                !isCollapsed, headerOffset > 0.5, scrollOffset > 0.5 {
-                snapHeader()
+                settleHeader(collapsed: headerOffset >= headerHeight * 0.45)
             }
         }
         .preference(key: VesperRootHeaderKey.self, value: AnyView(header))
@@ -109,6 +118,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .frame(height: headerContentHeight)
         .padding(.top, topInset)
         .frame(maxWidth: .infinity)
+        .compositingGroup()
+        .blur(radius: 8 * min(1, max(0, headerOffset / headerHeight)))
         .opacity(reduceMotion ? 1 - headerOffset / headerHeight : 1)
         .offset(y: reduceMotion ? 0 : -headerOffset)
         .allowsHitTesting(!isCollapsed && headerOffset < headerHeight)
@@ -123,23 +134,29 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             guard headerOffset > 0 || isCollapsed || isSnapping else { return }
             animationGeneration += 1
             isSnapping = false
+            isReturningToExpanded = false
+            expandedScrollOrigin = 0
             withAnimation(animation) {
                 isCollapsed = false
                 headerOffset = 0
             }
+        } else if isReturningToExpanded {
+            expandedScrollOrigin = offset
         } else if !isCollapsed && !isSnapping {
-            headerOffset = max(headerOffset, min(offset, headerHeight))
+            headerOffset = max(headerOffset, min(max(0, offset - expandedScrollOrigin), headerHeight))
         }
     }
 
-    private func snapHeader() {
+    private func settleHeader(collapsed: Bool) {
         guard !isSnapping, !isCollapsed else { return }
         isSnapping = true
-        isCollapsed = true
+        isCollapsed = collapsed
+        isReturningToExpanded = !collapsed
+        if !collapsed { expandedScrollOrigin = scrollOffset }
         animationGeneration += 1
         let generation = animationGeneration
         withAnimation(animation, completionCriteria: .logicallyComplete) {
-            headerOffset = headerHeight
+            headerOffset = collapsed ? headerHeight : 0
         } completion: {
             guard generation == animationGeneration else { return }
             isSnapping = false
