@@ -40,8 +40,8 @@ enum PlayerGestureRegion: String, CaseIterable, Identifiable {
     var title: LocalizedStringKey {
         switch self { case .left: "左侧区域"; case .center: "中间区域"; case .right: "右侧区域" }
     }
-    static func at(_ point: CGPoint, width: CGFloat) -> Self {
-        let edges = PlayerGesturePreferences.boundaries
+    static func at(_ point: CGPoint, width: CGFloat, count: Int) -> Self {
+        let edges = PlayerGesturePreferences.boundaries(for: count)
         let x = point.x / max(width, 1)
         if edges.isEmpty { return .center }
         if x < edges[0] { return .left }
@@ -81,9 +81,42 @@ enum PlayerGestureAction: String, CaseIterable, Identifiable {
     static func choices(for kind: PlayerGestureKind) -> [Self] { allCases }
 }
 
+enum PlayerGesturePair: String, CaseIterable, Identifiable {
+    case vertical, horizontal, pinch, rotation
+    var id: Self { self }
+    var title: LocalizedStringKey {
+        switch self { case .vertical: "上滑／下滑"; case .horizontal: "右滑／左滑"; case .pinch: "张开／捏合"; case .rotation: "顺时针／逆时针旋转" }
+    }
+    var positive: PlayerGestureKind {
+        switch self { case .vertical: .up; case .horizontal: .right; case .pinch: .pinchOut; case .rotation: .rotateClockwise }
+    }
+    var negative: PlayerGestureKind {
+        switch self { case .vertical: .down; case .horizontal: .left; case .pinch: .pinchIn; case .rotation: .rotateCounterclockwise }
+    }
+    var needsTwoFingers: Bool { self == .pinch || self == .rotation }
+    static func containing(_ kind: PlayerGestureKind) -> Self? { allCases.first { $0.positive == kind || $0.negative == kind } }
+}
+
+enum PlayerGesturePairAction: String, CaseIterable, Identifiable {
+    case none, seek, volume, brightness, speed, playback
+    var id: Self { self }
+    var title: LocalizedStringKey {
+        switch self {
+        case .none: "无操作"; case .seek: "快进／快退"; case .volume: "增大／减小音量"
+        case .brightness: "增大／减小亮度"; case .speed: "加快／减慢播放速度"; case .playback: "播放／暂停"
+        }
+    }
+    func action(positive: Bool) -> PlayerGestureAction {
+        switch self {
+        case .none: .none; case .seek: positive ? .forward : .backward
+        case .volume: positive ? .volumeUp : .volumeDown; case .brightness: positive ? .brightnessUp : .brightnessDown
+        case .speed: positive ? .speedUp : .speedDown; case .playback: positive ? .play : .pause
+        }
+    }
+}
+
 enum PlayerGesturePreferences {
-    static var count: Int { let n = UserDefaults.standard.integer(forKey: "player.gesture.regionCount"); return (1...3).contains(n) ? n : 3 }
-    static var boundaries: [CGFloat] {
+    static func boundaries(for count: Int) -> [CGFloat] {
         if count == 1 { return [] }
         let defaults = UserDefaults.standard
         if count == 2 { return [CGFloat(defaults.object(forKey: "player.gesture.split2") as? Double ?? 0.5).clamped(to: 0.15...0.85)] }
@@ -91,11 +124,34 @@ enum PlayerGesturePreferences {
         let second = CGFloat(defaults.object(forKey: "player.gesture.split3.second") as? Double ?? 2.0 / 3).clamped(to: (first + 0.15)...0.85)
         return [first, second]
     }
-    static var regions: [PlayerGestureRegion] { count == 1 ? [.center] : (count == 2 ? [.left, .right] : PlayerGestureRegion.allCases) }
-    static func key(_ kind: PlayerGestureKind, _ region: PlayerGestureRegion, _ fingers: Int) -> String {
-        "player.gesture.\(fingers).\(region.rawValue).\(kind.rawValue)"
+    static func regions(for count: Int) -> [PlayerGestureRegion] { count == 1 ? [.center] : (count == 2 ? [.left, .right] : PlayerGestureRegion.allCases) }
+    static func pairEnabled(_ pair: PlayerGesturePair, _ fingers: Int) -> Bool {
+        UserDefaults.standard.object(forKey: "player.gesture.paired.\(fingers).\(pair.rawValue)") as? Bool ?? false
+    }
+    static func layoutID(_ kind: PlayerGestureKind, _ fingers: Int) -> String {
+        if let pair = PlayerGesturePair.containing(kind), pairEnabled(pair, fingers) { return "pair.\(pair.rawValue)" }
+        return kind.rawValue
+    }
+    static func layoutKey(_ kind: PlayerGestureKind, _ fingers: Int) -> String { "player.gesture.layout.\(fingers).\(layoutID(kind, fingers))" }
+    static func count(for kind: PlayerGestureKind, fingers: Int) -> Int {
+        let defaults = UserDefaults.standard
+        let count = defaults.object(forKey: layoutKey(kind, fingers)) as? Int ?? defaults.object(forKey: "player.gesture.regionCount") as? Int ?? 3
+        return (1...3).contains(count) ? count : 3
+    }
+    static func region(at point: CGPoint, width: CGFloat, kind: PlayerGestureKind, fingers: Int) -> PlayerGestureRegion {
+        .at(point, width: width, count: count(for: kind, fingers: fingers))
+    }
+    static func key(_ kind: PlayerGestureKind, _ region: PlayerGestureRegion, _ fingers: Int) -> String { "player.gesture.\(fingers).\(region.rawValue).\(kind.rawValue)" }
+    static func pairKey(_ pair: PlayerGesturePair, _ region: PlayerGestureRegion, _ fingers: Int) -> String { "player.gesture.pairAction.\(fingers).\(pair.rawValue).\(region.rawValue)" }
+    static func pairAction(_ pair: PlayerGesturePair, _ region: PlayerGestureRegion, _ fingers: Int) -> PlayerGesturePairAction {
+        if let saved = UserDefaults.standard.string(forKey: pairKey(pair, region, fingers)), let value = PlayerGesturePairAction(rawValue: saved) { return value }
+        guard fingers == 1 else { return .none }
+        if pair == .horizontal { return .seek }
+        if pair == .vertical { return region == .left ? .brightness : (region == .right ? .volume : .none) }
+        return .none
     }
     static func action(_ kind: PlayerGestureKind, _ region: PlayerGestureRegion, _ fingers: Int) -> PlayerGestureAction {
+        if let pair = PlayerGesturePair.containing(kind), pairEnabled(pair, fingers) { return pairAction(pair, region, fingers).action(positive: kind == pair.positive) }
         if let saved = UserDefaults.standard.string(forKey: key(kind, region, fingers)), let action = PlayerGestureAction(rawValue: saved) { return action }
         guard fingers == 1 else { return .none }
         switch kind {
@@ -113,9 +169,7 @@ enum PlayerGesturePreferences {
         return [5.0, 10, 15, 30].contains(saved) ? saved : 15
     }
     static func reset() {
-        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("player.gesture.") && key != "player.gesture.skipSeconds" {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("player.gesture.") && key != "player.gesture.skipSeconds" { UserDefaults.standard.removeObject(forKey: key) }
     }
 }
 
@@ -163,15 +217,16 @@ struct PlayerGestureSurface: UIViewRepresentable {
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         @objc private func tap(_ sender: UITapGestureRecognizer) {
-            tapped?(.at(sender.location(in: self), width: bounds.width), sender.numberOfTouchesRequired, sender.numberOfTapsRequired == 2)
+            let kind: PlayerGestureKind = sender.numberOfTapsRequired == 2 ? .doubleTap : .tap
+            tapped?(PlayerGesturePreferences.region(at: sender.location(in: self), width: bounds.width, kind: kind, fingers: sender.numberOfTouchesRequired), sender.numberOfTouchesRequired, sender.numberOfTapsRequired == 2)
         }
         @objc private func pan(_ sender: UIPanGestureRecognizer) {
             let delta = sender.translation(in: self)
             if sender.state == .began {
                 let location = sender.location(in: self)
-                region = .at(CGPoint(x: location.x - delta.x, y: location.y - delta.y), width: bounds.width)
                 fingers = sender.numberOfTouches
                 axis = abs(delta.y) >= abs(delta.x) ? (delta.y < 0 ? .up : .down) : (delta.x < 0 ? .left : .right)
+                if let axis { region = PlayerGesturePreferences.region(at: CGPoint(x: location.x - delta.x, y: location.y - delta.y), width: bounds.width, kind: axis, fingers: fingers) }
             }
             guard let axis else { return }
             let fraction = (axis == .up || axis == .down) ? delta.y / max(bounds.height, 1) : delta.x / max(bounds.width, 1)
@@ -180,13 +235,19 @@ struct PlayerGestureSurface: UIViewRepresentable {
             if [.ended, .cancelled, .failed].contains(sender.state) { self.axis = nil }
         }
         @objc private func pinch(_ sender: UIPinchGestureRecognizer) {
-            if sender.state == .began { region = .at(sender.location(in: self), width: bounds.width); axis = sender.scale < 1 ? .pinchIn : .pinchOut }
+            if sender.state == .began {
+                let kind: PlayerGestureKind = sender.scale < 1 ? .pinchIn : .pinchOut
+                axis = kind; region = PlayerGesturePreferences.region(at: sender.location(in: self), width: bounds.width, kind: kind, fingers: 2)
+            }
             guard let axis else { return }
             panned?(region, 2, axis, max(0, (sender.scale - 1) * (axis == .pinchIn ? -1 : 1)), sender.state)
             if [.ended, .cancelled, .failed].contains(sender.state) { self.axis = nil }
         }
         @objc private func rotate(_ sender: UIRotationGestureRecognizer) {
-            if sender.state == .began { region = .at(sender.location(in: self), width: bounds.width); axis = sender.rotation < 0 ? .rotateCounterclockwise : .rotateClockwise }
+            if sender.state == .began {
+                let kind: PlayerGestureKind = sender.rotation < 0 ? .rotateCounterclockwise : .rotateClockwise
+                axis = kind; region = PlayerGesturePreferences.region(at: sender.location(in: self), width: bounds.width, kind: kind, fingers: 2)
+            }
             guard let axis else { return }
             panned?(region, 2, axis, max(0, sender.rotation * (axis == .rotateCounterclockwise ? -1 : 1)) / .pi, sender.state)
             if [.ended, .cancelled, .failed].contains(sender.state) { self.axis = nil }
@@ -241,13 +302,14 @@ struct PlayerAirPlayButton: UIViewRepresentable {
 /// neither the active menu nor its actions are replaced until dismissal.
 struct PlayerMenuButton: UIViewRepresentable {
     var symbol = "ellipsis"
+    var pointSize: CGFloat = 17
     var accessibilityTitle = VesperLocalization.string("更多")
     var makeMenu: () -> UIMenu
     var visibilityChanged: (Bool) -> Void
 
     func makeUIView(context: Context) -> MenuButton {
         let button = MenuButton(type: .system)
-        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
+        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)), for: .normal)
         button.tintColor = .white
         button.showsMenuAsPrimaryAction = true
         button.preferredMenuElementOrder = .fixed
@@ -255,6 +317,7 @@ struct PlayerMenuButton: UIViewRepresentable {
         return button
     }
     func updateUIView(_ button: MenuButton, context: Context) {
+        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)), for: .normal)
         button.visibilityChanged = visibilityChanged
         if !button.isMenuShowing { button.menu = makeMenu() }
     }
@@ -293,6 +356,7 @@ struct PlayerMenuButton: UIViewRepresentable {
 struct PlayerActionButton: UIViewRepresentable {
     let title: String
     let symbol: String
+    var pointSize: CGFloat = 17
     var action: () -> Void
     func makeUIView(context: Context) -> UIButton {
         let button = UIButton(type: .system)
@@ -303,7 +367,7 @@ struct PlayerActionButton: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(action: action) }
     func updateUIView(_ button: UIButton, context: Context) {
         context.coordinator.action = action
-        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)), for: .normal)
+        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)), for: .normal)
         button.accessibilityLabel = title
     }
     final class Coordinator {

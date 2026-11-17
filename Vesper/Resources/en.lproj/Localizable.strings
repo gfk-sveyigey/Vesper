@@ -488,3 +488,35 @@
 "传递函数" = "Transfer Function";
 
 "色彩矩阵" = "Color Matrix";
+
+"上滑／下滑" = "Swipe Up / Down";
+
+"右滑／左滑" = "Swipe Right / Left";
+
+"张开／捏合" = "Pinch Out / In";
+
+"顺时针／逆时针旋转" = "Rotate Clockwise / Counterclockwise";
+
+"快进／快退" = "Seek Forward / Backward";
+
+"增大／减小音量" = "Increase / Decrease Volume";
+
+"增大／减小亮度" = "Increase / Decrease Brightness";
+
+"加快／减慢播放速度" = "Increase / Decrease Playback Speed";
+
+"播放／暂停" = "Play / Pause";
+
+"为每种手势选择区域与动作。" = "Choose regions and actions for each gesture.";
+
+"区域划分" = "Region Layout";
+
+"区域划分预览" = "Region Layout Preview";
+
+"区域范围设置" = "Region Boundaries";
+
+"左侧区域边界" = "Left Region Boundary";
+
+"组合手势设置" = "Paired Gestures";
+
+"默认播放速度" = "Default Playback Speed";

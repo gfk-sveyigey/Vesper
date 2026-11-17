@@ -488,3 +488,35 @@
 "传递函数" = "Función de transferencia";
 
 "色彩矩阵" = "Matriz de color";
+
+"上滑／下滑" = "Deslizar arriba / abajo";
+
+"右滑／左滑" = "Deslizar derecha / izquierda";
+
+"张开／捏合" = "Separar / juntar dedos";
+
+"顺时针／逆时针旋转" = "Girar a la derecha / izquierda";
+
+"快进／快退" = "Avanzar / retroceder";
+
+"增大／减小音量" = "Subir / bajar volumen";
+
+"增大／减小亮度" = "Subir / bajar brillo";
+
+"加快／减慢播放速度" = "Aumentar / reducir velocidad";
+
+"播放／暂停" = "Reproducir / pausar";
+
+"为每种手势选择区域与动作。" = "Elige regiones y acciones para cada gesto.";
+
+"区域划分" = "División de regiones";
+
+"区域划分预览" = "Vista previa de regiones";
+
+"区域范围设置" = "Límites de regiones";
+
+"左侧区域边界" = "Límite de la región izquierda";
+
+"组合手势设置" = "Gestos combinados";
+
+"默认播放速度" = "Velocidad predeterminada";

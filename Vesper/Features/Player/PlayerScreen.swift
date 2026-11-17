@@ -32,6 +32,7 @@ struct PlayerScreen: View {
     @State private var gestureAction = PlayerGestureAction.none
     @State private var gestureStart: Double = 0
     @State private var regionsVisible = false
+    @State private var activeRegionCount = 3
     @State private var regionRevision = 0
     @State private var originalBrightness: CGFloat?
     @State private var brightnessScreen: UIScreen?
@@ -411,14 +412,14 @@ struct PlayerScreen: View {
                     .disabled(session.queue.isEmpty)
             }
             .glassEffect(.regular.interactive(), in: Capsule())
-            PlayerMenuButton(symbol: "gearshape", accessibilityTitle: VesperLocalization.string("更多设置"), makeMenu: moreSettingsMenu, visibilityChanged: menuVisibilityChanged)
+            PlayerMenuButton(symbol: "gearshape", pointSize: 14, accessibilityTitle: VesperLocalization.string("更多设置"), makeMenu: moreSettingsMenu, visibilityChanged: menuVisibilityChanged)
                 .frame(width: 36, height: 36)
                 .glassEffect(.regular.interactive(), in: Circle())
         }
     }
 
     private func compactAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
-        PlayerActionButton(title: VesperLocalization.string(title), symbol: symbol) { revealControls(); action() }
+        PlayerActionButton(title: VesperLocalization.string(title), symbol: symbol, pointSize: 14) { revealControls(); action() }
             .frame(width: 36, height: 36)
     }
 
@@ -528,19 +529,25 @@ struct PlayerScreen: View {
                 switch selected {
                 case .more:
                     List {
-                        NavigationLink("弹幕设置") { DanmakuSettingsView() }
-                        NavigationLink("字幕设置") { SubtitleSettingsView() }
-                        NavigationLink("播放手势") { PlayerGestureSettingsView() }
-                    }.navigationTitle("更多设置")
+                        SettingsSection {
+                            NavigationLink("弹幕设置") { DanmakuSettingsView() }
+                            NavigationLink("字幕设置") { SubtitleSettingsView() }
+                            NavigationLink("播放手势") { PlayerGestureSettingsView() }
+                        }
+                    }.contentMargins(.top, 0, for: .scrollContent).navigationTitle("更多设置")
                 case .gestures: PlayerGestureSettingsView()
                 case .danmaku: DanmakuSettingsView()
                 case .subtitles: SubtitleSettingsView()
                 case .synopsis: PlayerMediaInfoView(session: session, showsDetails: false)
                 case .details: PlayerMediaInfoView(session: session, showsDetails: true)
                 case .queue:
-                    List(session.queue) { item in
-                        Button { session.playQueued(item); panel = nil } label: {
-                            PlayerQueueRow(session: session, item: item)
+                    List {
+                        SettingsSection {
+                            ForEach(session.queue) { item in
+                                Button { session.playQueued(item); panel = nil } label: {
+                                    PlayerQueueRow(session: session, item: item)
+                                }
+                            }
                         }
                     }
                     .contentMargins(.top, 0, for: .scrollContent)
@@ -596,6 +603,7 @@ struct PlayerScreen: View {
             if !double && fingers == 1 { setControlsVisible(false) }
             return
         }
+        activeRegionCount = PlayerGesturePreferences.count(for: double ? .doubleTap : .tap, fingers: fingers)
         let action = PlayerGesturePreferences.action(double ? .doubleTap : .tap, region, fingers)
         performGestureAction(action)
     }
@@ -644,6 +652,7 @@ struct PlayerScreen: View {
                            _ delta: CGFloat, _ phase: UIGestureRecognizer.State) {
         if phase == .began {
             guard !controlsVisible, !menuPresented, panel == nil else { gestureAction = .none; return }
+            activeRegionCount = PlayerGesturePreferences.count(for: kind, fingers: fingers)
             gestureAction = PlayerGesturePreferences.action(kind, region, fingers)
             gestureStart = 0
             switch gestureAction {
@@ -683,10 +692,10 @@ struct PlayerScreen: View {
 
     private var regionOverlay: some View {
         GeometryReader { geometry in
-            let edges = [CGFloat(0)] + PlayerGesturePreferences.boundaries + [CGFloat(1)]
+            let edges = [CGFloat(0)] + PlayerGesturePreferences.boundaries(for: activeRegionCount) + [CGFloat(1)]
             HStack(spacing: 0) {
-                ForEach(Array(PlayerGesturePreferences.regions.enumerated()), id: \.element.id) { index, region in
-                    Text(PlayerGesturePreferences.count == 1 ? "全部区域" : region.title)
+                ForEach(Array(PlayerGesturePreferences.regions(for: activeRegionCount).enumerated()), id: \.element.id) { index, region in
+                    Text(activeRegionCount == 1 ? "全部区域" : region.title)
                         .font(.headline).frame(width: geometry.size.width * (edges[index + 1] - edges[index]), height: geometry.size.height)
                         .background(.blue.opacity(0.18))
                         .border(.white.opacity(0.65), width: 1)
@@ -741,13 +750,13 @@ private struct PlayerMediaInfoView: View {
     @State private var loading = true
     var body: some View {
         List {
-            Section {
+            SettingsSection {
                 Text(verbatim: session.currentItem?.title ?? "").font(.headline).textSelection(.enabled)
                 if let subtitle = session.currentItem?.subtitle { Text(verbatim: subtitle).foregroundStyle(.secondary) }
             }
             if loading { ProgressView() }
             if showsDetails {
-                Section {
+                SettingsSection {
                     if let details {
                         LabeledContent("文件名") { Text(verbatim: details.fileName).textSelection(.enabled) }
                         LabeledContent("来源") { Text(verbatim: details.sourceName) }
@@ -769,12 +778,13 @@ private struct PlayerMediaInfoView: View {
                     if !loading && details == nil { Text("无法读取视频信息").foregroundStyle(.secondary) }
                 }
             } else if !loading {
-                Section {
+                SettingsSection {
                     if let synopsis = details?.synopsis { Text(verbatim: synopsis).textSelection(.enabled) }
                     else { Text("暂无视频简介").foregroundStyle(.secondary) }
                 }
             }
         }
+        .contentMargins(.top, 0, for: .scrollContent)
         .navigationTitle(showsDetails ? "详细信息" : "视频简介")
         .toolbarTitleDisplayMode(.inline)
         .task(id: session.currentItem?.id) {

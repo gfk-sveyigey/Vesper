@@ -147,7 +147,7 @@ private struct RuntimeLogsView: View {
                 SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看、保留和分享运行日志。")
 
                 if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
-                Section {
+                SettingsSection {
                     Picker(selection: $retentionDays) {
                         Text("无限制").tag(0)
                         ForEach([1, 3, 7, 14, 30, 90], id: \.self) { days in
@@ -156,7 +156,7 @@ private struct RuntimeLogsView: View {
                     } label: { Text("保留时间") }
                     .pickerStyle(.menu)
                 }
-                Section {
+                SettingsSection {
                     if store.entries.isEmpty {
                         ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
                     } else {
@@ -172,10 +172,9 @@ private struct RuntimeLogsView: View {
                     }
                 }
             }
-            .listRowBackground(VesperTheme.background)
         }
         .listStyle(.insetGrouped)
-        .contentMargins(.top, 16, for: .scrollContent)
+        .contentMargins(.top, 0, for: .scrollContent)
         .listSectionSpacing(28)
         .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollContentBackground(.hidden)
@@ -298,7 +297,7 @@ private struct AppearanceSettingsView: View {
             Group {
                 SettingsIntroCard(title: "外观设置", symbol: "paintpalette", description: "选择主题、颜色和应用图标。")
 
-                Section {
+                SettingsSection {
                     Picker(selection: $appearanceMode) {
                         Text("跟随系统").tag("system")
                         Text("深色").tag("dark")
@@ -318,14 +317,13 @@ private struct AppearanceSettingsView: View {
                 } footer: {
                     Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
                 }
-                Section {
+                SettingsSection {
                     AppIconChoices()
                 }
             }
-            .listRowBackground(VesperTheme.background)
         }
         .listStyle(.insetGrouped)
-        .contentMargins(.top, 16, for: .scrollContent)
+        .contentMargins(.top, 0, for: .scrollContent)
         .listSectionSpacing(28)
         .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollContentBackground(.hidden)
@@ -355,7 +353,7 @@ struct TabSettingsView: View {
             Group {
                 SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "调整标签排列顺序和图标。")
 
-                Section {
+                SettingsSection {
                     ForEach(sections.filter { $0 != .settings }) { section in
                         Toggle(isOn: Binding(
                             get: { !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
@@ -370,7 +368,7 @@ struct TabSettingsView: View {
                 } footer: {
                     Text("关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。")
                 }
-                Section {
+                SettingsSection {
                     Picker("默认标签页", selection: $defaultTab) {
                         ForEach(sections.filter { $0 == .settings || !hidden.split(separator: ",").contains(Substring($0.rawValue)) }) { section in
                             Text(section.title).tag(section.rawValue)
@@ -380,14 +378,14 @@ struct TabSettingsView: View {
                 } footer: {
                     Text("打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。")
                 }
-                Section {
+                SettingsSection {
                     Toggle(isOn: $tabBarCanMinimize) {
                         SettingsLabel("允许标签栏收缩", symbol: "arrow.down.right.and.arrow.up.left")
                     }
                 } footer: {
                     Text("关闭后，向下滚动页面时标签栏保持展开。")
                 }
-                Section {
+                SettingsSection {
                     Toggle(isOn: $miniPlayerEnabled) {
                         SettingsLabel("启用迷你播放器", symbol: "play.rectangle")
                     }
@@ -400,7 +398,7 @@ struct TabSettingsView: View {
                 } footer: {
                     Text("关闭常显后，仅在有可播放内容时显示迷你播放器。")
                 }
-                Section {
+                SettingsSection {
                     HStack(alignment: .top, spacing: 10) {
                         ForEach(sections) { section in
                             Menu {
@@ -432,10 +430,9 @@ struct TabSettingsView: View {
                     .listRowSeparator(.hidden)
                 }
             }
-            .listRowBackground(VesperTheme.background)
         }
         .listStyle(.insetGrouped)
-        .contentMargins(.top, 16, for: .scrollContent)
+        .contentMargins(.top, 0, for: .scrollContent)
         .listSectionSpacing(28)
         .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollContentBackground(.hidden)
@@ -532,7 +529,7 @@ private struct TabOrderSettingsView: View {
 
     var body: some View {
         List {
-            Group {
+            SettingsSection {
                 ForEach(sections) { section in
                     Label(section.title, systemImage: section.symbol)
                 }
@@ -543,9 +540,9 @@ private struct TabOrderSettingsView: View {
                     order = updated.map(\.rawValue).joined(separator: ",")
                 }
             }
-            .listRowBackground(VesperTheme.background)
         }
         .listStyle(.insetGrouped)
+        .contentMargins(.top, 0, for: .scrollContent)
         .listSectionSpacing(28)
         .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollContentBackground(.hidden)
@@ -562,7 +559,7 @@ struct SettingsIntroCard: View {
     @ScaledMetric(relativeTo: .largeTitle) private var iconSize = 28.0
 
     var body: some View {
-        Section {
+        SettingsSection {
             HStack(alignment: .center, spacing: 16) {
                 Image(systemName: symbol)
                     .font(.system(size: iconSize))
@@ -581,7 +578,7 @@ struct SettingsIntroCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .background(VesperTheme.background, in: RoundedRectangle(cornerRadius: 26))
+            .settingsCardBorder()
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
@@ -655,7 +652,74 @@ private struct PlaybackLicensesView: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
+                .settingsCardBorder()
             }
+            .padding(.horizontal, 16)
         }
+        .contentMargins(.top, 0, for: .scrollContent)
+    }
+}
+
+/// Keep native List/Form rows and draw one continuous outline around a section.
+struct SettingsSection<Rows: View, Footer: View>: View {
+    private let rows: Rows
+    private let footer: Footer
+    init(@ViewBuilder content: () -> Rows, @ViewBuilder footer: () -> Footer) {
+        self.rows = content(); self.footer = footer()
+    }
+    var body: some View {
+        Section {
+            Group(subviews: rows) { subviews in
+                ForEach(Array(subviews.enumerated()), id: \.element.id) { index, row in
+                    row.listRowBackground(SettingsSectionRowBackground(first: index == 0, last: index == subviews.count - 1))
+                }
+            }
+        } footer: { footer }
+    }
+}
+
+extension SettingsSection where Footer == EmptyView {
+    init(@ViewBuilder content: () -> Rows) { self.init(content: content, footer: { EmptyView() }) }
+}
+
+private struct SettingsSectionRowBackground: View {
+    let first: Bool
+    let last: Bool
+    var body: some View {
+        UnevenRoundedRectangle(topLeadingRadius: first ? 16 : 0, bottomLeadingRadius: last ? 16 : 0,
+                               bottomTrailingRadius: last ? 16 : 0, topTrailingRadius: first ? 16 : 0)
+            .fill(VesperTheme.background)
+            .overlay { SettingsSectionOutline(first: first, last: last).stroke(.gray.opacity(0.45), lineWidth: 0.7) }
+    }
+}
+
+private struct SettingsSectionOutline: Shape {
+    let first: Bool
+    let last: Bool
+    func path(in rect: CGRect) -> Path {
+        let rect = rect.insetBy(dx: 0.5, dy: 0)
+        let radius = min(16.0, rect.height / 2)
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: first ? rect.minY + radius : rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX, y: last ? rect.maxY - radius : rect.maxY))
+        if last {
+            path.addQuadCurve(to: CGPoint(x: rect.minX + radius, y: rect.maxY - 0.5), control: CGPoint(x: rect.minX, y: rect.maxY - 0.5))
+            path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.maxY - 0.5))
+            path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.maxY - radius), control: CGPoint(x: rect.maxX, y: rect.maxY - 0.5))
+        } else { path.move(to: CGPoint(x: rect.maxX, y: rect.maxY)) }
+        path.addLine(to: CGPoint(x: rect.maxX, y: first ? rect.minY + radius : rect.minY))
+        if first {
+            path.addQuadCurve(to: CGPoint(x: rect.maxX - radius, y: rect.minY + 0.5), control: CGPoint(x: rect.maxX, y: rect.minY + 0.5))
+            path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.minY + 0.5))
+            path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.minY + radius), control: CGPoint(x: rect.minX, y: rect.minY + 0.5))
+        }
+        return path
+    }
+}
+
+extension View {
+    func settingsCardBorder() -> some View {
+        background(VesperTheme.background, in: RoundedRectangle(cornerRadius: 16))
+            .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(.gray.opacity(0.45), lineWidth: 0.7) }
     }
 }
