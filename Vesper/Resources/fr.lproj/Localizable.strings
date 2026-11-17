@@ -386,3 +386,105 @@
 "时长" = "Durée";
 
 "外部视频" = "Vidéo externe";
+
+"减小亮度" = "Réduire la luminosité";
+
+"增大亮度" = "Augmenter la luminosité";
+
+"减小音量" = "Réduire le volume";
+
+"增大音量" = "Augmenter le volume";
+
+"减慢播放速度" = "Ralentir la lecture";
+
+"加快播放速度" = "Accélérer la lecture";
+
+"切换填充方式" = "Changer le remplissage";
+
+"切换屏幕方向" = "Pivoter l’écran";
+
+"向上滑动" = "Balayer vers le haut";
+
+"向下滑动" = "Balayer vers le bas";
+
+"向左滑动" = "Balayer vers la gauche";
+
+"向右滑动" = "Balayer vers la droite";
+
+"张开" = "Écarter";
+
+"捏合" = "Pincer";
+
+"顺时针旋转" = "Tourner à droite";
+
+"逆时针旋转" = "Tourner à gauche";
+
+"显示区域划分" = "Afficher les zones";
+
+"静音或取消静音" = "Activer ou désactiver le son";
+
+"全部区域" = "Tout l’écran";
+
+"区域数量" = "Nombre de zones";
+
+"单区域" = "Une zone";
+
+"双区域" = "Deux zones";
+
+"三区域" = "Trois zones";
+
+"左侧区域比例" = "Proportion de la zone gauche";
+
+"右侧区域边界" = "Limite de la zone droite";
+
+"自定义区域与单指、双指操作。" = "Personnalisez les zones et gestes à un ou deux doigts.";
+
+"快进快退使用播放设置中的时长。每种手势均可选择任意动作。" = "Le saut utilise la durée des réglages de lecture. Chaque geste accepte toute action.";
+
+"手势仅在控制层隐藏时生效，以起始区域为准。单击空白区域可隐藏控制层。" = "Les gestes utilisent la zone de départ avec les commandes masquées. Touchez une zone vide pour les masquer.";
+
+"查看、保留和分享运行日志。" = "Consultez, conservez et partagez les journaux.";
+
+"查看第三方组件许可。" = "Consultez les licences tierces.";
+
+"选择主题、颜色和应用图标。" = "Choisissez un thème, une couleur et une icône.";
+
+"管理后台播放、进度与跳转。" = "Gérez la lecture en arrière-plan, la progression et les sauts.";
+
+"管理播放弹幕。" = "Gérez les commentaires vidéo.";
+
+"调整字幕字号与背景。" = "Réglez la taille et le fond des sous-titres.";
+
+"画面比例" = "Format d’image";
+
+"帧率" = "Fréquence d’images";
+
+"视频码率" = "Débit vidéo";
+
+"视频编码" = "Codec vidéo";
+
+"音频码率" = "Débit audio";
+
+"音频编码" = "Codec audio";
+
+"音轨数量" = "Pistes audio";
+
+"音频语言" = "Langue audio";
+
+"采样率" = "Fréquence d’échantillonnage";
+
+"声道数" = "Canaux";
+
+"音频位深" = "Profondeur audio";
+
+"位深" = "Profondeur de couleur";
+
+"总码率" = "Débit total";
+
+"容器格式" = "Format du conteneur";
+
+"色彩原色" = "Couleurs primaires";
+
+"传递函数" = "Fonction de transfert";
+
+"色彩矩阵" = "Matrice de couleur";

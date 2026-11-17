@@ -386,3 +386,105 @@
 "时长" = "Dauer";
 
 "外部视频" = "Externes Video";
+
+"减小亮度" = "Helligkeit verringern";
+
+"增大亮度" = "Helligkeit erhöhen";
+
+"减小音量" = "Lautstärke verringern";
+
+"增大音量" = "Lautstärke erhöhen";
+
+"减慢播放速度" = "Wiedergabe verlangsamen";
+
+"加快播放速度" = "Wiedergabe beschleunigen";
+
+"切换填充方式" = "Bildanpassung wechseln";
+
+"切换屏幕方向" = "Bildschirm drehen";
+
+"向上滑动" = "Nach oben wischen";
+
+"向下滑动" = "Nach unten wischen";
+
+"向左滑动" = "Nach links wischen";
+
+"向右滑动" = "Nach rechts wischen";
+
+"张开" = "Auseinanderziehen";
+
+"捏合" = "Zusammenziehen";
+
+"顺时针旋转" = "Im Uhrzeigersinn drehen";
+
+"逆时针旋转" = "Gegen Uhrzeigersinn drehen";
+
+"显示区域划分" = "Gestenbereiche anzeigen";
+
+"静音或取消静音" = "Stummschaltung umschalten";
+
+"全部区域" = "Gesamter Bildschirm";
+
+"区域数量" = "Anzahl der Bereiche";
+
+"单区域" = "Ein Bereich";
+
+"双区域" = "Zwei Bereiche";
+
+"三区域" = "Drei Bereiche";
+
+"左侧区域比例" = "Linker Bereichsanteil";
+
+"右侧区域边界" = "Grenze des rechten Bereichs";
+
+"自定义区域与单指、双指操作。" = "Bereiche und Ein- oder Zweifingergesten anpassen.";
+
+"快进快退使用播放设置中的时长。每种手势均可选择任意动作。" = "Sprünge verwenden das Intervall der Wiedergabeeinstellungen. Jede Geste erlaubt jede Aktion.";
+
+"手势仅在控制层隐藏时生效，以起始区域为准。单击空白区域可隐藏控制层。" = "Gesten gelten bei ausgeblendeten Bedienelementen im Startbereich. Zum Ausblenden auf eine freie Stelle tippen.";
+
+"查看、保留和分享运行日志。" = "Laufzeitprotokolle ansehen, aufbewahren und teilen.";
+
+"查看第三方组件许可。" = "Drittanbieterlizenzen ansehen.";
+
+"选择主题、颜色和应用图标。" = "Design, Farbe und App-Symbol wählen.";
+
+"管理后台播放、进度与跳转。" = "Hintergrundwiedergabe, Fortschritt und Sprünge verwalten.";
+
+"管理播放弹幕。" = "Videokommentare verwalten.";
+
+"调整字幕字号与背景。" = "Untertitelgröße und Hintergrund anpassen.";
+
+"画面比例" = "Seitenverhältnis";
+
+"帧率" = "Bildrate";
+
+"视频码率" = "Video-Bitrate";
+
+"视频编码" = "Video-Codec";
+
+"音频码率" = "Audio-Bitrate";
+
+"音频编码" = "Audio-Codec";
+
+"音轨数量" = "Audiospuren";
+
+"音频语言" = "Audiosprache";
+
+"采样率" = "Abtastrate";
+
+"声道数" = "Kanäle";
+
+"音频位深" = "Audio-Bittiefe";
+
+"位深" = "Bittiefe";
+
+"总码率" = "Gesamtbitrate";
+
+"容器格式" = "Containerformat";
+
+"色彩原色" = "Farbprimärwerte";
+
+"传递函数" = "Übertragungsfunktion";
+
+"色彩矩阵" = "Farbmatrix";

@@ -144,7 +144,7 @@ private struct RuntimeLogsView: View {
     var body: some View {
         List {
             Group {
-                SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看运行日志，设置保留时间，或分享完整日志文件以协助排查问题。")
+                SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看、保留和分享运行日志。")
 
                 if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
                 Section {
@@ -296,7 +296,7 @@ private struct AppearanceSettingsView: View {
     var body: some View {
         Form {
             Group {
-                SettingsIntroCard(title: "外观设置", symbol: "paintpalette", description: "选择喜欢的主题、主题色和应用图标，让 Vesper 更符合你的偏好。")
+                SettingsIntroCard(title: "外观设置", symbol: "paintpalette", description: "选择主题、颜色和应用图标。")
 
                 Section {
                     Picker(selection: $appearanceMode) {
@@ -559,26 +559,28 @@ struct SettingsIntroCard: View {
     let title: LocalizedStringKey
     let symbol: String
     let description: LocalizedStringKey
-    @ScaledMetric(relativeTo: .largeTitle) private var iconSize = 38.0
+    @ScaledMetric(relativeTo: .largeTitle) private var iconSize = 28.0
 
     var body: some View {
         Section {
-            VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 16) {
                 Image(systemName: symbol)
                     .font(.system(size: iconSize))
                     .foregroundStyle(.white)
-                    .frame(width: iconSize + 24, height: iconSize + 24)
+                    .frame(width: iconSize + 20, height: iconSize + 20)
                     .background(.tint, in: RoundedRectangle(cornerRadius: 18))
                     .accessibilityHidden(true)
-                Text(title)
-                    .font(.title.bold())
-                    .accessibilityAddTraits(.isHeader)
-                Text(description)
-                    .foregroundStyle(.secondary)
-                    .lineSpacing(5)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(description)
+                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
+            .padding(16)
             .background(VesperTheme.background, in: RoundedRectangle(cornerRadius: 26))
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
@@ -647,7 +649,7 @@ private struct PlaybackLicensesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                SettingsIntroCard(title: "开源许可", symbol: "doc.plaintext", description: "查看播放器和第三方组件的开源许可。")
+                SettingsIntroCard(title: "开源许可", symbol: "doc.plaintext", description: "查看第三方组件许可。")
                 Text(verbatim: notices)
                 .font(.footnote)
                 .textSelection(.enabled)

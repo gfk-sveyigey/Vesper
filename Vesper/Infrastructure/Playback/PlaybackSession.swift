@@ -1,4 +1,5 @@
 import AVFoundation
+@preconcurrency import Photos
 @preconcurrency import AVKit
 import MediaPlayer
 import Combine
@@ -37,6 +38,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     private var restoringPiP = false
     private var pendingSeek: (time: TimeInterval, resume: Bool)?
     private var seekInFlight = false
+    private var seekLanding: (time: Double, deadline: Date)?
     private let subtitleModel = SubtitleModel()
     private var backgroundResumePending = false
     private var appIsInBackground = false
@@ -58,6 +60,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     @Published private(set) var queue: [MediaItem] = []
     private var source: MediaSource?
     private var externalFile: IncomingVideo?
+
+    var queueSource: MediaSource? { source }
 
     var hasNext: Bool {
         guard let currentItem, let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return false }
@@ -147,6 +151,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         guard canSeek, time.isFinite else { return }
         let target = min(max(0, time), duration)
         pendingSeek = (target, resume ?? isPlaying)
+        seekLanding = (target, Date().addingTimeInterval(3))
         currentTime = target
         isSeeking = true
         performPendingSeek()
@@ -159,12 +164,14 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         pendingSeek = nil
         seekInFlight = true
         let token = generation
-        layer.seek(time: next.time, autoPlay: next.resume) { [weak self] _ in
+        layer.seek(time: next.time, autoPlay: next.resume) { [weak self] finished in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
                 self.seekInFlight = false
                 if self.pendingSeek != nil { self.performPendingSeek() }
                 else {
+                    self.currentTime = finished ? next.time : max(0, layer.player.currentPlaybackTime)
+                    self.seekLanding = finished ? (next.time, Date().addingTimeInterval(2)) : nil
                     self.isSeeking = false
                     self.updateSubtitles()
                 }
@@ -327,6 +334,73 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             let transformed = size.applying(transform)
             dimensions = "\(Int(abs(transformed.width).rounded())) × \(Int(abs(transformed.height).rounded()))"
         }
+        var technical: [PlaybackDetailField] = []
+        for (index, track) in tracks.enumerated() {
+            let prefix = "Video \(index + 1)"
+            if let size = try? await track.load(.naturalSize), size.height != 0 {
+                let transform = (try? await track.load(.preferredTransform)) ?? .identity
+                let display = size.applying(transform)
+                let w = Int(abs(display.width).rounded()), h = Int(abs(display.height).rounded())
+                func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? a : gcd(b, a % b) }
+                let divisor = max(1, gcd(w, h))
+                technical.append(.init(label: "画面比例", value: "\(w / divisor):\(h / divisor)"))
+            }
+            if let rate = try? await track.load(.nominalFrameRate), rate > 0 { technical.append(.init(label: "帧率", value: String(format: "%.3f fps", rate))) }
+            if let rate = try? await track.load(.estimatedDataRate), rate > 0 { technical.append(.init(label: "视频码率", value: String(format: "%.2f Mb/s", rate / 1_000_000))) }
+            if let descriptions = try? await track.load(.formatDescriptions) {
+                for format in descriptions {
+                    technical.append(.init(label: "视频编码", value: "\(prefix) · \(Self.codecName(format))"))
+                    let extensions = CMFormatDescriptionGetExtensions(format) as NSDictionary
+                    for (key, label) in [("ColorPrimaries", "色彩原色"), ("TransferFunction", "传递函数"), ("YCbCrMatrix", "色彩矩阵"), ("BitsPerComponent", "位深")] {
+                        if let value = extensions[key] { technical.append(.init(label: label, value: String(describing: value))) }
+                    }
+                }
+            }
+        }
+        let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+        technical.append(.init(label: "音轨数量", value: String(audioTracks.count)))
+        for (index, track) in audioTracks.enumerated() {
+            let prefix = "Audio \(index + 1)"
+            if let language = try? await track.load(.languageCode) { technical.append(.init(label: "音频语言", value: "\(prefix) · \(language)")) }
+            if let rate = try? await track.load(.estimatedDataRate), rate > 0 { technical.append(.init(label: "音频码率", value: String(format: "%.0f kb/s", rate / 1000))) }
+            if let descriptions = try? await track.load(.formatDescriptions) {
+                for format in descriptions {
+                    technical.append(.init(label: "音频编码", value: "\(prefix) · \(Self.codecName(format))"))
+                    if let stream = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee {
+                        technical.append(.init(label: "采样率", value: String(format: "%.0f Hz", stream.mSampleRate)))
+                        technical.append(.init(label: "声道数", value: String(stream.mChannelsPerFrame)))
+                        if stream.mBitsPerChannel > 0 { technical.append(.init(label: "音频位深", value: "\(stream.mBitsPerChannel) bit")) }
+                    }
+                }
+            }
+        }
+        if let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, duration > 0 {
+            technical.append(.init(label: "总码率", value: String(format: "%.2f Mb/s", Double(bytes) * 8 / duration / 1_000_000)))
+        }
+        technical.append(.init(label: "容器格式", value: url.pathExtension.uppercased()))
+        // FFmpeg-backed formats may not expose AVAsset tracks. Read the
+        // active decoder's public metadata rather than dropping their details.
+        if let player = layer?.player {
+            if dimensions == nil {
+                let size = player.naturalSize
+                if size.width > 0 && size.height > 0 { dimensions = "\(Int(size.width)) × \(Int(size.height))" }
+            }
+            for type in [AVMediaType.video, .audio] where (type == .video ? tracks.isEmpty : audioTracks.isEmpty) {
+                for track in player.tracks(mediaType: type) {
+                    let video = type == .video
+                    if track.bitRate > 0 { technical.append(.init(label: video ? "视频码率" : "音频码率", value: String(format: "%.0f kb/s", Double(track.bitRate) / 1000))) }
+                    if track.bitDepth > 0 { technical.append(.init(label: "位深", value: "\(track.bitDepth) bit")) }
+                    if video && track.nominalFrameRate > 0 { technical.append(.init(label: "帧率", value: String(format: "%.3f fps", track.nominalFrameRate))) }
+                    if let format = track.formatDescription {
+                        technical.append(.init(label: video ? "视频编码" : "音频编码", value: Self.codecName(format)))
+                        if !video, let stream = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee {
+                            technical.append(.init(label: "采样率", value: String(format: "%.0f Hz", stream.mSampleRate)))
+                            technical.append(.init(label: "声道数", value: String(stream.mChannelsPerFrame)))
+                        }
+                    }
+                }
+            }
+        }
         var synopsis: String?
         if let metadata = try? await asset.load(.commonMetadata) {
             for item in metadata where item.commonKey == .commonKeyDescription {
@@ -341,7 +415,49 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         guard generation == token else { return nil }
         return PlaybackVideoDetails(fileName: fileName ?? "", dimensions: dimensions,
                                     byteCount: values?.fileSize, synopsis: synopsis,
-                                    sourceName: source?.name ?? VesperLocalization.string("外部视频"))
+                                    sourceName: source?.name ?? VesperLocalization.string("外部视频"), technical: technical)
+    }
+
+    private static func codecName(_ description: CMFormatDescription) -> String {
+        let code = CMFormatDescriptionGetMediaSubType(description)
+        let bytes: [UInt8] = [UInt8((code >> 24) & 255), UInt8((code >> 16) & 255), UInt8((code >> 8) & 255), UInt8(code & 255)]
+        return String(bytes: bytes, encoding: .ascii)?.trimmingCharacters(in: .whitespaces) ?? String(code)
+    }
+
+    func progress(for item: MediaItem) -> Double {
+        if item.id == currentItem?.id { return currentTime }
+        let key = item.id.sourceID.uuidString + ":" + item.id.localID
+        return UserDefaults.standard.dictionary(forKey: progressStorageKey)?[key] as? Double ?? 0
+    }
+
+    func queueInfo(for item: MediaItem) async -> PlaybackQueueInfo {
+        guard let source, source.id == item.id.sourceID else { return .init() }
+        if source.kind == .photos {
+            guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [item.id.localID], options: nil).firstObject else { return .init() }
+            let options = PHVideoRequestOptions()
+            options.isNetworkAccessAllowed = false
+            options.deliveryMode = .fastFormat
+            let bytes: Int? = await withCheckedContinuation { continuation in
+                PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, _ in
+                    let bytes = (avAsset as? AVURLAsset).flatMap { try? $0.url.resourceValues(forKeys: [.fileSizeKey]).fileSize }
+                    continuation.resume(returning: bytes)
+                }
+            }
+            return .init(duration: asset.duration, dimensions: "\(asset.pixelWidth) × \(asset.pixelHeight)", byteCount: bytes)
+        }
+        guard source.kind == .local, let resource = try? await PlaybackResourceResolver().resolve(item, source: source) else { return .init() }
+        defer { resource.release() }
+        let asset = AVURLAsset(url: resource.url)
+        let duration = (try? await asset.load(.duration).seconds) ?? 0
+        let tracks = (try? await asset.loadTracks(withMediaType: .video)) ?? []
+        var dimensions: String?
+        if let track = tracks.first, let size = try? await track.load(.naturalSize) {
+            let transform = (try? await track.load(.preferredTransform)) ?? .identity
+            let size = size.applying(transform)
+            dimensions = "\(Int(abs(size.width))) × \(Int(abs(size.height)))"
+        }
+        let bytes = try? resource.url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        return .init(duration: duration.isFinite ? duration : 0, dimensions: dimensions, byteCount: bytes)
     }
 
     func setPlaybackRate(_ rate: Float) {
@@ -440,6 +556,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         restoringPiP = false
         pendingSeek = nil
         seekInFlight = false
+        seekLanding = nil
         layer?.delegate = nil
         layer?.stop()
         videoView?.removeFromSuperview()
@@ -491,7 +608,16 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func player(layer: KSPlayerLayer, currentTime: TimeInterval, totalTime: TimeInterval) {
         guard layer === self.layer else { return }
-        self.currentTime = currentTime.isFinite ? max(0, currentTime) : 0
+        // Decoder ticks already queued before a preview/final seek must not
+        // overwrite the UI target. Resume normal updates once the decoder lands.
+        if !isSeeking {
+            if let landing = seekLanding {
+                if abs(currentTime - landing.time) < 1.5 || Date() >= landing.deadline {
+                    seekLanding = nil
+                    self.currentTime = currentTime.isFinite ? max(0, currentTime) : 0
+                }
+            } else { self.currentTime = currentTime.isFinite ? max(0, currentTime) : 0 }
+        }
         duration = totalTime.isFinite ? max(0, totalTime) : 0
         let playable = layer.player.playableTime
         bufferedTime = playable.isFinite ? min(duration, max(currentTime, playable)) : currentTime
@@ -532,4 +658,16 @@ struct PlaybackVideoDetails: Sendable {
     let byteCount: Int?
     let synopsis: String?
     let sourceName: String
+    let technical: [PlaybackDetailField]
+}
+
+struct PlaybackDetailField: Sendable {
+    let label: String
+    let value: String
+}
+
+struct PlaybackQueueInfo: Sendable {
+    var duration: Double = 0
+    var dimensions: String?
+    var byteCount: Int?
 }

@@ -386,3 +386,105 @@
 "时长" = "Duración";
 
 "外部视频" = "Vídeo externo";
+
+"减小亮度" = "Reducir brillo";
+
+"增大亮度" = "Aumentar brillo";
+
+"减小音量" = "Reducir volumen";
+
+"增大音量" = "Aumentar volumen";
+
+"减慢播放速度" = "Reducir velocidad";
+
+"加快播放速度" = "Aumentar velocidad";
+
+"切换填充方式" = "Cambiar ajuste de vídeo";
+
+"切换屏幕方向" = "Girar pantalla";
+
+"向上滑动" = "Deslizar hacia arriba";
+
+"向下滑动" = "Deslizar hacia abajo";
+
+"向左滑动" = "Deslizar a la izquierda";
+
+"向右滑动" = "Deslizar a la derecha";
+
+"张开" = "Separar dedos";
+
+"捏合" = "Juntar dedos";
+
+"顺时针旋转" = "Girar a la derecha";
+
+"逆时针旋转" = "Girar a la izquierda";
+
+"显示区域划分" = "Mostrar regiones";
+
+"静音或取消静音" = "Alternar silencio";
+
+"全部区域" = "Toda la pantalla";
+
+"区域数量" = "Número de regiones";
+
+"单区域" = "Una región";
+
+"双区域" = "Dos regiones";
+
+"三区域" = "Tres regiones";
+
+"左侧区域比例" = "Proporción izquierda";
+
+"右侧区域边界" = "Límite derecho";
+
+"自定义区域与单指、双指操作。" = "Personaliza regiones y gestos con uno o dos dedos.";
+
+"快进快退使用播放设置中的时长。每种手势均可选择任意动作。" = "Los saltos usan el intervalo de Ajustes de reproducción. Cada gesto admite cualquier acción.";
+
+"手势仅在控制层隐藏时生效，以起始区域为准。单击空白区域可隐藏控制层。" = "Los gestos usan la región inicial con los controles ocultos. Toca un área vacía para ocultarlos.";
+
+"查看、保留和分享运行日志。" = "Consulta, conserva y comparte registros.";
+
+"查看第三方组件许可。" = "Consulta las licencias de terceros.";
+
+"选择主题、颜色和应用图标。" = "Elige tema, color e icono de la app.";
+
+"管理后台播放、进度与跳转。" = "Gestiona reproducción en segundo plano, progreso y saltos.";
+
+"管理播放弹幕。" = "Gestiona comentarios de vídeo.";
+
+"调整字幕字号与背景。" = "Ajusta tamaño y fondo de subtítulos.";
+
+"画面比例" = "Relación de aspecto";
+
+"帧率" = "Fotogramas por segundo";
+
+"视频码率" = "Tasa de bits de vídeo";
+
+"视频编码" = "Códec de vídeo";
+
+"音频码率" = "Tasa de bits de audio";
+
+"音频编码" = "Códec de audio";
+
+"音轨数量" = "Pistas de audio";
+
+"音频语言" = "Idioma de audio";
+
+"采样率" = "Frecuencia de muestreo";
+
+"声道数" = "Canales";
+
+"音频位深" = "Profundidad de audio";
+
+"位深" = "Profundidad de bits";
+
+"总码率" = "Tasa de bits total";
+
+"容器格式" = "Formato contenedor";
+
+"色彩原色" = "Colores primarios";
+
+"传递函数" = "Función de transferencia";
+
+"色彩矩阵" = "Matriz de color";

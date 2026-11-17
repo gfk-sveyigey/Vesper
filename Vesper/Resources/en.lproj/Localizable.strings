@@ -386,3 +386,105 @@
 "时长" = "Duration";
 
 "外部视频" = "External Video";
+
+"减小亮度" = "Decrease Brightness";
+
+"增大亮度" = "Increase Brightness";
+
+"减小音量" = "Decrease Volume";
+
+"增大音量" = "Increase Volume";
+
+"减慢播放速度" = "Decrease Playback Speed";
+
+"加快播放速度" = "Increase Playback Speed";
+
+"切换填充方式" = "Toggle Video Fit";
+
+"切换屏幕方向" = "Rotate Screen";
+
+"向上滑动" = "Swipe Up";
+
+"向下滑动" = "Swipe Down";
+
+"向左滑动" = "Swipe Left";
+
+"向右滑动" = "Swipe Right";
+
+"张开" = "Pinch Out";
+
+"捏合" = "Pinch In";
+
+"顺时针旋转" = "Rotate Clockwise";
+
+"逆时针旋转" = "Rotate Counterclockwise";
+
+"显示区域划分" = "Show Gesture Regions";
+
+"静音或取消静音" = "Toggle Mute";
+
+"全部区域" = "Entire Screen";
+
+"区域数量" = "Region Count";
+
+"单区域" = "One Region";
+
+"双区域" = "Two Regions";
+
+"三区域" = "Three Regions";
+
+"左侧区域比例" = "Left Region Ratio";
+
+"右侧区域边界" = "Right Region Boundary";
+
+"自定义区域与单指、双指操作。" = "Customize regions and one- or two-finger gestures.";
+
+"快进快退使用播放设置中的时长。每种手势均可选择任意动作。" = "Seeking uses the interval in Playback Settings. Every gesture supports any action.";
+
+"手势仅在控制层隐藏时生效，以起始区域为准。单击空白区域可隐藏控制层。" = "Gestures work with controls hidden and use the starting region. Tap an empty area to hide controls.";
+
+"查看、保留和分享运行日志。" = "View, retain and share runtime logs.";
+
+"查看第三方组件许可。" = "View third-party licenses.";
+
+"选择主题、颜色和应用图标。" = "Choose a theme, color and app icon.";
+
+"管理后台播放、进度与跳转。" = "Manage background playback, progress and seeking.";
+
+"管理播放弹幕。" = "Manage video comments.";
+
+"调整字幕字号与背景。" = "Adjust subtitle size and background.";
+
+"画面比例" = "Aspect Ratio";
+
+"帧率" = "Frame Rate";
+
+"视频码率" = "Video Bitrate";
+
+"视频编码" = "Video Codec";
+
+"音频码率" = "Audio Bitrate";
+
+"音频编码" = "Audio Codec";
+
+"音轨数量" = "Audio Tracks";
+
+"音频语言" = "Audio Language";
+
+"采样率" = "Sample Rate";
+
+"声道数" = "Channels";
+
+"音频位深" = "Audio Bit Depth";
+
+"位深" = "Bit Depth";
+
+"总码率" = "Overall Bitrate";
+
+"容器格式" = "Container Format";
+
+"色彩原色" = "Color Primaries";
+
+"传递函数" = "Transfer Function";
+
+"色彩矩阵" = "Color Matrix";

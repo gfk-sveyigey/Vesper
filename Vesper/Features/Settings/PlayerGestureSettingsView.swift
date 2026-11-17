@@ -4,25 +4,40 @@ struct PlayerGestureSettingsView: View {
     @State private var fingers = 1
     @State private var revision = 0
     @State private var confirmingReset = false
-    @AppStorage("player.gesture.skipSeconds") private var skipSeconds = 15.0
+    @AppStorage("player.gesture.regionCount") private var regionCount = 3
+    @AppStorage("player.gesture.split2") private var split2 = 0.5
+    @AppStorage("player.gesture.split3.first") private var splitFirst = 1.0 / 3
+    @AppStorage("player.gesture.split3.second") private var splitSecond = 2.0 / 3
 
     var body: some View {
         Form {
             Group {
-                SettingsIntroCard(title: "播放手势", symbol: "hand.draw", description: "为播放器的不同区域设置单指和多指操作。")
+                SettingsIntroCard(title: "播放手势", symbol: "hand.draw", description: "自定义区域与单指、双指操作。")
                 Section {
                     Picker("手指数", selection: $fingers) {
                         Text("单指").tag(1)
                         Text("双指").tag(2)
-                        Text("三指").tag(3)
                     }
                     .pickerStyle(.segmented)
                 } footer: {
-                    Text("区域控制手势仅在控制层隐藏时生效，滑动以手势开始的位置为准。控制层显示时，单指单击空白区域即可隐藏；按钮和进度条独立操作。")
+                    Text("手势仅在控制层隐藏时生效，以起始区域为准。单击空白区域可隐藏控制层。")
                 }
-                ForEach(PlayerGestureRegion.allCases) { region in
+                Section {
+                    Picker("区域数量", selection: $regionCount) {
+                        Text("单区域").tag(1); Text("双区域").tag(2); Text("三区域").tag(3)
+                    }
+                    if regionCount == 2 {
+                        Text(verbatim: "\(Int(split2 * 100))% / \(100 - Int(split2 * 100))%")
+                        Slider(value: $split2, in: 0.15...0.85, step: 0.01).accessibilityLabel("左侧区域比例")
+                    } else if regionCount == 3 {
+                        Text(verbatim: "\(Int(splitFirst * 100))% / \(Int((splitSecond - splitFirst) * 100))% / \(100 - Int(splitSecond * 100))%")
+                        Slider(value: $splitFirst, in: 0.15...max(0.15, splitSecond - 0.15), step: 0.01).accessibilityLabel("左侧区域比例")
+                        Slider(value: $splitSecond, in: min(0.85, splitFirst + 0.15)...0.85, step: 0.01).accessibilityLabel("右侧区域边界")
+                    }
+                }
+                ForEach(PlayerGesturePreferences.regions) { region in
                     Section {
-                        ForEach(PlayerGestureKind.allCases) { kind in
+                        ForEach(PlayerGestureKind.allCases.filter { fingers == 2 || !$0.needsTwoFingers }) { kind in
                             Picker(selection: binding(kind, region)) {
                                 ForEach(PlayerGestureAction.choices(for: kind)) { action in
                                     Text(action.title).tag(action)
@@ -34,14 +49,9 @@ struct PlayerGestureSettingsView: View {
                     }
                 }
                 Section {
-                    Picker("快进快退时长", selection: $skipSeconds) {
-                        ForEach([5.0, 10, 15, 30], id: \.self) { seconds in
-                            Text(verbatim: String(format: VesperLocalization.string("%d 秒"), Int(seconds))).tag(seconds)
-                        }
-                    }
                     Button("恢复默认", role: .destructive) { confirmingReset = true }
                 } footer: {
-                    Text("默认单指单击切换控制层；隐藏时双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量；任意区域左右滑动快退或快进。多指手势默认无操作。")
+                    Text("快进快退使用播放设置中的时长。每种手势均可选择任意动作。")
                 }
             }
             .listRowBackground(VesperTheme.background)
@@ -53,7 +63,7 @@ struct PlayerGestureSettingsView: View {
         .navigationTitle("播放手势")
         .toolbarTitleDisplayMode(.inline)
         .alert("恢复默认手势？", isPresented: $confirmingReset) {
-            Button("恢复默认", role: .destructive) { PlayerGesturePreferences.reset(); revision += 1 }
+            Button("恢复默认", role: .destructive) { PlayerGesturePreferences.reset(); regionCount = 3; split2 = 0.5; splitFirst = 1.0 / 3; splitSecond = 2.0 / 3; revision += 1 }
             Button("取消", role: .cancel) { }
         }
     }

@@ -9,6 +9,9 @@ import UIKit
 @MainActor
 enum PlayerOrientationPolicy {
     static var allowsLandscape = false
+    static var isLandscape: Bool {
+        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { $0.activationState == .foregroundActive }?.interfaceOrientation.isLandscape == true
+    }
 
     static func update(_ enabled: Bool, scene: UIWindowScene? = nil) {
         allowsLandscape = enabled
@@ -38,52 +41,71 @@ enum PlayerGestureRegion: String, CaseIterable, Identifiable {
         switch self { case .left: "左侧区域"; case .center: "中间区域"; case .right: "右侧区域" }
     }
     static func at(_ point: CGPoint, width: CGFloat) -> Self {
-        if point.x < width / 3 { return .left }
-        return point.x < width * 2 / 3 ? .center : .right
+        let edges = PlayerGesturePreferences.boundaries
+        let x = point.x / max(width, 1)
+        if edges.isEmpty { return .center }
+        if x < edges[0] { return .left }
+        if edges.count == 1 { return .right }
+        return x < edges[1] ? .center : .right
     }
 }
 
 enum PlayerGestureKind: String, CaseIterable, Identifiable {
-    case tap, doubleTap, vertical, horizontal
-    var id: Self { self }
-    var title: LocalizedStringKey {
-        switch self { case .tap: "单击"; case .doubleTap: "双击"; case .vertical: "上下滑动"; case .horizontal: "左右滑动" }
-    }
-    var isDrag: Bool { self == .vertical || self == .horizontal }
-}
-
-enum PlayerGestureAction: String, CaseIterable, Identifiable {
-    case none, controls, playback, backward, forward, brightness, volume, seek
+    case tap, doubleTap, up, down, left, right, pinchIn, pinchOut, rotateClockwise, rotateCounterclockwise
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
-        case .none: "无操作"
-        case .controls: "显示或隐藏控制层"
-        case .playback: "暂停或继续播放"
-        case .backward: "快退"
-        case .forward: "快进"
-        case .brightness: "调节亮度"
-        case .volume: "调节音量"
-        case .seek: "调整播放进度"
+        case .tap: "单击"; case .doubleTap: "双击"; case .up: "向上滑动"; case .down: "向下滑动"
+        case .left: "向左滑动"; case .right: "向右滑动"; case .pinchIn: "捏合"; case .pinchOut: "张开"
+        case .rotateClockwise: "顺时针旋转"; case .rotateCounterclockwise: "逆时针旋转"
         }
     }
-    static func choices(for kind: PlayerGestureKind) -> [Self] {
-        kind.isDrag ? [.none, .brightness, .volume, .seek] : [.none, .controls, .playback, .backward, .forward]
+    var needsTwoFingers: Bool { [.pinchIn, .pinchOut, .rotateClockwise, .rotateCounterclockwise].contains(self) }
+}
+
+enum PlayerGestureAction: String, CaseIterable, Identifiable {
+    case none, controls, playback, play, pause, backward, forward, brightnessUp, brightnessDown, volumeUp, volumeDown
+    case mute, showRegions, playlist, synopsis, details, rotate, fill, pictureInPicture, close, speedUp, speedDown, moreSettings, subtitles, danmaku, gestures
+    var id: Self { self }
+    var title: LocalizedStringKey {
+        switch self {
+        case .none: "无操作"; case .controls: "显示或隐藏控制层"; case .playback: "暂停或继续播放"
+        case .play: "播放"; case .pause: "暂停"; case .backward: "快退"; case .forward: "快进"
+        case .brightnessUp: "增大亮度"; case .brightnessDown: "减小亮度"; case .volumeUp: "增大音量"; case .volumeDown: "减小音量"
+        case .mute: "静音或取消静音"; case .showRegions: "显示区域划分"; case .playlist: "播放列表"
+        case .synopsis: "视频简介"; case .details: "详细信息"; case .rotate: "切换屏幕方向"; case .fill: "切换填充方式"
+        case .pictureInPicture: "画中画"; case .close: "关闭"; case .speedUp: "加快播放速度"; case .speedDown: "减慢播放速度"
+        case .moreSettings: "更多设置"; case .subtitles: "字幕设置"; case .danmaku: "弹幕设置"; case .gestures: "播放手势"
+        }
     }
+    static func choices(for kind: PlayerGestureKind) -> [Self] { allCases }
 }
 
 enum PlayerGesturePreferences {
+    static var count: Int { let n = UserDefaults.standard.integer(forKey: "player.gesture.regionCount"); return (1...3).contains(n) ? n : 3 }
+    static var boundaries: [CGFloat] {
+        if count == 1 { return [] }
+        let defaults = UserDefaults.standard
+        if count == 2 { return [CGFloat(defaults.object(forKey: "player.gesture.split2") as? Double ?? 0.5).clamped(to: 0.15...0.85)] }
+        let first = CGFloat(defaults.object(forKey: "player.gesture.split3.first") as? Double ?? 1.0 / 3).clamped(to: 0.15...0.7)
+        let second = CGFloat(defaults.object(forKey: "player.gesture.split3.second") as? Double ?? 2.0 / 3).clamped(to: (first + 0.15)...0.85)
+        return [first, second]
+    }
+    static var regions: [PlayerGestureRegion] { count == 1 ? [.center] : (count == 2 ? [.left, .right] : PlayerGestureRegion.allCases) }
     static func key(_ kind: PlayerGestureKind, _ region: PlayerGestureRegion, _ fingers: Int) -> String {
         "player.gesture.\(fingers).\(region.rawValue).\(kind.rawValue)"
     }
     static func action(_ kind: PlayerGestureKind, _ region: PlayerGestureRegion, _ fingers: Int) -> PlayerGestureAction {
-        if let saved = UserDefaults.standard.string(forKey: key(kind, region, fingers)), let action = PlayerGestureAction(rawValue: saved), PlayerGestureAction.choices(for: kind).contains(action) { return action }
+        if let saved = UserDefaults.standard.string(forKey: key(kind, region, fingers)), let action = PlayerGestureAction(rawValue: saved) { return action }
         guard fingers == 1 else { return .none }
         switch kind {
         case .tap: return .controls
         case .doubleTap: return region == .left ? .backward : (region == .right ? .forward : .playback)
-        case .vertical: return region == .left ? .brightness : (region == .right ? .volume : .none)
-        case .horizontal: return .seek
+        case .up: return region == .left ? .brightnessUp : (region == .right ? .volumeUp : .none)
+        case .down: return region == .left ? .brightnessDown : (region == .right ? .volumeDown : .none)
+        case .left: return .backward
+        case .right: return .forward
+        default: return .none
         }
     }
     static var skipInterval: Double {
@@ -91,26 +113,22 @@ enum PlayerGesturePreferences {
         return [5.0, 10, 15, 30].contains(saved) ? saved : 15
     }
     static func reset() {
-        for fingers in 1...3 {
-            for region in PlayerGestureRegion.allCases {
-                for kind in PlayerGestureKind.allCases { UserDefaults.standard.removeObject(forKey: key(kind, region, fingers)) }
-            }
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("player.gesture.") && key != "player.gesture.skipSeconds" {
+            UserDefaults.standard.removeObject(forKey: key)
         }
-        UserDefaults.standard.removeObject(forKey: "player.gesture.skipSeconds")
     }
 }
 
-/// This view is behind the controls, so recognizers never consume button,
-/// progress-bar or volume-slider touches. No dismissal gesture is installed.
+private extension CGFloat {
+    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat { min(range.upperBound, max(range.lowerBound, self)) }
+}
+
+/// Only the unobstructed video receives playback gestures; native controls own their touches.
 struct PlayerGestureSurface: UIViewRepresentable {
     var tapped: (PlayerGestureRegion, Int, Bool) -> Void
     var panned: (PlayerGestureRegion, Int, PlayerGestureKind, CGFloat, UIGestureRecognizer.State) -> Void
-
     func makeUIView(context: Context) -> GestureView { GestureView() }
-    func updateUIView(_ view: GestureView, context: Context) {
-        view.tapped = tapped
-        view.panned = panned
-    }
+    func updateUIView(_ view: GestureView, context: Context) { view.tapped = tapped; view.panned = panned }
 
     final class GestureView: UIView, UIGestureRecognizerDelegate {
         var tapped: ((PlayerGestureRegion, Int, Bool) -> Void)?
@@ -118,49 +136,60 @@ struct PlayerGestureSurface: UIViewRepresentable {
         private var region = PlayerGestureRegion.center
         private var fingers = 1
         private var axis: PlayerGestureKind?
-
         override init(frame: CGRect) {
             super.init(frame: frame)
             backgroundColor = .clear
             isMultipleTouchEnabled = true
-            isAccessibilityElement = false
             var taps: [UITapGestureRecognizer] = []
-            for count in 1...3 {
+            for count in 1...2 {
                 let single = UITapGestureRecognizer(target: self, action: #selector(tap(_:)))
                 single.numberOfTouchesRequired = count
                 let double = UITapGestureRecognizer(target: self, action: #selector(tap(_:)))
-                double.numberOfTouchesRequired = count
-                double.numberOfTapsRequired = 2
+                double.numberOfTouchesRequired = count; double.numberOfTapsRequired = 2
                 single.require(toFail: double)
                 taps.append(contentsOf: [single, double])
             }
-            // Wait for higher finger counts before interpreting a one-finger tap.
             for tap in taps {
                 for other in taps where other.numberOfTouchesRequired > tap.numberOfTouchesRequired { tap.require(toFail: other) }
                 addGestureRecognizer(tap)
             }
             let pan = UIPanGestureRecognizer(target: self, action: #selector(pan(_:)))
-            pan.minimumNumberOfTouches = 1
-            pan.maximumNumberOfTouches = 3
+            pan.maximumNumberOfTouches = 2
             addGestureRecognizer(pan)
+            let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinch(_:)))
+            let rotation = UIRotationGestureRecognizer(target: self, action: #selector(rotate(_:)))
+            // Native recognizers arbitrate translation, pinch and rotation.
+            addGestureRecognizer(pinch); addGestureRecognizer(rotation)
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
         @objc private func tap(_ sender: UITapGestureRecognizer) {
             tapped?(.at(sender.location(in: self), width: bounds.width), sender.numberOfTouchesRequired, sender.numberOfTapsRequired == 2)
         }
         @objc private func pan(_ sender: UIPanGestureRecognizer) {
-            let translation = sender.translation(in: self)
+            let delta = sender.translation(in: self)
             if sender.state == .began {
                 let location = sender.location(in: self)
-                region = .at(CGPoint(x: location.x - translation.x, y: location.y - translation.y), width: bounds.width)
+                region = .at(CGPoint(x: location.x - delta.x, y: location.y - delta.y), width: bounds.width)
                 fingers = sender.numberOfTouches
-                axis = abs(translation.y) >= abs(translation.x) ? .vertical : .horizontal
+                axis = abs(delta.y) >= abs(delta.x) ? (delta.y < 0 ? .up : .down) : (delta.x < 0 ? .left : .right)
             }
             guard let axis else { return }
-            let fraction = axis == .vertical ? -translation.y / max(bounds.height, 1) : translation.x / max(bounds.width, 1)
-            panned?(region, fingers, axis, fraction, sender.state)
-            if sender.state == .ended || sender.state == .cancelled || sender.state == .failed { self.axis = nil }
+            let fraction = (axis == .up || axis == .down) ? delta.y / max(bounds.height, 1) : delta.x / max(bounds.width, 1)
+            let sign: CGFloat = (axis == .up || axis == .left) ? -1 : 1
+            panned?(region, fingers, axis, max(0, fraction * sign), sender.state)
+            if [.ended, .cancelled, .failed].contains(sender.state) { self.axis = nil }
+        }
+        @objc private func pinch(_ sender: UIPinchGestureRecognizer) {
+            if sender.state == .began { region = .at(sender.location(in: self), width: bounds.width); axis = sender.scale < 1 ? .pinchIn : .pinchOut }
+            guard let axis else { return }
+            panned?(region, 2, axis, max(0, (sender.scale - 1) * (axis == .pinchIn ? -1 : 1)), sender.state)
+            if [.ended, .cancelled, .failed].contains(sender.state) { self.axis = nil }
+        }
+        @objc private func rotate(_ sender: UIRotationGestureRecognizer) {
+            if sender.state == .began { region = .at(sender.location(in: self), width: bounds.width); axis = sender.rotation < 0 ? .rotateCounterclockwise : .rotateClockwise }
+            guard let axis else { return }
+            panned?(region, 2, axis, max(0, sender.rotation * (axis == .rotateCounterclockwise ? -1 : 1)) / .pi, sender.state)
+            if [.ended, .cancelled, .failed].contains(sender.state) { self.axis = nil }
         }
     }
 }

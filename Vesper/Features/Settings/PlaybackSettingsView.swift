@@ -17,7 +17,7 @@ struct PlaybackSettingsView: View {
     var body: some View {
         Form {
             Group {
-                SettingsIntroCard(title: "播放设置", symbol: "play.circle", description: "设置后台播放方式、自动续播、进度保存和跳转时长。")
+                SettingsIntroCard(title: "播放设置", symbol: "play.circle", description: "管理后台播放、进度与跳转。")
                 Section {
                     Toggle("后台播放", isOn: $backgroundEnabled)
                     Picker("后台播放方式", selection: $backgroundMode) {
@@ -63,7 +63,7 @@ struct SubtitleSettingsView: View {
     var body: some View {
         Form {
             Group {
-                SettingsIntroCard(title: "字幕设置", symbol: "captions.bubble", description: "调整文字字幕的字号和背景。")
+                SettingsIntroCard(title: "字幕设置", symbol: "captions.bubble", description: "调整字幕字号与背景。")
                 Section {
                     Picker("字幕字号", selection: $fontSize) {
                         ForEach([18.0, 20, 22, 24, 28, 32], id: \.self) { size in
@@ -99,7 +99,7 @@ struct DanmakuSettingsView: View {
     var body: some View {
         List {
             Group {
-                SettingsIntroCard(title: "弹幕设置", symbol: "text.bubble", description: "管理播放时显示的弹幕。")
+                SettingsIntroCard(title: "弹幕设置", symbol: "text.bubble", description: "管理播放弹幕。")
                 Section { Text("尚未接入弹幕来源。").foregroundStyle(.secondary) }
             }
             .listRowBackground(VesperTheme.background)

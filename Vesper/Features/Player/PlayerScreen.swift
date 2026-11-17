@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum PlayerPanel: String, Identifiable {
-    case queue, gestures, danmaku, subtitles, synopsis, details
+    case queue, gestures, danmaku, subtitles, synopsis, details, more
     var id: String { rawValue }
 }
 
@@ -31,6 +31,8 @@ struct PlayerScreen: View {
     @State private var pendingRotation: Bool?
     @State private var gestureAction = PlayerGestureAction.none
     @State private var gestureStart: Double = 0
+    @State private var regionsVisible = false
+    @State private var regionRevision = 0
     @State private var originalBrightness: CGFloat?
     @State private var brightnessScreen: UIScreen?
     @State private var hudText = ""
@@ -74,11 +76,11 @@ struct PlayerScreen: View {
                     .allowsHitTesting(controlsVisible && session.errorMessage == nil && !session.isLoading)
                     .accessibilityHidden(!controlsVisible || session.errorMessage != nil || session.isLoading)
                 VStack {
-                    topControls(availableWidth: geometry.size.width - (geometry.size.width > geometry.size.height ? 56 : 40))
+                    topControls(availableWidth: geometry.size.width - (geometry.size.width > geometry.size.height ? 24 : 40), landscape: geometry.size.width > geometry.size.height)
                     Spacer(minLength: 0)
                     bottomControls(landscape: geometry.size.width > geometry.size.height)
                 }
-                .padding(.horizontal, geometry.size.width > geometry.size.height ? 28 : 20)
+                .padding(.horizontal, geometry.size.width > geometry.size.height ? 12 : 20)
                 .padding(.vertical, 12)
                 // Keep the Menu mounted while fading the controls, so a
                 // system menu never loses its presentation anchor mid-use.
@@ -115,6 +117,7 @@ struct PlayerScreen: View {
                     .padding(.horizontal, 28).padding(.bottom, 12)
                     .allowsHitTesting(false).accessibilityHidden(true)
                 }
+                if regionsVisible { regionOverlay }
                 if let message = session.errorMessage { errorContent(message) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -180,11 +183,11 @@ struct PlayerScreen: View {
         }
     }
 
-    private func topControls(availableWidth: CGFloat) -> some View {
+    private func topControls(availableWidth: CGFloat, landscape: Bool) -> some View {
         ZStack(alignment: .trailing) {
             HStack(spacing: 10) {
                 glassButton("关闭", symbol: "xmark") { session.stop() }
-                HStack(spacing: 0) {
+                HStack(spacing: 16) {
                     Button { revealControls(); session.startPictureInPicture() } label: {
                         Image(systemName: "pip.enter").font(.system(size: 17, weight: .medium))
                             .frame(width: 44, height: 44)
@@ -197,9 +200,9 @@ struct PlayerScreen: View {
                 .glassEffect(.regular.interactive(), in: Capsule())
                 Spacer(minLength: 0)
             }
-            .opacity(volumeExpanded ? 0 : 1)
-            .allowsHitTesting(!volumeExpanded)
-            .accessibilityHidden(volumeExpanded)
+            .opacity(volumeExpanded && !landscape ? 0 : 1)
+            .allowsHitTesting(!volumeExpanded || landscape)
+            .accessibilityHidden(volumeExpanded && !landscape)
             volumeControl(width: min(240, availableWidth))
         }
         .frame(height: 44)
@@ -216,6 +219,7 @@ struct PlayerScreen: View {
                                 .frame(width: geometry.size.width * CGFloat(session.isMuted ? 0 : volume.value))
                         }
                         .frame(height: 8).clipShape(Capsule())
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: session.isMuted)
                     }
                     .frame(height: 8)
                     .padding(.leading, 16)
@@ -348,7 +352,7 @@ struct PlayerScreen: View {
     }
 
     private var playbackOptionsMenu: some View {
-        PlayerMenuButton(symbol: "slider.horizontal.3", accessibilityTitle: VesperLocalization.string("播放选项"),
+        PlayerMenuButton(symbol: "ellipsis", accessibilityTitle: VesperLocalization.string("播放选项"),
                          makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu()]) },
                          visibilityChanged: menuVisibilityChanged)
             .frame(width: 44, height: 44)
@@ -393,17 +397,29 @@ struct PlayerScreen: View {
     }
 
     private func bottomActions(landscape: Bool) -> some View {
-        HStack(spacing: landscape ? 12 : 4) {
-            independentAction("视频简介", symbol: "text.alignleft") { requestPanel(.synopsis) }
-            independentAction("详细信息", symbol: "info.circle") { requestPanel(.details) }
+        HStack(spacing: 8) {
+            HStack(spacing: 12) {
+                compactAction("视频简介", symbol: "text.book.closed") { requestPanel(.synopsis) }
+                compactAction("详细信息", symbol: "info.circle") { requestPanel(.details) }
+            }
+            .glassEffect(.regular.interactive(), in: Capsule())
             Spacer(minLength: 0)
-            independentAction("播放列表", symbol: "list.bullet") { requestPanel(.queue) }
-                .disabled(session.queue.isEmpty)
-            independentAction(landscape ? "竖屏" : "横屏", symbol: "rotate.right") { requestRotation(!landscape) }
-            independentAction(session.fillsScreen ? "完整显示" : "填满屏幕", symbol: "aspectratio") { session.toggleFill() }
-            landscapeMenu("更多设置", symbol: "gearshape", menu: moreSettingsMenu)
+            HStack(spacing: 12) {
+                compactAction(landscape ? "竖屏" : "横屏", symbol: "rotate.right") { requestRotation(!landscape) }
+                compactAction(session.fillsScreen ? "完整显示" : "填满屏幕", symbol: "aspectratio") { session.toggleFill() }
+                compactAction("播放列表", symbol: "list.bullet") { requestPanel(.queue) }
+                    .disabled(session.queue.isEmpty)
+            }
+            .glassEffect(.regular.interactive(), in: Capsule())
+            PlayerMenuButton(symbol: "gearshape", accessibilityTitle: VesperLocalization.string("更多设置"), makeMenu: moreSettingsMenu, visibilityChanged: menuVisibilityChanged)
+                .frame(width: 36, height: 36)
                 .glassEffect(.regular.interactive(), in: Circle())
         }
+    }
+
+    private func compactAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        PlayerActionButton(title: VesperLocalization.string(title), symbol: symbol) { revealControls(); action() }
+            .frame(width: 36, height: 36)
     }
 
     private func independentAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
@@ -422,7 +438,7 @@ struct PlayerScreen: View {
     }
 
     private func moreSettingsMenu() -> UIMenu {
-        UIMenu(title: VesperLocalization.string("更多设置"), image: UIImage(systemName: "gearshape"), children: [
+        UIMenu(children: [
             menuAction(VesperLocalization.string("弹幕设置"), symbol: "text.bubble") { requestPanel(.danmaku) },
             menuAction(VesperLocalization.string("字幕设置"), symbol: "textformat.size") { requestPanel(.subtitles) },
             menuAction(VesperLocalization.string("播放手势"), symbol: "hand.draw") { requestPanel(.gestures) }
@@ -515,6 +531,12 @@ struct PlayerScreen: View {
         NavigationStack {
             Group {
                 switch selected {
+                case .more:
+                    List {
+                        NavigationLink("弹幕设置") { DanmakuSettingsView() }
+                        NavigationLink("字幕设置") { SubtitleSettingsView() }
+                        NavigationLink("播放手势") { PlayerGestureSettingsView() }
+                    }.navigationTitle("更多设置")
                 case .gestures: PlayerGestureSettingsView()
                 case .danmaku: DanmakuSettingsView()
                 case .subtitles: SubtitleSettingsView()
@@ -522,17 +544,11 @@ struct PlayerScreen: View {
                 case .details: PlayerMediaInfoView(session: session, showsDetails: true)
                 case .queue:
                     List(session.queue) { item in
-                        Button {
-                            session.playQueued(item)
-                            panel = nil
-                        } label: {
-                            HStack {
-                                Text(verbatim: item.title).lineLimit(2)
-                                Spacer()
-                                if item.id == session.currentItem?.id { Image(systemName: "checkmark") }
-                            }
+                        Button { session.playQueued(item); panel = nil } label: {
+                            PlayerQueueRow(session: session, item: item)
                         }
                     }
+                    .contentMargins(.top, 0, for: .scrollContent)
                     .navigationTitle("播放列表")
                 }
             }
@@ -586,58 +602,106 @@ struct PlayerScreen: View {
             return
         }
         let action = PlayerGesturePreferences.action(double ? .doubleTap : .tap, region, fingers)
+        performGestureAction(action)
+    }
+
+    private func performGestureAction(_ action: PlayerGestureAction) {
         switch action {
+        case .none: break
         case .controls: setControlsVisible(!controlsVisible)
         case .playback: session.togglePlayback()
+        case .play: if !session.isPlaying { session.togglePlayback() }
+        case .pause: session.pause()
         case .backward, .forward:
             guard session.canSeek else { return }
-            let delta = PlayerGesturePreferences.skipInterval * (action == .backward ? -1 : 1)
             let start = session.currentTime
-            let target = min(session.duration, max(0, start + delta))
-            session.seek(to: target)
-            showSeekHUD(from: start, to: target)
-        default: break
+            let target = min(session.duration, max(0, start + PlayerGesturePreferences.skipInterval * (action == .backward ? -1 : 1)))
+            session.seek(to: target); showSeekHUD(from: start, to: target)
+        case .brightnessUp, .brightnessDown:
+            if originalBrightness == nil { brightnessScreen = screen; originalBrightness = screen?.brightness }
+            let value = min(1, max(0, Double(screen?.brightness ?? 0.5) + (action == .brightnessUp ? 0.1 : -0.1)))
+            screen?.brightness = value
+            showHUD(String(format: VesperLocalization.string("亮度 %d%%"), Int(value * 100)), symbol: "sun.max.fill")
+        case .volumeUp, .volumeDown:
+            session.unmute(); volume.set(volume.value + (action == .volumeUp ? 0.1 : -0.1))
+            showHUD(String(format: VesperLocalization.string("音量 %d%%"), Int(volume.value * 100)), symbol: "speaker.wave.2.fill")
+        case .mute: session.toggleMute()
+        case .showRegions: regionsVisible = true; regionRevision += 1
+        case .playlist: requestPanel(.queue)
+        case .synopsis: requestPanel(.synopsis)
+        case .details: requestPanel(.details)
+        case .rotate: requestRotation(!PlayerOrientationPolicy.isLandscape)
+        case .fill: session.toggleFill()
+        case .pictureInPicture: session.startPictureInPicture()
+        case .close: session.stop()
+        case .speedUp, .speedDown:
+            let rates: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+            let index = rates.firstIndex(of: session.playbackRate) ?? 2
+            session.setPlaybackRate(rates[min(rates.count - 1, max(0, index + (action == .speedUp ? 1 : -1)))])
+        case .moreSettings: revealControls(); requestPanel(.more)
+        case .subtitles: requestPanel(.subtitles)
+        case .danmaku: requestPanel(.danmaku)
+        case .gestures: requestPanel(.gestures)
         }
     }
 
     private func handlePan(_ region: PlayerGestureRegion, _ fingers: Int, _ kind: PlayerGestureKind,
                            _ delta: CGFloat, _ phase: UIGestureRecognizer.State) {
         if phase == .began {
-            guard !controlsVisible, !menuPresented, panel == nil else {
-                gestureAction = .none
-                return
-            }
+            guard !controlsVisible, !menuPresented, panel == nil else { gestureAction = .none; return }
             gestureAction = PlayerGesturePreferences.action(kind, region, fingers)
+            gestureStart = 0
             switch gestureAction {
-            case .brightness:
+            case .brightnessUp, .brightnessDown:
                 if originalBrightness == nil { brightnessScreen = screen; originalBrightness = screen?.brightness }
                 gestureStart = Double(screen?.brightness ?? 0.5)
-            case .volume: gestureStart = Double(volume.value)
-            case .seek: beginScrubbing(showControls: false, previews: false)
+            case .volumeUp, .volumeDown: gestureStart = Double(volume.value)
+            case .backward, .forward: beginScrubbing(showControls: false, previews: false)
             default: break
             }
         }
+        let amount = Double(delta)
         switch gestureAction {
-        case .brightness:
-            let value = min(1, max(0, gestureStart + Double(delta) * 1.5))
-            screen?.brightness = CGFloat(value)
+        case .brightnessUp, .brightnessDown:
+            let value = min(1, max(0, gestureStart + amount * (gestureAction == .brightnessUp ? 1.5 : -1.5)))
+            screen?.brightness = value
             showHUD(String(format: VesperLocalization.string("亮度 %d%%"), Int(value * 100)), symbol: "sun.max.fill")
-        case .volume:
-            let value = min(1, max(0, gestureStart + Double(delta) * 1.5))
-            session.unmute()
-            volume.set(Float(value))
+        case .volumeUp, .volumeDown:
+            let value = min(1, max(0, gestureStart + amount * (gestureAction == .volumeUp ? 1.5 : -1.5)))
+            session.unmute(); volume.set(Float(value))
             showHUD(String(format: VesperLocalization.string("音量 %d%%"), Int(value * 100)), symbol: "speaker.wave.2.fill")
-        case .seek:
+        case .backward, .forward:
             if isScrubbing {
-                updateScrubbing(scrubStart + Double(delta) * min(session.duration, 120))
+                updateScrubbing(scrubStart + amount * PlayerGesturePreferences.skipInterval * (gestureAction == .backward ? -1 : 1))
                 showSeekHUD(from: scrubStart, to: scrubTime)
             }
         default: break
         }
-        if phase == .ended || phase == .cancelled || phase == .failed {
-            if gestureAction == .seek && isScrubbing { finishScrubbing(commit: phase == .ended) }
-            gestureAction = .none
-            autoHideRevision += 1
+        if [.ended, .cancelled, .failed].contains(phase) {
+            if (gestureAction == .backward || gestureAction == .forward) && isScrubbing { finishScrubbing(commit: phase == .ended) }
+            else if phase == .ended && ![.brightnessUp, .brightnessDown, .volumeUp, .volumeDown].contains(gestureAction) {
+                performGestureAction(gestureAction)
+            }
+            gestureAction = .none; autoHideRevision += 1
+        }
+    }
+
+    private var regionOverlay: some View {
+        GeometryReader { geometry in
+            let edges = [CGFloat(0)] + PlayerGesturePreferences.boundaries + [CGFloat(1)]
+            HStack(spacing: 0) {
+                ForEach(Array(PlayerGesturePreferences.regions.enumerated()), id: \.element.id) { index, region in
+                    Text(PlayerGesturePreferences.count == 1 ? "全部区域" : region.title)
+                        .font(.headline).frame(width: geometry.size.width * (edges[index + 1] - edges[index]), height: geometry.size.height)
+                        .background(.blue.opacity(0.18))
+                        .border(.white.opacity(0.65), width: 1)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .task(id: regionRevision) {
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { regionsVisible = false }
         }
     }
 
@@ -692,6 +756,11 @@ private struct PlayerMediaInfoView: View {
                     if let details {
                         LabeledContent("文件名") { Text(verbatim: details.fileName).textSelection(.enabled) }
                         LabeledContent("来源") { Text(verbatim: details.sourceName) }
+                        ForEach(Array(details.technical.enumerated()), id: \.offset) { _, field in
+                            LabeledContent { Text(verbatim: field.value).textSelection(.enabled) } label: {
+                                Text(LocalizedStringKey(field.label))
+                            }
+                        }
                         if let dimensions = details.dimensions { LabeledContent("分辨率") { Text(verbatim: dimensions) } }
                         if let bytes = details.byteCount {
                             LabeledContent("文件大小") { Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
@@ -719,6 +788,40 @@ private struct PlayerMediaInfoView: View {
             guard !Task.isCancelled else { return }
             details = result
             loading = false
+        }
+    }
+}
+
+private struct PlayerQueueRow: View {
+    @ObservedObject var session: PlaybackSession
+    let item: MediaItem
+    @State private var info = PlaybackQueueInfo()
+    private func time(_ seconds: Double) -> String {
+        Duration.seconds(max(0, seconds)).formatted(.time(pattern: .hourMinuteSecond))
+    }
+    var body: some View {
+        HStack(spacing: 14) {
+            if let source = session.queueSource {
+                MediaThumbnail(source: source, item: item).frame(width: 60, height: 90)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(verbatim: (item.title as NSString).deletingPathExtension)
+                    .font(.headline).lineLimit(2).foregroundStyle(.primary)
+                HStack(spacing: 4) {
+                    let progress = session.progress(for: item)
+                    Text(verbatim: progress > 0 ? "\(time(progress)) / \(time(info.duration))" : time(info.duration))
+                    if let bytes = info.byteCount { Text(verbatim: "· " + ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
+                }
+                if let dimensions = info.dimensions { Text(verbatim: dimensions) }
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            if item.id == session.currentItem?.id { Image(systemName: "waveform").foregroundStyle(.tint) }
+        }
+        .padding(.vertical, 4)
+        .task(id: item.id) {
+            let result = await session.queueInfo(for: item)
+            if !Task.isCancelled { info = result }
         }
     }
 }
