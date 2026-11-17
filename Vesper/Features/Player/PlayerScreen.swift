@@ -117,7 +117,7 @@ struct PlayerScreen: View {
                     .padding(.horizontal, 28).padding(.bottom, 12)
                     .allowsHitTesting(false).accessibilityHidden(true)
                 }
-                if regionsVisible { regionOverlay }
+                if regionsVisible { regionOverlay.ignoresSafeArea() }
                 if let message = session.errorMessage { errorContent(message) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -420,11 +420,6 @@ struct PlayerScreen: View {
     private func compactAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
         PlayerActionButton(title: VesperLocalization.string(title), symbol: symbol) { revealControls(); action() }
             .frame(width: 36, height: 36)
-    }
-
-    private func independentAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
-        actionButton(title, symbol: symbol, action: action)
-            .glassEffect(.regular.interactive(), in: Circle())
     }
 
     private func landscapeMenu(_ title: String, symbol: String, menu: @escaping () -> UIMenu) -> some View {

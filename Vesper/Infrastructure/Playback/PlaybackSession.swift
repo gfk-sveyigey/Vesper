@@ -358,7 +358,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             }
         }
         let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
-        technical.append(.init(label: "音轨数量", value: String(audioTracks.count)))
+        technical.append(.init(label: "音轨数量", value: String(audioTracks.isEmpty ? (layer?.player.tracks(mediaType: .audio).count ?? 0) : audioTracks.count)))
         for (index, track) in audioTracks.enumerated() {
             let prefix = "Audio \(index + 1)"
             if let language = try? await track.load(.languageCode) { technical.append(.init(label: "音频语言", value: "\(prefix) · \(language)")) }

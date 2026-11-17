@@ -10,7 +10,7 @@ import UIKit
 enum PlayerOrientationPolicy {
     static var allowsLandscape = false
     static var isLandscape: Bool {
-        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { $0.activationState == .foregroundActive }?.interfaceOrientation.isLandscape == true
+        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { $0.activationState == .foregroundActive }?.effectiveGeometry.interfaceOrientation.isLandscape == true
     }
 
     static func update(_ enabled: Bool, scene: UIWindowScene? = nil) {
@@ -120,7 +120,7 @@ enum PlayerGesturePreferences {
 }
 
 private extension CGFloat {
-    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat { min(range.upperBound, max(range.lowerBound, self)) }
+    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat { Swift.min(range.upperBound, Swift.max(range.lowerBound, self)) }
 }
 
 /// Only the unobstructed video receives playback gestures; native controls own their touches.
