@@ -23,6 +23,8 @@ struct PlayerScreen: View {
     @State private var resumeAfterScrub = false
     @State private var lastPreview = Date.distantPast
     @State private var panel: PlayerPanel?
+    @State private var pendingPanel: PlayerPanel?
+    @State private var pendingRotation: Bool?
     @State private var gestureAction = PlayerGestureAction.none
     @State private var gestureStart: Double = 0
     @State private var originalBrightness: CGFloat?
@@ -263,10 +265,7 @@ struct PlayerScreen: View {
     }
 
     private func moreMenu(landscape: Bool) -> some View {
-        PlayerMenuButton(makeMenu: { makeMoreMenu(landscape: landscape) }) { presented in
-            menuPresented = presented
-            revealControls()
-        }
+        PlayerMenuButton(makeMenu: { makeMoreMenu(landscape: landscape) }, visibilityChanged: menuVisibilityChanged)
         .frame(width: 44, height: 44)
         .glassEffect(.regular.interactive(), in: Circle())
     }
@@ -294,18 +293,34 @@ struct PlayerScreen: View {
             UIMenu(title: VesperLocalization.string("播放速度"), children: speeds),
             UIMenu(title: VesperLocalization.string("字幕"), children: subtitles),
             UIMenu(title: VesperLocalization.string("音轨"), children: audio),
-            menuAction(VesperLocalization.string("弹幕设置"), symbol: "text.bubble") { panel = .danmaku },
-            menuAction(VesperLocalization.string("播放列表"), symbol: "list.bullet", enabled: !session.queue.isEmpty) { panel = .queue },
-            menuAction(VesperLocalization.string("播放器手势"), symbol: "hand.draw") { panel = .gestures }
+            menuAction(VesperLocalization.string("弹幕设置"), symbol: "text.bubble") { pendingPanel = .danmaku },
+            menuAction(VesperLocalization.string("播放列表"), symbol: "list.bullet", enabled: !session.queue.isEmpty) { pendingPanel = .queue },
+            menuAction(VesperLocalization.string("播放器手势"), symbol: "hand.draw") { pendingPanel = .gestures }
         ]
         let picture: [UIMenuElement] = [
             menuAction(VesperLocalization.string(session.fillsScreen ? "完整显示" : "填满屏幕"), symbol: "aspectratio") { session.toggleFill() },
-            menuAction(VesperLocalization.string(landscape ? "竖屏" : "横屏"), symbol: "rotate.right") { rotate(landscape: !landscape) }
+            menuAction(VesperLocalization.string(landscape ? "竖屏" : "横屏"), symbol: "rotate.right") { pendingRotation = !landscape }
         ]
         return UIMenu(children: [
             UIMenu(options: .displayInline, children: settings),
             UIMenu(options: .displayInline, children: picture)
         ])
+    }
+
+    private func menuVisibilityChanged(_ presented: Bool) {
+        menuPresented = presented
+        revealControls()
+        guard !presented else { return }
+        // Present a sheet or rotate only after the system menu's dismissal
+        // animation completes; it must not compete with another presentation.
+        if let selected = pendingPanel {
+            pendingPanel = nil
+            panel = selected
+        }
+        if let landscape = pendingRotation {
+            pendingRotation = nil
+            rotate(landscape: landscape)
+        }
     }
 
     private func menuAction(_ title: String, symbol: String? = nil, selected: Bool = false,
