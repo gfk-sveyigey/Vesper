@@ -9,6 +9,8 @@ struct MediaThumbnail: View {
     let item: MediaItem
     var playback: PlaybackSession? = nil
     var historyEntry: PlaybackHistoryEntry? = nil
+    var aspectRatio: CGFloat = 2.0 / 3.0
+    var logsQueueDiagnostics = false
     @State private var image: UIImage?
 
     var body: some View {
@@ -27,21 +29,26 @@ struct MediaThumbnail: View {
                 }
             }
         }
-        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        .aspectRatio(aspectRatio, contentMode: .fit)
         .overlay(alignment: .bottomLeading) {
             if let historyEntry {
-                ThumbnailProgressBadge(position: historyEntry.position, total: historyEntry.duration, showsPosition: true)
+                ThumbnailProgressBadge(position: historyEntry.position, total: historyEntry.duration, showsPosition: true, title: mediaDisplayName(item.title))
             } else if let playback {
                 ThumbnailPlaybackProgress(session: playback, source: source, item: item)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .accessibilityHidden(true)
-        .task(id: item.id) {
+        .task(id: "\(item.id):\(aspectRatio)") {
             image = nil
-            let data = await MediaThumbnailLoader.shared.load(item, source: source)
-            guard !Task.isCancelled else { return }
+            if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.begin source=\(source.kind.rawValue) item=\(item.id.localID)") }
+            let data = await MediaThumbnailLoader.shared.load(item, source: source, aspectRatio: aspectRatio, diagnostics: logsQueueDiagnostics)
+            guard !Task.isCancelled else {
+                if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.cancelled item=\(item.id.localID)") }
+                return
+            }
             image = data.flatMap { UIImage(data: $0) }
+            if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.end item=\(item.id.localID) bytes=\(data?.count ?? 0) decoded=\(image != nil)") }
         }
     }
 }
@@ -58,7 +65,7 @@ private final class MediaThumbnailLoader {
         cache.totalCostLimit = 32 * 1024 * 1024
     }
 
-    func load(_ item: MediaItem, source: MediaSource) async -> Data? {
+    func load(_ item: MediaItem, source: MediaSource, aspectRatio: CGFloat = 2.0 / 3.0, diagnostics: Bool = false) async -> Data? {
         guard item.id.sourceID == source.id, !Task.isCancelled else { return nil }
         switch source.kind {
         case .demo: return nil
@@ -66,9 +73,10 @@ private final class MediaThumbnailLoader {
             let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
             guard status == .authorized || status == .limited,
                   let asset = PHAsset.fetchAssets(withLocalIdentifiers: [item.id.localID], options: nil).firstObject else { return nil }
-            let key = "photos:\(item.id.localID):\(asset.modificationDate?.timeIntervalSince1970 ?? 0)" as NSString
+            let key = "photos:\(item.id.localID):\(asset.modificationDate?.timeIntervalSince1970 ?? 0):\(aspectRatio)" as NSString
             if let data = cache.object(forKey: key) { return data as Data }
-            let data = await PhotoThumbnailRequest().load(asset)
+            let targetSize = CGSize(width: 400, height: 400 / max(0.1, aspectRatio))
+            let data = await PhotoThumbnailRequest().load(asset, targetSize: targetSize, diagnostics: diagnostics)
             return remember(data, key: key)
         case .local:
             guard let root = try? source.localFolderURL() else { return nil }
@@ -145,30 +153,33 @@ private struct ThumbnailProgressBadge: View {
     let position: Double
     let total: Double
     var showsPosition = false
+    var title: String? = nil
     @ScaledMetric(relativeTo: .caption2) private var progressWidth = 20.0
     private var fraction: CGFloat {
         guard total.isFinite, position.isFinite, total > 0 else { return 0 }
         return CGFloat(min(1, max(0, position / total)))
     }
     var body: some View {
-        HStack(spacing: 5) {
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.35))
-                    Capsule().fill(.white)
-                        .mask(alignment: .leading) {
-                            Rectangle().frame(width: geometry.size.width * fraction)
-                        }
+        VStack(alignment: .leading, spacing: 5) {
+            if let title { Text(verbatim: title).lineLimit(1).truncationMode(.tail) }
+            HStack(spacing: 5) {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.35))
+                        Capsule().fill(.white)
+                            .mask(alignment: .leading) {
+                                Rectangle().frame(width: geometry.size.width * fraction)
+                            }
+                    }
                 }
+                .frame(width: progressWidth, height: 4)
+                Text(verbatim: showsPosition ? "\(mediaTimeLabel(position)) / \(mediaTimeLabel(total))" : mediaTimeLabel(total))
+                    .lineLimit(1).minimumScaleFactor(0.7)
             }
-            .frame(width: progressWidth, height: 4)
-            Text(verbatim: showsPosition ? "\(mediaTimeLabel(position)) / \(mediaTimeLabel(total))" : mediaTimeLabel(total))
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .lineLimit(1).minimumScaleFactor(0.7)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 8).padding(.bottom, 8)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .bottomLeading)
+        .frame(maxWidth: .infinity, minHeight: title == nil ? 44 : 64, alignment: .bottomLeading)
         .background {
             Rectangle().fill(.ultraThinMaterial)
                 .overlay {
@@ -188,7 +199,7 @@ private final class PhotoThumbnailRequest {
     private var continuation: CheckedContinuation<Data?, Never>?
     private var requestID: PHImageRequestID?
 
-    func load(_ asset: PHAsset) async -> Data? {
+    func load(_ asset: PHAsset, targetSize: CGSize, diagnostics: Bool) async -> Data? {
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 guard !Task.isCancelled else { continuation.resume(returning: nil); return }
@@ -198,9 +209,16 @@ private final class PhotoThumbnailRequest {
                 options.resizeMode = .fast
                 options.isNetworkAccessAllowed = true
                 requestID = PHImageManager.default().requestImage(for: asset,
-                    targetSize: CGSize(width: 400, height: 600), contentMode: .aspectFill,
-                    options: options) { image, info in
-                        guard (info?[PHImageResultIsDegradedKey] as? Bool) != true else { return }
+                    targetSize: targetSize, contentMode: .aspectFill,
+                    options: options) { @Sendable [weak self] image, info in
+                        let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) == true
+                        let cancelled = (info?[PHImageCancelledKey] as? Bool) == true
+                        let error = (info?[PHImageErrorKey] as? NSError)?.code
+                        let hasImage = image != nil
+                        if diagnostics {
+                            Task { @MainActor in PlayerQueueDiagnostic.write("photos.thumbnail.callback degraded=\(degraded) cancelled=\(cancelled) error=\(error.map(String.init) ?? "none") image=\(hasImage)") }
+                        }
+                        guard !degraded else { return }
                         let data = image?.jpegData(compressionQuality: 0.8)
                         Task { @MainActor [weak self] in self?.finish(data) }
                     }
@@ -295,16 +313,16 @@ private struct MediaThumbnailPreview: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            MediaThumbnail(source: source, item: item, playback: playback, historyEntry: historyEntry)
+            MediaThumbnail(source: source, item: item)
                 .frame(width: 200, height: 300)
-            Text(verbatim: displayName).font(.headline).lineLimit(2)
+            Text(verbatim: displayName).lineLimit(2)
             if let historyEntry {
                 Text(verbatim: "\(mediaTimeLabel(historyEntry.position)) / \(mediaTimeLabel(historyEntry.duration))")
-                    .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-                (Text("查看时间") + Text(" ") + Text(historyEntry.watchedAt, format: .dateTime.year().month().day().hour().minute()))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .foregroundStyle(.secondary)
+                Text(historyEntry.watchedAt, format: .dateTime.hour().minute())
+                    .foregroundStyle(.secondary)
             } else if duration > 0 {
-                Text(verbatim: mediaTimeLabel(duration)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                Text(verbatim: mediaTimeLabel(duration)).foregroundStyle(.secondary)
             } else { ProgressView() }
         }
         .padding(14)
@@ -320,4 +338,15 @@ private struct MediaVideoShareSheet: UIViewControllerRepresentable {
         UIActivityViewController(activityItems: [url], applicationActivities: nil)
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) { }
+}
+
+func mediaDisplayName(_ title: String) -> String {
+    VideoImporter.isVideoType(URL(fileURLWithPath: title)) ? (title as NSString).deletingPathExtension : title
+}
+
+@MainActor
+enum PlayerQueueDiagnostic {
+    static func write(_ message: String) {
+        AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [PlayerQueue] \(message)")
+    }
 }

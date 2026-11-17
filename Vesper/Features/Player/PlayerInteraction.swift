@@ -269,6 +269,8 @@ final class PlayerSystemVolume: ObservableObject {
     private var observation: NSKeyValueObservation?
     private var pendingValue: (value: Float, deadline: Date)?
     private var reconciliation: Task<Void, Never>?
+    private var scheduledUpdate: Task<Void, Never>?
+    private var lastRequested: Float?
 
     init() {
         view.showsRouteButton = false
@@ -293,8 +295,18 @@ final class PlayerSystemVolume: ObservableObject {
         }
     }
     func set(_ value: Float) {
-        pendingRequest = min(1, max(0, value))
-        applyPendingVolume()
+        let requested = min(1, max(0, value))
+        pendingRequest = requested
+        lastRequested = requested
+        self.value = requested
+        // Let the native route control finish updating, and coalesce drag samples.
+        guard scheduledUpdate == nil else { return }
+        scheduledUpdate = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(20))
+            guard let self else { return }
+            self.scheduledUpdate = nil
+            self.applyPendingVolume()
+        }
     }
 
     private func applyPendingVolume() {
@@ -304,13 +316,10 @@ final class PlayerSystemVolume: ObservableObject {
         view.layoutIfNeeded()
         guard let slider = view.subviews.compactMap({ $0 as? UISlider }).first else { return }
         pendingRequest = nil
-        // Always use the full system-volume range, never the current volume as
-        // the upper bound. The observed output is a value, not a route limit.
-        slider.minimumValue = 0
-        slider.maximumValue = 1
-        slider.isEnabled = true
+        // Preserve the native route's range; map normalized volume into it.
+        let nativeValue = slider.minimumValue + requested * (slider.maximumValue - slider.minimumValue)
         pendingValue = (requested, Date().addingTimeInterval(0.5))
-        slider.setValue(requested, animated: false)
+        slider.setValue(nativeValue, animated: false)
         slider.sendActions(for: .valueChanged)
         slider.sendActions(for: .touchUpInside)
         value = requested
@@ -321,13 +330,34 @@ final class PlayerSystemVolume: ObservableObject {
             self.pendingValue = nil
             let actual = AVAudioSession.sharedInstance().outputVolume
             if abs(actual - requested) > 0.03 {
-                AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [SystemVolume] requested=\(requested) actual=\(actual) range=0...1")
+                AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [SystemVolume] requested=\(requested) actual=\(actual) nativeRange=\(slider.minimumValue)...\(slider.maximumValue)")
             }
             self.value = actual
         }
     }
 
+    func finishAdjustment(origin: String) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard let self else { return }
+            let actual = AVAudioSession.sharedInstance().outputVolume
+            AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [SystemVolume] origin=\(origin) requested=\(self.lastRequested ?? self.value) actual=\(actual) attached=\(self.view.window != nil) route=\(AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType.rawValue))")
+        }
+    }
+
     final class SystemVolumeView: MPVolumeView {
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            // Keep the native volume control attached and active, but render our
+            // own capsule instead of its tracks and thumb.
+            for slider in subviews.compactMap({ $0 as? UISlider }) {
+                slider.minimumTrackTintColor = .clear
+                slider.maximumTrackTintColor = .clear
+                let transparent = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in }
+                slider.setThumbImage(transparent, for: .normal)
+                slider.setThumbImage(transparent, for: .highlighted)
+            }
+        }
         var didAttach: (() -> Void)?
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -340,7 +370,7 @@ final class PlayerSystemVolume: ObservableObject {
 struct PlayerVolumeBridge: UIViewRepresentable {
     let volume: PlayerSystemVolume
     func makeUIView(context: Context) -> MPVolumeView {
-        volume.view.tintColor = .white
+        volume.view.tintColor = .clear
         return volume.view
     }
     func updateUIView(_ view: MPVolumeView, context: Context) { }

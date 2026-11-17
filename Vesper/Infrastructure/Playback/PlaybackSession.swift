@@ -664,16 +664,10 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         guard let source, source.id == item.id.sourceID else { return .init() }
         if source.kind == .photos {
             guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [item.id.localID], options: nil).firstObject else { return .init() }
-            let options = PHVideoRequestOptions()
-            options.isNetworkAccessAllowed = false
-            options.deliveryMode = .fastFormat
-            let bytes: Int? = await withCheckedContinuation { continuation in
-                PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, _ in
-                    let bytes = (avAsset as? AVURLAsset).flatMap { try? $0.url.resourceValues(forKeys: [.fileSizeKey]).fileSize }
-                    continuation.resume(returning: bytes)
-                }
-            }
-            return .init(duration: asset.duration, dimensions: "\(asset.pixelWidth) × \(asset.pixelHeight)", byteCount: bytes)
+            PlayerQueueDiagnostic.write("photos.metadata.begin id=\(item.id.localID) authorization=\(PHPhotoLibrary.authorizationStatus(for: .readWrite).rawValue)")
+            let bytes = await QueuePhotoMetadataRequest().load(asset)
+            PlayerQueueDiagnostic.write("photos.metadata.end id=\(item.id.localID) duration=\(asset.duration) bytes=\(bytes ?? -1)")
+            return .init(duration: asset.duration.isFinite ? asset.duration : 0, dimensions: "\(asset.pixelWidth) × \(asset.pixelHeight)", byteCount: bytes)
         }
         guard source.kind == .local, let resource = try? await PlaybackResourceResolver().resolve(item, source: source) else { return .init() }
         defer { resource.release() }
@@ -918,4 +912,47 @@ struct PlaybackHistoryEntry: Identifiable, Codable {
     let duration: Double
     var id: MediaID { mediaID }
     var item: MediaItem { MediaItem(id: mediaID, title: title, resource: nil) }
+}
+
+/// Photos invokes callbacks off the main actor. Resume a request exactly once,
+/// including cancellation, without inheriting the session's actor isolation.
+@MainActor
+private final class QueuePhotoMetadataRequest {
+    private var continuation: CheckedContinuation<Int?, Never>?
+    private var requestID: PHImageRequestID?
+
+    func load(_ asset: PHAsset) async -> Int? {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(returning: nil); return }
+                self.continuation = continuation
+                let options = PHVideoRequestOptions()
+                options.isNetworkAccessAllowed = false
+                options.deliveryMode = .fastFormat
+                requestID = PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { @Sendable [weak self] avAsset, _, info in
+                    let bytes = (avAsset as? AVURLAsset).flatMap { try? $0.url.resourceValues(forKeys: [.fileSizeKey]).fileSize }
+                    let cancelled = (info?[PHImageCancelledKey] as? Bool) == true
+                    let error = (info?[PHImageErrorKey] as? NSError)?.code
+                    let hasAsset = avAsset != nil
+                    Task { @MainActor [weak self] in
+                        PlayerQueueDiagnostic.write("photos.metadata.callback asset=\(hasAsset) cancelled=\(cancelled) error=\(error.map(String.init) ?? "none")")
+                        self?.finish(bytes)
+                    }
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let requestID = self.requestID { PHImageManager.default().cancelImageRequest(requestID) }
+                self.finish(nil)
+            }
+        }
+    }
+
+    private func finish(_ bytes: Int?) {
+        let pending = continuation
+        continuation = nil
+        requestID = nil
+        pending?.resume(returning: bytes)
+    }
 }

@@ -15,6 +15,7 @@ struct PlayerScreen: View {
     @State private var controlsVisible = false
     @State private var autoHideRevision = 0
     @State private var volumeExpanded = false
+    @State private var volumeResetRevision = 0
     @State private var volumeDragStart: Float?
     @State private var menuPresented = false
     @State private var scrubShowsControls = true
@@ -127,7 +128,7 @@ struct PlayerScreen: View {
         .background {
             PlayerVolumeBridge(volume: volume)
                 .frame(width: 160, height: 44)
-                .opacity(0.01).allowsHitTesting(false).accessibilityHidden(true)
+                .allowsHitTesting(false).accessibilityHidden(true)
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(!controlsVisible)
@@ -138,6 +139,12 @@ struct PlayerScreen: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .preferredColorScheme(.dark)
+                .onAppear {
+                    if selected == .queue { PlayerQueueDiagnostic.write("sheet.appeared source=\(session.queueSource?.kind.rawValue ?? "none") count=\(session.queue.count)") }
+                }
+                .onDisappear {
+                    if selected == .queue { PlayerQueueDiagnostic.write("sheet.disappeared") }
+                }
         }
         .alert("播放器", isPresented: $showingNotice) {
             Button("好", role: .cancel) { session.playbackNotice = nil; rotationError = nil }
@@ -177,6 +184,14 @@ struct PlayerScreen: View {
             guard !Task.isCancelled, canAutoHide else { return }
             setControlsVisible(false)
         }
+        .task(id: volumeResetRevision) {
+            guard !controlsVisible else { return }
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            guard !Task.isCancelled, !controlsVisible else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { volumeExpanded = false; volumeDragStart = nil }
+        }
         .task(id: hudRevision) {
             do { try await Task.sleep(for: .seconds(1)) } catch { return }
             guard !Task.isCancelled else { return }
@@ -187,7 +202,7 @@ struct PlayerScreen: View {
     private func topControls(availableWidth: CGFloat, landscape: Bool) -> some View {
         ZStack(alignment: .trailing) {
             HStack(spacing: 10) {
-                glassButton("关闭", symbol: "xmark") { session.stop() }
+                glassButton("关闭", symbol: "xmark", iconSize: 19) { session.stop() }
                 HStack(spacing: 16) {
                     Button { revealControls(); session.startPictureInPicture() } label: {
                         Image(systemName: "pip.enter").font(.system(size: 17, weight: .medium))
@@ -228,26 +243,26 @@ struct PlayerScreen: View {
 
     private func volumeControl(width: CGFloat) -> some View {
         ZStack(alignment: .trailing) {
-            HStack(spacing: 12) {
-                if volumeExpanded {
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(.white.opacity(0.2))
-                            Rectangle().fill(.white)
-                                .frame(width: geometry.size.width * CGFloat(displayedVolume))
-                        }
-                        .frame(height: 8).clipShape(Capsule())
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
-                    }
-                    .frame(height: 8)
-                    .padding(.leading, 16)
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.2))
+                    Rectangle().fill(.white)
+                        .frame(width: geometry.size.width * CGFloat(displayedVolume))
                 }
-                Image(systemName: volumeSymbol)
-                    .font(.system(size: 17, weight: .medium))
-                    .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 44, height: 44)
+                .frame(height: 8).clipShape(Capsule())
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
             }
+            .frame(height: 8)
+            .padding(.leading, 16)
+            .padding(.trailing, 56)
+            .opacity(volumeExpanded ? 1 : 0)
+            .clipped()
             .allowsHitTesting(false)
+            Image(systemName: volumeSymbol)
+                .font(.system(size: 17, weight: .medium))
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 44, height: 44)
+                .allowsHitTesting(false)
             PlayerVolumeTouchSurface(expanded: volumeExpanded, tapped: { onIcon in
                 revealControls()
                 if !volumeExpanded { volumeExpanded = true }
@@ -263,12 +278,14 @@ struct PlayerScreen: View {
                 volume.set(start + Float(translation / max(width - 32, 1)))
                 if phase == .ended || phase == .cancelled || phase == .failed {
                     volumeDragStart = nil
+                    volume.finishAdjustment(origin: "capsule")
                 }
             })
         }
         .frame(width: volumeExpanded ? width : 44, height: 44)
+        .clipShape(Capsule())
         .glassEffect(.regular.interactive(), in: Capsule())
-        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: volumeExpanded)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: volumeExpanded)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("音量")
         .accessibilityValue(Text(verbatim: String(format: "%d%%", Int(displayedVolume * 100))))
@@ -458,6 +475,9 @@ struct PlayerScreen: View {
     }
 
     private func requestPanel(_ selected: PlayerPanel) {
+        if selected == .queue {
+            PlayerQueueDiagnostic.write("open.request source=\(session.queueSource?.kind.rawValue ?? "none") count=\(session.queue.count)")
+        }
         pendingPanel = selected
         if !menuPresented { performMenuNavigation() }
     }
@@ -517,11 +537,11 @@ struct PlayerScreen: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func glassButton(_ title: LocalizedStringKey, symbol: String, size: CGFloat = 44,
+    private func glassButton(_ title: LocalizedStringKey, symbol: String, size: CGFloat = 44, iconSize: CGFloat? = nil,
                              action: @escaping () -> Void) -> some View {
         Button { revealControls(); action() } label: {
             Image(systemName: symbol)
-                .font(.system(size: size >= 80 ? 36 : (size >= 54 ? 26 : 17), weight: .medium))
+                .font(.system(size: iconSize ?? (size >= 80 ? 36 : (size >= 54 ? 26 : 17)), weight: .medium))
                 .frame(width: size, height: size).contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -563,6 +583,8 @@ struct PlayerScreen: View {
                                 Button { session.playQueued(item); panel = nil } label: {
                                     PlayerQueueRow(session: session, item: item)
                                 }
+                                .buttonStyle(.plain)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
                             }
                         }
                     }
@@ -698,6 +720,7 @@ struct PlayerScreen: View {
         default: break
         }
         if [.ended, .cancelled, .failed].contains(phase) {
+            if [.volumeUp, .volumeDown].contains(gestureAction) { volume.finishAdjustment(origin: "gesture") }
             if (gestureAction == .backward || gestureAction == .forward) && isScrubbing { finishScrubbing(commit: phase == .ended) }
             else if phase == .ended && ![.brightnessUp, .brightnessDown, .volumeUp, .volumeDown].contains(gestureAction) {
                 performGestureAction(gestureAction)
@@ -744,8 +767,9 @@ struct PlayerScreen: View {
     private func revealControls() { setControlsVisible(true) }
     private func setControlsVisible(_ visible: Bool) {
         autoHideRevision += 1
+        volumeResetRevision += 1
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { controlsVisible = visible }
-        if !visible { volumeExpanded = false; volumeDragStart = nil }
+        if !visible { volumeDragStart = nil }
     }
     private func rotate(landscape: Bool) {
         guard let scene = session.videoView?.window?.windowScene else { return }
@@ -818,12 +842,13 @@ private struct PlayerQueueRow: View {
     let item: MediaItem
     @State private var info = PlaybackQueueInfo()
     private func time(_ seconds: Double) -> String {
-        Duration.seconds(max(0, seconds)).formatted(.time(pattern: .hourMinuteSecond))
+        mediaTimeLabel(seconds)
     }
     var body: some View {
         HStack(spacing: 14) {
             if let source = session.queueSource {
-                MediaThumbnail(source: source, item: item).frame(width: 60, height: 90)
+                MediaThumbnail(source: source, item: item, aspectRatio: 16.0 / 9.0, logsQueueDiagnostics: true)
+                    .frame(width: 128, height: 72)
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(verbatim: (item.title as NSString).deletingPathExtension)
@@ -839,10 +864,14 @@ private struct PlayerQueueRow: View {
             Spacer(minLength: 0)
             if item.id == session.currentItem?.id { Image(systemName: "waveform").foregroundStyle(.tint) }
         }
-        .padding(.vertical, 4)
+        .contentShape(Rectangle())
         .task(id: item.id) {
+            PlayerQueueDiagnostic.write("row.begin item=\(item.id.localID)")
             let result = await session.queueInfo(for: item)
-            if !Task.isCancelled { info = result }
+            if !Task.isCancelled {
+                info = result
+                PlayerQueueDiagnostic.write("row.ready item=\(item.id.localID) duration=\(result.duration) bytes=\(result.byteCount ?? 0) dimensions=\(result.dimensions ?? "unknown")")
+            }
         }
     }
 }

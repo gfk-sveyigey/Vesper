@@ -55,7 +55,8 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                             .fixedSize(horizontal: true, vertical: false)
                         }
-                        .padding(12)
+                        .padding(.vertical, 12)
+                        .padding(.leading, 12)
                 }
                 VStack(spacing: 0) {
                     settingsLink(.playback, title: "播放设置", symbol: "play.circle")

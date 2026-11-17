@@ -190,13 +190,15 @@ struct LocalFilesView<SourceMenu: View>: View {
 
     @ViewBuilder
     private func fileActions(_ entry: LocalFileEntry) -> some View {
-        Button("重命名", systemImage: "pencil") {
-            renameEntry = entry
-            name = entry.name
-            isNaming = true
+        Section {
+            Button("重命名", systemImage: "pencil") {
+                renameEntry = entry
+                name = entry.name
+                isNaming = true
+            }
+            Button("移动", systemImage: "folder") { movingEntry = entry }
+            Button("删除", systemImage: "trash", role: .destructive) { deleteEntry = entry }
         }
-        Button("移动", systemImage: "folder") { movingEntry = entry }
-        Button("删除", systemImage: "trash", role: .destructive) { deleteEntry = entry }
     }
 
     private func mediaItem(_ entry: LocalFileEntry) -> MediaItem {
