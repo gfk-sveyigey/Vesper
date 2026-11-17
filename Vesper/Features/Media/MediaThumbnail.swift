@@ -120,6 +120,7 @@ private struct ThumbnailPlaybackProgress: View {
     let item: MediaItem
     @AppStorage("player.rememberProgress") private var remembersProgress = true
     @State private var duration: Double = 0
+    @ScaledMetric(relativeTo: .caption2) private var progressWidth = 20.0
     private var progress: Double { remembersProgress ? session.savedProgress(for: item) : 0 }
     private var total: Double { duration > 0 ? duration : session.savedDuration(for: item) }
     var body: some View {
@@ -133,14 +134,23 @@ private struct ThumbnailPlaybackProgress: View {
                                 .frame(width: geometry.size.width * CGFloat(min(1, max(0, progress / total))))
                         }
                     }
-                    .frame(maxWidth: 42).frame(height: 3)
+                    .frame(width: progressWidth, height: 4.5)
                     Text(verbatim: timeLabel(total)).font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .lineLimit(1).minimumScaleFactor(0.7)
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, 7).padding(.vertical, 6)
-                .background(.black.opacity(0.65), in: Capsule())
-                .padding(6)
+                .padding(.horizontal, 8).padding(.bottom, 8)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .bottomLeading)
+                .background {
+                    Rectangle().fill(.ultraThinMaterial)
+                        .overlay {
+                            LinearGradient(colors: [.clear, .black.opacity(0.3)], startPoint: .top, endPoint: .bottom)
+                        }
+                        .mask {
+                            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                        }
+                        .environment(\.colorScheme, .dark)
+                }
             }
         }
         .task(id: progress > 0 ? item.id : nil) {

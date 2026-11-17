@@ -44,8 +44,9 @@ struct PlaybackSettingsView: View {
         .background(VesperTheme.background)
         .navigationTitle("播放设置")
         .toolbarTitleDisplayMode(.inline)
-        .onChange(of: backgroundEnabled) { _, _ in session.refreshPlaybackPreferences() }
-        .onChange(of: backgroundMode) { _, _ in session.refreshPlaybackPreferences() }
+        .onAppear { session.setBackgroundPreferences(enabled: backgroundEnabled, mode: backgroundMode) }
+        .onChange(of: backgroundEnabled) { _, value in session.setBackgroundPreferences(enabled: value, mode: backgroundMode) }
+        .onChange(of: backgroundMode) { _, value in session.setBackgroundPreferences(enabled: backgroundEnabled, mode: value) }
         .onChange(of: remembersProgress) { _, enabled in
             if !enabled { session.clearSavedProgress() }
         }

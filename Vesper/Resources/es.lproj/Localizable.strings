@@ -526,3 +526,11 @@
 "调整屏幕方向" = "Ajustar orientación";
 
 "清除播放进度" = "Borrar progreso de reproducción";
+
+"调整音量" = "Ajustar volumen";
+"调整亮度" = "Ajustar brillo";
+"调整播放速度" = "Ajustar velocidad de reproducción";
+"控制播放状态" = "Controlar reproducción";
+"显隐控制层" = "Mostrar/ocultar controles";
+"退出播放" = "Salir de la reproducción";
+"重置主题色？" = "¿Restablecer el color de acento?";

@@ -526,3 +526,11 @@
 "调整屏幕方向" = "Adjust Screen Orientation";
 
 "清除播放进度" = "Clear Playback Progress";
+
+"调整音量" = "Adjust volume";
+"调整亮度" = "Adjust brightness";
+"调整播放速度" = "Adjust playback speed";
+"控制播放状态" = "Control playback";
+"显隐控制层" = "Show/hide controls";
+"退出播放" = "Exit playback";
+"重置主题色？" = "Reset accent color?";

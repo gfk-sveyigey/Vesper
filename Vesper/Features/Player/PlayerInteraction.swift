@@ -51,16 +51,15 @@ enum PlayerGestureRegion: String, CaseIterable, Identifiable {
 }
 
 enum PlayerGestureKind: String, CaseIterable, Identifiable {
-    case tap, doubleTap, up, down, left, right, pinchIn, pinchOut, rotateClockwise, rotateCounterclockwise
+    case tap, doubleTap, up, down, left, right, pinchIn, pinchOut
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
         case .tap: "单击"; case .doubleTap: "双击"; case .up: "向上滑动"; case .down: "向下滑动"
         case .left: "向左滑动"; case .right: "向右滑动"; case .pinchIn: "捏合"; case .pinchOut: "张开"
-        case .rotateClockwise: "顺时针旋转"; case .rotateCounterclockwise: "逆时针旋转"
         }
     }
-    var needsTwoFingers: Bool { [.pinchIn, .pinchOut, .rotateClockwise, .rotateCounterclockwise].contains(self) }
+    var needsTwoFingers: Bool { [.pinchIn, .pinchOut].contains(self) }
 }
 
 enum PlayerGestureAction: String, CaseIterable, Identifiable {
@@ -69,13 +68,13 @@ enum PlayerGestureAction: String, CaseIterable, Identifiable {
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
-        case .none: "无操作"; case .controls: "显示或隐藏控制层"; case .playback: "暂停或继续播放"
+        case .none: "无操作"; case .controls: "显隐控制层"; case .playback: "暂停或继续播放"
         case .play: "播放"; case .pause: "暂停"; case .backward: "快退"; case .forward: "快进"
         case .brightnessUp: "增大亮度"; case .brightnessDown: "减小亮度"; case .volumeUp: "增大音量"; case .volumeDown: "减小音量"
         case .mute: "静音或取消静音"; case .showRegions: "显示区域划分"; case .playlist: "播放列表"
         case .synopsis: "视频简介"; case .details: "详细信息"; case .rotate: "切换屏幕方向"; case .fill: "切换填充方式"
         case .fillScreen: "填满屏幕"; case .fitScreen: "完整显示"; case .landscape: "横屏"; case .portrait: "竖屏"
-        case .pictureInPicture: "画中画"; case .close: "关闭"; case .speedUp: "加快播放速度"; case .speedDown: "减慢播放速度"
+        case .pictureInPicture: "画中画"; case .close: "退出播放"; case .speedUp: "加快播放速度"; case .speedDown: "减慢播放速度"
         case .moreSettings: "更多设置"; case .subtitles: "字幕设置"; case .danmaku: "弹幕设置"; case .gestures: "播放手势"
         }
     }
@@ -83,18 +82,18 @@ enum PlayerGestureAction: String, CaseIterable, Identifiable {
 }
 
 enum PlayerGesturePair: String, CaseIterable, Identifiable {
-    case vertical, horizontal, pinch, rotation
+    case vertical, horizontal, pinch
     var id: Self { self }
     var title: LocalizedStringKey {
-        switch self { case .vertical: "上滑／下滑"; case .horizontal: "右滑／左滑"; case .pinch: "张开／捏合"; case .rotation: "顺时针／逆时针旋转" }
+        switch self { case .vertical: "上下滑动"; case .horizontal: "左右滑动"; case .pinch: "张开／捏合" }
     }
     var positive: PlayerGestureKind {
-        switch self { case .vertical: .up; case .horizontal: .right; case .pinch: .pinchOut; case .rotation: .rotateClockwise }
+        switch self { case .vertical: .up; case .horizontal: .right; case .pinch: .pinchOut }
     }
     var negative: PlayerGestureKind {
-        switch self { case .vertical: .down; case .horizontal: .left; case .pinch: .pinchIn; case .rotation: .rotateCounterclockwise }
+        switch self { case .vertical: .down; case .horizontal: .left; case .pinch: .pinchIn }
     }
-    var needsTwoFingers: Bool { self == .pinch || self == .rotation }
+    var needsTwoFingers: Bool { self == .pinch }
     static func containing(_ kind: PlayerGestureKind) -> Self? { allCases.first { $0.positive == kind || $0.negative == kind } }
 }
 
@@ -103,8 +102,8 @@ enum PlayerGesturePairAction: String, CaseIterable, Identifiable {
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
-        case .none: "无操作"; case .seek: "调整播放进度"; case .volume: "增大／减小音量"
-        case .brightness: "增大／减小亮度"; case .speed: "加快／减慢播放速度"; case .playback: "播放／暂停"
+        case .none: "无操作"; case .seek: "调整播放进度"; case .volume: "调整音量"
+        case .brightness: "调整亮度"; case .speed: "调整播放速度"; case .playback: "控制播放状态"
         case .fill: "调整填充方式"; case .orientation: "调整屏幕方向"
         }
     }
@@ -138,8 +137,16 @@ enum PlayerGesturePreferences {
     static func layoutKey(_ kind: PlayerGestureKind, _ fingers: Int) -> String { "player.gesture.layout.\(fingers).\(layoutID(kind, fingers))" }
     static func count(for kind: PlayerGestureKind, fingers: Int) -> Int {
         let defaults = UserDefaults.standard
-        let count = defaults.object(forKey: layoutKey(kind, fingers)) as? Int ?? defaults.object(forKey: "player.gesture.regionCount") as? Int ?? 3
-        return (1...3).contains(count) ? count : 3
+        let fallback = defaultCount(for: kind, fingers: fingers)
+        let count = defaults.object(forKey: layoutKey(kind, fingers)) as? Int ?? fallback
+        return (1...3).contains(count) ? count : fallback
+    }
+    static func defaultCount(for kind: PlayerGestureKind, fingers: Int) -> Int {
+        if fingers == 1 {
+            if kind == .up || kind == .down { return 2 }
+            if kind == .doubleTap { return 3 }
+        }
+        return 1
     }
     static func region(at point: CGPoint, width: CGFloat, kind: PlayerGestureKind, fingers: Int) -> PlayerGestureRegion {
         .at(point, width: width, count: count(for: kind, fingers: fingers))
@@ -148,7 +155,13 @@ enum PlayerGesturePreferences {
     static func pairKey(_ pair: PlayerGesturePair, _ region: PlayerGestureRegion, _ fingers: Int) -> String { "player.gesture.pairAction.\(fingers).\(pair.rawValue).\(region.rawValue)" }
     static func pairAction(_ pair: PlayerGesturePair, _ region: PlayerGestureRegion, _ fingers: Int) -> PlayerGesturePairAction {
         if let saved = UserDefaults.standard.string(forKey: pairKey(pair, region, fingers)), let value = PlayerGesturePairAction(rawValue: saved) { return value }
-        guard fingers == 1 else { return .none }
+        if fingers == 2 {
+            switch pair {
+            case .vertical: return .none
+            case .horizontal: return .speed
+            case .pinch: return .fill
+            }
+        }
         if pair == .horizontal { return .seek }
         if pair == .vertical { return region == .left ? .brightness : (region == .right ? .volume : .none) }
         return .none
@@ -156,7 +169,7 @@ enum PlayerGesturePreferences {
     static func action(_ kind: PlayerGestureKind, _ region: PlayerGestureRegion, _ fingers: Int) -> PlayerGestureAction {
         if let pair = PlayerGesturePair.containing(kind), pairEnabled(pair, fingers) { return pairAction(pair, region, fingers).action(positive: kind == pair.positive) }
         if let saved = UserDefaults.standard.string(forKey: key(kind, region, fingers)), let action = PlayerGestureAction(rawValue: saved) { return action }
-        guard fingers == 1 else { return .none }
+        if fingers == 2 { return kind == .doubleTap ? .close : .none }
         switch kind {
         case .tap: return .controls
         case .doubleTap: return region == .left ? .backward : (region == .right ? .forward : .playback)
@@ -214,9 +227,7 @@ struct PlayerGestureSurface: UIViewRepresentable {
             pan.maximumNumberOfTouches = 2
             addGestureRecognizer(pan)
             let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinch(_:)))
-            let rotation = UIRotationGestureRecognizer(target: self, action: #selector(rotate(_:)))
-            // Native recognizers arbitrate translation, pinch and rotation.
-            addGestureRecognizer(pinch); addGestureRecognizer(rotation)
+            addGestureRecognizer(pinch)
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         @objc private func tap(_ sender: UITapGestureRecognizer) {
@@ -246,28 +257,28 @@ struct PlayerGestureSurface: UIViewRepresentable {
             panned?(region, 2, axis, max(0, (sender.scale - 1) * (axis == .pinchIn ? -1 : 1)), sender.state)
             if [.ended, .cancelled, .failed].contains(sender.state) { self.axis = nil }
         }
-        @objc private func rotate(_ sender: UIRotationGestureRecognizer) {
-            if sender.state == .began {
-                let kind: PlayerGestureKind = sender.rotation < 0 ? .rotateCounterclockwise : .rotateClockwise
-                axis = kind; region = PlayerGesturePreferences.region(at: sender.location(in: self), width: bounds.width, kind: kind, fingers: 2)
-            }
-            guard let axis else { return }
-            panned?(region, 2, axis, max(0, sender.rotation * (axis == .rotateCounterclockwise ? -1 : 1)) / .pi, sender.state)
-            if [.ended, .cancelled, .failed].contains(sender.state) { self.axis = nil }
-        }
+
     }
 }
 
 @MainActor
 final class PlayerSystemVolume: ObservableObject {
     @Published private(set) var value: Float = AVAudioSession.sharedInstance().outputVolume
-    let view = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 160, height: 40))
+    let view = SystemVolumeView(frame: CGRect(x: 0, y: 0, width: 160, height: 40))
+    private var pendingRequest: Float?
     private var observation: NSKeyValueObservation?
     private var pendingValue: (value: Float, deadline: Date)?
     private var reconciliation: Task<Void, Never>?
 
     init() {
         view.showsRouteButton = false
+        view.showsVolumeSlider = true
+        view.didAttach = { [weak self] in
+            Task { @MainActor in
+                await Task.yield()
+                self?.applyPendingVolume()
+            }
+        }
         observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] _, change in
             guard let value = change.newValue else { return }
             Task { @MainActor in
@@ -282,20 +293,43 @@ final class PlayerSystemVolume: ObservableObject {
         }
     }
     func set(_ value: Float) {
+        pendingRequest = min(1, max(0, value))
+        applyPendingVolume()
+    }
+
+    private func applyPendingVolume() {
+        // MPVolumeView must be attached before its system slider can change the
+        // current output route. Keep requests made before attachment for later.
+        guard view.window != nil, let requested = pendingRequest else { return }
+        view.layoutIfNeeded()
         guard let slider = view.subviews.compactMap({ $0 as? UISlider }).first else { return }
-        let value = min(1, max(0, value))
-        pendingValue = (value, Date().addingTimeInterval(0.5))
-        slider.setValue(value, animated: false)
+        pendingRequest = nil
+        pendingValue = (requested, Date().addingTimeInterval(0.5))
+        slider.setValue(requested, animated: false)
+        slider.sendActions(for: .valueChanged)
         slider.sendActions(for: .touchUpInside)
-        self.value = value
+        value = requested
         reconciliation?.cancel()
         reconciliation = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(550)) } catch { return }
-            guard let self, self.pendingValue != nil else { return }
+            guard let self else { return }
             self.pendingValue = nil
-            self.value = AVAudioSession.sharedInstance().outputVolume
+            let actual = AVAudioSession.sharedInstance().outputVolume
+            if abs(actual - requested) > 0.03 {
+                AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [SystemVolume] requested=\(requested) actual=\(actual)")
+            }
+            self.value = actual
         }
     }
+
+    final class SystemVolumeView: MPVolumeView {
+        var didAttach: (() -> Void)?
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil { didAttach?() }
+        }
+    }
+
 }
 
 struct PlayerVolumeBridge: UIViewRepresentable {

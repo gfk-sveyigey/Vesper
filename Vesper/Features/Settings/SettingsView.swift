@@ -55,7 +55,8 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                             .fixedSize(horizontal: true, vertical: false)
                         }
-                        .padding(12)
+                        .padding(.vertical, 12)
+                        .padding(.leading, 12)
                 }
                 VStack(spacing: 0) {
                     settingsLink(.playback, title: "播放设置", symbol: "play.circle")
@@ -287,6 +288,7 @@ private struct RuntimeLogSharePresenter: UIViewControllerRepresentable {
 private struct AppearanceSettingsView: View {
     @AppStorage("appearance.mode") private var appearanceMode = "system"
     @AppStorage("appearance.accent") private var accent = "vesper"
+    @State private var confirmingAccentReset = false
 
     var body: some View {
         SettingsPage {
@@ -308,7 +310,12 @@ private struct AppearanceSettingsView: View {
                             }
                         }
                     ), supportsOpacity: false) { Text("主题色") }
-                    Button("重置主题色") { accent = "vesper" }
+                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 0))
+                    Button { confirmingAccentReset = true } label: {
+                        Text("重置主题色")
+                            .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
                         .disabled(accent == "vesper")
                 } footer: {
                     Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
@@ -320,6 +327,10 @@ private struct AppearanceSettingsView: View {
         }
         .contentMargins(.top, 0, for: .scrollContent)
         .background(VesperTheme.background)
+        .alert("重置主题色？", isPresented: $confirmingAccentReset) {
+            Button("重置主题色", role: .destructive) { accent = "vesper" }
+            Button("取消", role: .cancel) { }
+        }
     }
 }
 
@@ -569,7 +580,10 @@ struct SettingsIntroCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16).settingsCardBackground()
+        .padding(16)
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
     }
 }
 
@@ -631,76 +645,57 @@ private struct PlaybackLicensesView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                SettingsIntroCard(title: "开源许可", symbol: "doc.plaintext", description: "查看第三方组件许可。")
+        SettingsPage {
+            SettingsIntroCard(title: "开源许可", symbol: "doc.plaintext", description: "查看第三方组件许可。")
+            SettingsSection {
                 Text(verbatim: notices)
-                .font(.footnote)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20)
-                .settingsCardBackground()
+                    .font(.footnote)
+                    .textSelection(.enabled)
             }
-            .padding(.horizontal, 16)
         }
-        .contentMargins(.top, 0, for: .scrollContent)
-        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
     }
 }
 
-/// System grouped colors adapt to appearance and accessibility contrast.
+/// A single native grouped List owns every row and section on a settings page.
 struct SettingsPage<Content: View>: View {
     private let content: Content
-    private let usesLazyLayout: Bool
-    init(usesLazyLayout: Bool = true, @ViewBuilder content: () -> Content) {
-        self.usesLazyLayout = usesLazyLayout
-        self.content = content()
-    }
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
     var body: some View {
-        ScrollView {
-            Group {
-                if usesLazyLayout {
-                    LazyVStack(alignment: .leading, spacing: 20) { content }
-                } else {
-                    VStack(alignment: .leading, spacing: 20) { content }
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 24)
-        }
-        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        List { content }
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(20)
+            .contentMargins(.top, 0, for: .scrollContent)
+            .scrollContentBackground(.hidden)
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
     }
 }
 
 struct SettingsSection<Rows: View, Footer: View>: View {
+    private let title: LocalizedStringKey?
     private let rows: Rows
     private let footer: Footer
-    init(@ViewBuilder content: () -> Rows, @ViewBuilder footer: () -> Footer) {
-        self.rows = content(); self.footer = footer()
+    init(_ title: LocalizedStringKey? = nil, @ViewBuilder content: () -> Rows, @ViewBuilder footer: () -> Footer) {
+        self.title = title
+        self.rows = content()
+        self.footer = footer()
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(spacing: 0) {
-                Group(subviews: rows) { subviews in
-                    ForEach(Array(subviews.enumerated()), id: \.element.id) { index, row in
-                        if index > 0 { Divider().padding(.horizontal, 16) }
-                        row.frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16).padding(.vertical, 12)
-                    }
-                }
-            }
-            .settingsCardBackground()
-            footer.font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 12)
-        }
-        .buttonStyle(.plain)
+        Section {
+            rows
+                .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+        } header: {
+            if let title { Text(title).textCase(nil) }
+        } footer: { footer }
     }
 }
 
 extension SettingsSection where Footer == EmptyView {
-    init(@ViewBuilder content: () -> Rows) { self.init(content: content, footer: { EmptyView() }) }
+    init(_ title: LocalizedStringKey? = nil, @ViewBuilder content: () -> Rows) {
+        self.init(title, content: content, footer: { EmptyView() })
+    }
 }
 
-/// A native menu Picker with an explicit row label outside Form/List.
+/// Keep the selected value on one line and give it priority over the row label.
 struct SettingsPicker<Selection: Hashable, Options: View, Label: View>: View {
     let selection: Binding<Selection>
     private let options: Options
@@ -709,23 +704,21 @@ struct SettingsPicker<Selection: Hashable, Options: View, Label: View>: View {
         self.selection = selection; self.options = content(); self.label = label()
     }
     var body: some View {
-        HStack(spacing: 12) {
-            label
-            Spacer(minLength: 8)
+        HStack(spacing: 8) {
+            label.lineLimit(1).minimumScaleFactor(0.75)
+            Spacer(minLength: 4)
             Picker(selection: selection) { options } label: { label }
                 .labelsHidden().pickerStyle(.menu)
+                .buttonStyle(.plain)
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
         }
+        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 0))
     }
 }
 
 extension SettingsPicker where Label == Text {
     init(_ title: LocalizedStringKey, selection: Binding<Selection>, @ViewBuilder content: () -> Options) {
         self.init(selection: selection, content: content, label: { Text(title) })
-    }
-}
-
-extension View {
-    func settingsCardBackground() -> some View {
-        background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
     }
 }
