@@ -8,6 +8,7 @@ private enum NavigationTab: Hashable {
 /// Native tabs own their page hierarchies so scroll tracking, safe areas and
 /// the bottom accessory are coordinated by SwiftUI rather than sibling Hosts.
 struct AppNavigationView: View {
+    @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
     @AppStorage("navigation.icons") private var icons = "{}"
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
@@ -23,6 +24,9 @@ struct AppNavigationView: View {
     @State private var historyPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
     @State private var searchQuery = ""
+    @State private var previewVideo: IncomingVideo?
+    @State private var playAfterPreviewDismiss: IncomingVideo?
+    @State private var acknowledgedNonVideoCount = 0
     @State private var importNotice: String?
     @State private var isShowingImportNotice = false
     @Namespace private var playerTransition
@@ -53,8 +57,24 @@ struct AppNavigationView: View {
         GeometryReader { geometry in
             tabs.environment(\.vesperWindowTopInset, geometry.safeAreaInsets.top)
         }
-        .onOpenURL { url in
-            Task { await importVideo(url) }
+        .task { presentNextIncomingVideo() }
+        .onChange(of: incomingVideos.videos.map(\.id)) { _, _ in presentNextIncomingVideo() }
+        .onChange(of: incomingVideos.nonVideoCount) { _, _ in presentNextIncomingVideo() }
+        .onChange(of: isShowingImportNotice) { _, showing in
+            if !showing { presentNextIncomingVideo() }
+        }
+        .sheet(item: $previewVideo, onDismiss: incomingPreviewDismissed) { file in
+            VideoImportSheet(file: file) {
+                playAfterPreviewDismiss = file
+                previewVideo = nil
+            } saved: { _ in
+                library.selectImportedVideos(name: VesperLocalization.string("本地视频"))
+                if visibleSections.contains(.media) {
+                    mediaPath = NavigationPath()
+                    selection = .section(.media)
+                }
+                previewVideo = nil
+            }
         }
         .alert("视频导入", isPresented: $isShowingImportNotice) {
             Button("好", role: .cancel) { }
@@ -65,7 +85,7 @@ struct AppNavigationView: View {
 
     private var tabs: some View {
         accessoryContent
-            .fullScreenCover(isPresented: $playback.isPresented) {
+            .fullScreenCover(isPresented: $playback.isPresented, onDismiss: presentNextIncomingVideo) {
                 PlayerScreen(session: playback)
                     .navigationTransition(.zoom(sourceID: "player", in: playerTransition))
             }
@@ -143,19 +163,32 @@ struct AppNavigationView: View {
         miniPlayerEnabled && (miniPlayerAlwaysVisible || hasPlayableContent)
     }
 
-    private func importVideo(_ url: URL) async {
-        do {
-            let imported = try await VideoImporter.shared.importVideo(from: url)
-            library.selectImportedVideos(name: VesperLocalization.string("本地视频"))
-            if visibleSections.contains(.media) {
-                mediaPath = NavigationPath()
-                selection = .section(.media)
-            }
-            importNotice = String(localized: "已添加到本地视频：") + imported.lastPathComponent
-        } catch {
-            importNotice = String(localized: "导入失败：") + error.localizedDescription
+    private func presentNextIncomingVideo() {
+        guard previewVideo == nil, !isShowingImportNotice, playAfterPreviewDismiss == nil else { return }
+        let hasNotice = incomingVideos.nonVideoCount > acknowledgedNonVideoCount
+        guard hasNotice || !incomingVideos.videos.isEmpty else { return }
+        // Dismiss the existing full-screen UI before presenting the preview.
+        // Its decoder/session stays alive until the user chooses Direct Play.
+        if playback.isPresented {
+            playback.isPresented = false
+            return
         }
-        isShowingImportNotice = true
+        if hasNotice {
+            acknowledgedNonVideoCount = incomingVideos.nonVideoCount
+            importNotice = String(localized: "此文件不是视频文件。")
+            isShowingImportNotice = true
+        } else {
+            previewVideo = incomingVideos.takeNext()
+        }
+    }
+
+    private func incomingPreviewDismissed() {
+        if let file = playAfterPreviewDismiss {
+            playAfterPreviewDismiss = nil
+            playback.playExternal(file)
+        } else {
+            presentNextIncomingVideo()
+        }
     }
 
     private func rememberSearch() {

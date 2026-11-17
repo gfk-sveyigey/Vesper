@@ -22,6 +22,7 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
     private var generation = UUID()
     private var queue: [MediaItem] = []
     private var source: MediaSource?
+    private var externalFile: IncomingVideo?
 
     var hasNext: Bool {
         guard let currentItem, let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return false }
@@ -31,13 +32,24 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
     var canSeek: Bool { canControl && duration > 0 && layer?.player.seekable == true }
 
     func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem]) {
+        externalFile = nil
         self.queue = queue
         self.source = source
         isPresented = true
         load(item, source: source)
     }
 
-    private func load(_ item: MediaItem, source: MediaSource) {
+    func playExternal(_ file: IncomingVideo) {
+        externalFile = file
+        source = nil
+        queue = []
+        let item = MediaItem(id: MediaID(sourceID: file.id, localID: file.name),
+                             title: file.name, resource: nil)
+        isPresented = true
+        load(item, source: nil)
+    }
+
+    private func load(_ item: MediaItem, source: MediaSource?) {
         request?.cancel()
         generation = UUID()
         let token = generation
@@ -47,9 +59,17 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
         duration = 0
         errorMessage = nil
         isLoading = true
+        let external = externalFile
         request = Task { [weak self] in
             do {
-                let resolved = try await PlaybackResourceResolver().resolve(item, source: source)
+                let resolved: ResolvedPlaybackResource
+                if let external {
+                    resolved = ResolvedPlaybackResource(url: external.url, externalAccess: external.access)
+                } else if let source {
+                    resolved = try await PlaybackResourceResolver().resolve(item, source: source)
+                } else {
+                    throw PlaybackFailure.missingFile
+                }
                 guard let self, !Task.isCancelled, self.generation == token else {
                     resolved.release()
                     return
@@ -92,7 +112,7 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
     }
 
     func retry() {
-        guard let currentItem, let source else { return }
+        guard let currentItem else { return }
         load(currentItem, source: source)
     }
 
@@ -103,6 +123,7 @@ final class PlaybackSession: ObservableObject, KSPlayerLayerDelegate {
         tearDownPlayer()
         currentItem = nil
         source = nil
+        externalFile = nil
         queue = []
         currentTime = 0
         duration = 0

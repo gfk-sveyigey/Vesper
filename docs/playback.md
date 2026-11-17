@@ -46,19 +46,43 @@ CI must compile the generic iOS device target with Xcode 26. Runtime checks:
 6. Try a missing/corrupt file; retry or switch video without freezing navigation.
 7. Toggle mini-player enabled/always-visible and minimize the tab bar.
 
-## Importing videos from other apps
+## Receiving videos from other apps
 
-Vesper registers as an alternate video document viewer. In Files or another app
-that supports Open In, choose Vesper to import MP4, MOV, M4V, MKV, AVI or WebM.
-The app copies the video into Documents, creates/selects the Local Video source,
-and refreshes the media list without starting playback. Existing filenames get
-numeric suffixes; opening a video already at the root of Documents does not
-create a duplicate. External originals are left intact. Only private Inbox
-copies are removed after successful import. File-provider reads are coordinated,
-security-scoped access covers the entire copy, and staging files are never
-published to the media list before completion. Large copies run off the UI thread.
+Vesper registers only video document types (public.movie, AVI, MKV and WebM).
+An app-owned IncomingVideoReceiver handles onOpenURL at the WindowGroup root,
+acquires security scope immediately and retains pending files until the UI is
+ready. The actor checks actual readability first; unreadable URLs are silently
+ignored. Readable files must have a video type and an actual FFmpeg video stream
+(audio-only or renamed text files are rejected with an alert).
+
+Validated files appear in a sheet using CustomPresentationDetent, with filename,
+thumbnail and available duration, dimensions and size. System thumbnail extraction
+falls back to the existing GPL decoder for unsupported containers. Missing metadata
+or thumbnail does not prevent the user choosing an action.
+
+- Direct Play retains the original file's security access in PlaybackSession. It
+  does not add a source or copy the video into Documents. Dismissing the sheet/player
+  does not release a file that is still playing; Stop or replacement releases it.
+- Save File copies into Documents, creates/selects the local source and refreshes
+  the media list. Existing filenames receive numeric suffixes. External originals
+  are preserved. Opening a file already at the Documents root does not duplicate it.
+- Dismiss releases the preview's access without saving or changing playback.
+
+Copies and FFmpeg probing run outside the main actor. File-provider reads/copies
+are coordinated, and temporary staging files do not appear in the media list.
+VideoImport logs identify URL receipt, unreadable rejection, invalid video and
+successful validation without logging the full external path.
 
 This uses the system document-opening flow, not a separate Share Extension.
-The exact action name/visibility depends on the sending app. Verify both cold
-and warm launch, an iCloud file, duplicate names, an unsupported file, import
-while another video is playing, and a Files URL already inside Documents.
+The exact action name/visibility depends on the sending app. Verify on iOS 26:
+
+1. Receive a local MP4 with Vesper stopped, then repeat with it already open.
+2. Receive MKV/WebM, portrait and metadata-less videos; preview fallback is allowed.
+3. Deliver an unreadable URL: no sheet, alert, source or playback changes.
+4. Deliver readable text, text renamed to .mp4 and audio renamed to .mp4: alert only.
+5. Dismiss a preview: no local copy or source creation.
+6. Direct Play, minimize and reopen: video continues, library stays unchanged.
+7. Save a video twice: both copies remain; save a Documents video: no duplicate.
+8. Receive another video while playing or while a preview is open: previews queue
+   without overlapping sheet/full-screen transitions.
+9. Test iCloud/provider access, a file deleted after inspection and a failed save.

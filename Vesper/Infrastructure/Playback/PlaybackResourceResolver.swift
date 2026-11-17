@@ -8,14 +8,17 @@ final class ResolvedPlaybackResource {
     let url: URL
     private let scopedFolder: URL?
     private let temporary: Bool
+    private var externalAccess: IncomingFileAccess?
 
-    init(url: URL, scopedFolder: URL? = nil, temporary: Bool = false) {
+    init(url: URL, scopedFolder: URL? = nil, temporary: Bool = false, externalAccess: IncomingFileAccess? = nil) {
         self.url = url
         self.scopedFolder = scopedFolder
         self.temporary = temporary
+        self.externalAccess = externalAccess
     }
 
     func release() {
+        externalAccess = nil
         scopedFolder?.stopAccessingSecurityScopedResource()
         if temporary { try? FileManager.default.removeItem(at: url) }
     }

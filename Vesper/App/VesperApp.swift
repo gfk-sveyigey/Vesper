@@ -3,6 +3,7 @@ import UIKit
 
 @main
 struct VesperApp: App {
+    @StateObject private var incomingVideos = IncomingVideoReceiver()
     @AppStorage("appearance.mode") private var appearanceMode = "system"
     @AppStorage("appearance.accent") private var accent = "vesper"
     @AppStorage("language.code") private var languageCode = "system"
@@ -18,6 +19,8 @@ struct VesperApp: App {
     var body: some Scene {
         WindowGroup {
             AppNavigationView()
+                .environmentObject(incomingVideos)
+                .onOpenURL { incomingVideos.receive($0) }
                 .tint(VesperTheme.accent(accent))
                 .preferredColorScheme(VesperTheme.colorScheme(appearanceMode))
                 .environment(\.locale, VesperLocalization.locale(for: languageCode))
