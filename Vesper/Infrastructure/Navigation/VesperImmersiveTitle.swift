@@ -143,12 +143,11 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .frame(height: headerContentHeight)
         .padding(.top, topInset)
         .frame(maxWidth: .infinity)
-        // Keep the header background completely clear. Blur only its own
-        // foreground, and clip the blur before applying the shared movement.
-        .blur(radius: 8 * headerProgress, opaque: false)
-        .clipped()
-        .opacity(1 - headerProgress)
-        .offset(y: reduceMotion ? 0 : -headerOffset)
+        .modifier(VesperHeaderMotionEffect(
+            displacement: headerOffset,
+            fadeDistance: headerContentHeight,
+            reducesMotion: reduceMotion
+        ))
         .allowsHitTesting(headerProgress < 1 && !isSnapping)
         .accessibilityHidden(headerProgress >= 1)
     }
@@ -205,6 +204,32 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         let contentHeight: CGFloat
     }
 
+}
+
+/// One interpolated position drives all header effects. Independently animating
+/// a clamped blur/opacity target would spread the fade over the entire snap
+/// distance, making the blur appear detached from the moving header.
+private struct VesperHeaderMotionEffect: AnimatableModifier {
+    var displacement: CGFloat
+    let fadeDistance: CGFloat
+    let reducesMotion: Bool
+
+    var animatableData: CGFloat {
+        get { displacement }
+        set { displacement = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let progress = min(1, max(0, displacement / max(fadeDistance, 1)))
+        content
+            // Treat the header's foreground as one composited effect group,
+            // not a screen-sized backdrop or a separate stationary blur layer.
+            .compositingGroup()
+            .blur(radius: 8 * progress, opaque: false)
+            .clipped()
+            .opacity(1 - progress)
+            .offset(y: reducesMotion ? 0 : -displacement)
+    }
 }
 
 extension VesperRootScrollView where Actions == EmptyView {

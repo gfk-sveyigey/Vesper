@@ -340,8 +340,6 @@ struct TabSettingsView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.defaultTab") private var defaultTab = "media"
-    @AppStorage("miniPlayer.enabled") private var miniPlayerEnabled = true
-    @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
     @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
     @State private var isShowingResetConfirmation = false
     @State private var isShowingOrderSettings = false
@@ -392,19 +390,6 @@ struct TabSettingsView: View {
                     }
                 } footer: {
                     Text("关闭后，向下滚动页面时标签栏保持展开。")
-                }
-                SettingsSection {
-                    Toggle(isOn: $miniPlayerEnabled) {
-                        SettingsLabel("启用迷你播放器", symbol: "play.rectangle")
-                    }
-                    if #available(iOS 26.1, *) {
-                        Toggle(isOn: $miniPlayerAlwaysVisible) {
-                            SettingsLabel("常显迷你播放器", symbol: "eye")
-                        }
-                        .disabled(!miniPlayerEnabled)
-                    }
-                } footer: {
-                    Text("关闭常显后，仅在有可播放内容时显示迷你播放器。")
                 }
                 Section {
                     HStack(alignment: .top, spacing: 10) {

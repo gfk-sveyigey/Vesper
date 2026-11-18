@@ -80,7 +80,7 @@ struct MediaView: View {
 
     private func sourceSymbol(_ source: MediaSource?) -> String {
         switch source?.kind {
-        case .photos: "photo"
+        case .photos: "play.rectangle.on.rectangle"
         case .local: "folder"
         case .demo: "play.rectangle"
         case nil: "externaldrive"

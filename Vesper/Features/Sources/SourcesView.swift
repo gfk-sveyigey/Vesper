@@ -8,39 +8,37 @@ struct SourcesView: View {
     @State private var isShowingEmbyNotice = false
 
     var body: some View {
-        Group {
+        VesperRootScrollView(title: "来源") {
             if library.sources.isEmpty {
-                VesperEmptyPage(title: "来源", message: "未配置来源", symbol: AppSection.sources.symbol) { addMenu }
+                VesperCenteredEmptyContent(message: "未配置来源", symbol: AppSection.sources.symbol)
             } else {
-                VesperRootScrollView(title: "来源") {
-                    LazyVStack(spacing: 16) {
-                        ForEach(library.sources) { source in
-                            Button { library.select(source.id) } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: source.kind == .photos ? "photo" : "folder")
-                                        .frame(width: 28)
-                                    Text(verbatim: source.name).foregroundStyle(.primary)
-                                    Spacer()
-                                    if source.id == library.selectedID { Image(systemName: "checkmark") }
-                                }
-                                .padding(16)
-                                .contentShape(Rectangle())
+                VStack(spacing: 16) {
+                    ForEach(library.sources) { source in
+                        Button { library.select(source.id) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: source.kind == .photos ? "play.rectangle.on.rectangle" : "folder")
+                                    .frame(width: 28)
+                                Text(verbatim: source.name).foregroundStyle(.primary)
+                                Spacer()
+                                if source.id == library.selectedID { Image(systemName: "checkmark") }
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(source.id == library.selectedID ? .isSelected : [])
-                            .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
-                            .contextMenu {
-                                Button("删除", role: .destructive) { library.remove(source.id) }
-                            }
-                            .accessibilityAction(named: Text("删除")) { library.remove(source.id) }
+                            .padding(16)
+                            .contentShape(Rectangle())
                         }
-                        if library.storageFailed { Text("来源设置保存失败").foregroundStyle(.red) }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(source.id == library.selectedID ? .isSelected : [])
+                        .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
+                        .contextMenu {
+                            Button("删除", role: .destructive) { library.remove(source.id) }
+                        }
+                        .accessibilityAction(named: Text("删除")) { library.remove(source.id) }
                     }
-                    .padding(.horizontal, 20)
-                } actions: {
-                    addMenu
+                    if library.storageFailed { Text("来源设置保存失败").foregroundStyle(.red) }
                 }
+                .padding(.horizontal, 20)
             }
+        } actions: {
+            addMenu
         }
         .alert("无法添加来源", isPresented: $isShowingError) {
             Button("好", role: .cancel) { }
@@ -53,7 +51,7 @@ struct SourcesView: View {
     private var addMenu: some View {
         Menu {
             if !library.sources.contains(where: { $0.kind == .photos }) {
-                Button("相册视频", systemImage: "photo.on.rectangle") { addPhotos() }
+                Button("相册视频", systemImage: "play.rectangle.on.rectangle") { addPhotos() }
             }
             if !library.sources.contains(where: { $0.kind == .local }) {
                 Button("本地视频", systemImage: "folder") { addLocalVideos() }

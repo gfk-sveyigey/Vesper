@@ -16,44 +16,41 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        Group {
+        VesperRootScrollView(title: "记录") {
             if playback.history.isEmpty {
-                VesperEmptyPage(title: "记录", message: "无记录", symbol: AppSection.history.symbol)
+                VesperCenteredEmptyContent(message: "无记录", symbol: AppSection.history.symbol)
             } else {
-                VesperRootScrollView(title: "记录") {
-                    LazyVStack(alignment: .leading, spacing: 24) {
-                        ForEach(groups) { group in
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(verbatim: library.sources.first(where: { $0.id == group.id })?.name ?? group.source.name)
-                                    .font(.headline).foregroundStyle(.secondary)
-                                    .padding(.horizontal, 20)
+                VStack(alignment: .leading, spacing: 24) {
+                    ForEach(groups) { group in
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(verbatim: library.sources.first(where: { $0.id == group.id })?.name ?? group.source.name)
+                                .font(.headline).foregroundStyle(.secondary)
+                                .padding(.horizontal, 20)
 
-                                ScrollView(.horizontal) {
-                                    LazyHStack(spacing: 12) {
-                                        ForEach(group.entries) { entry in
-                                            let source = library.sources.first(where: { $0.id == group.id }) ?? group.source
-                                            Button {
-                                                playback.play(entry.item, in: source, queue: group.entries.map(\.item))
-                                            } label: {
-                                                MediaThumbnail(source: source, item: entry.item, playback: playback, historyEntry: entry)
-                                                    .frame(width: 132, height: 198)
-                                            }
-                                            .contentShape(Rectangle())
-                                            .clipped()
-                                            .buttonStyle(.plain)
-                                            .modifier(MediaThumbnailMenu(source: source, item: entry.item, playback: playback, historyEntry: entry) { EmptyView() })
-                                            .accessibilityLabel(Text(verbatim: entry.title))
+                            ScrollView(.horizontal) {
+                                LazyHStack(spacing: 12) {
+                                    ForEach(group.entries) { entry in
+                                        let source = library.sources.first(where: { $0.id == group.id }) ?? group.source
+                                        Button {
+                                            playback.play(entry.item, in: source, queue: group.entries.map(\.item))
+                                        } label: {
+                                            MediaThumbnail(source: source, item: entry.item, playback: playback, historyEntry: entry)
+                                                .frame(width: 132, height: 198)
                                         }
+                                        .contentShape(Rectangle())
+                                        .clipped()
+                                        .buttonStyle(.plain)
+                                        .modifier(MediaThumbnailMenu(source: source, item: entry.item, playback: playback, historyEntry: entry) { EmptyView() })
+                                        .accessibilityLabel(Text(verbatim: entry.title))
                                     }
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 12)
                                 }
-                                .scrollIndicators(.hidden)
-                                .contentMargins(.horizontal, 0, for: .scrollContent)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 12)
                             }
+                            .scrollIndicators(.hidden)
+                            .contentMargins(.horizontal, 0, for: .scrollContent)
                         }
                     }
-
                 }
             }
         }

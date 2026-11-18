@@ -788,9 +788,10 @@ struct PlayerScreen: View {
             showHUD(String(format: VesperLocalization.string("音量 %d%%"), Int(value * 100)), symbol: "speaker.wave.2.fill")
         case .backward, .forward:
             if isScrubbing {
-                // A full-width swipe seeks up to two minutes, capped by the
-                // video duration. Keep continuous seeking independent of taps.
-                let seekSpan = min(session.duration, 120)
+                // Half a gesture surface seeks five minutes; the destination
+                // is clamped by updateScrubbing, not by reducing sensitivity.
+                // Double-tap skip duration remains a separate preference.
+                let seekSpan: Double = 600
                 updateScrubbing(scrubStart + amount * seekSpan * (gestureAction == .backward ? -1 : 1))
                 showSeekHUD(from: scrubStart, to: scrubTime)
             }

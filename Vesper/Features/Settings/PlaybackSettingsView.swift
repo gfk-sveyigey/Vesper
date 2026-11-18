@@ -28,6 +28,8 @@ enum PlaybackDecoder: String, CaseIterable, Identifiable {
 
 struct PlaybackSettingsView: View {
     @ObservedObject var session: PlaybackSession
+    @AppStorage("miniPlayer.enabled") private var miniPlayerEnabled = true
+    @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
     @AppStorage("player.background.enabled") private var backgroundEnabled = true
     @AppStorage("player.background.mode") private var backgroundMode = "audio"
     @AppStorage("player.engine") private var engine = PlaybackEngine.aether
@@ -57,6 +59,19 @@ struct PlaybackSettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .disabled(!backgroundEnabled)
+                }
+                SettingsSection {
+                    Toggle(isOn: $miniPlayerEnabled) {
+                        SettingsLabel("启用迷你播放器", symbol: "play.rectangle")
+                    }
+                    if #available(iOS 26.1, *) {
+                        Toggle(isOn: $miniPlayerAlwaysVisible) {
+                            SettingsLabel("常显迷你播放器", symbol: "eye")
+                        }
+                        .disabled(!miniPlayerEnabled)
+                    }
+                } footer: {
+                    Text("关闭常显后，仅在有可播放内容时显示迷你播放器。")
                 }
                 SettingsSection {
                     Toggle("保留播放进度", isOn: $remembersProgress)
