@@ -32,7 +32,7 @@ struct EmbySeriesHeroFooter: View {
     let episodes: [EmbyEpisode]
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(verbatim: series.embyPresentation?.overview ?? "")
                 .font(.subheadline)
                 .lineLimit(2, reservesSpace: true)
@@ -56,6 +56,8 @@ struct EmbySeriesHeroFooter: View {
                 .lineLimit(1)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .multilineTextAlignment(.leading)
     }
 
     private var facts: [String] {
@@ -89,6 +91,13 @@ struct EmbySeriesDetailView: View {
     @State private var similar: [MediaItem] = []
     @State private var leadingEpisode: MediaID?
     @State private var selectedSeason: Int?
+    @State private var seasonMovesForward = true
+    @State private var openedEpisodeID: MediaID?
+    @State private var scrollPhase: ScrollPhase = .idle
+    @State private var scrollY: CGFloat = 0
+    @State private var dragStartedAtTop = false
+    @State private var dismissalPull: CGFloat = 0
+    @State private var isDismissing = false
     @State private var busy: Set<MediaID> = []
     @State private var presentedItem: MediaItem?
     @State private var loadError: String?
@@ -101,23 +110,60 @@ struct EmbySeriesDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     hero(width: width)
-                    episodeSection(width: width)
+                    episodeSection(viewportWidth: width)
                     similarSection
                     creditsSection
                     linksSection
                 }
                 .padding(.bottom, 20)
             }
+            .scrollEdgeEffectHidden(true, for: .top)
+            .scrollBounceBehavior(.always, axes: .vertical)
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top
+            } action: { _, offset in
+                scrollY = offset
+                if scrollPhase == .interacting, dragStartedAtTop, !isDismissing {
+                    dismissalPull = max(0, -offset)
+                }
+            }
+            .onScrollPhaseChange { oldPhase, newPhase in
+                scrollPhase = newPhase
+                if newPhase == .interacting {
+                    dragStartedAtTop = scrollY <= 1
+                    dismissalPull = dragStartedAtTop ? max(0, -scrollY) : 0
+                } else if oldPhase == .interacting, !isDismissing {
+                    finishDismissalPull()
+                }
+            }
+            .background(VesperTheme.background)
+            .clipShape(RoundedRectangle(cornerRadius: reduceMotion ? 0 : min(24, dismissalPull / 4)))
+            .scaleEffect(reduceMotion ? 1 : 1 - min(0.2, dismissalPull / 440), anchor: .top)
+            .offset(y: reduceMotion ? 0 : dismissalPull * 0.32)
+            .allowsHitTesting(!isDismissing)
         }
+        .ignoresSafeArea(.container, edges: .top)
         .background(VesperTheme.background.ignoresSafeArea())
         .navigationTitle(series.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Color.clear.frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .sharedBackgroundVisibility(.hidden)
             if showsCloseButton {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("关闭", systemImage: "xmark") { dismiss() }
                 }
+            }
+        }
+        .navigationDestination(item: $openedEpisodeID) { id in
+            if let episode = episodes.first(where: { $0.id == id }) {
+                EmbyEpisodeDetailView(source: source, episode: episode)
             }
         }
         .sheet(item: $presentedItem) { item in
@@ -131,6 +177,18 @@ struct EmbySeriesDetailView: View {
         .task(id: series.id) { await load() }
     }
 
+    private func finishDismissalPull() {
+        guard dismissalPull > 0 else { return }
+        if dismissalPull >= 76 {
+            isDismissing = true
+            dismiss()
+        } else {
+            withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.82)) {
+                dismissalPull = 0
+            }
+        }
+    }
+
     private func hero(width: CGFloat) -> some View {
         let item = metadata?.item ?? series
         return EmbyFeaturedPage(source: source, item: item, size: CGSize(width: width, height: width * 5 / 3),
@@ -142,12 +200,12 @@ struct EmbySeriesDetailView: View {
     }
 
     @ViewBuilder
-    private func episodeSection(width: CGFloat) -> some View {
+    private func episodeSection(viewportWidth: CGFloat) -> some View {
         if !episodes.isEmpty {
             seasonMenu
                 .padding(.horizontal, 20)
             let margin = CGFloat(layout[.endPadding])
-            let cardWidth = min(745, max(1, width - 2 * margin))
+            let cardWidth = min(layout.episodeCardWidth, max(1, viewportWidth - margin * 2))
             episodeShelf(cardWidth: cardWidth)
         } else if isLoading {
             ProgressView().frame(maxWidth: .infinity).padding()
@@ -162,34 +220,57 @@ struct EmbySeriesDetailView: View {
         }
     }
 
+    @ViewBuilder
     private var seasonMenu: some View {
-        Menu {
-            ForEach(seasonNumbers, id: \.self) { season in
-                Button {
-                    guard let first = episodes.first(where: { $0.season == season }) else { return }
-                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.32)) {
-                        selectedSeason = season
-                        leadingEpisode = first.id
-                    }
-                } label: {
-                    if selectedSeason == season {
-                        Label(embySeasonName(season), systemImage: "checkmark")
-                    } else {
-                        Text(verbatim: embySeasonName(season))
+        if seasonNumbers.count > 1 {
+            Menu {
+                ForEach(seasonNumbers, id: \.self) { season in
+                    Button {
+                        guard let first = episodes.first(where: { $0.season == season }) else { return }
+                        selectSeason(season, firstEpisode: first.id)
+                    } label: {
+                        if selectedSeason == season {
+                            Label(embySeasonName(season), systemImage: "checkmark")
+                        } else {
+                            Text(verbatim: embySeasonName(season))
+                        }
                     }
                 }
+            } label: {
+                HStack(spacing: 6) {
+                    seasonTitle
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
-        } label: {
-            HStack(spacing: 6) {
-                Text(verbatim: embySeasonName(selectedSeason ?? seasonNumbers.first ?? 1))
-                    .contentTransition(.numericText(value: Double(selectedSeason ?? 0)))
-                    .clipped()
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(uiColor: .systemGray2))
-            }
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(.primary)
+            .buttonStyle(.plain)
+        } else {
+            seasonTitle
+        }
+    }
+
+    private var seasonTitle: some View {
+        let season = selectedSeason ?? seasonNumbers.first ?? 1
+        let entry: Edge = seasonMovesForward ? .bottom : .top
+        let exit: Edge = seasonMovesForward ? .top : .bottom
+        return ZStack(alignment: .leading) {
+            Text(verbatim: embySeasonName(season))
+                .id(season)
+                .transition(reduceMotion ? .identity : .asymmetric(insertion: .move(edge: entry), removal: .move(edge: exit)))
+        }
+        .font(.system(size: 16, weight: .semibold))
+        .foregroundStyle(.primary)
+        .clipped()
+    }
+
+    private func selectSeason(_ season: Int, firstEpisode: MediaID? = nil) {
+        if let selectedSeason, selectedSeason != season {
+            seasonMovesForward = season > selectedSeason
+        }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.28)) {
+            selectedSeason = season
+            if let firstEpisode { leadingEpisode = firstEpisode }
         }
     }
 
@@ -198,8 +279,8 @@ struct EmbySeriesDetailView: View {
             LazyHStack(spacing: 13) {
                 ForEach(episodes) { episode in
                     EmbyEpisodeCard(source: source, episode: episode, width: cardWidth,
-                                    position: resumePosition(episode), isBusy: busy.contains(episode.id),
-                                    open: { presentedItem = episode.item },
+                                    height: layout.episodeCardHeight, position: resumePosition(episode), isBusy: busy.contains(episode.id),
+                                    open: { openedEpisodeID = episode.id },
                                     clear: { update(episode, markPlayed: false) },
                                     mark: { update(episode, markPlayed: true) })
                         .id(episode.id)
@@ -213,7 +294,7 @@ struct EmbySeriesDetailView: View {
         .scrollIndicators(.hidden)
         .onChange(of: leadingEpisode) { _, id in
             guard let season = episodes.first(where: { $0.id == id })?.season, season != selectedSeason else { return }
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.24)) { selectedSeason = season }
+            selectSeason(season)
         }
     }
 
@@ -226,10 +307,7 @@ struct EmbySeriesDetailView: View {
                     Button { presentedItem = item } label: {
                         MediaThumbnail(source: source, item: item)
                             .frame(width: CGFloat(layout[.itemWidth]), height: CGFloat(layout[.itemHeight]))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .strokeBorder(Color.gray.opacity(0.55), lineWidth: 1)
-                            }
+                            .mediaArtworkBorder()
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(verbatim: item.title))
@@ -331,7 +409,10 @@ struct EmbySeriesDetailView: View {
                 }
                 if let index = episodes.firstIndex(where: { $0.id == episode.id }) {
                     episodes[index].item.resumePosition = 0
-                    if markPlayed { episodes[index].played = true }
+                    if markPlayed {
+                        episodes[index].played = true
+                        episodes[index].item.isPlayed = true
+                    }
                 }
                 playback.clearSavedProgress(for: episode.item)
             } catch { actionError = error.localizedDescription }
@@ -348,10 +429,31 @@ func embySheetDetails(source: MediaSource, item: MediaItem) -> AnyView {
     return AnyView(EmbyItemDetailView(source: source, item: item, showsCloseButton: true))
 }
 
+extension EmbyEpisode {
+    var numberLabel: String {
+        number.map { String(localized: "第\($0)集") } ?? String(localized: "单集")
+    }
+
+    var displayTitle: String {
+        let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? numberLabel : title
+    }
+}
+
+private struct EmbyEpisodeDetailView: View {
+    let source: MediaSource
+    let episode: EmbyEpisode
+
+    var body: some View {
+        EmbyItemDetailView(source: source, item: episode.item, episode: episode)
+    }
+}
+
 private struct EmbyEpisodeCard: View {
     let source: MediaSource
     let episode: EmbyEpisode
     let width: CGFloat
+    let height: CGFloat
     let position: Double
     let isBusy: Bool
     let open: () -> Void
@@ -362,32 +464,51 @@ private struct EmbyEpisodeCard: View {
     @State private var image: UIImage?
     @State private var bottomStrip: UIImage?
 
-    private var height: CGFloat { width * 690 / 745 }
-    private var title: String { episode.number.map { String(localized: "第\($0)集") } ?? String(localized: "单集") }
+    private var title: String { episode.displayTitle }
+    private var showsEpisodeNumber: Bool { episode.displayTitle != episode.numberLabel }
+
+    private var artworkHeight: CGFloat {
+        guard let image else { return 0 }
+        return width * image.size.height / max(1, image.size.width)
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
             VesperTheme.background
             if let image {
-                Image(uiImage: image).resizable().scaledToFit()
-                    .frame(width: width, height: height * 0.61, alignment: .top)
+                Image(uiImage: image)
+                    .resizable()
+                    .frame(width: width, height: artworkHeight)
+                    .frame(width: width, height: height, alignment: .top)
             }
+            let blendStart = min(height * 0.38, max(0, artworkHeight - 32))
+            blurredArtwork(height: height - blendStart)
+                .offset(y: blendStart)
+                .allowsHitTesting(false)
             VStack {
                 Spacer(minLength: 0)
                 details
             }
         }
         .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(Color.gray.opacity(0.4), lineWidth: 1) }
-        .contentShape(Rectangle())
+        .mediaArtworkBorder(cornerRadius: 16)
+        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .onTapGesture(perform: open)
+        .accessibilityAddTraits(.isButton)
         .contextMenu { actions } preview: {
             VStack(alignment: .leading, spacing: 8) {
                 if let image {
                     Image(uiImage: image).resizable().scaledToFit()
+                        .mediaArtworkBorder()
+                } else {
+                    RoundedRectangle(cornerRadius: 12).fill(.regularMaterial)
+                        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                        .mediaArtworkBorder()
                 }
-                Text(verbatim: title).font(.caption).foregroundStyle(.secondary)
-                Text(verbatim: episode.item.title).font(.headline).lineLimit(2)
+                if showsEpisodeNumber {
+                    Text(verbatim: episode.numberLabel).font(.caption).foregroundStyle(.secondary)
+                }
+                Text(verbatim: title).font(.headline).lineLimit(2)
             }
             .frame(width: 280)
             .padding(12)
@@ -396,6 +517,7 @@ private struct EmbyEpisodeCard: View {
             guard let data = await MediaThumbnailLoader.shared.load(episode.item, source: source),
                   !Task.isCancelled, let decoded = UIImage(data: data) else { return }
             image = decoded
+            bottomStrip = nil
             if let cgImage = decoded.cgImage {
                 let depth = max(1, cgImage.height / 6)
                 bottomStrip = cgImage.cropping(to: CGRect(x: 0, y: cgImage.height - depth,
@@ -406,8 +528,10 @@ private struct EmbyEpisodeCard: View {
 
     private var details: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: title).font(.caption).foregroundStyle(.secondary)
-            Text(verbatim: episode.item.title).font(.headline).lineLimit(1)
+            if showsEpisodeNumber {
+                Text(verbatim: episode.numberLabel).font(.caption).foregroundStyle(.secondary)
+            }
+            Text(verbatim: title).font(.headline).lineLimit(1)
             Text(verbatim: episode.item.embyPresentation?.overview ?? "")
                 .font(.subheadline)
                 .lineLimit(3, reservesSpace: true)
@@ -417,23 +541,22 @@ private struct EmbyEpisodeCard: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, minHeight: height * 0.5, alignment: .bottomLeading)
-        .background {
-            GeometryReader { geometry in
-                ZStack {
-                    if let bottomStrip {
-                        Image(uiImage: bottomStrip).resizable()
-                            .frame(width: geometry.size.width, height: geometry.size.height + 42)
-                            .blur(radius: 22)
-                    }
-                    (colorScheme == .dark ? Color.black : Color.white).opacity(0.66)
-                }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .clipped()
-                .mask {
-                    LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.18),
-                                           .init(color: .black, location: 1)], startPoint: .top, endPoint: .bottom)
-                }
+    }
+
+    private func blurredArtwork(height: CGFloat) -> some View {
+        ZStack {
+            if let bottomStrip {
+                Image(uiImage: bottomStrip).resizable()
+                    .frame(width: width + 44, height: height + 44)
+                    .blur(radius: 22)
             }
+            (colorScheme == .dark ? Color.black.opacity(0.66) : Color.white.opacity(0.74))
+        }
+        .frame(width: width, height: height)
+        .clipped()
+        .mask {
+            LinearGradient(colors: [.clear, .black], startPoint: .top,
+                           endPoint: UnitPoint(x: 0.5, y: min(1, 45 / max(1, height))))
         }
     }
 
@@ -449,6 +572,8 @@ private struct EmbyEpisodeCard: View {
             }
             if let duration = episode.item.duration, duration > 0 {
                 Text(verbatim: mediaTimeLabel(duration)).monospacedDigit()
+            } else {
+                Text("未知时长")
             }
             Spacer()
             Menu { actions } label: {
@@ -468,7 +593,7 @@ private struct EmbyEpisodeCard: View {
         Button("前往单集", systemImage: "info.circle", action: open)
         if position > 0 {
             Button("清除播放进度", systemImage: "clock.arrow.circlepath", action: clear)
-                .disabled(isBusy)
+                .disabled(isBusy || ((episode.item.resumePosition ?? 0) > 0 && source.emby?.userID == nil))
         }
         if !episode.played {
             Button("标记为已观看", systemImage: "checkmark.circle", action: mark)

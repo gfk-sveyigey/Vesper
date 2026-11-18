@@ -41,6 +41,13 @@ struct EmbyRepositoryChecks {
         precondition(episode.number == 2 && episode.item.resumePosition == 30)
         precondition(episode.item.embyPresentation?.overview == "Episode synopsis")
         precondition(episode.is4K && episode.dolbyVision && episode.dolbyAtmos)
+        let episodeThumbnail = await repository.thumbnailData(for: episode.item, source: source)
+        let episodeImage = try JSONDecoder().decode([String: String].self, from: episodeThumbnail ?? Data())
+        precondition(episodeImage["image"] == "episode-thumb")
+        let unnamedEpisode = seriesEpisodes[1].item
+        precondition(unnamedEpisode.title.isEmpty && unnamedEpisode.isPlayed == true)
+        let missingEpisodeThumbnail = await repository.thumbnailData(for: unnamedEpisode, source: source)
+        precondition(missingEpisodeThumbnail == nil)
         let similar = try await repository.similarTitles(for: series, source: source)
         precondition(similar.map(\.id.localID) == ["movie"])
         try await repository.updateEpisode(episode, source: source, markPlayed: false)

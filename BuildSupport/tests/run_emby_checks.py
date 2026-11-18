@@ -39,6 +39,14 @@ class Handler(BaseHTTPRequestHandler):
             assert self.headers.get('Authorization', '').startswith('Emby UserId="user"')
             assert self.headers.get('X-Emby-Token') == 'secret'
             self.send_response(404); self.end_headers(); return
+        if path.path == '/proxy/emby/Items/episode/Images/Thumb':
+            assert parse_qs(path.query)['tag'] == ['episode-thumb']
+            self.respond({'image': 'episode-thumb'}); return
+        if path.path == '/proxy/emby/Items/episode/Images/Primary':
+            self.respond({'image': 'episode-primary'}); return
+        if path.path in ('/proxy/emby/Items/next-season/Images/Thumb',
+                         '/proxy/emby/Items/next-season/Images/Primary'):
+            self.send_response(404); self.end_headers(); return
         if path.path == '/proxy/emby/Items/series/Images/Primary':
             self.respond({'image': 'series'}); return
         if path.path == '/proxy/emby/Items/series/Images/Logo':
@@ -92,8 +100,9 @@ class Handler(BaseHTTPRequestHandler):
             assert query['UserId'] == ['user'] and query['EnableUserData'] == ['true']
             next_season = dict(EPISODE, Id='next-season', ParentIndexNumber=2, IndexNumber=1,
                                UserData={'Played': True})
+            next_season.pop('Name')
             first_season = dict(EPISODE, ParentIndexNumber=1, IndexNumber=2, Overview='Episode synopsis',
-                                UserData={'Played': False, 'PlaybackPositionTicks': 300000000},
+                                ImageTags={'Thumb': 'episode-thumb'}, UserData={'Played': False, 'PlaybackPositionTicks': 300000000},
                                 MediaStreams=[{'Type': 'Video', 'Width': 3840, 'VideoRangeType': 'DOVI'},
                                               {'Type': 'Audio', 'DisplayTitle': 'Dolby Atmos'}])
             if query['StartIndex'] == ['0']:

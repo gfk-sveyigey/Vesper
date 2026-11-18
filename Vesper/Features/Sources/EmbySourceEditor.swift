@@ -252,6 +252,7 @@ struct EmbyItemDetailView: View {
     let source: MediaSource
     let item: MediaItem
     var showsCloseButton = false
+    var episode: EmbyEpisode? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var details: EmbyItemDetails?
     @State private var error: String?
@@ -260,10 +261,20 @@ struct EmbyItemDetailView: View {
         List {
             if let details {
                 Section {
-                    LabeledContent("名称", value: item.title)
+                    if let episode {
+                        MediaThumbnail(source: source, item: item, aspectRatio: 16.0 / 9.0)
+                            .mediaArtworkBorder()
+                        LabeledContent("季数", value: episode.season == 0 ? String(localized: "特别篇") : String(localized: "第\(episode.season)季"))
+                        if episode.displayTitle != episode.numberLabel {
+                            LabeledContent("集数", value: episode.numberLabel)
+                        }
+                    }
+                    LabeledContent("名称", value: episode?.displayTitle ?? item.title)
                     if let year = item.subtitle { LabeledContent("年份", value: year) }
                     if let duration = item.duration, duration > 0 {
                         LabeledContent("时长", value: Duration.seconds(duration).formatted(.time(pattern: .hourMinute)))
+                    } else if episode != nil {
+                        LabeledContent("时长", value: String(localized: "未知时长"))
                     }
                     if let synopsis = details.video.synopsis { Text(verbatim: synopsis) }
                 }
@@ -276,7 +287,7 @@ struct EmbyItemDetailView: View {
             } else if let error { Text(verbatim: error).foregroundStyle(.secondary) }
             else { ProgressView() }
         }
-        .navigationTitle("媒体详情").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(episode == nil ? "媒体详情" : "单集详情").navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             if showsCloseButton {

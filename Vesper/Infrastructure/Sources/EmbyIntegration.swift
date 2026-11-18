@@ -292,13 +292,17 @@ actor EmbyRepository {
     }
 
     func updateEpisode(_ episode: EmbyEpisode, source: MediaSource, markPlayed: Bool) async throws {
+        try await updateWatchState(for: episode.item, source: source, markPlayed: markPlayed)
+    }
+
+    func updateWatchState(for item: MediaItem, source: MediaSource, markPlayed: Bool) async throws {
         guard let userID = source.emby?.userID else { throw EmbyError.missingAccount }
         let client = try await clientProvider(source)
         if markPlayed {
-            _ = try await client.send("Users/\(userID)/PlayedItems/\(episode.id.localID)", method: "POST")
+            _ = try await client.send("Users/\(userID)/PlayedItems/\(item.id.localID)", method: "POST")
         } else {
-            let path = "Users/\(userID)/Items/\(episode.id.localID)/UserData"
-            let stored = try await client.get("Users/\(userID)/Items/\(episode.id.localID)")
+            let path = "Users/\(userID)/Items/\(item.id.localID)/UserData"
+            let stored = try await client.get("Users/\(userID)/Items/\(item.id.localID)")
             guard var data = stored["UserData"] as? [String: Any] else { throw EmbyError.invalidResponse }
             data["PlaybackPositionTicks"] = 0
             _ = try await client.send(path, method: "POST", body: EmbyJSON(data))
@@ -450,8 +454,9 @@ actor EmbyRepository {
 
     private func map(_ values: [[String: Any]], source: MediaSource, client: EmbyAPIClient) -> [MediaItem] {
         values.compactMap { value in
-            guard let id = value["Id"] as? String, let name = value["Name"] as? String else { return nil }
+            guard let id = value["Id"] as? String else { return nil }
             let type = value["Type"] as? String ?? ""
+            guard let name = value["Name"] as? String ?? (type == "Episode" ? "" : nil) else { return nil }
             let folder = (value["IsFolder"] as? Bool == true) || ["CollectionFolder", "UserView", "Series", "Season"].contains(type)
             guard folder || ["Movie", "Episode", "Video", "MusicVideo", "Trailer"].contains(type) else { return nil }
             let sourceID = (value["MediaSources"] as? [[String: Any]])?.first?["Id"] as? String
@@ -474,6 +479,7 @@ actor EmbyRepository {
                                  embyItemID: id, embyItemType: type, embyMediaSourceID: sourceID,
                                  imageURL: client.imageURL(itemID: id, tag: imageTags["Primary"]),
                                  fallbackImageURL: seriesImage,
+                                 previewImageURL: type == "Episode" ? client.imageURL(itemID: id, tag: imageTags["Thumb"], type: "Thumb") : nil,
                                  duration: (value["RunTimeTicks"] as? NSNumber).map { $0.doubleValue / 10_000_000 },
                                  resumePosition: ((value["UserData"] as? [String: Any])?["PlaybackPositionTicks"] as? NSNumber)
                                     .map { $0.doubleValue / 10_000_000 },
@@ -485,7 +491,8 @@ actor EmbyRepository {
                                      rating: value["OfficialRating"] as? String,
                                      logoURL: logoURL,
                                      overview: value["Overview"] as? String
-                                 ))
+                                 ),
+                                 isPlayed: (value["UserData"] as? [String: Any])?["Played"] as? Bool)
             return item
         }
     }
@@ -537,7 +544,8 @@ actor EmbyRepository {
     func thumbnailData(for item: MediaItem, source: MediaSource) async -> Data? {
         guard let client = try? await clientProvider(source) else { return nil }
         let primary = item.imageURL ?? client.imageURL(itemID: item.id.localID, tag: nil)
-        for url in [primary, item.fallbackImageURL].compactMap({ $0 }) where client.sameOrigin(url) {
+        let candidates = item.embyItemType == "Episode" ? [item.previewImageURL, primary] : [primary, item.fallbackImageURL]
+        for url in candidates.compactMap({ $0 }) where client.sameOrigin(url) {
             guard !Task.isCancelled else { return nil }
             if let data = await fetchThumbnail(url, client: client) { return data }
         }

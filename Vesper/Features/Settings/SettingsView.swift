@@ -769,6 +769,8 @@ private extension MediaLayoutSettings.Metric {
         case .itemVerticalPadding: "媒体库分组项目上下间距"
         case .itemSpacing: "媒体库分组项目左右间距"
         case .endPadding: "媒体库滚动区域左右内缩"
+        case .episodeCardWidth: "剧集卡片宽度"
+        case .episodeCardHeight: "剧集卡片高度"
         }
     }
 }

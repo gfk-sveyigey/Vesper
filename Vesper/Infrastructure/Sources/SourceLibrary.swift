@@ -27,10 +27,13 @@ struct MediaItem: Identifiable, Hashable, Codable, Sendable {
     var embyMediaSourceID: String? = nil
     var imageURL: URL? = nil
     var fallbackImageURL: URL? = nil
+    var previewImageURL: URL? = nil
     var duration: Double? = nil
     var resumePosition: Double? = nil
     var dateCreated: Date? = nil
     var embyPresentation: EmbyPresentation? = nil
+
+    var isPlayed: Bool? = nil
 
     var isEmbySeries: Bool { embyItemType == "Series" }
 }
@@ -536,6 +539,9 @@ actor AppCacheStore {
 
     nonisolated static func embyArtworkKey(for item: MediaItem, source: MediaSource) -> String {
         let key = "\(scope(for: source))|\(item.id.localID)|\(item.imageURL?.absoluteString ?? "")"
+        if item.embyItemType == "Episode" {
+            return "episode-preview|\(key)|\(item.previewImageURL?.absoluteString ?? "")"
+        }
         return item.fallbackImageURL.map { "\(key)|\($0.absoluteString)" } ?? key
     }
 

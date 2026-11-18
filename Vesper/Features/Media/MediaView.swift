@@ -7,7 +7,7 @@ final class MediaLayoutSettings: ObservableObject {
 
     enum Metric: String, CaseIterable {
         case thumbnailHeight, groupSpacing, titlePadding, scrollPadding
-        case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding
+        case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding, episodeCardWidth, episodeCardHeight
 
         var defaultValue: Int {
             switch self {
@@ -16,6 +16,8 @@ final class MediaLayoutSettings: ObservableObject {
             case .itemWidth: 104
             case .itemHeight: 156
             case .itemVerticalPadding, .itemSpacing, .endPadding: 13
+            case .episodeCardWidth: 745
+            case .episodeCardHeight: 690
             }
         }
 
@@ -23,6 +25,7 @@ final class MediaLayoutSettings: ObservableObject {
             switch self {
             case .thumbnailHeight: 0...600
             case .itemWidth, .itemHeight: 24...480
+            case .episodeCardWidth, .episodeCardHeight: 120...1200
             default: 0...120
             }
         }
@@ -52,6 +55,9 @@ final class MediaLayoutSettings: ObservableObject {
         let value = self[.thumbnailHeight]
         return value == 0 ? nil : CGFloat(value)
     }
+
+    var episodeCardWidth: CGFloat { CGFloat(self[.episodeCardWidth]) }
+    var episodeCardHeight: CGFloat { CGFloat(self[.episodeCardHeight]) }
 
     func reset() {
         values = [:]
@@ -178,6 +184,7 @@ struct MediaView: View {
                 mediaSourceMenu
             }
         }
+        .background(VesperTheme.background.ignoresSafeArea())
         .modifier(ConditionalMediaRefresh(enabled: library.selectedSource?.kind != .emby) { [library] in
             library.reload()
         })
@@ -264,7 +271,7 @@ struct MediaView: View {
                 MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
                                preloadedData: data, artworkIsPrepared: artwork != nil)
                     .frame(width: size.width, height: size.height)
-                    .overlay { groupCardBorder }
+                    .mediaArtworkBorder()
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(verbatim: item.title))
@@ -275,6 +282,7 @@ struct MediaView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
                                        cacheOnly: true, preloadedData: data, artworkIsPrepared: artwork != nil)
+                            .mediaArtworkBorder()
                         Text(verbatim: item.title).font(.headline).lineLimit(2)
                         EmbyPreviewFacts(item: item)
                     }
@@ -287,7 +295,7 @@ struct MediaView: View {
                 MediaThumbnail(source: source, item: item, playback: playback, aspectRatio: size.width / size.height,
                                preloadedData: data, artworkIsPrepared: artwork != nil)
                     .frame(width: size.width, height: size.height)
-                    .overlay { groupCardBorder }
+                    .mediaArtworkBorder()
             }
             .buttonStyle(.plain)
             .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
@@ -302,20 +310,13 @@ struct MediaView: View {
         return RoundedRectangle(cornerRadius: 12)
             .fill(.regularMaterial)
             .frame(width: size.width, height: size.height)
-            .overlay { groupCardBorder }
+            .mediaArtworkBorder()
     }
 
     private func groupCardSize(_ group: EmbyMediaGroup) -> CGSize {
         let isLibraries = group.id == EmbyMediaGroup.librariesID
         let width = CGFloat(layout[.itemWidth]) * (isLibraries ? 2.25 : 1)
         return CGSize(width: width, height: CGFloat(layout[.itemHeight]))
-    }
-
-    private var groupCardBorder: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .strokeBorder(Color.gray.opacity(0.55), lineWidth: 1)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
     }
 
     private var mediaSourceMenu: some View {
@@ -578,6 +579,7 @@ struct EmbyFeaturedPage: View {
     let showsPageControl: Bool
     let showsInformation: Bool
     var seriesFooter: EmbySeriesHeroFooter? = nil
+    @Environment(\.colorScheme) private var colorScheme
     @State private var loadedArtwork: EmbyFeaturedArtwork?
 
     var body: some View {
@@ -603,12 +605,14 @@ struct EmbyFeaturedPage: View {
                     .font(.subheadline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
-                    if let seriesFooter { seriesFooter }
+                    if let seriesFooter {
+                        seriesFooter.padding(.top, 10)
+                    }
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
                 .opacity(showsInformation ? 1 : 0)
                 .animation(.easeInOut(duration: 0.16), value: showsInformation)
-                .shadow(color: .black.opacity(0.65), radius: 3, y: 1)
+                .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.65), radius: 3, y: 1)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 20)
                 .padding(.bottom, showsPageControl ? 60 : 18)
@@ -617,7 +621,7 @@ struct EmbyFeaturedPage: View {
                 .background {
                     Rectangle()
                         .fill(.ultraThickMaterial)
-                        .environment(\.colorScheme, .dark)
+                        .overlay(colorScheme == .dark ? Color.black.opacity(0.24) : Color.white.opacity(0.24))
                         .mask {
                             LinearGradient(stops: [.init(color: .clear, location: 0),
                                                    .init(color: .black, location: 0.5),
@@ -762,10 +766,12 @@ private struct EmbySeriesBrowserView: View {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     NavigationLink(value: EmbyMediaRoute.detail(source, item)) {
                         MediaThumbnail(source: source, item: item, fixedHeight: layout.thumbnailHeight)
+                            .mediaArtworkBorder()
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(verbatim: item.title))
-                    .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
+                    .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
+                                                 showsEmbyFacts: true) { EmptyView() })
                     .onAppear {
                         if didLoadFirstPage, index >= items.count - 5, errorMessage == nil {
                             Task { await loadPage() }

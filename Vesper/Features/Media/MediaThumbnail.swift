@@ -73,6 +73,29 @@ struct MediaThumbnail: View {
     }
 }
 
+private struct MediaArtworkBorder: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius)
+        let stroke = colorScheme == .dark ? Color.white.opacity(0.24) : Color.black.opacity(0.18)
+        content
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(stroke, lineWidth: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+    }
+}
+
+extension View {
+    func mediaArtworkBorder(cornerRadius: CGFloat = 12) -> some View {
+        modifier(MediaArtworkBorder(cornerRadius: cornerRadius))
+    }
+}
+
 struct EmbyFeaturedArtwork: Sendable {
     var poster: Data?
     var logo: Data?
@@ -178,7 +201,7 @@ final class MediaThumbnailLoader {
                   url.pathComponents.starts(with: base.pathComponents), url != base,
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]),
                   values.isRegularFile == true else { return nil }
-            let key = "local:\(source.id):\(item.id.localID):\(values.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values.fileSize ?? 0)"
+        let key = "local:\(source.id):\(item.id.localID):\(values.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values.fileSize ?? 0)"
             return await cachedImage(key: key, cacheOnly: cacheOnly) {
                 await VideoImporter.shared.thumbnail(at: url)
             }
@@ -361,6 +384,18 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     @State private var shareError: String?
     @State private var showingShareError = false
     @State private var showingEmbyDetails = false
+    @State private var updatingWatchState = false
+    @State private var clearedServerProgress = false
+    @State private var markedAsPlayed = false
+    @State private var watchError: String?
+
+    private var showsWatchActions: Bool {
+        source.kind == .emby && showsEmbyFacts && !item.isContainer
+    }
+
+    private var hasServerProgress: Bool {
+        !clearedServerProgress && (item.resumePosition ?? 0) > 0
+    }
 
     func body(content: Content) -> some View {
         content
@@ -371,7 +406,17 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                     Button("分享", systemImage: "square.and.arrow.up") { share() }
                         .disabled(preparingShare)
                 }
-                if playback.savedProgress(for: item) > 0 || playback.history.contains(where: { $0.mediaID == item.id }) {
+                if showsWatchActions {
+                    if hasServerProgress || playback.savedProgress(for: item) > 0 {
+                        Button("清除播放进度", systemImage: "clock.arrow.circlepath") { updateWatchState(markPlayed: false) }
+                            .disabled(updatingWatchState || (hasServerProgress && source.emby?.userID == nil))
+                    }
+                    if item.isPlayed != true && !markedAsPlayed {
+                        Button("标记为已观看", systemImage: "checkmark.circle") { updateWatchState(markPlayed: true) }
+                            .disabled(updatingWatchState || source.emby?.userID == nil)
+                    }
+                } else if !showsEmbyFacts && (playback.savedProgress(for: item) > 0
+                    || playback.history.contains(where: { $0.mediaID == item.id })) {
                     Button(source.kind == .emby ? "清除本地记录" : "清除播放进度", systemImage: "clock.arrow.circlepath") {
                         playback.clearSavedProgress(for: item)
                     }
@@ -391,9 +436,34 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
             .sheet(isPresented: $showingEmbyDetails) {
                 NavigationStack { embySheetDetails(source: source, item: item) }
             }
+            .onChange(of: item.resumePosition) { _, _ in clearedServerProgress = false }
+            .onChange(of: item.isPlayed) { _, _ in markedAsPlayed = false }
+            .alert("无法更新观看记录", isPresented: Binding(
+                get: { watchError != nil }, set: { if !$0 { watchError = nil } }
+            )) {
+                Button("好", role: .cancel) { watchError = nil }
+            } message: { Text(verbatim: watchError ?? "") }
             .alert("无法分享视频", isPresented: $showingShareError) {
                 Button("好", role: .cancel) { }
             } message: { Text(verbatim: shareError ?? "") }
+    }
+
+    private func updateWatchState(markPlayed: Bool) {
+        guard !updatingWatchState else { return }
+        updatingWatchState = true
+        Task { @MainActor in
+            defer { updatingWatchState = false }
+            do {
+                if markPlayed || hasServerProgress {
+                    try await EmbyRepository.shared.updateWatchState(for: item, source: source, markPlayed: markPlayed)
+                }
+                playback.clearSavedProgress(for: item)
+                clearedServerProgress = true
+                if markPlayed { markedAsPlayed = true }
+            } catch {
+                watchError = error.localizedDescription
+            }
+        }
     }
 
     private func share() {
@@ -430,6 +500,7 @@ private struct MediaThumbnailPreview: View {
             MediaThumbnail(source: source, item: item, cacheOnly: true,
                            preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared)
                 .frame(width: 200, height: 300)
+                .mediaArtworkBorder()
             Text(verbatim: displayName).lineLimit(2)
             if let historyEntry {
                 Text(verbatim: "\(mediaTimeLabel(historyEntry.position)) / \(mediaTimeLabel(historyEntry.duration))")
