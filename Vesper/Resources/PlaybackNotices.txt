@@ -1,10 +1,10 @@
-KSPlayer GPL source snapshot be7f60d — GPL version 3
+KSPlayer 2.3.4 — GPL version 3
 Copyright (c) KSPlayer contributors / kingslay
-Source: https://github.com/kingslay/KSPlayer/tree/be7f60d3b94a0941c643fe8699113cfce4f08e83
+Source: https://github.com/kingslay/KSPlayer/tree/bdfa2da39bb18865b317c4ffd08cdef5f8efc043
 License: KSPlayer-GPL-3.0.txt, bundled with this application.
 
 FFmpegKit 9.0.2 and its bundled libraries
-Source and component licenses: https://github.com/kingslay/FFmpegKit/tree/20e3ba2a4c36978fed7b12a56839fadd92e901ea
+Source and component licenses: https://github.com/kingslay/FFmpegKit/tree/c32be9bfb628042737ad3ef622e930c5c7b15954
 Includes FFmpeg and additional codec, rendering, subtitle and networking libraries.
 See upstream source for individual component copyright and license notices.
 
@@ -15,5 +15,5 @@ libmpv (mpv) — GPL version 2 or later
 Source: https://github.com/mpv-player/mpv
 Distributed via FFmpegKit 9.0.2's libmpv Swift package product.
 The mpv path uses official KSMPVPlayer sources (KSPlayer 5.6.2, GPLv3),
-adapted for the KSPlayer GPL source API, with gpu-next/MoltenVK rendering and libass subtitles.
+backported for KSPlayer 2.3.4, with gpu-next/MoltenVK rendering and libass subtitles.
 Source: https://github.com/kingslay/KSPlayer/tree/3df1658c3b4a94edc9c9927b8fcc2553a68e9e54/Sources/MPVPlayer
