@@ -103,7 +103,10 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             if newPhase == .idle { isSystemScrolling = false }
         }
-        .preference(key: VesperRootHeaderKey.self, value: AnyView(header))
+        .preference(key: VesperRootHeaderKey.self, value: VesperRootHeaderPresentation(
+            header: AnyView(header),
+            showsStatusBarBlur: isCollapsed && !contentFitsViewport
+        ))
         .ignoresSafeArea(.container, edges: .top)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -118,8 +121,11 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             .sharedBackgroundVisibility(.hidden)
         }
-        .scrollEdgeEffectStyle(.soft, for: .vertical)
-        .scrollEdgeEffectHidden(false, for: .vertical)
+        // The native top effect extends through the navigation/header area.
+        // A separately clipped status-bar surface owns the top blur instead.
+        .scrollEdgeEffectHidden(true, for: .top)
+        .scrollEdgeEffectStyle(.soft, for: .bottom)
+        .scrollEdgeEffectHidden(false, for: .bottom)
     }
 
     private var snapThreshold: CGFloat { headerHeight * 0.1125 }
@@ -251,21 +257,39 @@ extension EnvironmentValues {
 
 /// Lift the root Header above the entire navigation stack without changing
 /// UIKit hit-testing, navigation bar visibility, or tab interactions.
-private struct VesperRootHeaderKey: PreferenceKey {
-    static var defaultValue: AnyView? { nil }
+private struct VesperRootHeaderPresentation {
+    let header: AnyView
+    let showsStatusBarBlur: Bool
+}
 
-    static func reduce(value: inout AnyView?, nextValue: () -> AnyView?) {
+private struct VesperRootHeaderKey: PreferenceKey {
+    static var defaultValue: VesperRootHeaderPresentation? { nil }
+
+    static func reduce(value: inout VesperRootHeaderPresentation?, nextValue: () -> VesperRootHeaderPresentation?) {
         if let next = nextValue() { value = next }
     }
 }
 
 struct VesperNavigationHeaderLayer: ViewModifier {
     let isRoot: Bool
+    @Environment(\.vesperWindowTopInset) private var topInset
 
     func body(content: Content) -> some View {
-        content.overlayPreferenceValue(VesperRootHeaderKey.self, alignment: .top) { header in
-            if isRoot, let header {
-                header.ignoresSafeArea(.container, edges: .top)
+        content.overlayPreferenceValue(VesperRootHeaderKey.self, alignment: .top) { presentation in
+            if isRoot, let presentation {
+                ZStack(alignment: .top) {
+                    presentation.header
+                    // Fixed to the status bar only. Explicitly disable material
+                    // safe-area extension and clip before positioning the layer.
+                    Color.clear
+                        .frame(height: max(0, topInset))
+                        .background(.ultraThinMaterial, ignoresSafeAreaEdges: [])
+                        .clipped()
+                        .opacity(presentation.showsStatusBarBlur ? 1 : 0)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+                .ignoresSafeArea(.container, edges: .top)
             }
         }
     }
