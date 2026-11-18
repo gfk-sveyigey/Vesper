@@ -35,8 +35,8 @@ def prepare_for_external_signing(app):
             path = Path(root) / name
             if path.is_symlink():
                 continue
-            mode = path.stat(follow_symlinks=False).st_mode
-            os.chmod(path, mode | stat.S_IWUSR, follow_symlinks=False)
+            mode = path.lstat().st_mode
+            os.chmod(path, mode | stat.S_IWUSR)
 
 def main():
     products = Path(os.environ['BUILT_PRODUCTS_DIR'])
