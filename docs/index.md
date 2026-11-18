@@ -6,7 +6,7 @@
 
 - [产品与体验原则](product-and-experience.md)：产品定位、核心任务和体验原则。
 - [视觉与交互规范](visual-and-interaction.md)：界面层级、播放器控制和状态反馈原则。
-- [技术架构约定](architecture.md)：应用与 KSPlayer 的职责边界、媒体来源抽象和依赖约束。
+- [技术架构约定](architecture.md)：PlaybackCore、双引擎边界、媒体来源抽象和依赖约束。
 - [开发准则](development-guidelines.md)：代码、测试、变更和协作要求。
 - [待决事项](open-decisions.md)：需要在实现前共同确认的产品与技术选择。
 - [项目计划](project-plan.md)：从技术核验到首版验收的实施阶段和交付条件。
@@ -18,4 +18,4 @@
 
 ## 当前基础
 
-Vesper 计划基于 [KSPlayer](https://github.com/kingslay/KSPlayer) 构建，首版同时考虑本地媒体和在线媒体。首发平台仅为 iOS（iPhone），当前原型以 iOS 26 为构建基线，正式最低系统版本仍待确认。上游 README 声明默认 GPL 许可，并提及商业授权选项；在分发或商业化前必须核实适用许可，不能仅凭本规范推断许可结论。
+Vesper 使用自有 PlaybackCore 调度 AetherEngine 与 SwiftVLC 两个隔离的播放引擎。首发平台仅为 iOS（iPhone），当前构建基线为 iOS 26。具体版本、二进制隔离与许可审核要求见[播放架构](playback.md)。

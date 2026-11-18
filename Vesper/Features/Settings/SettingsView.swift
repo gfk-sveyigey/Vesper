@@ -627,7 +627,7 @@ private struct AppIconChoices: View {
 
 private struct PlaybackLicensesView: View {
     private var notices: String {
-        ["PlaybackNotices", "KSPlayer-GPL-3.0"].compactMap { name in
+        ["PlaybackNotices", "AetherEngine-LICENSE", "SwiftVLC-LICENSE"].compactMap { name in
             Bundle.main.url(forResource: name, withExtension: "txt")
                 .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
         }.joined(separator: "\n\n")

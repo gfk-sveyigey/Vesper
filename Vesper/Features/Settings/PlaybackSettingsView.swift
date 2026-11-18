@@ -1,7 +1,13 @@
 import SwiftUI
 
 enum PlaybackPreferences {
-    static var preferredEngine: PlaybackEngine { PlaybackEngine(rawValue: UserDefaults.standard.string(forKey: "player.engine") ?? "ksplayer") ?? .ksplayer }
+    static var preferredEngine: PlaybackEngine {
+        let defaults = UserDefaults.standard
+        if let raw = defaults.string(forKey: "player.engine"), let value = PlaybackEngine(rawValue: raw) { return value }
+        // Removed engines are intentionally not mapped to an unrelated backend.
+        defaults.set(PlaybackEngine.aether.rawValue, forKey: "player.engine")
+        return .aether
+    }
     static var preferredDecoder: PlaybackDecoder { PlaybackDecoder(rawValue: UserDefaults.standard.string(forKey: "player.decoder") ?? "hardware") ?? .hardware }
     static var backgroundEnabled: Bool { UserDefaults.standard.object(forKey: "player.background.enabled") as? Bool ?? true }
     static var backgroundMode: String { UserDefaults.standard.string(forKey: "player.background.mode") ?? "audio" }
@@ -9,9 +15,9 @@ enum PlaybackPreferences {
 }
 
 enum PlaybackEngine: String, CaseIterable, Identifiable {
-    case ksplayer, mpv
+    case aether, vlc
     var id: Self { self }
-    var title: String { self == .mpv ? "KSMPVPlayer" : "KSPlayer" }
+    var title: String { self == .vlc ? "SwiftVLC" : "AetherEngine" }
 }
 
 enum PlaybackDecoder: String, CaseIterable, Identifiable {
@@ -24,7 +30,7 @@ struct PlaybackSettingsView: View {
     @ObservedObject var session: PlaybackSession
     @AppStorage("player.background.enabled") private var backgroundEnabled = true
     @AppStorage("player.background.mode") private var backgroundMode = "audio"
-    @AppStorage("player.engine") private var engine = PlaybackEngine.ksplayer
+    @AppStorage("player.engine") private var engine = PlaybackEngine.aether
     @AppStorage("player.decoder") private var decoder = PlaybackDecoder.hardware
     @AppStorage("player.playbackRate") private var defaultRate = 1.0
     @AppStorage("player.rememberProgress") private var remembersProgress = true

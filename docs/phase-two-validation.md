@@ -28,4 +28,4 @@ swiftc -swift-version 6 -strict-concurrency=complete -parse-as-library \
 5. 重启后来源列表、状态和当前来源恢复；删除当前来源后媒体页恢复未选择，删除非当前来源不改变选择。
 6. 标签组显隐、搜索、返回历史、主题和语言切换保持原有行为。
 
-真实本地来源、网络协议、凭据、IMDb/Trakt 及 KSPlayer 接入仍按后续阶段实施，演示卡片没有播放按钮。
+真实本地来源、网络协议、凭据及 IMDb/Trakt 接入仍按后续阶段实施，演示卡片没有播放按钮。

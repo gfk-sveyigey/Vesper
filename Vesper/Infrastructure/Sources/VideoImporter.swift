@@ -1,9 +1,9 @@
 import Foundation
 import AVFoundation
 import UniformTypeIdentifiers
-import Libavformat
-import Libavutil
-@preconcurrency import KSPlayer
+import PlaybackContracts
+import VesperAetherBridge
+import VesperVLCBridge
 import UIKit
 
 /// Serializes imports and keeps potentially large file copies off the main actor.
@@ -49,10 +49,12 @@ actor VideoImporter {
         }
     }
 
-    func inspect(_ access: IncomingFileAccess) -> Inspection {
+    func inspect(_ access: IncomingFileAccess) async -> Inspection {
         let url = access.url
         guard url.isFileURL else { return .unreadable }
+        defer { withExtendedLifetime(access) {} }
         var result = Inspection.unreadable
+        var fallbackCopy: IncomingFileAccess?
         var error: NSError?
         NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &error) { readable in
             guard (try? readable.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
@@ -62,42 +64,36 @@ actor VideoImporter {
             do { _ = try handle.read(upToCount: 1) }
             catch { return }
             guard Self.isVideoType(readable) else { result = .notVideo; return }
-            // Inspect actual streams, not just the filename. FFmpeg also handles
-            // MKV/WebM, which AVFoundation may not recognize on iOS.
-            var context = avformat_alloc_context()
-            var options: OpaquePointer?
-            av_dict_set(&options, "protocol_whitelist", "file,crypto,data", 0)
-            av_dict_set(&options, "probesize", "5000000", 0)
-            av_dict_set(&options, "analyzeduration", "3000000", 0)
-            defer { av_dict_free(&options); avformat_close_input(&context) }
-            guard avformat_open_input(&context, readable.path, nil, &options) >= 0,
-                  let opened = context,
-                  avformat_find_stream_info(opened, nil) >= 0 else { result = .notVideo; return }
-            if let name = opened.pointee.iformat?.pointee.name {
-                let demuxer = String(cString: name)
-                let imageFormats: Set<String> = ["image2", "image2pipe", "gif", "apng", "ico"]
-                if demuxer.hasSuffix("_pipe") || imageFormats.contains(demuxer) {
-                    result = .notVideo
-                    return
-                }
+            // Metadata comes through the isolated Aether FFmpeg boundary.
+            guard let probe = try? AetherMediaProbe.inspect(readable), probe.hasVideo else {
+                // libVLC parsing is async. Copy while the coordinator's read lease
+                // is held; never carry its provider URL beyond this accessor.
+                let manager = FileManager.default
+                let directory = manager.temporaryDirectory.appendingPathComponent("Vesper-probe-\(UUID().uuidString)", isDirectory: true)
+                do {
+                    try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+                    let copy = directory.appendingPathComponent(readable.lastPathComponent)
+                    try manager.copyItem(at: readable, to: copy)
+                    fallbackCopy = IncomingFileAccess(url: copy, temporaryDirectory: directory)
+                } catch { try? manager.removeItem(at: directory) }
+                result = .notVideo
+                return
             }
-            var dimensions: (Int, Int)?
-            for index in 0..<Int(opened.pointee.nb_streams) {
-                guard let stream = opened.pointee.streams[index],
-                      let codec = stream.pointee.codecpar,
-                      codec.pointee.codec_type == AVMEDIA_TYPE_VIDEO,
-                      stream.pointee.disposition & AV_DISPOSITION_ATTACHED_PIC == 0 else { continue }
-                dimensions = (Int(codec.pointee.width), Int(codec.pointee.height))
-                break
-            }
-            guard let dimensions else { result = .notVideo; return }
-            let seconds = Double(opened.pointee.duration) / Double(AV_TIME_BASE)
             let size = try? readable.resourceValues(forKeys: [.fileSizeKey]).fileSize
             result = .video(IncomingVideo(access: access,
-                duration: seconds.isFinite && seconds > 0 ? seconds : nil,
-                width: dimensions.0, height: dimensions.1, byteCount: size.map(Int64.init)))
+                duration: probe.duration.isFinite && probe.duration > 0 ? probe.duration : nil,
+                width: probe.width, height: probe.height, byteCount: size.map(Int64.init)))
         }
-        return error == nil ? result : .unreadable
+        guard error == nil else { return .unreadable }
+        if let copy = fallbackCopy {
+            defer { withExtendedLifetime(copy) {} }
+            guard !Task.isCancelled, let probe = try? await VLCMediaProbe.inspect(copy.url), probe.hasVideo else { return .notVideo }
+            let size = try? copy.url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+            return .video(IncomingVideo(access: access,
+                duration: probe.duration.isFinite && probe.duration > 0 ? probe.duration : nil,
+                width: probe.width, height: probe.height, byteCount: size.map(Int64.init)))
+        }
+        return result
     }
 
     func thumbnail(for file: IncomingVideo) async -> Data? {
@@ -114,13 +110,10 @@ actor VideoImporter {
             let result = try await generator.image(at: .zero)
             return UIImage(cgImage: result.image).jpegData(compressionQuality: 0.85)
         } catch {
-            // Unsupported containers use the GPL decoder below.
+            // The fallback probe/thumbnail path creates no UI playback session.
         }
-        // Use the existing GPL decoder for containers the system cannot preview.
         if Task.isCancelled { return nil }
-        let controller = ThumbnailController(thumbnailCount: 1)
-        guard let frames = try? await controller.generateThumbnail(for: url, thumbWidth: 600) else { return nil }
-        return frames.first?.image.jpegData(compressionQuality: 0.85)
+        return try? await VLCMediaProbe.thumbnail(url)
     }
 
     enum ImportFailure: LocalizedError {

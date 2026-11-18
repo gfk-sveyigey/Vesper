@@ -5,13 +5,15 @@ import AudioToolbox
 import MediaPlayer
 import Combine
 import SwiftUI
-@preconcurrency import KSPlayer
+import PlaybackContracts
+import VesperAetherBridge
+import VesperVLCBridge
 import UIKit
 
 /// A single app-owned session. Tabs and player presentation never own or reset
-/// the decoder. KSPlayer APIs are contained here, outside navigation code.
+/// the decoder. PlaybackCore owns engine scheduling behind the existing UI API.
 @MainActor
-final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, @preconcurrency AVPictureInPictureControllerDelegate {
+final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictureInPictureControllerDelegate {
     @Published private(set) var currentEngine = PlaybackPreferences.preferredEngine
     @Published private(set) var currentDecoder = PlaybackPreferences.preferredDecoder
     @Published private(set) var history: [PlaybackHistoryEntry] = []
@@ -42,16 +44,13 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     private var pipConfigurationObservation: NSKeyValueObservation?
     private var preferencesObservation: AnyCancellable?
     private var appliedBackgroundPolicy = ""
-    private var pipStateSynchronization: Task<Void, Never>?
     private var restorePiPCompletion: ((Bool) -> Void)?
     private var restoringPiP = false
     private var pendingSeek: (time: TimeInterval, resume: Bool)?
     private var seekInFlight = false
     private var seekLanding: (time: Double, deadline: Date)?
-    private let subtitleModel = SubtitleModel()
     private var appIsInBackground = false
     private var appIsInactive = false
-    private var decoderRestore: (time: Double, resume: Bool)?
     private var progressRestored = false
     private var lastProgressSave = Date.distantPast
     private let progressStorageKey = "player.savedProgress"
@@ -65,6 +64,14 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
            let entries = try? JSONDecoder().decode([PlaybackHistoryEntry].self, from: data) {
             history = entries
         }
+        core.onChange = { [weak self] in self?.syncCoreState() }
+        core.log = { [weak self] in self?.log($0) }
+        core.restoreUI = { [weak self] completion in
+            guard let self else { completion(false); return }
+            self.restoringPiP = true
+            if self.isPresented { completion(true) }
+            else { self.restorePiPCompletion = completion; self.isPresented = true }
+        }
         refreshPlaybackPreferences()
         preferencesObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .sink { [weak self] _ in
@@ -77,7 +84,10 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         if [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(savedRate) { playbackRate = savedRate }
     }
 
-    private var layer: KSPlayerLayer?
+    private let core = PlaybackCore()
+    private var trackIDs: [String: Int32] = [:]
+    private var nextTrackID: Int32 = 1
+    private var previouslyActivePiP = false
     private var resource: ResolvedPlaybackResource?
     private var request: Task<Void, Never>?
     private var generation = UUID()
@@ -91,8 +101,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         guard let currentItem, let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return false }
         return index + 1 < queue.count
     }
-    var canControl: Bool { layer != nil && errorMessage == nil }
-    var canSeek: Bool { canControl && duration > 0 && layer?.player.seekable == true }
+    var canControl: Bool { core.driver != nil && !core.isTransitioning && errorMessage == nil }
+    var canSeek: Bool { canControl && duration > 0 && core.snapshot.seekable }
 
     func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem]) {
         recordPlaybackHistory()
@@ -134,11 +144,14 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         request?.cancel()
         generation = UUID()
         let token = generation
+        let previousState = core.snapshot
+        let carriesSelection = currentItem?.id == item.id && position != nil
+        let previousAudio = carriesSelection ? previousState.audio.first(where: { $0.selected }) : nil
+        let previousSubtitle = carriesSelection ? previousState.subtitles.first(where: { $0.selected }) : nil
         saveProgress()
         recordPlaybackHistory()
         tearDownPlayer()
         lastHistorySave = .distantPast
-        decoderRestore = position.map { ($0, resume) }
         progressRestored = position != nil
         currentEngine = engine ?? PlaybackPreferences.preferredEngine
         currentDecoder = decoder ?? PlaybackPreferences.preferredDecoder
@@ -172,28 +185,13 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
                 try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
                 try AVAudioSession.sharedInstance().setActive(true)
                 self.refreshPlaybackPreferences()
-                if selectedEngine == .mpv {
-                    KSOptions.firstPlayerType = KSMPVPlayer.self
-                    KSOptions.secondPlayerType = nil
-                } else {
-                    KSOptions.firstPlayerType = selectedDecoder == .software ? KSMEPlayer.self : KSAVPlayer.self
-                    KSOptions.secondPlayerType = selectedDecoder == .software ? nil : KSMEPlayer.self
-                }
-                let options = KSOptions()
-                options.hardwareDecode = selectedDecoder == .hardware
-                options.startPlayTime = position ?? 0
-                options.startPlayRate = self.playbackRate
-                options.isSeekImageSubtitle = true
-                options.canStartPictureInPictureAutomaticallyFromInline = PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
-                let player = KSPlayerLayer(url: resolved.url, isAutoPlay: false, options: options)
-                self.layer = player
-                player.delegate = self
-                self.refreshPlaybackPreferences()
-                self.videoView = player.player.view
-                player.player.allowsExternalPlayback = true
-                player.player.isMuted = self.isMuted
-                player.player.contentMode = self.fillsScreen ? .scaleAspectFill : .scaleAspectFit
-                if resume { player.play() } else { player.prepareToPlay() }
+                var configuration = self.engineConfiguration
+                configuration.decoder = selectedDecoder == .software ? .software : .hardware
+                configuration.position = position ?? 0
+                configuration.autoplay = resume
+                try await self.core.load(resolved.url, preferred: selectedEngine == .aether ? .aether : .vlc, configuration: configuration, audio: previousAudio, subtitle: previousSubtitle)
+                guard !Task.isCancelled, self.generation == token else { return }
+                self.syncCoreState()
             } catch {
                 guard let self, !Task.isCancelled, self.generation == token else { return }
                 self.tearDownPlayer()
@@ -205,13 +203,17 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func togglePlayback() {
-        guard let layer, errorMessage == nil else { return }
-        if isPlaying { layer.pause() } else { layer.play() }
+        guard canControl else { return }
+        if core.snapshot.phase == .ended, let currentItem {
+            load(currentItem, source: source, engine: currentEngine, decoder: currentDecoder, position: 0)
+            return
+        }
+        if isPlaying { core.pause() } else { core.play() }
         pipController?.invalidatePlaybackState()
     }
 
     func pause() {
-        layer?.pause()
+        core.pause()
         pipController?.invalidatePlaybackState()
         recordPlaybackHistory()
     }
@@ -229,17 +231,17 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     // Coalesce scrub previews: at most one decoder seek is in flight, and the
     // final release target always replaces any older preview waiting behind it.
     private func performPendingSeek() {
-        guard !seekInFlight, let next = pendingSeek, let layer else { return }
+        guard !seekInFlight, let next = pendingSeek, core.driver != nil else { return }
         pendingSeek = nil
         seekInFlight = true
         let token = generation
-        layer.seek(time: next.time, autoPlay: next.resume) { [weak self] finished in
+        core.seek(to: next.time, resume: next.resume) { [weak self] finished in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
                 self.seekInFlight = false
                 if self.pendingSeek != nil { self.performPendingSeek() }
                 else {
-                    self.currentTime = finished ? next.time : max(0, layer.player.currentPlaybackTime)
+                    self.currentTime = finished ? next.time : max(0, self.core.snapshot.time)
                     self.seekLanding = finished ? (next.time, Date().addingTimeInterval(2)) : nil
                     self.isSeeking = false
                     self.updateSubtitles()
@@ -250,26 +252,21 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func toggleMute() {
         isMuted.toggle()
-        layer?.player.isMuted = isMuted
+        core.configure(engineConfiguration)
     }
 
     func unmute() {
         isMuted = false
-        layer?.player.isMuted = false
+        core.configure(engineConfiguration)
     }
 
     func startPictureInPicture() {
-        guard currentEngine != .mpv else { playbackNotice = VesperLocalization.string("mpv 暂不支持画中画。"); return }
         configurePictureInPicture()
-        guard let pipController, pipController.isPictureInPicturePossible else {
+        guard core.snapshot.pipPossible || pipController?.isPictureInPicturePossible == true else {
             playbackNotice = String(localized: "当前视频暂不支持画中画。")
             return
         }
-        layer?.player.contentMode = .scaleAspectFit
-        // Reuse KSPlayer's controller and playback delegate. Its isPipActive
-        // wrapper also dismisses UIKit screens/suspends the app, so presentation
-        // remains coordinated with our SwiftUI full-screen player.
-        pipController.startPictureInPicture()
+        core.startPiP()
     }
 
     private var automaticallyStartsPictureInPicture: Bool {
@@ -278,20 +275,23 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     private func configurePictureInPicture() {
         guard AVPictureInPictureController.isPictureInPictureSupported(),
-              let candidate = layer?.player.pipController else { return }
+              let candidate = core.nativePiPController else {
+            pipController?.delegate = nil
+            pipController = nil
+            pipObservation = nil
+            pipConfigurationObservation = nil
+            return
+        }
         candidate.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
         guard candidate !== pipController else { return }
         pipController?.delegate = nil
         pipController?.stopPictureInPicture()
         pipObservation = nil
         pipConfigurationObservation = nil
-        pipStateSynchronization?.cancel()
-        pipStateSynchronization = nil
-        // KSPlayer owns the controller, content source, and sample-buffer playback
-        // delegate. Vesper only observes availability and coordinates its UI.
+        // The Aether bridge owns its native/sample-buffer content source.
         pipController = candidate
         candidate.delegate = self
-        log("KSPlayer 画中画配置：automatic=\(candidate.canStartPictureInPictureAutomaticallyFromInline) policy=\(backgroundPolicyID)")
+        log("PlaybackCore 画中画配置：automatic=\(candidate.canStartPictureInPictureAutomaticallyFromInline) policy=\(backgroundPolicyID)")
         isPictureInPicturePossible = candidate.isPictureInPicturePossible
         pipConfigurationObservation = candidate.observe(\.canStartPictureInPictureAutomaticallyFromInline, options: [.new]) { [weak self] _, change in
             guard change.newValue == true else { return }
@@ -310,33 +310,9 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         }
     }
 
-    private func observePictureInPicturePlayback() {
-        pipStateSynchronization?.cancel()
-        // KSPlayer's PiP controls operate on the decoder directly. Its layer's
-        // timer stops when paused, so observe the engine even while paused and
-        // reconcile transport state without replacing KSPlayer's playback delegate.
-        pipStateSynchronization = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self, self.isPictureInPictureActive, let layer = self.layer else { return }
-                if !self.isSeeking && !self.isLoading {
-                    switch layer.player.playbackState {
-                    case .playing:
-                        if !layer.state.isPlaying { layer.play() }
-                        self.isPlaying = true
-                    case .paused:
-                        if layer.state.isPlaying { layer.pause() }
-                        self.isPlaying = false
-                    default: break
-                    }
-                }
-                do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
-            }
-        }
-    }
-
     func playerDidAppear() {
         restoringPiP = false
-        if isPictureInPictureActive { pipController?.stopPictureInPicture() }
+        if isPictureInPictureActive { core.stopPiP() }
         let completion = restorePiPCompletion
         restorePiPCompletion = nil
         completion?(true)
@@ -344,12 +320,11 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
         guard controller === pipController else { return }
-        log("KSPlayer 将进入画中画：automatic=\(controller.canStartPictureInPictureAutomaticallyFromInline) policy=\(backgroundPolicyID) inactive=\(appIsInactive) background=\(appIsInBackground)")
-        layer?.player.contentMode = .scaleAspectFit
+        log("PlaybackCore 将进入画中画：automatic=\(controller.canStartPictureInPictureAutomaticallyFromInline) policy=\(backgroundPolicyID) inactive=\(appIsInactive) background=\(appIsInBackground)")
     }
 
     private func restoreVideoContentMode() {
-        layer?.player.contentMode = fillsScreen ? .scaleAspectFill : .scaleAspectFit
+        core.configure(engineConfiguration)
     }
 
     func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
@@ -360,15 +335,14 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             return
         }
         isPictureInPictureActive = true
-        observePictureInPicturePlayback()
+        core.setPiPActive(true)
         isPresented = false
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
         guard controller === pipController else { return }
         isPictureInPictureActive = false
-        pipStateSynchronization?.cancel()
-        pipStateSynchronization = nil
+        core.setPiPActive(false)
         restoreVideoContentMode()
         if !restoringPiP && !isPresented && !(appIsInBackground && PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "audio") { pause() }
         restoringPiP = false
@@ -401,18 +375,14 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func refreshPlaybackPreferences() {
-        // The static setting controls KSPlayer's background notification handler;
-        // the instance option also applies if KSPlayer replaces its engine later.
-        KSOptions.canBackgroundPlay = PlaybackPreferences.backgroundEnabled
-        KSOptions.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
-        layer?.options.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+        core.configure(engineConfiguration)
         configurePictureInPicture()
         if appliedBackgroundPolicy != backgroundPolicyID {
             appliedBackgroundPolicy = backgroundPolicyID
-            log("后台配置：enabled=\(PlaybackPreferences.backgroundEnabled) mode=\(PlaybackPreferences.backgroundMode) automaticPiP=\(automaticallyStartsPictureInPicture) player=\(layer != nil)")
+            log("后台配置：enabled=\(PlaybackPreferences.backgroundEnabled) mode=\(PlaybackPreferences.backgroundMode) automaticPiP=\(automaticallyStartsPictureInPicture) player=\(core.driver != nil)")
         }
         if appIsInBackground {
-            if !automaticallyStartsPictureInPicture { pipController?.stopPictureInPicture() }
+            if !automaticallyStartsPictureInPicture { core.stopPiP() }
             if !PlaybackPreferences.backgroundEnabled { pause() }
         }
     }
@@ -426,24 +396,22 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             appIsInBackground = true
             saveProgress()
             recordPlaybackHistory()
-            if !PlaybackPreferences.backgroundEnabled || PlaybackPreferences.backgroundMode != "pip" { pipController?.stopPictureInPicture() }
+            if !PlaybackPreferences.backgroundEnabled || PlaybackPreferences.backgroundMode != "pip" { core.stopPiP() }
             guard isPlaying else { return }
             guard PlaybackPreferences.backgroundEnabled else {
-                pipController?.stopPictureInPicture()
+                core.stopPiP()
                 pause()
                 return
             }
-            // Automatic PiP is handled by KSPlayer's existing controller, using
-            // the option already applied before the app becomes inactive.
+            // Native PiP policy is configured on the selected bridge before inactivity.
         case .active:
             appIsInBackground = false
             appIsInactive = false
             pruneUnavailableHistory()
             if isPictureInPictureActive { isPresented = false }
-            else if let layer {
+            else if core.driver != nil {
                 // Reattach the native rendering layer even when playback was
                 // paused before backgrounding. Never resume audio implicitly.
-                layer.player.enterForeground()
                 restoreVideoContentMode()
                 if !isPlaying && canSeek { seek(to: currentTime, resume: false) }
                 log("前台恢复画面：playing=\(isPlaying) position=\(currentTime)")
@@ -637,7 +605,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             }
         }
         let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
-        technical.append(.init(label: "音轨数量", value: String(audioTracks.isEmpty ? (layer?.player.tracks(mediaType: .audio).count ?? 0) : audioTracks.count)))
+        technical.append(.init(label: "音轨数量", value: String(audioTracks.isEmpty ? core.snapshot.audio.count : audioTracks.count)))
         for (index, track) in audioTracks.enumerated() {
             let prefix = "Audio \(index + 1)"
             if let language = try? await track.load(.languageCode) { technical.append(.init(label: "音频语言", value: "\(prefix) · \(language)")) }
@@ -658,40 +626,17 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             technical.append(.init(label: "总码率", value: Self.bitRateLabel(Double(bytes) * 8 / duration)))
         }
         technical.append(.init(label: "容器格式", value: Self.containerName(url)))
-        // FFmpeg-backed formats may not expose AVAsset tracks. Read the
-        // active decoder's public metadata rather than dropping their details.
-        if let player = layer?.player {
-            if tracks.isEmpty {
-                let size = player.naturalSize
-                if size.width > 0 && size.height > 0 {
-                    var w = Int(size.width.rounded()), h = Int(size.height.rounded())
-                    let originalW = w, originalH = h
-                    while h != 0 { (w, h) = (h, w % h) }
-                    let divisor = max(1, w)
-                    technical.append(.init(label: "画面比例", value: "\(originalW / divisor):\(originalH / divisor)"))
-                }
+        // Probe the source through the isolated Aether bridge; AVAsset alone
+        // omits tracks for TS/MKV and must not report those as zero streams.
+        if let probe = try? await Task.detached(priority: .utility, operation: { try AetherMediaProbe.inspect(url) }).value {
+            let labels = Set(probe.fields.keys)
+            technical.removeAll { labels.contains($0.label) }
+            technical += probe.fields.sorted { $0.key < $1.key }.map { .init(label: $0.key, value: $0.value) }
+            if let container = probe.container {
+                technical.removeAll { $0.label == "容器格式" }
+                technical.append(.init(label: "容器格式", value: container))
             }
-            if dimensions == nil {
-                let size = player.naturalSize
-                if size.width > 0 && size.height > 0 { dimensions = "\(Int(size.width)) × \(Int(size.height))" }
-            }
-            for type in [AVMediaType.video, .audio] where (type == .video ? tracks.isEmpty : audioTracks.isEmpty) {
-                for track in player.tracks(mediaType: type) {
-                    let video = type == .video
-                    if track.bitRate > 0 { technical.append(.init(label: video ? "视频码率" : "音频码率", value: Self.bitRateLabel(Double(track.bitRate)))) }
-                    if track.bitDepth > 0 { technical.append(.init(label: video ? "视频位深" : "音频位深", value: "\(track.bitDepth) bit")) }
-                    if video && track.nominalFrameRate > 0 { technical.append(.init(label: "帧率", value: String(format: "%.3f fps", track.nominalFrameRate))) }
-                    if let format = track.formatDescription {
-                        technical.append(.init(label: video ? "视频编码" : "音频编码", value: Self.codecName(format)))
-                        if video { technical += Self.videoColorDetails(format) }
-                        else { technical += Self.audioLayoutDetails(format) }
-                        if !video, let stream = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee {
-                            technical.append(.init(label: "采样率", value: String(format: "%.0f Hz", stream.mSampleRate)))
-                            technical.append(.init(label: "声道数", value: String(stream.mChannelsPerFrame)))
-                        }
-                    }
-                }
-            }
+            if probe.width > 0 && probe.height > 0 { dimensions = "\(probe.width) × \(probe.height)" }
         }
         var synopsis: String?
         if let metadata = try? await asset.load(.commonMetadata) {
@@ -801,7 +746,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     func setPlaybackRate(_ rate: Float) {
         guard [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(rate) else { return }
         playbackRate = rate
-        layer?.player.playbackRate = rate
+        core.configure(engineConfiguration)
     }
 
     func toggleFill() {
@@ -815,49 +760,32 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func selectAudio(_ id: Int32) {
-        guard let player = layer?.player,
-              let track = player.tracks(mediaType: .audio).first(where: { $0.trackID == id }) else { return }
-        player.select(track: track)
+        guard let key = trackIDs.first(where: { $0.value == id })?.key else { return }
+        core.selectAudio(key)
         refreshTracks()
     }
-
     func selectSubtitle(_ id: Int32?) {
-        guard let player = layer?.player else { return }
-        if let mpv = player as? KSMPVPlayer {
-            if let id, let track = mpv.tracks(mediaType: .subtitle).first(where: { $0.trackID == id }) { mpv.select(track: track) }
-            else { mpv.disableSubtitles() }
-            selectedSubtitleID = id
-            subtitleText = ""
-            subtitleImage = nil
-            refreshTracks()
-            return
-        }
-        subtitleModel.selectedSubtitleInfo = nil
-        if let id, let track = player.tracks(mediaType: .subtitle).first(where: { $0.trackID == id }) {
-            player.select(track: track)
-            subtitleModel.selectedSubtitleInfo = player.subtitleDataSouce?.infos.first { $0.subtitleID == String(id) }
-        } else {
-            for track in player.tracks(mediaType: .subtitle) { track.isEnabled = false }
-        }
+        let key = id.flatMap { value in trackIDs.first { $0.value == value }?.key }
+        core.selectSubtitle(key)
         selectedSubtitleID = id
-        updateSubtitles()
         refreshTracks()
     }
-
+    private func uiTrackID(_ id: String) -> Int32 {
+        if let value = trackIDs[id] { return value }
+        let value = nextTrackID; nextTrackID += 1; trackIDs[id] = value; return value
+    }
     private func refreshTracks() {
-        guard let player = layer?.player else { return }
-        let audio = player.tracks(mediaType: .audio).map { PlaybackTrack(id: $0.trackID, name: $0.name, isSelected: $0.isEnabled) }
-        let subtitles = player.tracks(mediaType: .subtitle).map { PlaybackTrack(id: $0.trackID, name: $0.name, isSelected: $0.trackID == selectedSubtitleID) }
+        let state = core.driver?.snapshot ?? core.snapshot
+        let audio = state.audio.map { PlaybackTrack(id: uiTrackID($0.id), name: $0.name, isSelected: $0.selected) }
+        let subtitles = state.subtitles.map { PlaybackTrack(id: uiTrackID($0.id), name: $0.name, isSelected: $0.selected) }
         if audioTracks != audio { audioTracks = audio }
         if subtitleTracks != subtitles { subtitleTracks = subtitles }
+        selectedSubtitleID = state.subtitles.first(where: { $0.selected }).map { uiTrackID($0.id) }
     }
-
     private func updateSubtitles() {
-        _ = subtitleModel.subtitle(currentTime: currentTime)
-        let text = subtitleModel.parts.compactMap { $0.text?.string }.joined(separator: "\n")
-        if subtitleText != text { subtitleText = text }
-        let image = subtitleModel.parts.compactMap(\.image).first
-        if subtitleImage !== image { subtitleImage = image }
+        let state = core.snapshot
+        if subtitleText != state.subtitleText { subtitleText = state.subtitleText }
+        if subtitleImage !== state.subtitleImage { subtitleImage = state.subtitleImage }
     }
 
     func next() {
@@ -879,6 +807,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         generation = UUID()
         tearDownPlayer()
         currentItem = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         source = nil
         externalFile = nil
         queue = []
@@ -887,34 +816,36 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         isLoading = false
         errorMessage = nil
         isPresented = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        let stoppedGeneration = generation
+        Task { [weak self] in
+            await self?.core.waitUntilRetired()
+            guard let self, self.generation == stoppedGeneration, self.currentItem == nil else { return }
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     private func tearDownPlayer() {
         pipController?.delegate = nil
-        pipController?.stopPictureInPicture()
+        core.stopPiP()
         pipObservation = nil
         pipConfigurationObservation = nil
         pipController = nil
-        pipStateSynchronization?.cancel()
-        pipStateSynchronization = nil
         isPictureInPicturePossible = false
         isPictureInPictureActive = false
+        previouslyActivePiP = false
         restorePiPCompletion?(false)
         restorePiPCompletion = nil
         restoringPiP = false
         pendingSeek = nil
         seekInFlight = false
         seekLanding = nil
-        layer?.delegate = nil
-        layer?.stop()
+        let retirement = core.shutdown()
+        let retiringResource = resource
+        Task { await retirement.value; retiringResource?.release() }
         videoView?.removeFromSuperview()
         videoView = nil
-        layer = nil
-        resource?.release()
+        trackIDs = [:]; nextTrackID = 1
         resource = nil
-        subtitleModel.selectedSubtitleInfo = nil
-        _ = subtitleModel.subtitle(currentTime: 0)
         subtitleText = ""
         subtitleImage = nil
         selectedSubtitleID = nil
@@ -923,91 +854,61 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         bufferedTime = 0
         isSeeking = false
         isPlaying = false
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
-    func player(layer: KSPlayerLayer, state: KSPlayerState) {
-        guard layer === self.layer else { return }
-        videoView = layer.player.view
-        isPlaying = state.isPlaying
-        isLoading = state == .preparing || state == .buffering
-        if appIsInBackground && !PlaybackPreferences.backgroundEnabled && state.isPlaying {
-            layer.pause()
-            return
-        }
-        if state == .readyToPlay {
-            if let mpv = layer.player as? KSMPVPlayer {
-                currentDecoder = mpv.usingHardwareDecoder ? .hardware : .software
-            } else {
-                currentDecoder = layer.player is KSAVPlayer || layer.options.hardwareDecode ? .hardware : .software
-            }
-            if let restore = decoderRestore {
-                decoderRestore = nil
-                currentTime = restore.time
-                seekLanding = (restore.time, Date().addingTimeInterval(3))
-                layer.seek(time: restore.time, autoPlay: restore.resume) { _ in }
-            }
-            layer.player.playbackRate = playbackRate
-            layer.player.contentMode = fillsScreen ? .scaleAspectFill : .scaleAspectFit
-            layer.player.allowsExternalPlayback = true
-            layer.player.isMuted = isMuted
-            var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-            info[MPMediaItemPropertyTitle] = currentItem?.title
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-            configurePictureInPicture()
-            for track in layer.player.tracks(mediaType: .subtitle) { track.isEnabled = false }
-        }
-        refreshTracks()
-        if state == .playedToTheEnd {
-            currentTime = duration
-            saveProgress()
-            recordPlaybackHistory()
-            UIApplication.shared.isIdleTimerDisabled = false
-        }
-        log("状态：\(state)")
+    private var engineConfiguration: EngineConfiguration {
+        var value = EngineConfiguration()
+        value.decoder = currentDecoder == .software ? .software : .hardware
+        value.position = currentTime; value.autoplay = isPlaying
+        value.rate = playbackRate; value.muted = isMuted; value.fillsScreen = fillsScreen
+        value.backgroundEnabled = PlaybackPreferences.backgroundEnabled
+        value.automaticPiP = automaticallyStartsPictureInPicture
+        value.subtitleFontSize = UserDefaults.standard.object(forKey: "player.subtitle.fontSize") as? Double ?? 22
+        value.subtitleBackground = UserDefaults.standard.object(forKey: "player.subtitle.background") as? Bool ?? true
+        return value
     }
-
-    func player(layer: KSPlayerLayer, currentTime: TimeInterval, totalTime: TimeInterval) {
-        guard layer === self.layer else { return }
-        // Decoder ticks already queued before a preview/final seek must not
-        // overwrite the UI target. Resume normal updates once the decoder lands.
-        if let mpv = layer.player as? KSMPVPlayer, mpv.isReadyToPlay {
-            currentDecoder = mpv.usingHardwareDecoder ? .hardware : .software
-        }
-        if !isSeeking {
+    private func syncCoreState() {
+        let state = core.snapshot
+        videoView = core.view
+        currentEngine = core.engineID == .aether ? .aether : .vlc
+        if let actual = state.actualDecoder { currentDecoder = actual == .software ? .software : .hardware }
+        isLoading = core.isTransitioning || state.phase == .loading
+        isPlaying = state.phase == .playing
+        if appIsInBackground && !PlaybackPreferences.backgroundEnabled && isPlaying { core.pause() }
+        if !isSeeking && !core.isTransitioning {
             if let landing = seekLanding {
-                if abs(currentTime - landing.time) < 1.5 || Date() >= landing.deadline {
-                    seekLanding = nil
-                    self.currentTime = currentTime.isFinite ? max(0, currentTime) : 0
-                }
-            } else { self.currentTime = currentTime.isFinite ? max(0, currentTime) : 0 }
+                if abs(state.time - landing.time) < 1.5 || Date() >= landing.deadline { seekLanding = nil; currentTime = max(0, state.time) }
+            } else { currentTime = state.time.isFinite ? max(0, state.time) : 0 }
         }
-        duration = totalTime.isFinite ? max(0, totalTime) : 0
-        if !isSeeking && layer.player.playbackState != .seeking {
-            let playing = layer.player.isPlaying
-            if isPlaying != playing { isPlaying = playing }
+        if !isLoading || state.duration > 0 { duration = state.duration.isFinite ? max(0, state.duration) : 0 }
+        bufferedTime = state.buffered.isFinite ? max(currentTime, state.buffered) : currentTime
+        if case .failed(let message) = state.phase { errorMessage = message; isLoading = false }
+        if state.phase == .ended {
+            currentTime = duration; saveProgress(); recordPlaybackHistory()
         }
-        let playable = layer.player.playableTime
-        bufferedTime = playable.isFinite ? min(duration, max(currentTime, playable)) : currentTime
-        refreshTracks()
-        updateSubtitles()
-        configurePictureInPicture()
+        refreshTracks(); updateSubtitles(); configurePictureInPicture()
+        // SwiftVLC retains its native AVKit delegate; consume its observable PiP state.
+        isPictureInPicturePossible = state.pipPossible
+        if state.pipActive != previouslyActivePiP {
+            previouslyActivePiP = state.pipActive
+            isPictureInPictureActive = state.pipActive
+            if state.pipActive { isPresented = false }
+            else if !restoringPiP && !isPresented && !(appIsInBackground && PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "audio") { pause() }
+        }
         restoreProgressIfNeeded()
         if Date().timeIntervalSince(lastProgressSave) >= 5 && !isSeeking { saveProgress() }
-        if layer.player.isPlaying && !isSeeking && Date().timeIntervalSince(lastHistorySave) >= 5 { recordPlaybackHistory() }
-    }
-
-    func player(layer: KSPlayerLayer, finish error: Error?) {
-        guard layer === self.layer else { return }
-        isPlaying = false
-        isLoading = false
-        if let error {
-            errorMessage = error.localizedDescription
-            UIApplication.shared.isIdleTimerDisabled = false
-            log("播放失败：\(error.localizedDescription)")
+        if isPlaying && !isSeeking && Date().timeIntervalSince(lastHistorySave) >= 5 { recordPlaybackHistory() }
+        UIApplication.shared.isIdleTimerDisabled = isPlaying
+        if !core.isTransitioning {
+            var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+            info[MPMediaItemPropertyTitle] = currentItem?.title
+            info[MPMediaItemPropertyPlaybackDuration] = duration
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+            info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? playbackRate : 0
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         }
     }
-
-    func player(layer: KSPlayerLayer, bufferedCount: Int, consumeTime: TimeInterval) {}
 
     private func log(_ message: String) {
         AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [Playback] \(message)")

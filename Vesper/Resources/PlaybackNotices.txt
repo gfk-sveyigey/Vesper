@@ -1,20 +1,35 @@
-KSPlayer GPL source snapshot (5.6.2 source lineage) — GPL version 3
-Copyright (c) KSPlayer contributors / kingslay
-Source: https://github.com/kingslay/KSPlayer/tree/be7f60d3b94a0941c643fe8699113cfce4f08e83
-License: KSPlayer-GPL-3.0.txt, bundled with this application.
+Vesper PlaybackCore — dual-engine integration
 
-FFmpegKit 6.1.4 and its bundled libraries
-Source and component licenses: https://github.com/kingslay/FFmpegKit/tree/c32be9bfb628042737ad3ef622e930c5c7b15954
-Includes FFmpeg and additional codec, rendering, subtitle and networking libraries.
-See upstream source for individual component copyright and license notices.
+AetherEngine 7.70.0
+Copyright (C) 2026 Vincent Herbst
+License: LGPL-3.0 with the upstream Apple Store / DRM Exception.
+Full upstream license: AetherEngine-LICENSE.txt, bundled with this application.
+Source: https://github.com/superuser404notfound/AetherEngine/tree/7.70.0
+Revision: 3cfe848106482150209281c176ed72df5ac2674c
+AetherEngine and its FFmpegBuild dependencies use an isolated dynamic bridge.
+Optional patented object-audio and dual-layer Dolby Vision components are not enabled by this integration.
 
-Vesper playback integration source:
-https://github.com/gfk-sveyigey/Vesper
+Aether FFmpegBuild 3.15.0 and its bundled libraries
+Source: https://github.com/superuser404notfound/FFmpegBuild/tree/3.15.0
+Includes FFmpeg, dav1d, zimg and zvbi; consult upstream component licenses,
+patches and build information. A framework/module prefix is not C symbol renaming.
+LibDovi: https://github.com/superuser404notfound/LibDovi/tree/2.2.0
 
-libmpv (mpv) — GPL version 2 or later
-Source: https://github.com/mpv-player/mpv
-Distributed via FFmpegKit 6.1.4's libmpv Swift package product.
-The mpv path uses official KSMPVPlayer sources (KSPlayer 5.6.2, GPLv3),
-backported for the pinned KSPlayer source API, with the public libmpv OpenGL ES
-render API and libass subtitles.
-Source: https://github.com/kingslay/KSPlayer/tree/3df1658c3b4a94edc9c9927b8fcc2553a68e9e54/Sources/MPVPlayer
+SwiftVLC 1.0.0
+Copyright (c) 2025 Omar Albeik
+License: MIT. Full text: SwiftVLC-LICENSE.txt, bundled with this application.
+Source: https://github.com/harflabs/SwiftVLC/tree/v1.0.0
+Revision: 192393a45cdcd7ebb6befac26586360b8b1676b3
+Native binary SHA-256: 23509b945aafb97634d2e66af24a377d7bd50b672aba8f5dec1d6f9ef8614045
+
+libVLC 4 and its bundled contribs
+libVLC is licensed under LGPL-2.1-or-later. Its static native archive is linked
+only inside VesperVLCBridge.framework, not into the application or Aether bridge.
+SwiftVLC's MIT license does not replace licenses of libVLC or its contribs.
+Native build sources, patches and component details:
+https://github.com/harflabs/SwiftVLC/tree/v1.0.0/scripts
+https://www.videolan.org/legal.html
+Redistribution still requires component-license and source/relinking compliance;
+placing a static library in a dynamic wrapper alone does not satisfy those duties.
+
+Vesper integration source: https://github.com/gfk-sveyigey/Vesper
