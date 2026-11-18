@@ -206,18 +206,22 @@ final class MediaThumbnailLoader {
     func prepareCarouselArtwork(_ items: [MediaItem], source: MediaSource) async -> [MediaID: EmbyFeaturedArtwork] {
         await withTaskGroup(of: (MediaID, EmbyFeaturedArtwork?).self) { group in
             for item in items {
-                group.addTask { @MainActor in
-                    var artwork = await self.featuredArtwork(for: item, source: source)
-                    if artwork.poster == nil, !Task.isCancelled {
-                        artwork.poster = await self.load(item, source: source)
-                    }
-                    return (item.id, artwork.poster == nil ? nil : artwork)
+                group.addTask {
+                    (item.id, await self.carouselArtwork(for: item, source: source))
                 }
             }
             var result: [MediaID: EmbyFeaturedArtwork] = [:]
             for await (id, artwork) in group { result[id] = artwork }
             return result
         }
+    }
+
+    private func carouselArtwork(for item: MediaItem, source: MediaSource) async -> EmbyFeaturedArtwork? {
+        var artwork = await featuredArtwork(for: item, source: source)
+        if artwork.poster == nil, !Task.isCancelled {
+            artwork.poster = await load(item, source: source)
+        }
+        return artwork.poster == nil ? nil : artwork
     }
 
     func featuredArtwork(for item: MediaItem, source: MediaSource) async -> EmbyFeaturedArtwork {
