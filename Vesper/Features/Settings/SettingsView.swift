@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku
+    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku, debug
 
     var title: LocalizedStringKey {
         switch self {
@@ -14,6 +14,7 @@ private enum SettingsRoute: Hashable {
         case .appearance: "外观设置"
         case .logs: "运行日志"
         case .licenses: "开源许可"
+        case .debug: "调试功能"
         }
     }
 }
@@ -35,6 +36,8 @@ struct SettingsView: View {
                     settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
                     Divider().padding(.leading, 52)
                     settingsLink(.logs, title: "运行日志", symbol: "doc.text")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.debug, title: "调试功能", symbol: "ladybug")
                     Divider().padding(.leading, 52)
                         HStack {
                             SettingsLabel("语言设置", symbol: "globe")
@@ -106,6 +109,7 @@ struct SettingsView: View {
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()
                 case .licenses: PlaybackLicensesView()
+                case .debug: EmbyClientSimulationSettingsView()
                 }
             }
             .vesperNavigationTitle(route.title)
@@ -690,5 +694,32 @@ struct SettingsPicker<Selection: Hashable, Options: View, Label: View>: View {
 extension SettingsPicker where Label == Text {
     init(_ title: LocalizedStringKey, selection: Binding<Selection>, @ViewBuilder content: () -> Options) {
         self.init(selection: selection, content: content, label: { Text(title) })
+    }
+}
+
+struct EmbyClientSimulationSettingsView: View {
+    @AppStorage(EmbyUserAgentPolicy.enabledKey) private var enabled = false
+    @AppStorage(EmbyUserAgentPolicy.nameKey) private var clientName = ""
+    @AppStorage(EmbyUserAgentPolicy.versionKey) private var clientVersion = ""
+
+    var body: some View {
+        SettingsPage {
+            SettingsIntroCard(title: "客户端模拟", symbol: "ladybug", description: "调整 Emby 请求中的客户端标识。")
+            SettingsSection {
+                Toggle("启用客户端模拟", isOn: $enabled)
+                if enabled {
+                    TextField("客户端名称", text: $clientName)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("客户端版本", text: $clientVersion)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                }
+                LabeledContent("当前标识") {
+                    Text(verbatim: "\(EmbyUserAgentPolicy.clientName)/\(EmbyUserAgentPolicy.clientVersion)")
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("客户端名称和版本会同时用于 User-Agent 及 Emby Authorization 请求头。留空或关闭时使用 Vesper 默认值。")
+            }
+        }
     }
 }

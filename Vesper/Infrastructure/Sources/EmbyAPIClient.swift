@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -10,8 +13,54 @@ struct EmbySourceConfiguration: Codable, Equatable, Sendable {
     var username: String
     var serverID: String? = nil
     var userID: String? = nil
-    var userAgent: String = "Vesper/1.0"
     var customHeaders: [String: String] = [:]
+    // Optional fields keep configurations created by older builds decodable.
+    var alternateAddresses: [String]? = nil
+    var syncPlaybackProgress: Bool? = nil
+    var syncWatchedState: Bool? = nil
+    var allowServerTranscoding: Bool? = nil
+}
+
+enum EmbyUserAgentPolicy {
+    static let enabledKey = "debug.emby.clientSimulation.enabled"
+    static let nameKey = "debug.emby.clientSimulation.name"
+    static let versionKey = "debug.emby.clientSimulation.version"
+    static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+    enum RequestKind: Equatable { case api, image, playback }
+
+    static var defaultValue: String { "Vesper/" + appVersion }
+    static var clientName: String {
+        let value = UserDefaults.standard.string(forKey: nameKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return UserDefaults.standard.bool(forKey: enabledKey) && isSafe(value) ? value : "Vesper"
+    }
+    static var clientVersion: String {
+        let value = UserDefaults.standard.string(forKey: versionKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return UserDefaults.standard.bool(forKey: enabledKey) && isSafe(value) ? value : appVersion
+    }
+    static func userAgent(for kind: RequestKind) -> String {
+        let base = "\(clientName)/\(clientVersion)"
+        #if canImport(UIKit)
+        if kind == .image && !UserDefaults.standard.bool(forKey: enabledKey) {
+            return "\(base) (iPhone; iOS \(UIDevice.current.systemVersion); Scale/\(String(format: "%.2f", UIScreen.main.scale)))"
+        }
+        #endif
+        return base
+    }
+    static func defaultValue(for kind: RequestKind) -> String {
+        #if canImport(UIKit)
+        if kind == .image {
+            return "\(defaultValue) (iPhone; iOS \(UIDevice.current.systemVersion); Scale/\(String(format: "%.2f", UIScreen.main.scale)))"
+        }
+        return defaultValue
+        #else
+        defaultValue
+        #endif
+    }
+    private static func isSafe(_ value: String) -> Bool {
+        !value.isEmpty && value.utf8.allSatisfy { $0 >= 32 && $0 != 127 }
+    }
 }
 
 enum EmbyError: LocalizedError {
@@ -21,7 +70,7 @@ enum EmbyError: LocalizedError {
         switch self {
         case .invalidAddress: "Emby 服务器地址无效。"
         case .invalidResponse: "Emby 服务器返回的数据无法识别。"
-        case .invalidHeader: "自定义请求头无效，或试图覆盖 Vesper 管理的认证请求头。"
+        case .invalidHeader: "自定义 UA 或请求头无效，或试图覆盖 Vesper 管理的认证请求头。"
         case .insecureRemoteHTTP: "远程 Emby 服务器必须使用 HTTPS；HTTP 仅允许局域网地址。"
         case .authentication: "Emby 登录失败，请检查服务器、用户名和密码。"
         case .forbidden: "当前 Emby 用户没有访问此内容的权限。"
@@ -43,11 +92,12 @@ struct EmbyAPIClient: Sendable {
     let baseURL: URL
     let token: String?
     let deviceID: String
-    let userAgent: String
+    var userAgent: String { EmbyUserAgentPolicy.userAgent(for: .api) }
+    let userID: String?
     let customHeaders: [String: String]
 
     init(configuration: EmbySourceConfiguration, token: String?, deviceID: String) throws {
-        let reserved = ["authorization", "x-emby-token", "x-emby-authorization", "host", "content-length", "user-agent", "connection", "transfer-encoding"]
+        let reserved = ["authorization", "x-emby-token", "x-emby-authorization", "host", "content-length", "connection", "transfer-encoding"]
         guard configuration.customHeaders.allSatisfy({ name, value in
             Self.isSafeHeaderName(name) && Self.isSafeHeaderValue(value) && !reserved.contains(name.lowercased())
         }) else { throw EmbyError.invalidHeader }
@@ -67,10 +117,10 @@ struct EmbyAPIClient: Sendable {
         self.baseURL = baseURL
         self.token = token
         self.deviceID = deviceID
-        self.userAgent = Self.safeHeaderValue(configuration.userAgent.isEmpty ? "Vesper/1.0" : configuration.userAgent)
+        self.userID = configuration.userID
         self.customHeaders = configuration.customHeaders.filter {
             let key = $0.key.lowercased()
-            return !reserved.contains(key)
+            return key != "user-agent" && !reserved.contains(key)
         }
     }
 
@@ -86,12 +136,9 @@ struct EmbyAPIClient: Sendable {
         guard let requestURL = components.url else { throw EmbyError.invalidAddress }
         var request = URLRequest(url: requestURL, timeoutInterval: 30)
         request.httpMethod = method
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token { request.setValue(token, forHTTPHeaderField: "X-Emby-Token") }
-        request.setValue("MediaBrowser Client=\"Vesper\", Device=\"iPhone\", DeviceId=\"\(deviceID)\", Version=\"1.0\"",
-                         forHTTPHeaderField: "X-Emby-Authorization")
-        for (name, value) in customHeaders { request.setValue(value, forHTTPHeaderField: name) }
+        for (name, value) in requestHeaders(accept: "application/json", kind: .api) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         if let body {
             request.httpBody = try JSONSerialization.data(withJSONObject: body.values)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -113,12 +160,31 @@ struct EmbyAPIClient: Sendable {
         return EmbyJSON(object)
     }
 
-    func imageURL(itemID: String, tag: String?, width: Int = 600) -> URL? {
+    /// Shared API/image identity; transport headers are managed by URLSession.
+    func requestHeaders(accept: String, kind: EmbyUserAgentPolicy.RequestKind = .api) -> [String: String] {
+        func quoted(_ value: String) -> String {
+            value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        }
+        var identity = [("Client", EmbyUserAgentPolicy.clientName), ("Device", "iPhone"),
+                        ("DeviceId", deviceID), ("Version", EmbyUserAgentPolicy.clientVersion)]
+        if let userID { identity.insert(("UserId", userID), at: 0) }
+        var headers = customHeaders
+        headers["User-Agent"] = EmbyUserAgentPolicy.userAgent(for: kind)
+        headers["Accept"] = accept
+        headers["Accept-Language"] = Locale.preferredLanguages.prefix(5).enumerated().map {
+            $0.offset == 0 ? $0.element : "\($0.element);q=\(String(format: "%.1f", 1 - Double($0.offset) * 0.1))"
+        }.joined(separator: ",")
+        headers["Authorization"] = "Emby " + identity.map { "\($0.0)=\"\(quoted($0.1))\"" }.joined(separator: ", ")
+        if let token { headers["X-Emby-Token"] = token }
+        return headers
+    }
+
+    func imageURL(itemID: String, tag: String?, width: Int = 640) -> URL? {
         var url = baseURL.appendingPathComponent("Items").appendingPathComponent(itemID).appendingPathComponent("Images").appendingPathComponent("Primary")
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.queryItems = [URLQueryItem(name: "maxWidth", value: String(width))]
         if let tag { components?.queryItems?.append(URLQueryItem(name: "tag", value: tag)) }
-        if let token { components?.queryItems?.append(URLQueryItem(name: "api_key", value: token)) }
+        components?.queryItems?.append(URLQueryItem(name: "quality", value: "90"))
         url = components?.url ?? url
         return url
     }
@@ -127,23 +193,23 @@ struct EmbyAPIClient: Sendable {
         _ = try await send(path, method: "DELETE", query: query)
     }
 
-    func mediaURL(_ path: String, query: [String: String] = [:]) throws -> URL {
+    func mediaURL(_ path: String, query: [String: String] = [:], includeToken: Bool = true) throws -> URL {
         var url = baseURL
         for component in path.split(separator: "/") { url.appendPathComponent(String(component)) }
         guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw EmbyError.invalidAddress }
         parts.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
-        if let token { parts.queryItems?.append(URLQueryItem(name: "api_key", value: token)) }
+        if includeToken, let token { parts.queryItems?.append(URLQueryItem(name: "api_key", value: token)) }
         guard let result = parts.url else { throw EmbyError.invalidAddress }
         return result
     }
 
-    func resolveMediaURL(_ path: String) throws -> URL {
+    func resolveMediaURL(_ path: String, includeToken: Bool = false) throws -> URL {
         guard let parsed = URLComponents(string: path),
               !parsed.path.split(separator: "/").contains(".."), parsed.user == nil, parsed.password == nil else { throw EmbyError.invalidAddress }
         if parsed.host != nil, parsed.scheme == nil { throw EmbyError.invalidAddress }
         if parsed.scheme != nil {
             guard let url = parsed.url, sameOrigin(url) else { throw EmbyError.invalidAddress }
-            return try addingToken(to: url)
+            return try addingToken(to: url, includeToken: includeToken)
         }
         // Server routes are rooted at /emby, even behind a reverse-proxy prefix.
         // Preserve the configured prefix rather than resolving against host root.
@@ -156,7 +222,7 @@ struct EmbyAPIClient: Sendable {
         guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw EmbyError.invalidAddress }
         parts.queryItems = parsed.queryItems
         guard let result = parts.url else { throw EmbyError.invalidAddress }
-        return try addingToken(to: result)
+        return try addingToken(to: result, includeToken: includeToken)
     }
 
     func sameOrigin(_ url: URL) -> Bool {
@@ -170,10 +236,10 @@ struct EmbyAPIClient: Sendable {
                                      with: "$1[redacted]", options: .regularExpression)
     }
 
-    private func addingToken(to url: URL) throws -> URL {
+    private func addingToken(to url: URL, includeToken: Bool) throws -> URL {
         guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw EmbyError.invalidAddress }
         var query = parts.queryItems ?? []
-        if let token, !query.contains(where: { ["api_key", "x-emby-token"].contains($0.name.lowercased()) }) {
+        if includeToken, let token, !query.contains(where: { ["api_key", "x-emby-token"].contains($0.name.lowercased()) }) {
             query.append(URLQueryItem(name: "api_key", value: token))
         }
         parts.queryItems = query
@@ -181,9 +247,6 @@ struct EmbyAPIClient: Sendable {
         return result
     }
 
-    private static func safeHeaderValue(_ value: String) -> String {
-        String(value.filter { $0 != "\r" && $0 != "\n" })
-    }
     private static func isLocalHost(_ input: String) -> Bool {
         let host = input.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         if ["localhost", "::1"].contains(host) || host.hasSuffix(".local") || host.hasSuffix(".lan")

@@ -115,16 +115,21 @@ actor EmbyRepository {
         guard let sources = response["MediaSources"] as? [[String: Any]],
               let media = sources.first(where: { $0["Id"] as? String == item.embyMediaSourceID }) ?? sources.first,
               let mediaSourceID = media["Id"] as? String else { throw EmbyError.invalidResponse }
+        let addApiKey = media["AddApiKeyToDirectStreamUrl"] as? Bool ?? false
         let directURL = media["DirectStreamUrl"] as? String
         let url: URL
-        if let directURL { url = try client.resolveMediaURL(directURL) }
+        if let directURL { url = try client.resolveMediaURL(directURL, includeToken: addApiKey) }
         else {
             url = try client.mediaURL("Videos/\(itemID)/stream", query: ["static": "true", "MediaSourceId": mediaSourceID,
-                                                                           "PlaySessionId": playSessionID, "DeviceId": client.deviceID])
+                                                                           "PlaySessionId": playSessionID, "DeviceId": client.deviceID],
+                                      includeToken: addApiKey)
         }
-        var headers = client.customHeaders
-        if let required = media["RequiredHttpHeaders"] as? [String: String] { headers.merge(required) { _, server in server } }
-        headers["User-Agent"] = client.userAgent
+        var headers = client.requestHeaders(accept: "*/*", kind: .playback)
+        if let required = media["RequiredHttpHeaders"] as? [String: String] {
+            for (name, value) in required where !["authorization", "x-emby-token", "x-emby-authorization", "host", "user-agent"].contains(name.lowercased()) {
+                headers[name] = value
+            }
+        }
         let duration = (media["RunTimeTicks"] as? NSNumber).map { $0.doubleValue / 10_000_000 } ?? 0
         let detail = try await client.get("Users/\(userID)/Items/\(itemID)")
         let progressTicks = (detail["UserData"] as? [String: Any])?["PlaybackPositionTicks"] as? NSNumber
@@ -149,10 +154,13 @@ actor EmbyRepository {
               let mediaSources = response["MediaSources"] as? [[String: Any]],
               let media = mediaSources.first(where: { $0["Id"] as? String == item.embyMediaSourceID }) ?? mediaSources.first,
               let stream = media["TranscodingUrl"] as? String,
-              let url = try? client.resolveMediaURL(stream) else { throw EmbyError.invalidResponse }
-        var headers = client.customHeaders
-        if let required = media["RequiredHttpHeaders"] as? [String: String] { headers.merge(required) { _, server in server } }
-        headers["User-Agent"] = client.userAgent
+              let url = try? client.resolveMediaURL(stream, includeToken: media["AddApiKeyToDirectStreamUrl"] as? Bool ?? false) else { throw EmbyError.invalidResponse }
+        var headers = client.requestHeaders(accept: "*/*", kind: .playback)
+        if let required = media["RequiredHttpHeaders"] as? [String: String] {
+            for (name, value) in required where !["authorization", "x-emby-token", "x-emby-authorization", "host", "user-agent"].contains(name.lowercased()) {
+                headers[name] = value
+            }
+        }
         let ticks = (media["RunTimeTicks"] as? NSNumber)?.doubleValue ?? ((item.duration ?? 0) * 10_000_000)
         return EmbyTranscodeResult(resource: TranscodedPlaybackResource(url: url, headers: headers,
                                                                           timelineOffset: position,
@@ -214,8 +222,7 @@ actor EmbyRepository {
             let path = stream["DeliveryUrl"] as? String
                 ?? "/Videos/\(itemID)/\(media["Id"] as? String ?? "")/Subtitles/\(index)/Stream.\(format)"
             guard let url = try? client.resolveMediaURL(path) else { return nil }
-            var headers = client.customHeaders
-            headers["User-Agent"] = client.userAgent
+            let headers = client.requestHeaders(accept: "text/*,*/*;q=0.8", kind: .playback)
             return EngineExternalSubtitle(url: url, name: stream["DisplayTitle"] as? String ?? "字幕",
                                            language: stream["Language"] as? String, format: format, headers: headers)
         }
@@ -225,8 +232,9 @@ actor EmbyRepository {
         guard let client = try? await clientProvider(source),
               let imageURL = item.imageURL ?? client.imageURL(itemID: item.id.localID, tag: nil) else { return nil }
         var request = URLRequest(url: imageURL, timeoutInterval: 15)
-        request.setValue(client.userAgent, forHTTPHeaderField: "User-Agent")
-        for (name, value) in client.customHeaders { request.setValue(value, forHTTPHeaderField: name) }
+        for (name, value) in client.requestHeaders(accept: "image/*,*/*;q=0.8", kind: .image) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         do {
             let (data, response) = try await EmbyNetworkSession.shared.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }

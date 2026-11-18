@@ -6,12 +6,44 @@ import FoundationNetworking
 @main
 struct EmbyAPIClientChecks {
     static func main() async throws {
+        let defaults = UserDefaults.standard
+        let oldEnabled = defaults.object(forKey: EmbyUserAgentPolicy.enabledKey)
+        let oldName = defaults.object(forKey: EmbyUserAgentPolicy.nameKey)
+        let oldVersion = defaults.object(forKey: EmbyUserAgentPolicy.versionKey)
+        defer {
+            defaults.set(oldEnabled, forKey: EmbyUserAgentPolicy.enabledKey)
+            defaults.set(oldName, forKey: EmbyUserAgentPolicy.nameKey)
+            defaults.set(oldVersion, forKey: EmbyUserAgentPolicy.versionKey)
+        }
+        defaults.set(true, forKey: EmbyUserAgentPolicy.enabledKey)
+        defaults.set("CustomVesper", forKey: EmbyUserAgentPolicy.nameKey)
+        defaults.set("2.0", forKey: EmbyUserAgentPolicy.versionKey)
         let address = CommandLine.arguments[1]
         let configuration = EmbySourceConfiguration(title: "家庭影院", note: "测试备注", serverAddress: address + "/proxy",
-                                                     username: "test", userAgent: "CustomVesper/2.0",
+                                                     username: "test", userID: "test-user",
                                                      customHeaders: ["X-Test": "present"])
         let client = try EmbyAPIClient(configuration: configuration, token: "secret +&token", deviceID: "stable-device")
         precondition(client.baseURL.path == "/proxy/emby")
+        precondition(client.userAgent == "CustomVesper/2.0")
+        defaults.set(false, forKey: EmbyUserAgentPolicy.enabledKey)
+        var defaultConfiguration = configuration
+        defaultConfiguration.customHeaders.removeValue(forKey: "User-Agent")
+        let defaultClient = try EmbyAPIClient(configuration: defaultConfiguration, token: nil, deviceID: "stable-device")
+        precondition(defaultClient.userAgent == EmbyUserAgentPolicy.defaultValue)
+        let defaultRequest = try await defaultClient.get("Echo")
+        precondition(defaultRequest["ua"] as? String == EmbyUserAgentPolicy.defaultValue)
+        defaults.set(true, forKey: EmbyUserAgentPolicy.enabledKey)
+        let imageHeaders = client.requestHeaders(accept: "image/*,*/*;q=0.8")
+        precondition(imageHeaders["Accept"] == "image/*,*/*;q=0.8")
+        precondition(imageHeaders["X-Emby-Token"] == "secret +&token")
+        precondition(imageHeaders["Authorization"]?.hasPrefix("Emby UserId=\"test-user\"") == true)
+        precondition(imageHeaders["Authorization"]?.contains("Token=") != true)
+        precondition(imageHeaders["User-Agent"] == "CustomVesper/2.0")
+        let imageURL = client.imageURL(itemID: "1", tag: "cache-tag")!
+        precondition(imageURL.absoluteString.contains("maxWidth=640"))
+        precondition(imageURL.absoluteString.contains("quality=90"))
+        precondition(!imageURL.absoluteString.contains("api_key"))
+
         let same = try EmbyAPIClient(configuration: .init(title: "T", note: "", serverAddress: address + "/proxy/emby/",
                                                          username: "U"), token: nil, deviceID: "D")
         precondition(same.baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "proxy/emby")
@@ -42,7 +74,7 @@ struct EmbyAPIClientChecks {
         let route = try client.resolveMediaURL("/emby/Videos/1/master.m3u8?StartTimeTicks=100")
         precondition(route.path == "/proxy/emby/Videos/1/master.m3u8")
         let query = URLComponents(url: route, resolvingAgainstBaseURL: false)!.queryItems!
-        precondition(query.first { $0.name == "api_key" }?.value == "secret +&token")
+        precondition(query.first { $0.name == "api_key" } == nil)
         let normalized = try client.resolveMediaURL("/proxy/emby/Videos/1/master.m3u8")
         precondition(normalized.path == route.path)
         precondition(EmbyAPIClient.redacted("url?api_key=secret&name=test") == "url?api_key=[redacted]&name=test")
@@ -50,7 +82,8 @@ struct EmbyAPIClientChecks {
         precondition(file.path == "/proxy/emby/Videos/1/stream")
         do { _ = try client.resolveMediaURL("https://foreign.invalid/steal"); preconditionFailure("Cross-origin credential leak") }
         catch EmbyError.invalidAddress { }
-        for invalidHeaders in [["X-Emby-Token": "override"], ["X-Test": "injected\r\nBad: value"], ["Bad:Name": "value"]] {
+        for invalidHeaders in [["X-Emby-Token": "override"], ["User-Agent": "injected\r\nBad: value"],
+                               ["X-Test": "injected\r\nBad: value"], ["Bad:Name": "value"]] {
             var invalid = configuration; invalid.customHeaders = invalidHeaders
             do { _ = try EmbyAPIClient(configuration: invalid, token: nil, deviceID: "D"); preconditionFailure("Invalid header accepted") }
             catch EmbyError.invalidHeader { }

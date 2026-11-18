@@ -27,6 +27,12 @@ class Handler(BaseHTTPRequestHandler):
             self.respond({'Id': 'test-server'}); return
         if path.path.startswith('/proxy/emby/Status/'):
             self.send_response(int(path.path.rsplit('/', 1)[1])); self.end_headers(); return
+        if path.path == '/proxy/emby/Items/movie/Images/Primary':
+            assert self.headers.get('User-Agent') == 'CustomVesper/2.0'
+            assert self.headers.get('Accept') == 'image/*,*/*;q=0.8'
+            assert self.headers.get('Authorization', '').startswith('Emby UserId="user"')
+            assert self.headers.get('X-Emby-Token') == 'secret'
+            self.respond({'image': True}); return
         if path.path == '/proxy/emby/Array':
             self.respond([{'Id': '1'}]); return
         if path.path == '/proxy/emby/Users/user/Views':
@@ -40,7 +46,7 @@ class Handler(BaseHTTPRequestHandler):
             self.respond({'Items': EVENTS}); return
         assert path.path == '/proxy/emby/Echo', path.path
         self.respond({'ua': self.headers.get('User-Agent'), 'token': self.headers.get('X-Emby-Token'),
-                      'extra': self.headers.get('X-Test'), 'identity': self.headers.get('X-Emby-Authorization'),
+                      'extra': self.headers.get('X-Test'), 'identity': self.headers.get('Authorization'),
                       'term': parse_qs(path.query).get('term', [''])[0]})
 
     def do_POST(self):

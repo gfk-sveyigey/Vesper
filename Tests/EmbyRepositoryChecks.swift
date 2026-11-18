@@ -3,8 +3,12 @@ import Foundation
 @main
 struct EmbyRepositoryChecks {
     @MainActor static func main() async throws {
+        UserDefaults.standard.set(true, forKey: EmbyUserAgentPolicy.enabledKey)
+        UserDefaults.standard.set("CustomVesper", forKey: EmbyUserAgentPolicy.nameKey)
+        UserDefaults.standard.set("2.0", forKey: EmbyUserAgentPolicy.versionKey)
         let configuration = EmbySourceConfiguration(title: "家庭影院", note: "媒体服务器", serverAddress: CommandLine.arguments[1] + "/proxy",
-                                                     username: "test", serverID: "server", userID: "user", userAgent: "CustomVesper/2.0")
+                                                     username: "test", serverID: "server", userID: "user",
+                                                     customHeaders: [:])
         let client = try EmbyAPIClient(configuration: configuration, token: "secret", deviceID: "stable-device")
         let repository = EmbyRepository(clientProvider: { _ in client })
         let source = MediaSource(id: UUID(), name: configuration.title, kind: .emby, behavior: .empty, emby: configuration)
@@ -13,6 +17,8 @@ struct EmbyRepositoryChecks {
         let items = try await repository.items(for: source, parentID: "library", startIndex: 100)
         precondition(items.count == 1 && !items[0].isContainer)
         var item = items[0]
+        let thumbnail = await repository.thumbnailData(for: item, source: source)
+        precondition(thumbnail != nil)
         precondition(item.id.sourceID == source.id && item.id.localID == "movie")
         precondition(item.resumePosition == 30 && item.duration == 600)
         let details = try await repository.details(for: item, source: source)
@@ -22,6 +28,8 @@ struct EmbyRepositoryChecks {
         precondition(resource.mediaSourceID == "v2" && resource.resumePosition == 30)
         precondition(resource.subtitles.count == 1 && resource.subtitles[0].url.path.contains("/v2/Subtitles/2/"))
         precondition(resource.resource.headers["User-Agent"] == "CustomVesper/2.0")
+        precondition(resource.resource.headers["Authorization"]?.hasPrefix("Emby UserId=\"user\"") == true)
+        precondition(resource.resource.headers["X-Emby-Token"] == "secret")
         precondition(resource.resource.url.absoluteString.contains("MediaSourceId=v2"))
         let stream = try await repository.transcodedResource(item: item, source: source, position: 200)
         precondition(stream.resource.timelineOffset == 200 && stream.resource.originalDuration == 600)

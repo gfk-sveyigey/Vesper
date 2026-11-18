@@ -9,8 +9,11 @@ struct EmbySourceEditor: View {
     @State private var address = ""
     @State private var username = ""
     @State private var password = ""
-    @State private var userAgent = "Vesper/1.0"
-    @State private var headers = ""
+    @State private var alternateAddress = ""
+    @State private var alternateAddresses: [String] = []
+    @State private var syncProgress = true
+    @State private var syncWatched = true
+    @State private var allowTranscoding = true
     @State private var saving = false
     @State private var errorMessage: String?
 
@@ -22,21 +25,35 @@ struct EmbySourceEditor: View {
                     TextField("备注", text: $note, axis: .vertical).lineLimit(2...4)
                 }
                 Section {
-                    TextField("服务器地址", text: $address)
+                    TextField("地址", text: $address)
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     TextField("用户名", text: $username)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField(source == nil ? "密码" : "密码（留空保留登录状态）", text: $password)
                 } footer: {
-                    Text("支持自定义端口和反向代理子路径。建议使用 HTTPS。")
+                    Text("支持直接粘贴完整地址，例如 https://example.com:8096/emby。")
                 }
-                Section {
-                    TextField("User-Agent", text: $userAgent)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("自定义请求头", text: $headers, axis: .vertical)
-                        .lineLimit(3...8).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Section("备用线路") {
+                    ForEach(alternateAddresses, id: \.self) { value in
+                        Text(value).lineLimit(1)
+                    }
+                    .onDelete { alternateAddresses.remove(atOffsets: $0) }
+                    HStack {
+                        TextField("添加备用地址", text: $alternateAddress)
+                            .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Button("添加") { addAlternateAddress() }
+                            .disabled(alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
                 } footer: {
-                    Text("每行填写 名称: 值。认证头由 Vesper 管理。")
+                    Text("备用线路仅由你手动选择，不会在播放失败时自动切换。")
+                }
+                Section("播放") {
+                    Toggle("同步播放进度", isOn: $syncProgress)
+                    Toggle("同步已观看标记", isOn: $syncWatched)
+                    Toggle("允许服务器转码", isOn: $allowTranscoding)
+                }
+                Section("高级设置") {
+                    NavigationLink("客户端模拟", destination: EmbyClientSimulationSettingsView())
                 }
                 if let errorMessage { Text(verbatim: errorMessage).foregroundStyle(.red) }
                 Button { save() } label: {
@@ -46,7 +63,7 @@ struct EmbySourceEditor: View {
                         if saving { ProgressView() }
                     }
                 }
-                .disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || address.isEmpty || username.isEmpty)
+                .disabled(saving || address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .navigationTitle(source == nil ? "添加 Emby 来源" : "编辑 Emby 来源")
             .navigationBarTitleDisplayMode(.inline)
@@ -60,29 +77,32 @@ struct EmbySourceEditor: View {
             guard let source, let configuration = library.embyConfiguration(for: source.id) else { return }
             title = configuration.title; note = configuration.note
             address = configuration.serverAddress; username = configuration.username
-            userAgent = configuration.userAgent
-            headers = configuration.customHeaders.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
+            alternateAddresses = configuration.alternateAddresses ?? []
+            syncProgress = configuration.syncPlaybackProgress ?? true
+            syncWatched = configuration.syncWatchedState ?? true
+            allowTranscoding = configuration.allowServerTranscoding ?? true
         }
         .interactiveDismissDisabled(saving)
     }
 
     private func save() {
-        var values: [String: String] = [:]
-        for line in headers.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let separator = line.firstIndex(of: ":") else {
-                errorMessage = "请求头格式错误，请使用 名称: 值。"; return
-            }
-            let name = String(line[..<separator]).trimmingCharacters(in: .whitespaces)
-            let value = String(line[line.index(after: separator)...]).trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty, !value.contains("\r") else { errorMessage = "请求头包含无效字符。"; return }
-            values[name] = value
-        }
-        var configuration = EmbySourceConfiguration(title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                      note: note, serverAddress: address, username: username,
-                                                      userAgent: userAgent, customHeaders: values)
+        var values = source.flatMap { library.embyConfiguration(for: $0.id)?.customHeaders } ?? [:]
+        values = values.filter { $0.key.caseInsensitiveCompare("User-Agent") != .orderedSame }
+        let trimmedAddress = Self.normalizedAddress(address)
+        guard !trimmedAddress.isEmpty else { errorMessage = "请输入服务器地址。"; return }
+        let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? Self.displayName(for: trimmedAddress)
+            : title.trimmingCharacters(in: .whitespacesAndNewlines)
+        var configuration = EmbySourceConfiguration(title: resolvedTitle,
+                                                      note: note, serverAddress: trimmedAddress, username: username,
+                                                      customHeaders: values)
         configuration.serverID = source?.emby?.serverID
         configuration.userID = source?.emby?.userID
-        if let old = source?.emby, (old.serverAddress != address || old.username != username), password.isEmpty {
+        configuration.alternateAddresses = alternateAddresses
+        configuration.syncPlaybackProgress = syncProgress
+        configuration.syncWatchedState = syncWatched
+        configuration.allowServerTranscoding = allowTranscoding
+        if let old = source?.emby, (old.serverAddress != trimmedAddress || old.username != username), password.isEmpty {
             errorMessage = "修改服务器或用户名后，请重新输入密码。"; return
         }
         saving = true; errorMessage = nil
@@ -93,6 +113,27 @@ struct EmbySourceEditor: View {
                 saving = false; dismiss()
             } catch { saving = false; errorMessage = error.localizedDescription }
         }
+    }
+
+    private func addAlternateAddress() {
+        let value = alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value != address, !alternateAddresses.contains(value) else { return }
+        alternateAddresses.append(value)
+        alternateAddress = ""
+    }
+
+    private static func displayName(for address: String) -> String {
+        if let components = URLComponents(string: address), let host = components.host, !host.isEmpty {
+            return host
+        }
+        return address.split(separator: "/").first.map(String.init) ?? "Emby"
+    }
+
+    private static func normalizedAddress(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if trimmed.contains("://") { return trimmed }
+        return "https://" + trimmed
     }
 }
 
