@@ -6,9 +6,10 @@ name: Build (dev)
 on:
   push:
     branches: [ dev ]
-    paths-ignore:
-      - VERSION
-      - .github/**
+    paths:
+      - 'Vesper/**'
+      - 'Vesper.xcodeproj/**'
+      - 'Info.plist'
   # 需要时也可以在 Actions 页面手动触发（手动触发不受上面的路径过滤影响）
   workflow_dispatch:
 
