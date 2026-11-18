@@ -26,7 +26,7 @@ internal import SwiftVLC
         case .opening, .buffering: result.phase = .loading
         case .playing: result.phase = player.isPlaying ? .playing : .paused
         case .paused: result.phase = .paused
-        case .error: result.phase = .failed("SwiftVLC: \(String(describing: player.failure))")
+        case .error: result.phase = .failed("SwiftVLC: 播放失败")
         }
         result.time = seconds(player.currentTime)
         result.duration = player.duration.map(seconds) ?? 0
@@ -61,7 +61,7 @@ internal import SwiftVLC
                 configure(configuration)
                 if !configuration.autoplay { player.pause() }
                 return
-            case .error: throw PlaybackCoreError.failed("SwiftVLC: \(String(describing: player.failure))")
+            case .error: throw PlaybackCoreError.failed("SwiftVLC: 播放失败")
             default: break
             }
             try await Task.sleep(for: .milliseconds(50))
