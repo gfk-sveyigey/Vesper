@@ -38,7 +38,13 @@ class Handler(BaseHTTPRequestHandler):
         if path.path == '/proxy/emby/Users/user/Views':
             self.respond({'Items': [{'Id': 'library', 'Name': 'Movies', 'Type': 'CollectionFolder', 'IsFolder': True}]}); return
         if path.path == '/proxy/emby/Users/user/Items':
-            assert parse_qs(path.query)['StartIndex'] == ['100']
+            query = parse_qs(path.query)
+            if query['Limit'] == ['20']:
+                assert query['ParentId'] == ['library']
+                assert query['StartIndex'] == ['0'] and query['Recursive'] == ['true']
+                assert query['SortBy'] == ['DateCreated'] and query['SortOrder'] == ['Descending']
+                self.respond({'Items': [dict(ITEM, Id=f'movie-{i}') for i in range(20)]}); return
+            assert query['StartIndex'] == ['100']
             self.respond({'Items': [ITEM, {'Id': 'book', 'Name': 'Book', 'Type': 'Book'}]}); return
         if path.path == '/proxy/emby/Users/user/Items/movie':
             self.respond(ITEM); return

@@ -110,7 +110,16 @@ struct MediaView: View {
                             Text(verbatim: group.title)
                                 .font(.headline).foregroundStyle(.secondary)
                                 .padding(.horizontal, 20)
-                            if group.items.isEmpty {
+                            if group.isLoading {
+                                ProgressView()
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 20).padding(.vertical, 16)
+                            } else if let errorMessage = group.errorMessage {
+                                Text(verbatim: errorMessage)
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 20).padding(.vertical, 16)
+                            } else if group.items.isEmpty {
                                 Text("暂无媒体")
                                     .font(.subheadline).foregroundStyle(.tertiary)
                                     .frame(maxWidth: .infinity, alignment: .leading)

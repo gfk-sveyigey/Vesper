@@ -328,13 +328,39 @@ final class SourceLibrary: ObservableObject {
         generation = UUID()
         let token = generation
         guard let source = selectedSource, source.kind == .emby else { return }
+        embyMediaGroups = []
         content = .loading
         request = Task { [weak self] in
             do {
-                let groups = try await EmbyRepository.shared.mediaGroups(for: source)
+                let repository = EmbyRepository.shared
+                let libraries = try await repository.mediaLibraries(for: source)
                 guard !Task.isCancelled, let self, self.generation == token else { return }
-                self.embyMediaGroups = groups
+                self.embyMediaGroups = [EmbyMediaGroup(id: "all-media", title: "我的媒体", items: libraries)]
+                    + libraries.map { EmbyMediaGroup(id: $0.id.localID, title: $0.title, items: [], isLoading: true) }
                 self.content = .loaded([])
+                await withTaskGroup(of: EmbyMediaGroup.self) { tasks in
+                    for library in libraries {
+                        tasks.addTask {
+                            let id = library.id.localID
+                            do {
+                                let items = try await repository.latestMedia(for: source, libraryID: id)
+                                return EmbyMediaGroup(id: id, title: library.title, items: items)
+                            } catch {
+                                return EmbyMediaGroup(id: id, title: library.title, items: [],
+                                                      errorMessage: error.localizedDescription)
+                            }
+                        }
+                    }
+                    for await group in tasks {
+                        guard !Task.isCancelled, self.generation == token else {
+                            tasks.cancelAll()
+                            break
+                        }
+                        if let index = self.embyMediaGroups.firstIndex(where: { $0.id == group.id }) {
+                            self.embyMediaGroups[index] = group
+                        }
+                    }
+                }
             } catch {
                 guard !Task.isCancelled, let self, self.generation == token else { return }
                 self.embyMediaGroups = []

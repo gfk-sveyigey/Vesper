@@ -32,7 +32,9 @@ struct EmbyItemDetails: Sendable {
 struct EmbyMediaGroup: Identifiable, Sendable {
     let id: String
     let title: String
-    let items: [MediaItem]
+    var items: [MediaItem]
+    var isLoading = false
+    var errorMessage: String? = nil
 }
 
 actor EmbyRepository {
@@ -56,48 +58,32 @@ actor EmbyRepository {
         return map(response["Items"] as? [[String: Any]] ?? [], source: source, client: client)
     }
 
-    func mediaGroups(for source: MediaSource) async throws -> [EmbyMediaGroup] {
+    func mediaLibraries(for source: MediaSource) async throws -> [MediaItem] {
         let client = try await clientProvider(source)
-        let viewsPath = source.emby?.userID.map { "Users/\($0)/Views" } ?? "Library/MediaFolders"
-        let views = try await client.get(viewsPath)
-        let libraries = views["Items"] as? [[String: Any]] ?? []
-        let allItems = try await fetchItems(source: source, client: client, parentID: nil, limit: nil)
-        var groups = [EmbyMediaGroup(id: "all-media", title: "我的媒体", items: allItems)]
-        for library in libraries {
-            guard let id = library["Id"] as? String,
-                  let title = library["Name"] as? String,
-                  !id.isEmpty, !title.isEmpty else { continue }
-            let items = try await fetchItems(source: source, client: client, parentID: id, limit: 20)
-            groups.append(EmbyMediaGroup(id: id, title: title, items: items))
+        let response: EmbyJSON
+        if let userID = source.emby?.userID {
+            response = try await client.get("Users/\(userID)/Views")
+        } else {
+            response = try await client.get("Items", query: ["Recursive": "false", "IncludeItemTypes": "CollectionFolder,Folder"])
         }
-        return groups
+        guard let values = response["Items"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
+        var seen = Set<MediaID>()
+        return map(values, source: source, client: client).filter { $0.isContainer && seen.insert($0.id).inserted }
     }
 
-    private func fetchItems(source: MediaSource, client: EmbyAPIClient, parentID: String?, limit: Int?) async throws -> [MediaItem] {
+    func latestMedia(for source: MediaSource, libraryID: String) async throws -> [MediaItem] {
+        let client = try await clientProvider(source)
         let path = source.emby?.userID.map { "Users/\($0)/Items" } ?? "Items"
-        let pageSize = limit ?? 100
-        var startIndex = 0
-        var result: [MediaItem] = []
-        repeat {
-            var query = [
-                "Recursive": "true",
-                "IncludeItemTypes": "Movie,Episode,Video,MusicVideo,Trailer",
-                "SortBy": "DateCreated",
-                "SortOrder": "Descending",
-                "StartIndex": String(startIndex),
-                "Limit": String(min(pageSize, limit.map { max(1, $0 - result.count) } ?? pageSize)),
-                "Fields": "Overview,PrimaryImageAspectRatio,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData"
-            ]
-            if let parentID { query["ParentId"] = parentID }
-            let response = try await client.get(path, query: query)
-            let values = response["Items"] as? [[String: Any]] ?? []
-            let items = map(values, source: source, client: client)
-            result.append(contentsOf: items)
-            startIndex += values.count
-            if let limit, result.count >= limit { break }
-            if values.count < pageSize { break }
-        } while true
-        return result
+        let response = try await client.get(path, query: [
+            "ParentId": libraryID, "Recursive": "true",
+            "IncludeItemTypes": "Movie,Episode,Video,MusicVideo,Trailer",
+            "SortBy": "DateCreated", "SortOrder": "Descending", "StartIndex": "0", "Limit": "20",
+            "Fields": "ProductionYear,RunTimeTicks,UserData"
+        ])
+        guard let values = response["Items"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
+        var seen = Set<MediaID>()
+        return Array(map(values, source: source, client: client)
+            .filter { !$0.isContainer && seen.insert($0.id).inserted }.prefix(20))
     }
 
     func serverName(for source: MediaSource) async throws -> String? {

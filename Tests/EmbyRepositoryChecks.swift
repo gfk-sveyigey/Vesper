@@ -14,6 +14,10 @@ struct EmbyRepositoryChecks {
         let source = MediaSource(id: UUID(), name: configuration.title, kind: .emby, behavior: .empty, emby: configuration)
         let roots = try await repository.rootItems(for: source)
         precondition(roots.count == 1 && roots[0].isContainer)
+        let libraries = try await repository.mediaLibraries(for: source)
+        precondition(libraries.map(\.id.localID) == ["library"] && libraries[0].isContainer)
+        let latest = try await repository.latestMedia(for: source, libraryID: libraries[0].id.localID)
+        precondition(latest.count == 20 && latest.first?.id.localID == "movie-0")
         let items = try await repository.items(for: source, parentID: "library", startIndex: 100)
         precondition(items.count == 1 && !items[0].isContainer)
         var item = items[0]
