@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Each root page owns its header state; detail navigation stays native.
 struct VesperRootScrollView<Actions: View, Content: View>: View {
@@ -20,7 +21,6 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var contentFitsViewport = true
     @State private var interactionStartOffset: CGFloat = 0
     @State private var interactionStartHeaderOffset: CGFloat = 0
-    @State private var expansionEligible = false
     @State private var interactionStartedCollapsed = false
 
     init(title: LocalizedStringKey, @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
@@ -71,7 +71,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             if newPhase == .animating {
                 isSystemScrolling = true
                 isInteracting = false
-                expandHeader()
+                // Programmatic return must cross the same position gate as
+                // dragging. Do not reveal a distant header at animation start.
             } else if newPhase == .interacting {
                 // A new drag can interrupt either snap direction.
                 animationGeneration += 1
@@ -81,7 +82,6 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 interactionStartOffset = scrollOffset
                 interactionStartHeaderOffset = headerOffset
                 interactionStartedCollapsed = isCollapsed
-                expansionEligible = scrollOffset > contentReachesTitleOffset
             }
 
             if oldPhase == .interacting, newPhase != .interacting {
@@ -89,12 +89,9 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 if contentFitsViewport || scrollOffset <= 0.5 {
                     expandHeader()
                 } else if !isSystemScrolling {
-                    let distance = scrollOffset - interactionStartOffset
                     if interactionStartedCollapsed {
-                        let shouldExpand = expansionEligible
-                            && scrollOffset > contentReachesTitleOffset
-                            && distance <= -snapThreshold
-                        settleHeader(collapsed: !shouldExpand)
+                        // No distance/velocity shortcut can bypass the top gate.
+                        settleHeader(collapsed: true)
                     } else {
                         settleHeader(collapsed: headerOffset >= snapThreshold
                             || scrollOffset > contentReachesTitleOffset)
@@ -163,19 +160,16 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             if headerOffset > 0 || isCollapsed || isSnapping { expandHeader() }
             return
         }
-        guard !isSystemScrolling else { return }
         if offset <= 0.5 {
             if headerOffset > 0 || isCollapsed || isSnapping { expandHeader() }
             return
         }
-        guard !isSnapping, isInteracting else { return }
+        guard !isSystemScrolling, !isSnapping, isInteracting else { return }
         let distance = offset - interactionStartOffset
         if interactionStartedCollapsed {
-            // Pulling down can reveal only if the drag STARTED above the
-            // mandatory-collapse boundary. Near the top, wait for the page
-            // edge to reach the header's default bottom instead.
-            guard expansionEligible, offset > contentReachesTitleOffset else { return }
-            headerOffset = min(headerHeight, max(0, interactionStartHeaderOffset + distance))
+            // Content begins below the header's default lower edge only at
+            // offset zero. Keep the header hidden until that edge is reached.
+            return
         } else {
             // An expanded header follows the drag. Small movements settle
             // back unless the content crossed the mandatory-collapse edge.
@@ -279,11 +273,10 @@ struct VesperNavigationHeaderLayer: ViewModifier {
             if isRoot, let presentation {
                 ZStack(alignment: .top) {
                     presentation.header
-                    // Fixed to the status bar only. Explicitly disable material
-                    // safe-area extension and clip before positioning the layer.
-                    Color.clear
+                    // A graded backdrop blur, with no material card/fill.
+                    // Its lower edge fades to clear inside the status bar.
+                    VesperStatusBarEdgeBlur()
                         .frame(height: max(0, topInset))
-                        .background(.ultraThinMaterial, ignoresSafeAreaEdges: [])
                         .clipped()
                         .opacity(presentation.showsStatusBarBlur ? 1 : 0)
                         .allowsHitTesting(false)
@@ -291,6 +284,37 @@ struct VesperNavigationHeaderLayer: ViewModifier {
                 }
                 .ignoresSafeArea(.container, edges: .top)
             }
+        }
+    }
+}
+
+/// UIKit backdrop blur masked from full strength to clear at the lower edge.
+/// The mask changes blur coverage; it does not use private variable-blur APIs.
+private struct VesperStatusBarEdgeBlur: UIViewRepresentable {
+    func makeUIView(context: Context) -> EdgeBlurView { EdgeBlurView() }
+    func updateUIView(_ view: EdgeBlurView, context: Context) {}
+
+    final class EdgeBlurView: UIVisualEffectView {
+        private let edgeMask = CAGradientLayer()
+
+        init() {
+            super.init(effect: UIBlurEffect(style: .regular))
+            isUserInteractionEnabled = false
+            edgeMask.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
+            edgeMask.locations = [0, 0.55, 1]
+            edgeMask.startPoint = CGPoint(x: 0.5, y: 0)
+            edgeMask.endPoint = CGPoint(x: 0.5, y: 1)
+            layer.mask = edgeMask
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            edgeMask.frame = bounds
+            CATransaction.commit()
         }
     }
 }
