@@ -124,12 +124,16 @@ struct AppNavigationView: View {
         if #available(iOS 26.1, *) {
             tabContent
                 .tabViewBottomAccessory(isEnabled: shouldShowMiniPlayer) {
-                    MiniPlayerAccessory(session: playback) { playback.isPresented = true }
+                    MiniPlayerAccessory(session: playback) {
+                        if !miniPlayerAlwaysVisible { playback.isPresented = true }
+                    }
                 }
         } else if shouldShowMiniPlayer {
             tabContent
                 .tabViewBottomAccessory {
-                    MiniPlayerAccessory(session: playback) { playback.isPresented = true }
+                    MiniPlayerAccessory(session: playback) {
+                        if !miniPlayerAlwaysVisible { playback.isPresented = true }
+                    }
                 }
         } else {
             tabContent
@@ -289,7 +293,7 @@ private struct MiniPlayerAccessory: View {
                 ProgressView().controlSize(.small)
             } else {
                 Button(session.isPlaying ? "暂停" : "播放", systemImage: session.isPlaying ? "pause.fill" : "play.fill") {
-                    if !session.isPlaying && !session.isPictureInPictureActive { openPlayer() }
+                    if !session.isPlaying && !session.isPictureInPictureActive { session.isPresented = true }
                     session.togglePlayback()
                 }
                 .disabled(!session.canControl)

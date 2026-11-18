@@ -531,3 +531,58 @@ struct PlayerVolumeTouchSurface: UIViewRepresentable {
         }
     }
 }
+
+/// Request display cadence for player UI independently of the video's frame rate.
+/// The link only runs while interactive UI is visible; decoding cadence is unchanged.
+struct PlayerInterfaceRefreshDriver: UIViewRepresentable {
+    let isActive: Bool
+
+    func makeUIView(context: Context) -> RefreshView { RefreshView() }
+
+    func updateUIView(_ view: RefreshView, context: Context) {
+        view.isActive = isActive
+        view.updateDisplayLink()
+    }
+
+    static func dismantleUIView(_ view: RefreshView, coordinator: ()) {
+        view.stop()
+    }
+
+    final class RefreshView: UIView {
+        var isActive = false
+        private var displayLink: CADisplayLink?
+        private weak var linkedScreen: UIScreen?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            updateDisplayLink()
+        }
+
+        func updateDisplayLink() {
+            guard isActive, let screen = window?.windowScene?.screen else {
+                stop()
+                return
+            }
+            guard displayLink == nil || linkedScreen !== screen else { return }
+            stop()
+            let maximum = Float(screen.maximumFramesPerSecond)
+            let link = CADisplayLink(target: self, selector: #selector(tick))
+            link.preferredFrameRateRange = CAFrameRateRange(
+                minimum: min(60, maximum), maximum: maximum, preferred: maximum
+            )
+            linkedScreen = screen
+            displayLink = link
+            link.add(to: .main, forMode: .common)
+        }
+
+        func stop() {
+            displayLink?.invalidate()
+            displayLink = nil
+            linkedScreen = nil
+        }
+
+        // Keeping the link active advertises UI demand to ProMotion. UIKit and
+        // SwiftUI still draw the UI; this must never drive video presentation.
+        @objc private func tick() {}
+    }
+}

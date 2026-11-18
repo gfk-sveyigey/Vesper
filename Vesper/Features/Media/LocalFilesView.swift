@@ -26,7 +26,7 @@ struct LocalFilesView<SourceMenu: View>: View {
             if directory.isEmpty {
                 VesperRootScrollView(title: "媒体") { files } actions: {
                     HStack(spacing: 0) {
-                        Button("选择视频", systemImage: "square.and.arrow.down") {
+                        Button("选择视频", systemImage: "document.badge.plus") {
                             incomingVideos.selectVideo()
                         }
                         .labelStyle(.iconOnly)

@@ -40,7 +40,7 @@ struct PlaybackSettingsView: View {
             Group {
                 SettingsIntroCard(title: "播放设置", symbol: "play.circle", description: "管理后台播放、进度与跳转。")
                 SettingsSection {
-                    SettingsPicker("播放内核", selection: $engine) {
+                    SettingsPicker("默认播放内核", selection: $engine) {
                         ForEach(PlaybackEngine.allCases) { mode in Text(verbatim: mode.title).tag(mode) }
                     }
                     SettingsPicker("优先解码方式", selection: $decoder) {
@@ -48,6 +48,8 @@ struct PlaybackSettingsView: View {
                             Text(LocalizedStringKey(mode.title)).tag(mode)
                         }
                     }
+                }
+                SettingsSection {
                     Toggle("后台播放", isOn: $backgroundEnabled)
                     SettingsPicker("后台播放方式", selection: $backgroundMode) {
                         Text("音频播放").tag("audio")
@@ -55,6 +57,8 @@ struct PlaybackSettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .disabled(!backgroundEnabled)
+                }
+                SettingsSection {
                     Toggle("保留播放进度", isOn: $remembersProgress)
                     SettingsPicker("快进快退时长", selection: $skipSeconds) {
                         ForEach([5.0, 10, 15, 30], id: \.self) { seconds in

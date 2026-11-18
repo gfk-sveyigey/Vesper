@@ -66,6 +66,11 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         }
         core.onChange = { [weak self] in self?.syncCoreState() }
         core.log = { [weak self] in self?.log($0) }
+        core.onEngineFailure = { [weak self] message in
+            guard let self, let requested = self.requestedDecoder else { return }
+            self.requestedDecoder = nil
+            self.playbackNotice = "切换至\(requested.title)失败：\(message)。正在尝试备用播放引擎。"
+        }
         core.restoreUI = { [weak self] completion in
             guard let self else { completion(false); return }
             self.restoringPiP = true
@@ -88,6 +93,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var trackIDs: [String: Int32] = [:]
     private var nextTrackID: Int32 = 1
     private var previouslyActivePiP = false
+    private var requestedDecoder: PlaybackDecoder?
     private var resource: ResolvedPlaybackResource?
     private var request: Task<Void, Never>?
     private var generation = UUID()
@@ -126,6 +132,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
 
     func setCurrentDecoder(_ decoder: PlaybackDecoder) {
         guard decoder != currentDecoder, let item = currentItem else { return }
+        requestedDecoder = decoder
         let position = currentTime
         let playing = isPlaying
         let rate = playbackRate
@@ -192,10 +199,21 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 try await self.core.load(resolved.url, preferred: selectedEngine == .aether ? .aether : .vlc, configuration: configuration, audio: previousAudio, subtitle: previousSubtitle)
                 guard !Task.isCancelled, self.generation == token else { return }
                 self.syncCoreState()
+                if let requested = self.requestedDecoder {
+                    self.requestedDecoder = nil
+                    if let actual = self.core.snapshot.actualDecoder,
+                       (actual == .software) != (requested == .software) {
+                        self.playbackNotice = "此视频不支持所选的\(requested.title)，已使用可用的解码方式。"
+                    }
+                }
             } catch {
                 guard let self, !Task.isCancelled, self.generation == token else { return }
                 self.tearDownPlayer()
                 self.isLoading = false
+                if let requested = self.requestedDecoder {
+                    self.playbackNotice = "切换至\(requested.title)失败：\(error.localizedDescription)"
+                    self.requestedDecoder = nil
+                }
                 self.errorMessage = error.localizedDescription
                 self.log("加载失败：\(error.localizedDescription)")
             }
@@ -375,6 +393,19 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     func refreshPlaybackPreferences() {
+        // SwiftVLC 1.0.0 captures auto-PiP in the native drawable attachment.
+        // Recreating PiPVideoView for the SAME Player adopts that old attachment.
+        // A new Player is required to change policy before vout is opened.
+        if appliedBackgroundPolicy != backgroundPolicyID, core.engineID == .vlc,
+           core.driver != nil, let item = currentItem {
+            appliedBackgroundPolicy = backgroundPolicyID
+            log("后台策略变化，重建 VLC 原生附件：policy=\(backgroundPolicyID)")
+            let resume = isPlaying && (!appIsInBackground || PlaybackPreferences.backgroundEnabled)
+            if isPictureInPictureActive { isPresented = true }
+            load(item, source: source, engine: currentEngine, decoder: currentDecoder,
+                 position: currentTime, resume: resume, rate: playbackRate)
+            return
+        }
         core.configure(engineConfiguration)
         configurePictureInPicture()
         if appliedBackgroundPolicy != backgroundPolicyID {
@@ -791,6 +822,9 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     func next() {
         guard hasNext, let source, let currentItem,
               let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return }
+        // Both bridges currently retire their PiP source during load. Present
+        // the new video instead of silently leaving audio with no PiP window.
+        if isPictureInPictureActive { isPresented = true }
         load(queue[index + 1], source: source, engine: currentEngine, decoder: currentDecoder)
     }
 

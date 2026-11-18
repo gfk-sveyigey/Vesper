@@ -46,7 +46,7 @@ struct PlayerScreen: View {
 
     private var canAutoHide: Bool {
         controlsVisible && session.isPlaying && !session.isLoading && !session.isSeeking
-            && !isScrubbing && !volumeExpanded && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
+            && !isScrubbing && !volumeExpanded && volumeDragStart == nil && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
     }
     private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
 
@@ -133,6 +133,14 @@ struct PlayerScreen: View {
                 .frame(width: 160, height: 44)
                 .accessibilityHidden(true)
         }
+        .background {
+            PlayerInterfaceRefreshDriver(
+                isActive: scenePhase == .active && session.isPresented
+                    && (controlsVisible || menuPresented || panel != nil || showingNotice || regionsVisible || !hudText.isEmpty)
+            )
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
         .preferredColorScheme(.dark)
         .statusBarHidden(!controlsVisible)
         .persistentSystemOverlays(controlsVisible ? .visible : .hidden)
@@ -178,6 +186,7 @@ struct PlayerScreen: View {
         .onChange(of: session.errorMessage) { _, message in if message != nil { revealControls() } }
         .onChange(of: session.playbackNotice) { _, message in if message != nil { showingNotice = true; revealControls() } }
         .onChange(of: volume.value) { old, new in if new > 0.001 && old != new && session.isMuted { session.unmute() } }
+        .onChange(of: volumeDragStart) { _, _ in autoHideRevision += 1 }
         .onChange(of: voiceOver) { _, _ in revealControls() }
         .onChange(of: panel) { _, _ in revealControls() }
         .onChange(of: scenePhase) { _, phase in if phase != .active && isScrubbing { finishScrubbing(commit: scrubPreviews) } }
@@ -222,7 +231,7 @@ struct PlayerScreen: View {
             .opacity(volumeExpanded && !landscape ? 0 : 1)
             .allowsHitTesting(!volumeExpanded || landscape)
             .accessibilityHidden(volumeExpanded && !landscape)
-            volumeControl(width: min(240, availableWidth))
+            volumeControl(width: min(240, availableWidth), landscape: landscape)
         }
         .frame(height: 44)
     }
@@ -244,8 +253,9 @@ struct PlayerScreen: View {
         }
     }
 
-    private func volumeControl(width: CGFloat) -> some View {
-        ZStack(alignment: .trailing) {
+    private func volumeControl(width: CGFloat, landscape: Bool) -> some View {
+        let expanded = landscape || volumeExpanded
+        return ZStack(alignment: .trailing) {
             GeometryReader { geometry in
                 let trackWidth = max(0, geometry.size.width - 72)
                 ZStack(alignment: .leading) {
@@ -258,7 +268,7 @@ struct PlayerScreen: View {
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
             }
             .frame(height: 8)
-            .opacity(volumeExpanded ? 1 : 0)
+            .opacity(expanded ? 1 : 0)
             .clipped()
             .allowsHitTesting(false)
             Image(systemName: volumeSymbol)
@@ -266,13 +276,13 @@ struct PlayerScreen: View {
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 44, height: 44)
                 .allowsHitTesting(false)
-            PlayerVolumeTouchSurface(expanded: volumeExpanded, tapped: { onIcon in
+            PlayerVolumeTouchSurface(expanded: expanded, tapped: { onIcon in
                 revealControls()
-                if !volumeExpanded { volumeExpanded = true }
+                if !expanded { volumeExpanded = true }
                 else if onIcon { toggleAudioMute() }
-                else { volumeExpanded = false }
+                else if !landscape { volumeExpanded = false }
             }, dragged: { translation, phase in
-                guard volumeExpanded else { return }
+                guard expanded else { return }
                 if phase == .began {
                     volumeDragStart = volume.value
                 }
@@ -285,15 +295,18 @@ struct PlayerScreen: View {
                 }
             })
         }
-        .frame(width: volumeExpanded ? width : 44, height: 44)
+        .frame(width: expanded ? width : 44, height: 44)
         .clipShape(Capsule())
         .glassEffect(.regular.interactive(), in: Capsule())
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: volumeExpanded)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: expanded)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("音量")
         .accessibilityValue(Text(verbatim: String(format: "%d%%", Int(displayedVolume * 100))))
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction { revealControls(); volumeExpanded.toggle() }
+        .accessibilityAction {
+            revealControls()
+            if landscape { toggleAudioMute() } else { volumeExpanded.toggle() }
+        }
         .accessibilityAction(named: Text(audioIsMuted ? "取消静音" : "静音")) { toggleAudioMute() }
         .accessibilityAdjustableAction { direction in
             session.unmute()
@@ -476,7 +489,7 @@ struct PlayerScreen: View {
                     session.setCurrentDecoder(decoder)
                 }
             })
-        let engineMenu = UIMenu(title: VesperLocalization.string("播放内核") + " · " + session.currentEngine.title,
+        let engineMenu = UIMenu(title: session.currentEngine.title,
                                image: UIImage(systemName: "play.rectangle"), children:
             PlaybackEngine.allCases.map { engine in
                 UIAction(title: engine.title, state: engine == session.currentEngine ? .on : .off) { _ in session.setCurrentEngine(engine) }
@@ -774,7 +787,10 @@ struct PlayerScreen: View {
             showHUD(String(format: VesperLocalization.string("音量 %d%%"), Int(value * 100)), symbol: "speaker.wave.2.fill")
         case .backward, .forward:
             if isScrubbing {
-                updateScrubbing(scrubStart + amount * PlayerGesturePreferences.skipInterval * (gestureAction == .backward ? -1 : 1))
+                // A full-width swipe seeks up to two minutes, capped by the
+                // video duration. Keep continuous seeking independent of taps.
+                let seekSpan = min(session.duration, 120)
+                updateScrubbing(scrubStart + amount * seekSpan * (gestureAction == .backward ? -1 : 1))
                 showSeekHUD(from: scrubStart, to: scrubTime)
             }
         default: break

@@ -29,6 +29,7 @@ struct TranscodedPlaybackResource: Sendable {
     var onChange: (() -> Void)?
     var restoreUI: ((@escaping (Bool) -> Void) -> Void)?
     var log: ((String) -> Void)?
+    var onEngineFailure: ((String) -> Void)?
     weak var transcodingProvider: (any PlaybackTranscodingProvider)?
     private var transition: Task<Void, Never>?
     private var monitor: Task<Void, Never>?
@@ -110,6 +111,7 @@ struct TranscodedPlaybackResource: Sendable {
                 if subtitlesOff { candidate.selectSubtitle(nil) }
                 else if let selected = match(subtitle, in: state.subtitles) { candidate.selectSubtitle(selected.id) }
                 else { candidate.selectSubtitle(nil) }
+                snapshot = state
                 isTransitioning = false; lastError = nil
                 poll(generation: generation)
                 return
@@ -120,6 +122,7 @@ struct TranscodedPlaybackResource: Sendable {
                 if driver === candidate { driver = nil }
                 guard token == generation, !Task.isCancelled else { return }
                 lastError = error
+                onEngineFailure?(error.localizedDescription)
             }
         }
         // No recursive failover loop. Each engine and server tier is tried once.

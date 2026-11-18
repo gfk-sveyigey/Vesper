@@ -10,6 +10,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
     @ScaledMetric(relativeTo: .largeTitle) private var titleLineHeight: CGFloat = 41
     @State private var scrollOffset: CGFloat = 0
+    @State private var isInteracting = false
     @State private var headerOffset: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
     @State private var isSystemScrolling = false
@@ -50,7 +51,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             .frame(minHeight: viewportHeight + headerHeight, alignment: .top)
         }
         .scrollClipDisabled()
-        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+        .scrollBounceBehavior(.always, axes: .vertical)
         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
             ScrollMetrics(
                 offset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
@@ -74,6 +75,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     headerOffset = 0
                 }
             } else if newPhase == .interacting {
+                isInteracting = true
                 isSystemScrolling = false
                 if isReturningToExpanded {
                     animationGeneration += 1
@@ -86,9 +88,15 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 isReturningToExpanded = false
                 isSystemScrolling = false
             }
-            if oldPhase == .interacting, newPhase != .interacting,
-               !isCollapsed, headerOffset > 0.5, scrollOffset > 0.5 {
-                settleHeader(collapsed: headerOffset >= headerHeight * 0.1125 || scrollOffset > contentReachesTitleOffset)
+            if oldPhase == .interacting, newPhase != .interacting {
+                isInteracting = false
+                if isCollapsed, headerOffset < headerHeight - 0.5 {
+                    // Mirror collapse: a small pull returns to collapsed; a
+                    // deliberate pull completes expansion independently.
+                    settleHeader(collapsed: headerHeight - headerOffset < headerHeight * 0.1125)
+                } else if !isCollapsed, headerOffset > 0.5, scrollOffset > 0.5 {
+                    settleHeader(collapsed: headerOffset >= headerHeight * 0.1125 || scrollOffset > contentReachesTitleOffset)
+                }
             }
         }
         .preference(key: VesperRootHeaderKey.self, value: AnyView(header))
@@ -128,15 +136,19 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 .opacity(headerOffset > 0 ? 1 : 0)
         }
         .compositingGroup()
-        .blur(radius: 8 * min(1, max(0, headerOffset / headerHeight)))
+        .blur(radius: 8 * min(1, max(0, headerOffset / headerHeight)), opaque: false)
+        .frame(height: headerHeight)
+        .clipped()
         .opacity(1 - min(1, max(0, headerOffset / headerHeight)))
         .offset(y: reduceMotion ? 0 : -headerOffset)
         .allowsHitTesting(!isCollapsed && headerOffset < headerHeight)
-        .accessibilityHidden(isCollapsed)
-        .clipped()
+        .accessibilityHidden(isCollapsed && headerOffset >= headerHeight)
     }
 
+    @State private var previousHeaderScrollOffset: CGFloat = 0
+
     private func updateHeader(at offset: CGFloat) {
+        defer { previousHeaderScrollOffset = offset }
         // Geometry updates must not overwrite the independent return animation.
         guard !isSystemScrolling else { return }
         if offset <= 0.5 {
@@ -151,13 +163,16 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
         } else if isReturningToExpanded {
             expandedScrollOrigin = offset
+        } else if isCollapsed && !isSnapping && isInteracting {
+            let delta = offset - previousHeaderScrollOffset
+            headerOffset = min(headerHeight, max(0, headerOffset + delta))
         } else if !isCollapsed && !isSnapping {
             headerOffset = max(headerOffset, min(max(0, offset - expandedScrollOrigin), headerHeight))
         }
     }
 
     private func settleHeader(collapsed: Bool) {
-        guard !isSnapping, !isCollapsed else { return }
+        guard !isSnapping else { return }
         isSnapping = true
         isCollapsed = collapsed
         isReturningToExpanded = !collapsed
