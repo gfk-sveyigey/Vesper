@@ -297,7 +297,7 @@ struct MediaView: View {
         let isLibraries = group.id == EmbyMediaGroup.librariesID
         let width = CGFloat(layout[.itemWidth]) * (isLibraries ? 198.0 / 88.0 : 1)
         let height = CGFloat(layout[.itemHeight]) * (isLibraries ? 111.375 / 132.0 : 1)
-        RoundedRectangle(cornerRadius: 12)
+        return RoundedRectangle(cornerRadius: 12)
             .fill(.regularMaterial)
             .frame(width: width, height: height)
     }
