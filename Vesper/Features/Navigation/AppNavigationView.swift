@@ -59,6 +59,16 @@ struct AppNavigationView: View {
         GeometryReader { geometry in
             tabs.environment(\.vesperWindowTopInset, geometry.safeAreaInsets.top)
         }
+        .overlay {
+            if selection == .section(.media), mediaPath.isEmpty, library.isLoadingEmbyHome {
+                Rectangle().fill(.regularMaterial)
+                    .overlay {
+                        ProgressView().controlSize(.large)
+                            .accessibilityLabel("正在加载")
+                    }
+                    .ignoresSafeArea()
+            }
+        }
         .background {
             // Retain a window-attached rendering surface while PiP is active
             // or the full-screen player is closed by an external presentation.

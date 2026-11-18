@@ -29,6 +29,10 @@ struct EmbyItemDetails: Sendable {
     let versions: [MediaItem]
 }
 
+enum EmbyBrowsingSettings {
+    static let fullRenderingKey = "emby.fullRendering"
+}
+
 struct EmbyMediaGroup: Identifiable, Sendable {
     static let librariesID = "all-media"
     let id: String
@@ -83,18 +87,29 @@ actor EmbyRepository {
     }
 
     func latestMedia(for source: MediaSource, libraryID: String) async throws -> [MediaItem] {
+        try await latestMedia(for: source, parentID: libraryID, limit: 20)
+    }
+
+    func featuredMedia(for source: MediaSource) async throws -> [MediaItem] {
+        try await latestMedia(for: source, parentID: nil, limit: 10)
+    }
+
+    private func latestMedia(for source: MediaSource, parentID: String?, limit: Int) async throws -> [MediaItem] {
         let client = try await clientProvider(source)
         let path = source.emby?.userID.map { "Users/\($0)/Items" } ?? "Items"
-        let response = try await client.get(path, query: [
-            "ParentId": libraryID, "Recursive": "true",
+        var query = [
+            "Recursive": "true",
             "IncludeItemTypes": "Movie,Episode,Video,MusicVideo,Trailer",
-            "SortBy": "DateCreated", "SortOrder": "Descending", "StartIndex": "0", "Limit": "20",
+            "SortBy": "DateCreated", "SortOrder": "Descending", "StartIndex": "0", "Limit": String(limit),
+            "EnableImages": "true",
             "Fields": "DateCreated,ProductionYear,RunTimeTicks,UserData"
-        ])
+        ]
+        if let parentID { query["ParentId"] = parentID }
+        let response = try await client.get(path, query: query)
         guard let values = response["Items"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
         var seen = Set<MediaID>()
         return Array(map(values, source: source, client: client)
-            .filter { !$0.isContainer && seen.insert($0.id).inserted }.prefix(20))
+            .filter { !$0.isContainer && seen.insert($0.id).inserted }.prefix(limit))
     }
 
     func serverName(for source: MediaSource) async throws -> String? {
@@ -280,12 +295,16 @@ actor EmbyRepository {
             let folder = (value["IsFolder"] as? Bool == true) || ["CollectionFolder", "UserView", "Series", "Season"].contains(type)
             guard folder || ["Movie", "Episode", "Video", "MusicVideo", "Trailer"].contains(type) else { return nil }
             let sourceID = (value["MediaSources"] as? [[String: Any]])?.first?["Id"] as? String
+            let seriesImage = (value["SeriesId"] as? String).flatMap { seriesID in
+                seriesID.isEmpty || seriesID == id ? nil : client.imageURL(itemID: seriesID, tag: value["SeriesPrimaryImageTag"] as? String)
+            }
             let item = MediaItem(id: MediaID(sourceID: source.id, localID: id), title: name,
                                  resource: nil,
                                  subtitle: (value["ProductionYear"] as? NSNumber).map { String($0.intValue) },
                                  isContainer: folder || type == "Series" || type == "Season",
                                  embyItemID: id, embyMediaSourceID: sourceID,
                                  imageURL: client.imageURL(itemID: id, tag: value["ImageTags"].flatMap { ($0 as? [String: Any])?["Primary"] as? String }),
+                                 fallbackImageURL: seriesImage,
                                  duration: (value["RunTimeTicks"] as? NSNumber).map { $0.doubleValue / 10_000_000 },
                                  resumePosition: ((value["UserData"] as? [String: Any])?["PlaybackPositionTicks"] as? NSNumber)
                                     .map { $0.doubleValue / 10_000_000 },
@@ -313,9 +332,16 @@ actor EmbyRepository {
     }
 
     func thumbnailData(for item: MediaItem, source: MediaSource) async -> Data? {
-        guard let client = try? await clientProvider(source),
-              let imageURL = item.imageURL ?? client.imageURL(itemID: item.id.localID, tag: nil),
-              client.sameOrigin(imageURL) else { return nil }
+        guard let client = try? await clientProvider(source) else { return nil }
+        let primary = item.imageURL ?? client.imageURL(itemID: item.id.localID, tag: nil)
+        for url in [primary, item.fallbackImageURL].compactMap({ $0 }) where client.sameOrigin(url) {
+            guard !Task.isCancelled else { return nil }
+            if let data = await fetchThumbnail(url, client: client) { return data }
+        }
+        return nil
+    }
+
+    private func fetchThumbnail(_ imageURL: URL, client: EmbyAPIClient) async -> Data? {
         var request = URLRequest(url: imageURL, timeoutInterval: 15)
         for (name, value) in client.requestHeaders(accept: "image/*,*/*;q=0.8", kind: .image) {
             request.setValue(value, forHTTPHeaderField: name)

@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku, debug, cache
+    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku, debug, cache, emby
 
     var title: LocalizedStringKey {
         switch self {
@@ -16,6 +16,7 @@ private enum SettingsRoute: Hashable {
         case .licenses: "开源许可"
         case .debug: "调试功能"
         case .cache: "缓存管理"
+        case .emby: "Emby 设置"
         }
     }
 }
@@ -30,6 +31,8 @@ struct SettingsView: View {
     @EnvironmentObject private var playback: PlaybackSession
     @AppStorage("language.code") private var languageCode = "system"
     @ObservedObject private var debugVisibility = DebugSettingsVisibility.shared
+    @State private var versionTapCount = 0
+    @State private var lastVersionTap: ContinuousClock.Instant?
 
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
@@ -46,6 +49,8 @@ struct SettingsView: View {
                     settingsLink(.logs, title: "运行日志", symbol: "doc.text")
                     Divider().padding(.leading, 52)
                     settingsLink(.cache, title: "缓存管理", symbol: "internaldrive")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.emby, title: "Emby 设置", symbol: "server.rack")
                     Divider().padding(.leading, 52)
                         HStack {
                             SettingsLabel("语言设置", symbol: "globe")
@@ -105,15 +110,13 @@ struct SettingsView: View {
                     }
                 }
                 settingsLink(.licenses, title: "开源许可", symbol: "doc.plaintext")
-                Text("Vesper \(version) · Aholic")
-                    .font(.footnote).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .contentShape(Rectangle())
-                    .onLongPressGesture(minimumDuration: 10) {
-                        guard !debugVisibility.isRevealed else { return }
-                        debugVisibility.isRevealed = true
-                        UISelectionFeedbackGenerator().selectionChanged()
-                    }
+                Button(action: registerVersionTap) {
+                    Text("Vesper \(version) · Aholic")
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
         }
@@ -129,6 +132,7 @@ struct SettingsView: View {
                 case .logs: RuntimeLogsView()
                 case .licenses: PlaybackLicensesView()
                 case .debug: DebugSettingsView()
+                case .emby: EmbySettingsView()
                 case .cache:
                     CacheManagementView()
                         .navigationBarTitleDisplayMode(.inline)
@@ -139,6 +143,17 @@ struct SettingsView: View {
             .vesperNavigationTitle(route.title)
             .modifier(SettingsNavigationStyle(useSharedStyle: route != .cache))
         }
+    }
+
+    private func registerVersionTap() {
+        guard !debugVisibility.isRevealed else { return }
+        let now = ContinuousClock.now
+        if let lastVersionTap, lastVersionTap.duration(to: now) > .seconds(1) {
+            versionTapCount = 0
+        }
+        lastVersionTap = now
+        versionTapCount += 1
+        if versionTapCount == 10 { debugVisibility.isRevealed = true }
     }
 
     private func settingsLink(_ route: SettingsRoute, title: LocalizedStringKey, symbol: String) -> some View {
@@ -158,6 +173,18 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
+}
+
+private struct EmbySettingsView: View {
+    @AppStorage(EmbyBrowsingSettings.fullRenderingKey) private var waitsForArtwork = false
+
+    var body: some View {
+        SettingsPage {
+            SettingsSection {
+                Toggle("完整加载后渲染", isOn: $waitsForArtwork)
+            }
+        }
+    }
 }
 
 private struct SettingsNavigationStyle: ViewModifier {

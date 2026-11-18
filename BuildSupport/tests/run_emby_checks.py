@@ -15,6 +15,7 @@ MEDIA = {'Id': 'v2', 'Name': 'Version 2', 'RunTimeTicks': 6000000000, 'Container
          'MediaStreams': [{'Type': 'Subtitle', 'IsExternal': True, 'Index': 2, 'Codec': 'srt', 'DisplayTitle': '中文'}]}
 ITEM = {'Id': 'movie', 'Name': 'Movie', 'Type': 'Movie', 'RunTimeTicks': 6000000000,
         'UserData': {'PlaybackPositionTicks': 300000000}, 'Overview': 'A movie',
+        'SeriesId': 'series', 'SeriesPrimaryImageTag': 'series-tag',
         'MediaSources': [dict(MEDIA, Id='v1', Name='Version 1'), MEDIA]}
 
 class Handler(BaseHTTPRequestHandler):
@@ -32,13 +33,20 @@ class Handler(BaseHTTPRequestHandler):
             assert self.headers.get('Accept') == 'image/*,*/*;q=0.8'
             assert self.headers.get('Authorization', '').startswith('Emby UserId="user"')
             assert self.headers.get('X-Emby-Token') == 'secret'
-            self.respond({'image': True}); return
+            self.send_response(404); self.end_headers(); return
+        if path.path == '/proxy/emby/Items/series/Images/Primary':
+            self.respond({'image': 'series'}); return
         if path.path == '/proxy/emby/Array':
             self.respond([{'Id': '1'}]); return
         if path.path == '/proxy/emby/Users/user/Views':
             self.respond({'Items': [{'Id': 'library', 'Name': 'Movies', 'Type': 'CollectionFolder', 'IsFolder': True}]}); return
         if path.path == '/proxy/emby/Users/user/Items':
             query = parse_qs(path.query)
+            if query['Limit'] == ['10']:
+                assert 'ParentId' not in query
+                assert query['StartIndex'] == ['0'] and query['Recursive'] == ['true']
+                assert query['SortBy'] == ['DateCreated'] and query['SortOrder'] == ['Descending']
+                self.respond({'Items': [dict(ITEM, Id=f'featured-{i}') for i in range(10)]}); return
             if query['Limit'] == ['20']:
                 assert query['ParentId'] == ['library']
                 assert query['StartIndex'] == ['0'] and query['Recursive'] == ['true']

@@ -14,10 +14,14 @@ struct MediaThumbnail: View {
     var cacheOnly = false
     var cornerRadius: CGFloat = 12
     var fixedHeight: CGFloat? = nil
+    var preloadedData: Data? = nil
+    var artworkIsPrepared = false
+    var showsPlaceholder = true
     @State private var image: UIImage?
 
     var body: some View {
-        sizedArtwork.overlay(alignment: .bottomLeading) {
+        sizedArtwork
+        .overlay(alignment: .bottomLeading) {
             if let historyEntry {
                 ThumbnailProgressBadge(position: historyEntry.position, total: historyEntry.duration, showsPosition: true, title: mediaDisplayName(item.title))
             } else if let playback {
@@ -27,7 +31,9 @@ struct MediaThumbnail: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .contentShape(Rectangle())
         .accessibilityHidden(true)
-        .task(id: "\(item.id):\(aspectRatio):\(item.imageURL?.absoluteString ?? ""):\(AppCacheStore.scope(for: source))") {
+        .task(id: "\(AppCacheStore.embyArtworkKey(for: item, source: source)):\(aspectRatio)") {
+            guard !artworkIsPrepared else { return }
+            image = nil
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.begin source=\(source.kind.rawValue) item=\(item.id.localID)") }
             let data = await MediaThumbnailLoader.shared.load(item, source: source, aspectRatio: aspectRatio,
                                                              diagnostics: logsQueueDiagnostics, cacheOnly: cacheOnly)
@@ -35,7 +41,9 @@ struct MediaThumbnail: View {
                 if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.cancelled item=\(item.id.localID)") }
                 return
             }
-            image = data.flatMap { UIImage(data: $0) }
+            if let data, let loadedImage = UIImage(data: data) {
+                image = loadedImage
+            }
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.end item=\(item.id.localID) bytes=\(data?.count ?? 0) decoded=\(image != nil)") }
         }
     }
@@ -52,9 +60,9 @@ struct MediaThumbnail: View {
     private var artwork: some View {
         GeometryReader { geometry in
             ZStack {
-                Rectangle().fill(.regularMaterial)
-                if let image {
-                    Image(uiImage: image)
+                if showsPlaceholder { Rectangle().fill(.regularMaterial) }
+                if let cover = artworkIsPrepared ? preloadedData.flatMap({ UIImage(data: $0) }) : image {
+                    Image(uiImage: cover)
                         .resizable()
                         .scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height)
@@ -66,7 +74,7 @@ struct MediaThumbnail: View {
 }
 
 @MainActor
-private final class MediaThumbnailLoader {
+final class MediaThumbnailLoader {
     static let shared = MediaThumbnailLoader()
     private let durationCache = NSCache<NSString, NSNumber>()
     private var pendingEmbyImages: [String: Task<Data?, Never>] = [:]
@@ -81,7 +89,7 @@ private final class MediaThumbnailLoader {
         switch source.kind {
         case .demo: return nil
         case .emby:
-            let key = "\(AppCacheStore.scope(for: source))|\(item.id.localID)|\(item.imageURL?.absoluteString ?? "")"
+            let key = AppCacheStore.embyArtworkKey(for: item, source: source)
             let (data, generation) = await AppCacheStore.shared.image(key: key)
             if let data, UIImage(data: data) != nil { return data }
             let requestKey = "\(key)|\(generation)"
@@ -290,6 +298,8 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     let item: MediaItem
     @ObservedObject var playback: PlaybackSession
     var historyEntry: PlaybackHistoryEntry? = nil
+    var preloadedData: Data? = nil
+    var artworkIsPrepared = false
     @ViewBuilder let actions: () -> Actions
     @State private var shareResource: ResolvedPlaybackResource?
     @State private var showingShare = false
@@ -314,7 +324,8 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 }
                 actions()
             } preview: {
-                MediaThumbnailPreview(source: source, item: item, playback: playback, historyEntry: historyEntry)
+                MediaThumbnailPreview(source: source, item: item, historyEntry: historyEntry,
+                                      preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared)
             }
             .sheet(isPresented: $showingShare, onDismiss: {
                 shareResource?.release()
@@ -351,14 +362,18 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
 private struct MediaThumbnailPreview: View {
     let source: MediaSource
     let item: MediaItem
-    let playback: PlaybackSession
     var historyEntry: PlaybackHistoryEntry? = nil
+    var preloadedData: Data? = nil
+    var artworkIsPrepared = false
     @State private var duration: Double = 0
     private var displayName: String {
         VideoImporter.isVideoType(URL(fileURLWithPath: item.title)) ? (item.title as NSString).deletingPathExtension : item.title
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            MediaThumbnail(source: source, item: item, cacheOnly: true,
+                           preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared)
+                .frame(width: 200, height: 300)
             Text(verbatim: displayName).lineLimit(2)
             if let historyEntry {
                 Text(verbatim: "\(mediaTimeLabel(historyEntry.position)) / \(mediaTimeLabel(historyEntry.duration))")
@@ -367,9 +382,7 @@ private struct MediaThumbnailPreview: View {
                     .foregroundStyle(.secondary)
             } else if duration > 0 {
                 Text(verbatim: mediaTimeLabel(duration)).foregroundStyle(.secondary)
-            } else { ProgressView() }
-            MediaThumbnail(source: source, item: item, cacheOnly: true)
-                .frame(width: 200, height: 300)
+            }
         }
         .padding(14)
         .frame(width: 228)

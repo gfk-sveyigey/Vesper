@@ -19,6 +19,8 @@ struct EmbyRepositoryChecks {
         let latest = try await repository.latestMedia(for: source, libraryID: libraries[0].id.localID)
         precondition(latest.count == 20 && latest.first?.id.localID == "movie-0")
         precondition(latest.allSatisfy { $0.dateCreated != nil })
+        let featuredMedia = try await repository.featuredMedia(for: source)
+        precondition(featuredMedia.count == 10 && featuredMedia.first?.id.localID == "featured-0")
         let featured = EmbyMediaGroup.featured(in: [
             .init(id: EmbyMediaGroup.librariesID, title: "Libraries", items: libraries),
             .init(id: "first", title: "First", items: Array(latest.dropFirst())),
@@ -30,6 +32,7 @@ struct EmbyRepositoryChecks {
         let items = try await repository.items(for: source, parentID: "library", startIndex: 100)
         precondition(items.count == 1 && !items[0].isContainer)
         var item = items[0]
+        precondition(item.fallbackImageURL?.path == "/proxy/emby/Items/series/Images/Primary")
         let thumbnail = await repository.thumbnailData(for: item, source: source)
         precondition(thumbnail != nil)
         precondition(item.id.sourceID == source.id && item.id.localID == "movie")
