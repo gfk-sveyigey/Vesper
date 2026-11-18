@@ -14,4 +14,6 @@ https://github.com/gfk-sveyigey/Vesper
 libmpv (mpv) — GPL version 2 or later
 Source: https://github.com/mpv-player/mpv
 Distributed via FFmpegKit 6.1.4's libmpv Swift package product.
-The mpv path uses libmpv's public OpenGL render API and its libass subtitle renderer.
+The mpv path uses official KSMPVPlayer sources (KSPlayer 5.6.2, GPLv3),
+backported for KSPlayer 2.3.4, with gpu-next/MoltenVK rendering and libass subtitles.
+Source: https://github.com/kingslay/KSPlayer/tree/3df1658c3b4a94edc9c9927b8fcc2553a68e9e54/Sources/MPVPlayer

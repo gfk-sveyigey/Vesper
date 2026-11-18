@@ -88,9 +88,9 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
                     return
                 }
                 if error != nil || !reachedEnd {
-                reachedEnd = true
-                delegate?.finish(player: self, error: error)
-            }
+                    reachedEnd = true
+                    delegate?.finish(player: self, error: error)
+                }
             }
         default:
             break
@@ -125,7 +125,6 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
     private func sourceDidOpened() {
         reachedEnd = false
         isReadyToPlay = true
-        loadState = .playable
         seekable = getFlag(MPVProperty.seekable)
         duration = getDouble(MPVProperty.duration)
         AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [KSMPVPlayer] 已加载，duration=\(duration)，hwdec=\(getString(MPVProperty.hwdecCurrent) ?? "unknown")")
@@ -154,6 +153,8 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
             guard let self else {
                 return
             }
+            loadState = .playable
+            if options.startPlayTime > 0 { seek(time: options.startPlayTime) { _ in } }
             delegate?.readyToPlay(player: self)
         }
     }
@@ -278,7 +279,7 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
             return
         }
         setDouble(MPVOption.PlaybackControl.speed, Double(options.startPlayRate))
-        loadFile(url: url, options: options.startPlayTime > 0 ? ["start=\(options.startPlayTime)"] : [])
+        loadFile(url: url)
     }
 
     public func shutdown() {
@@ -316,6 +317,7 @@ extension KSMPVPlayer {
         }
         var args = [urlString]
         if !options.isEmpty {
+            args.append("replace")
             args.append(options.joined(separator: ","))
         }
         _ = command(.loadfile, args: args)
@@ -394,6 +396,10 @@ public final class MPVTrack: @preconcurrency MediaPlayerTrack, @unchecked Sendab
             handle?.getInt(mediaType == .audio ? MPVOption.TrackSelection.aid : (mediaType == .video ? MPVOption.TrackSelection.vid : MPVOption.TrackSelection.sid)) == Int(trackID)
         }
         set {
+            if !newValue {
+                if mediaType == .subtitle { handle?.setString(MPVOption.TrackSelection.sid, "no") }
+                return
+            }
             if newValue {
                 let name: String
                 if mediaType == .video {
