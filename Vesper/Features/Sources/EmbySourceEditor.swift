@@ -263,7 +263,7 @@ struct EmbyItemDetailView: View {
                         LabeledContent("名称", value: item.title)
                         if let year = item.subtitle { LabeledContent("年份", value: year) }
                         if let duration = item.duration, duration > 0 {
-                            LabeledContent("时长", value: duration.formatted(.time(pattern: .hourMinute)))
+                            LabeledContent("时长", value: Duration.seconds(duration).formatted(.time(pattern: .hourMinute)))
                         }
                         if let synopsis = details.video.synopsis { Text(verbatim: synopsis) }
                     }
