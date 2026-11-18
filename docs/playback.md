@@ -2,8 +2,8 @@
 
 Vesper uses the official KSPlayer GPL source snapshot associated with **5.6.2**,
 fixed to commit `be7f60d3b94a0941c643fe8699113cfce4f08e83`, and FFmpegKit
-**9.0.2**, fixed to `20e3ba2a4c36978fed7b12a56839fadd92e901ea`. Both are pinned in
-the Xcode project and Package.resolved. The 5.6.2 binary XCFramework has no iPhone
+**9.0.2**, fixed to `20e3ba2a4c36978fed7b12a56839fadd92e901ea`. KSPlayer is retained in Packages/KSPlayer;
+FFmpegKit is pinned in the Xcode project and Package.resolved. The 5.6.2 binary XCFramework has no iPhone
 device slice, so Vesper uses its official source snapshot, which supports iPhone.
 Upstream: https://github.com/kingslay/KSPlayer and https://github.com/kingslay/FFmpegKit.
 The KSPlayer GPL text and playback notices are bundled in the app and available
