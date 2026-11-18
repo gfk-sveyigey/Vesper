@@ -150,7 +150,7 @@ struct EmbySourceEditor: View {
         .accessibilityLabel("更换 Emby 图标")
     }
 
-    private func fieldRow<Field: View>(_ label: String, @ViewBuilder field: () -> Field) -> some View {
+    private func fieldRow<Field: View>(_ label: String, @ViewBuilder field: @escaping () -> Field) -> some View {
         GeometryReader { proxy in
             HStack(spacing: 8) {
                 Text(label).frame(width: proxy.size.width * 0.25, alignment: .leading)
