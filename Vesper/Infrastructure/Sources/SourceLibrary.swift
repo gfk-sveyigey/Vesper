@@ -388,14 +388,17 @@ final class SourceLibrary: ObservableObject {
                     EmbyMediaGroup(id: $0.id.localID, title: $0.title, items: [], isLoading: true)
                 }
                 if !fullRendering {
-                    embyHome = EmbyHome(scope: scope, groups: groups, featured: featured)
+                    embyHome = EmbyHome(scope: scope, groups: groups, featured: previous?.featured ?? [],
+                                        featuredArtwork: previous?.featuredArtwork)
                     content = .loaded([])
                     isLoadingEmbyHome = false
                 }
-                await cache.save(libraries, scope: scope, key: "libraries", generation: cacheGeneration)
+                await cache.save(libraries, scope: scope, key: "libraries:media-only", generation: cacheGeneration)
                 if let fetchedFeatured {
                     await cache.save(fetchedFeatured, scope: scope, key: "featured:titles", generation: cacheGeneration)
                 }
+
+                async let carouselPreparation = prepareCarousel(featured, source: source, token: token, publish: !fullRendering)
 
                 await withTaskGroup(of: (Int, EmbyMediaGroup).self) { tasks in
                     for (index, library) in libraries.enumerated() {
@@ -427,19 +430,22 @@ final class SourceLibrary: ObservableObject {
                 if fullRendering {
                     try Task.checkCancellation()
                     var seen = Set<MediaID>()
-                    let items = (featured + groups.flatMap(\.items)).filter { seen.insert($0.id).inserted }
+                    let items = groups.flatMap(\.items).filter { seen.insert($0.id).inserted }
                     let artwork = await Self.prepareEmbyArtwork(items, source: source)
-                    let featuredArtwork = await MediaThumbnailLoader.shared.prepareFeaturedArtwork(featured, source: source)
+                    let featuredArtwork = await carouselPreparation
                     try Task.checkCancellation()
                     guard generation == token else { return }
-                    embyHome = EmbyHome(scope: scope, groups: groups, featured: featured,
+                    embyHome = EmbyHome(scope: scope, groups: groups,
+                                        featured: featured.filter { featuredArtwork[$0.id] != nil },
                                         artwork: artwork, featuredArtwork: featuredArtwork)
                     content = .loaded([])
+                } else {
+                    _ = await carouselPreparation
                 }
             } catch {
                 guard !Task.isCancelled, generation == token else { return }
                 if !fullRendering, previous == nil,
-                   let cachedLibraries = await cache.items(scope: scope, key: "libraries") {
+                   let cachedLibraries = await cache.items(scope: scope, key: "libraries:media-only") {
                     var cachedGroups = [EmbyMediaGroup(id: EmbyMediaGroup.librariesID, title: "我的媒体", items: cachedLibraries)]
                     for library in cachedLibraries {
                         let items = await cache.items(scope: scope, key: "latest:titles:\(library.id.localID)") ?? []
@@ -447,12 +453,26 @@ final class SourceLibrary: ObservableObject {
                     }
                     let cachedFeatured = await cache.items(scope: scope, key: "featured:titles") ?? EmbyMediaGroup.featured(in: cachedGroups)
                     guard !Task.isCancelled, generation == token else { return }
-                    embyHome = EmbyHome(scope: scope, groups: cachedGroups, featured: cachedFeatured)
+                    embyHome = EmbyHome(scope: scope, groups: cachedGroups, featured: [])
                     content = .loaded([])
+                    isLoadingEmbyHome = false
+                    _ = await prepareCarousel(cachedFeatured, source: source, token: token, publish: true)
                 }
                 if embyHome == nil { content = .failed(.message(error.localizedDescription)) }
             }
         }
+    }
+
+    private func prepareCarousel(
+        _ items: [MediaItem], source: MediaSource, token: UUID, publish: Bool
+    ) async -> [MediaID: EmbyFeaturedArtwork] {
+        let artwork = await MediaThumbnailLoader.shared.prepareCarouselArtwork(items, source: source)
+        if publish, !Task.isCancelled, generation == token, var home = embyHome {
+            home.featured = items.filter { artwork[$0.id] != nil }
+            home.featuredArtwork = artwork
+            embyHome = home
+        }
+        return artwork
     }
 
     private static func prepareEmbyArtwork(_ items: [MediaItem], source: MediaSource) async -> [String: Data] {

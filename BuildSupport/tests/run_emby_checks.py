@@ -64,9 +64,18 @@ class Handler(BaseHTTPRequestHandler):
         if path.path == '/proxy/emby/Array':
             self.respond([{'Id': '1'}]); return
         if path.path == '/proxy/emby/Users/user/Views':
-            self.respond({'Items': [{'Id': 'library', 'Name': 'Movies', 'Type': 'CollectionFolder', 'IsFolder': True}]}); return
+            self.respond({'Items': [
+                {'Id': 'library', 'Name': 'Movies', 'Type': 'CollectionFolder', 'IsFolder': True},
+                {'Id': 'sets', 'Name': 'Sets', 'Type': 'CollectionFolder', 'CollectionType': 'boxsets', 'IsFolder': True},
+                {'Id': 'lists', 'Name': 'Lists', 'Type': 'CollectionFolder', 'CollectionType': 'playlists', 'IsFolder': True}
+            ]}); return
         if path.path == '/proxy/emby/Users/user/Items':
             query = parse_qs(path.query)
+            if query.get('Filters') == ['IsFavorite']:
+                assert 'ParentId' not in query and query['Recursive'] == ['true']
+                assert query['StartIndex'] == ['21'] and query['Limit'] == ['21']
+                assert 'Episode' in query['IncludeItemTypes'][0].split(',')
+                self.respond({'Items': [ITEM, SERIES, EPISODE]}); return
             if query['Limit'] in (['10'], ['20']) or query.get('ParentId') == ['library'] and query['Limit'] == ['21']:
                 assert set(query['IncludeItemTypes'][0].split(',')) == {'Movie', 'Series', 'Video', 'MusicVideo', 'Trailer'}
             if query['Limit'] == ['10']:

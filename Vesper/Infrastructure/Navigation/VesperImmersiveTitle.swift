@@ -9,6 +9,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let extendsContentUnderHeader: Bool
     private let showsLoading: Bool
     private let usesMediaScrollEdges: Bool
+    private let onVerticalOffsetChange: (CGFloat) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var topInset
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
@@ -27,12 +28,13 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var interactionStartedCollapsed = false
 
     init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
-         usesMediaScrollEdges: Bool = false,
+         usesMediaScrollEdges: Bool = false, onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
          @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
         self.extendsContentUnderHeader = extendsContentUnderHeader
         self.showsLoading = showsLoading
         self.usesMediaScrollEdges = usesMediaScrollEdges
+        self.onVerticalOffsetChange = onVerticalOffsetChange
         self.content = content()
         self.actions = actions()
     }
@@ -66,24 +68,24 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .scrollDisabled(showsLoading)
         .overlay {
             if showsLoading {
-                VesperTheme.background
-                    .overlay { ProgressView().controlSize(.large).accessibilityLabel("正在加载") }
-                    .padding(.top, max(topInset, headerHeight - headerOffset))
+                VesperPageLoadingOverlay()
+                    .padding(.top, max(topInset + (usesMediaScrollEdges ? 44 : 0), headerHeight - headerOffset))
             }
         }
         .scrollClipDisabled()
         .scrollBounceBehavior(.always, axes: .vertical)
         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
             ScrollMetrics(
-                offset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
+                offset: geometry.contentOffset.y + geometry.contentInsets.top,
                 viewportHeight: max(0, geometry.containerSize.height - geometry.contentInsets.bottom),
                 contentHeight: geometry.contentSize.height
             )
         } action: { _, metrics in
             viewportHeight = metrics.viewportHeight
             contentFitsViewport = metrics.contentHeight <= metrics.viewportHeight + 1
-            scrollOffset = metrics.offset
-            updateHeader(at: metrics.offset)
+            onVerticalOffsetChange(metrics.offset)
+            scrollOffset = max(0, metrics.offset)
+            updateHeader(at: scrollOffset)
         }
         .onScrollPhaseChange { oldPhase, newPhase in
             if newPhase == .animating {
@@ -120,7 +122,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         }
         .preference(key: VesperRootHeaderKey.self, value: VesperRootHeaderPresentation(
             header: AnyView(header),
-            showsStatusBarBlur: !usesMediaScrollEdges && isCollapsed && !contentFitsViewport
+            showsStatusBarBlur: showsStatusBarBlur
         ))
         .ignoresSafeArea(.container, edges: .top)
         .navigationTitle(title)
@@ -136,14 +138,17 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             .sharedBackgroundVisibility(.hidden)
         }
-        .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
-        .scrollEdgeEffectHidden(!showsNativeTopEdge, for: .top)
+        .scrollEdgeEffectStyle(.soft, for: .bottom)
+        .scrollEdgeEffectHidden(true, for: .top)
         .scrollEdgeEffectHidden(usesMediaScrollEdges, for: .bottom)
     }
 
-    private var showsNativeTopEdge: Bool {
-        usesMediaScrollEdges && !contentFitsViewport && scrollOffset > 0.5
-            && (isCollapsed || headerOffset > 0.5)
+    private var showsStatusBarBlur: Bool {
+        guard !contentFitsViewport else { return false }
+        if usesMediaScrollEdges {
+            return scrollOffset > 0.5 && (isCollapsed || headerOffset > 0.5)
+        }
+        return isCollapsed
     }
 
     private var snapThreshold: CGFloat { headerHeight * 0.1125 }
@@ -337,6 +342,14 @@ private struct VesperStatusBarEdgeBlur: UIViewRepresentable {
             edgeMask.frame = bounds
             CATransaction.commit()
         }
+    }
+}
+
+struct VesperPageLoadingOverlay: View {
+    var body: some View {
+        VesperTheme.background
+            .overlay { ProgressView().controlSize(.large).accessibilityLabel("正在加载") }
+            .accessibilityAddTraits(.isModal)
     }
 }
 

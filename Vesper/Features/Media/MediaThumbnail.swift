@@ -34,7 +34,23 @@ struct MediaThumbnail: View {
         sizedArtwork
         .overlay(alignment: .bottomLeading) {
             if let historyEntry {
-                ThumbnailProgressBadge(position: historyEntry.position, total: historyEntry.duration, showsPosition: true, title: mediaDisplayName(item.title))
+                if source.kind == .local || source.kind == .photos {
+                    MediaPlaybackStatus(position: historyEntry.position, duration: historyEntry.duration,
+                                        played: historyEntry.duration > 0 && historyEntry.position >= historyEntry.duration)
+                        .font(.caption2)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 6)
+                        .frame(maxWidth: .infinity, minHeight: 32, alignment: .bottomLeading)
+                        .background {
+                            Rectangle().fill(.regularMaterial)
+                                .mask {
+                                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                                }
+                        }
+                } else {
+                    ThumbnailProgressBadge(position: historyEntry.position, total: historyEntry.duration,
+                                           showsPosition: true, title: mediaDisplayName(item.title))
+                }
             } else if let playback {
                 ThumbnailPlaybackProgress(session: playback, source: source, item: item)
             }
@@ -133,7 +149,7 @@ struct MediaCardBackdrop: View {
     @AppStorage("navigation.icons") private var navigationIcons = "{}"
 
     var body: some View {
-        Color("VesperSecondaryBackground")
+        VesperTheme.mediaCardBackground
             .overlay {
                 if showsMissingArtwork {
                     GeometryReader { geometry in
@@ -187,14 +203,20 @@ final class MediaThumbnailLoader {
         durationCache.countLimit = 256
     }
 
-    func prepareFeaturedArtwork(_ items: [MediaItem], source: MediaSource) async -> [MediaID: EmbyFeaturedArtwork] {
-        await withTaskGroup(of: (MediaID, EmbyFeaturedArtwork).self) { group in
+    func prepareCarouselArtwork(_ items: [MediaItem], source: MediaSource) async -> [MediaID: EmbyFeaturedArtwork] {
+        await withTaskGroup(of: (MediaID, EmbyFeaturedArtwork?).self) { group in
             for item in items {
-                group.addTask { (item.id, await self.featuredArtwork(for: item, source: source)) }
+                group.addTask { @MainActor in
+                    var artwork = await self.featuredArtwork(for: item, source: source)
+                    if artwork.poster == nil, !Task.isCancelled {
+                        artwork.poster = await self.load(item, source: source)
+                    }
+                    return (item.id, artwork.poster == nil ? nil : artwork)
+                }
             }
-            var artwork: [MediaID: EmbyFeaturedArtwork] = [:]
-            for await (id, images) in group { artwork[id] = images }
-            return artwork
+            var result: [MediaID: EmbyFeaturedArtwork] = [:]
+            for await (id, artwork) in group { result[id] = artwork }
+            return result
         }
     }
 
@@ -339,6 +361,31 @@ private struct ThumbnailPlaybackProgress: View {
             let result = await MediaThumbnailLoader.shared.duration(item, source: source)
             guard !Task.isCancelled else { return }
             duration = result
+        }
+    }
+}
+
+struct MediaPlaybackStatus: View {
+    let position: Double
+    let duration: Double?
+    var played = false
+
+    var body: some View {
+        HStack(spacing: 7) {
+            if played {
+                Image(systemName: "arrow.clockwise").accessibilityLabel("已观看")
+            } else if position.isFinite && position > 0 {
+                Image(systemName: "play.fill").accessibilityLabel("有播放进度")
+                if let duration, duration.isFinite, duration > 0 {
+                    ProgressView(value: min(position / duration, 1)).frame(width: 38)
+                }
+            }
+            if let duration, duration.isFinite, duration > 0 {
+                Text(verbatim: mediaTimeLabel(duration)).monospacedDigit()
+                    .lineLimit(1).minimumScaleFactor(0.75)
+            } else {
+                Text("未知时长").lineLimit(1)
+            }
         }
     }
 }
@@ -592,23 +639,29 @@ private struct MediaThumbnailPreview: View {
                            usesMediaCardBackdrop: historyEntry == nil)
                 .frame(width: 200, height: 300)
                 .mediaArtworkBorder()
-            Text(verbatim: displayName).lineLimit(2)
-            if let historyEntry {
-                Text(verbatim: "\(mediaTimeLabel(historyEntry.position)) / \(mediaTimeLabel(historyEntry.duration))")
-                    .foregroundStyle(.secondary)
-                Text(historyEntry.watchedAt, format: .dateTime.hour().minute())
-                    .foregroundStyle(.secondary)
-            } else if showsEmbyFacts {
-                EmbyPreviewFacts(item: item)
-            } else if duration > 0 {
-                Text(verbatim: mediaTimeLabel(duration)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: displayName).lineLimit(2)
+                if let historyEntry {
+                    Text(verbatim: "\(mediaTimeLabel(historyEntry.position)) / \(mediaTimeLabel(historyEntry.duration))")
+                        .foregroundStyle(.secondary)
+                    Text(historyEntry.watchedAt, format: .dateTime.hour().minute())
+                        .foregroundStyle(.secondary)
+                } else if showsEmbyFacts {
+                    EmbyPreviewFacts(item: item)
+                } else if duration > 0 {
+                    Text(verbatim: mediaTimeLabel(duration))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(14)
         .frame(width: 228)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
         .task {
-            if !showsEmbyFacts { duration = await MediaThumbnailLoader.shared.duration(item, source: source) }
+            if historyEntry == nil && !showsEmbyFacts {
+                duration = await MediaThumbnailLoader.shared.duration(item, source: source)
+            }
         }
     }
 }

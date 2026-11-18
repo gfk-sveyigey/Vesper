@@ -15,9 +15,10 @@ final class MediaLayoutSettings: ObservableObject {
             case .groupSpacing: 20
             case .itemWidth: 104
             case .itemHeight: 156
-            case .itemVerticalPadding, .itemSpacing, .endPadding: 13
-            case .episodeCardWidth: 745
-            case .episodeCardHeight: 690
+            case .itemVerticalPadding, .itemSpacing: 12
+            case .endPadding: 20
+            case .episodeCardWidth: 246
+            case .episodeCardHeight: 230
             }
         }
 
@@ -72,6 +73,8 @@ struct MediaView: View {
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @AppStorage("navigation.icons") private var icons = "{}"
     @Namespace private var artworkZoom
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showsEmbyShortcuts = false
 
     var body: some View {
         Group {
@@ -82,9 +85,12 @@ struct MediaView: View {
                 mediaContent
             }
         }
+        .onChange(of: library.selectedID) { _, _ in showsEmbyShortcuts = false }
         .navigationDestination(for: EmbyMediaRoute.self) { route in
-            if route.opensLibrary {
-                EmbySeriesBrowserView(source: route.source, groupTitle: route.title, parentID: route.itemID, scope: .titles,
+            if route.opensLibrary || route.opensFavorites {
+                EmbySeriesBrowserView(source: route.source, groupTitle: route.title,
+                                      parentID: route.opensFavorites ? nil : route.itemID,
+                                      scope: route.opensFavorites ? .favorites : .titles,
                                       artworkZoom: artworkZoom, openDetail: { path.append($0) })
             } else if let item = route.item {
                 if item.isEmbySeries {
@@ -104,10 +110,17 @@ struct MediaView: View {
         return home.featured
     }
 
+    private var isLoadingMedia: Bool {
+        if library.isLoadingEmbyHome { return true }
+        if case .loading = library.content { return true }
+        return false
+    }
+
     private var mediaContent: some View {
         let featured = featured
         return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: !featured.isEmpty,
-                                   showsLoading: library.isLoadingEmbyHome, usesMediaScrollEdges: true) {
+                                   showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
+                                   onVerticalOffsetChange: updateEmbyShortcuts) {
             VStack(alignment: .leading, spacing: 20) {
                 if let source = library.selectedSource, !featured.isEmpty {
                     EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork,
@@ -123,8 +136,7 @@ struct MediaView: View {
                 } else {
                     switch library.content {
                     case .unselected: EmptyView()
-                    case .loading:
-                        ProgressView().frame(maxWidth: .infinity).padding(40)
+                    case .loading: EmptyView()
                     case .loaded(let items):
                         if items.isEmpty {
                             VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
@@ -258,7 +270,7 @@ struct MediaView: View {
                 .buttonStyle(.plain)
             }
         }
-        .font(.system(size: 16, weight: .semibold))
+        .font(.system(size: 18, weight: .semibold))
         .foregroundStyle(.primary)
         .accessibilityAddTraits(.isHeader)
         .padding(.horizontal, 20)
@@ -287,8 +299,10 @@ struct MediaView: View {
                         MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
                                        cacheOnly: true, preloadedData: data, artworkIsPrepared: artwork != nil)
                             .mediaArtworkBorder()
-                        Text(verbatim: item.title).font(.headline).lineLimit(2)
-                        EmbyPreviewFacts(item: item)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(verbatim: item.title).font(.headline).lineLimit(2)
+                            EmbyPreviewFacts(item: item)
+                        }
                     }
                     .frame(width: 280)
                 }
@@ -324,9 +338,46 @@ struct MediaView: View {
         return CGSize(width: width, height: CGFloat(layout[.itemHeight]))
     }
 
+    private var embyHomeSource: MediaSource? {
+        guard let source = library.selectedSource, source.kind == .emby, !library.canNavigateBack else { return nil }
+        return source
+    }
+
+    private func updateEmbyShortcuts(offset: CGFloat) {
+        guard embyHomeSource != nil else { return }
+        let expanded = offset <= -18 || (showsEmbyShortcuts && offset <= 1)
+        guard expanded != showsEmbyShortcuts else { return }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
+            showsEmbyShortcuts = expanded
+        }
+    }
+
+    @ViewBuilder
     private var mediaSourceMenu: some View {
-        sourceMenuButton
-            .glassEffect(.regular.interactive(), in: .circle)
+        if let source = embyHomeSource, showsEmbyShortcuts {
+            HStack(spacing: 0) {
+                refreshButton
+                    .labelStyle(.iconOnly)
+                    .frame(width: 44, height: 44)
+                favoritesButton(source)
+                    .labelStyle(.iconOnly)
+                    .frame(width: 44, height: 44)
+                sourceMenuButton
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            sourceMenuButton.glassEffect(.regular.interactive(), in: .circle)
+        }
+    }
+
+    private var refreshButton: some View {
+        Button("刷新页面", systemImage: "arrow.clockwise") { library.reload() }
+            .disabled(library.isLoadingEmbyHome)
+    }
+
+    private func favoritesButton(_ source: MediaSource) -> some View {
+        Button("收藏媒体", systemImage: "heart") { path.append(EmbyMediaRoute.favorites(source)) }
     }
 
     private func sourceSymbol(_ source: MediaSource?) -> String {
@@ -339,13 +390,37 @@ struct MediaView: View {
         }
     }
 
+    private func sourceMenuIcon(_ source: MediaSource, size: CGFloat) -> Image {
+        let image = source.emby?.iconData.flatMap { UIImage(data: $0) } ?? UIImage(named: "EmbyLogo")
+        guard let image, image.size.width > 0, image.size.height > 0 else {
+            return Image(systemName: sourceSymbol(source))
+        }
+        let format = UIGraphicsImageRendererFormat()
+        let canvas = CGSize(width: size, height: size)
+        let icon = UIGraphicsImageRenderer(size: canvas, format: format).image { context in
+            let bounds = CGRect(origin: .zero, size: canvas)
+            UIBezierPath(roundedRect: bounds, cornerRadius: size * 0.23).addClip()
+            if source.emby?.iconData == nil {
+                context.cgContext.setFillColor(UIColor.white.cgColor)
+                context.cgContext.fill(bounds)
+            }
+            let inset = source.emby?.iconData == nil ? size * 0.09 : 0
+            let available = size - 2 * inset
+            let scale = inset > 0
+                ? min(available / image.size.width, available / image.size.height)
+                : max(available / image.size.width, available / image.size.height)
+            let width = image.size.width * scale
+            let height = image.size.height * scale
+            image.draw(in: CGRect(x: (size - width) / 2, y: (size - height) / 2, width: width, height: height))
+        }
+        return Image(uiImage: icon).renderingMode(.original)
+    }
+
     private var sourceMenuButton: some View {
         Menu {
-            if library.selectedSource?.kind == .emby && !library.canNavigateBack {
-                Section {
-                    Button("刷新", systemImage: "arrow.clockwise") { library.reload() }
-                        .disabled(library.isLoadingEmbyHome)
-                }
+            if let source = embyHomeSource, !showsEmbyShortcuts {
+                Section { refreshButton }
+                Section { favoritesButton(source) }
             }
             Section {
                 ForEach(library.sources) { source in
@@ -355,17 +430,28 @@ struct MediaView: View {
                         Label {
                             Text(verbatim: source.name)
                         } icon: {
-                            Image(systemName: source.id == library.selectedID ? "checkmark" : sourceSymbol(source))
+                            if source.kind == .emby {
+                                sourceMenuIcon(source, size: 22)
+                            } else {
+                                Image(systemName: source.id == library.selectedID ? "checkmark" : sourceSymbol(source))
+                            }
                         }
                     }
+                    .accessibilityAddTraits(source.id == library.selectedID ? .isSelected : [])
                 }
             }
         } label: {
-            Image(systemName: sourceSymbol(library.selectedSource))
-                .contentTransition(.symbolEffect(.replace))
-                .font(.system(size: 17, weight: .medium))
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
+            Group {
+                if let source = library.selectedSource, source.kind == .emby {
+                    sourceMenuIcon(source, size: 24)
+                } else {
+                    Image(systemName: sourceSymbol(library.selectedSource))
+                        .contentTransition(.symbolEffect(.replace))
+                        .font(.system(size: 17, weight: .medium))
+                }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("选择媒体来源")
@@ -403,8 +489,6 @@ private struct EmbyFeaturedCarousel: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let pull = max(0, geometry.frame(in: .scrollView(axis: .vertical)).minY)
-            let scale = reduceMotion ? 1 : 1 + min(pull / max(geometry.size.height, 1), 0.08)
             let width = geometry.size.width
             let page = currentIndex
             let isTransitioning = isDragging || transitionID != nil
@@ -459,10 +543,7 @@ private struct EmbyFeaturedCarousel: View {
                     .allowsHitTesting(!isTransitioning)
                 }
             }
-            .scaleEffect(scale, anchor: .top)
-            .frame(width: width, height: geometry.size.height + pull, alignment: .top)
-            .clipped()
-            .offset(y: -pull)
+            .modifier(EmbyPosterStretch(geometry: geometry))
         }
         .aspectRatio(3.0 / 5.0, contentMode: .fit)
         .onChange(of: items.map(\.id), initial: true) { _, ids in
@@ -603,6 +684,21 @@ private struct EmbyCarouselPan: UIGestureRecognizerRepresentable {
             let velocity = pan.velocity(in: pan.view)
             return abs(velocity.x) > abs(velocity.y)
         }
+    }
+}
+
+struct EmbyPosterStretch: ViewModifier {
+    let geometry: GeometryProxy
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let pull = max(0, geometry.frame(in: .scrollView(axis: .vertical)).minY)
+        let scale = reduceMotion ? 1 : 1 + min(pull / max(geometry.size.height, 1), 0.08)
+        content
+            .scaleEffect(scale, anchor: .top)
+            .frame(width: geometry.size.width, height: geometry.size.height + pull, alignment: .top)
+            .clipped()
+            .offset(y: -pull)
     }
 }
 
@@ -764,6 +860,7 @@ private struct EmbyMediaRoute: Hashable {
         case carousel
         case shelf(String)
         case library(String)
+        case favorites
     }
 
     let source: MediaSource
@@ -771,7 +868,12 @@ private struct EmbyMediaRoute: Hashable {
     let itemID: String
     let item: MediaItem?
     var origin: Origin? = nil
-    var opensLibrary: Bool { item == nil }
+    var opensFavorites: Bool { item == nil && origin == .favorites }
+    var opensLibrary: Bool { item == nil && !opensFavorites }
+
+    static func favorites(_ source: MediaSource) -> Self {
+        Self(source: source, title: String(localized: "收藏媒体"), itemID: "", item: nil, origin: .favorites)
+    }
 
     static func library(_ source: MediaSource, id: String, title: String) -> Self {
         Self(source: source, title: title, itemID: id, item: nil)
@@ -796,7 +898,7 @@ private struct EmbyMediaRoute: Hashable {
 private struct EmbySeriesBrowserView: View {
     let source: MediaSource
     let groupTitle: String
-    let parentID: String
+    let parentID: String?
     let scope: EmbyBrowseScope
     let artworkZoom: Namespace.ID
     let openDetail: (EmbyMediaRoute) -> Void
@@ -816,7 +918,7 @@ private struct EmbySeriesBrowserView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    let route = EmbyMediaRoute.detail(source, item, origin: .library(parentID))
+                    let route = EmbyMediaRoute.detail(source, item, origin: parentID.map { .library($0) } ?? .favorites)
                     NavigationLink(value: route) {
                         MediaThumbnail(source: source, item: item, fixedHeight: layout.thumbnailHeight)
                             .mediaArtworkBorder()
@@ -834,9 +936,9 @@ private struct EmbySeriesBrowserView: View {
                 }
             }
             .padding(12)
-            if isLoading && (items.isEmpty || didLoadFirstPage) { ProgressView().padding() }
+            if isLoading && didLoadFirstPage { ProgressView().padding() }
             if reachedEnd && items.isEmpty {
-                Text("暂无媒体").foregroundStyle(.secondary).padding()
+                Text(scope == .favorites ? "暂无收藏媒体" : "暂无媒体").foregroundStyle(.secondary).padding()
             }
             if let errorMessage {
                 Button("重试") { Task { await loadPage() } }
@@ -844,7 +946,10 @@ private struct EmbySeriesBrowserView: View {
                 Text(verbatim: errorMessage).font(.caption).foregroundStyle(.secondary)
             }
         }
-        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+        .background(VesperTheme.background.ignoresSafeArea())
+        .overlay {
+            if items.isEmpty && !didLoadFirstPage && errorMessage == nil { VesperPageLoadingOverlay() }
+        }
         .scrollIndicators(.hidden)
         .navigationTitle(groupTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -859,7 +964,7 @@ private struct EmbySeriesBrowserView: View {
     }
 
     private var cacheScope: String { AppCacheStore.scope(for: source) }
-    private var cacheKey: String { "browser:\(scope.rawValue):\(parentID)" }
+    private var cacheKey: String { "browser:\(scope.rawValue):\(parentID ?? "")" }
 
     private func loadPage() async {
         guard !isLoading, !reachedEnd else { return }

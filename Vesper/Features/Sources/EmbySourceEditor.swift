@@ -32,93 +32,11 @@ struct EmbySourceEditor: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    HStack(alignment: .top, spacing: 12) {
-                        PhotosPicker(selection: $selectedIcon, matching: .images) {
-                            sourceIcon
-                                .frame(width: 56, height: 56)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(alignment: .bottomTrailing) {
-                                    Image(systemName: "pencil.circle.fill")
-                                        .symbolRenderingMode(.palette).foregroundStyle(.white, .gray)
-                                        .offset(x: 4, y: 4)
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button("使用默认图标", systemImage: "arrow.counterclockwise") {
-                                iconData = nil
-                                selectedIcon = nil
-                            }
-                        }
-                        VStack(spacing: 0) {
-                            fieldRow("名称") { TextField("", text: $title) }
-                            fieldRow("备注") { TextField("", text: $note, axis: .vertical).lineLimit(1...3) }
-                        }
-                    }
-                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                }
-                Section("服务器") {
-                    fieldRow("HTTPS") {
-                        Toggle("", isOn: $schemeIsHTTPS).labelsHidden()
-                    }
-                    fieldRow("域名") {
-                        TextField("example.com", text: $host)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                            .focused($focusedField, equals: .host)
-                    }
-                    fieldRow("端口") {
-                        TextField(schemeIsHTTPS ? "443" : "8096", text: $port)
-                            .keyboardType(.numberPad).focused($focusedField, equals: .port)
-                    }
-                    fieldRow("路径") {
-                        TextField("emby", text: $path)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .focused($focusedField, equals: .path)
-                    }
-                }
-                Section("账户") {
-                    fieldRow("用户名") {
-                        TextField("", text: $username).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    }
-                    fieldRow("密码") {
-                        HStack(spacing: 8) {
-                            Group {
-                                if showPassword { TextField("", text: $password) }
-                                else { SecureField("", text: $password) }
-                            }
-                            Button { showPassword.toggle() } label: {
-                                Image(systemName: showPassword ? "eye.slash" : "eye")
-                            }
-                            .buttonStyle(.plain).accessibilityLabel(showPassword ? "隐藏密码" : "显示密码")
-                        }
-                    }
-                }
-                Section("备用线路") {
-                    Toggle("从服务器获取", isOn: $fetchAlternateAddresses)
-                    if !fetchAlternateAddresses {
-                        ForEach(alternateAddresses, id: \.self) { Text($0).lineLimit(1) }
-                            .onDelete { alternateAddresses.remove(atOffsets: $0) }
-                        HStack {
-                            TextField("添加线路地址", text: $alternateAddress)
-                                .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                            Button("添加") { addAlternateAddress() }
-                                .disabled(alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
-                    }
-                }
-                Section("高级功能") {
-                    Toggle("STRM 直连", isOn: $strmDirectPlayback)
-                }
-                Section {
-                    DisclosureGroup("更多设置", isExpanded: $showingMoreSettings) {
-                        Toggle("同步播放进度", isOn: $syncProgress)
-                        Toggle("允许服务器转码", isOn: $allowTranscoding)
-                    }
-                }
-                if let errorMessage { Text(verbatim: errorMessage).foregroundStyle(.red) }
+            VStack(spacing: 0) {
+                identityFields
+                settingsForm
             }
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(source == nil ? "添加 Emby 来源" : "编辑 Emby 来源")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -140,24 +58,116 @@ struct EmbySourceEditor: View {
         .interactiveDismissDisabled(saving)
     }
 
+    private var identityFields: some View {
+        HStack(spacing: 16) {
+            PhotosPicker(selection: $selectedIcon, matching: .images) {
+                sourceIcon
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "pencil.circle.fill")
+                            .symbolRenderingMode(.palette).foregroundStyle(.white, .gray)
+                            .offset(x: 3, y: 3)
+                    }
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button("使用默认图标", systemImage: "arrow.counterclockwise") {
+                    iconData = nil
+                    selectedIcon = nil
+                }
+            }
+
+            VStack(spacing: 0) {
+                fieldRow("名称") { TextField("", text: $title) }
+                    .padding(.vertical, 11)
+                Divider()
+                fieldRow("备注") { TextField("", text: $note, axis: .vertical).lineLimit(1...3) }
+                    .padding(.vertical, 11)
+            }
+            .padding(.horizontal, 16)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+    }
+
+    private var settingsForm: some View {
+        Form {
+            Section("服务器") {
+                fieldRow("域名") {
+                    TextField("example.com", text: $host)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                        .focused($focusedField, equals: .host)
+                }
+                fieldRow("端口") {
+                    TextField(schemeIsHTTPS ? "443" : "8096", text: $port)
+                        .keyboardType(.numberPad).focused($focusedField, equals: .port)
+                }
+                fieldRow("路径") {
+                    TextField("emby", text: $path)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .focused($focusedField, equals: .path)
+                }
+                Toggle("HTTPS", isOn: $schemeIsHTTPS)
+            }
+            Section("账户") {
+                fieldRow("用户名") {
+                    TextField("", text: $username).textInputAutocapitalization(.never).autocorrectionDisabled()
+                }
+                fieldRow("密码") {
+                    HStack(spacing: 8) {
+                        Group {
+                            if showPassword { TextField("", text: $password) }
+                            else { SecureField("", text: $password) }
+                        }
+                        Button { showPassword.toggle() } label: {
+                            Image(systemName: showPassword ? "eye.slash" : "eye")
+                        }
+                        .buttonStyle(.plain).accessibilityLabel(showPassword ? "隐藏密码" : "显示密码")
+                    }
+                }
+            }
+            Section("备用线路") {
+                Toggle("从服务器获取", isOn: $fetchAlternateAddresses)
+                if !fetchAlternateAddresses {
+                    ForEach(alternateAddresses, id: \.self) { Text($0).lineLimit(1) }
+                        .onDelete { alternateAddresses.remove(atOffsets: $0) }
+                    HStack {
+                        TextField("添加线路地址", text: $alternateAddress)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                        Button("添加") { addAlternateAddress() }
+                            .disabled(alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            Section("高级功能") {
+                Toggle("STRM 直连", isOn: $strmDirectPlayback)
+            }
+            Section {
+                DisclosureGroup("更多设置", isExpanded: $showingMoreSettings) {
+                    Toggle("同步播放进度", isOn: $syncProgress)
+                    Toggle("允许服务器转码", isOn: $allowTranscoding)
+                }
+            }
+            if let errorMessage { Text(verbatim: errorMessage).foregroundStyle(.red) }
+        }
+    }
+
     private var sourceIcon: some View {
         Group {
             if let iconData, let image = UIImage(data: iconData) { Image(uiImage: image).resizable().scaledToFill() }
             else { Image("EmbyLogo").resizable().scaledToFit().padding(4).background(Color.white) }
         }
-        .frame(width: 56, height: 56)
+        .frame(width: 64, height: 64)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
         .accessibilityLabel("更换 Emby 图标")
     }
 
-    private func fieldRow<Field: View>(_ label: String, @ViewBuilder field: @escaping () -> Field) -> some View {
-        GeometryReader { proxy in
-            HStack(spacing: 8) {
-                Text(label).frame(width: proxy.size.width * 0.25, alignment: .leading)
-                field()
-            }
+    private func fieldRow<Field: View>(_ label: String, @ViewBuilder field: () -> Field) -> some View {
+        EmbyFormRow {
+            Text(label).lineLimit(1).minimumScaleFactor(0.75)
+            field()
         }
-        .frame(height: 40)
     }
 
     private func loadSource() {
@@ -248,6 +258,31 @@ struct EmbySourceEditor: View {
     }
 }
 
+/// Keeps the label column aligned without forcing a height on the text fields.
+private struct EmbyFormRow: Layout {
+    private let gap: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let width = proposal.width ?? (subviews[0].sizeThatFits(.unspecified).width + gap + subviews[1].sizeThatFits(.unspecified).width)
+        let labelWidth = width * 0.25
+        let fieldWidth = max(0, width - labelWidth - gap)
+        let labelHeight = subviews[0].sizeThatFits(ProposedViewSize(width: labelWidth, height: nil)).height
+        let fieldHeight = subviews[1].sizeThatFits(ProposedViewSize(width: fieldWidth, height: nil)).height
+        return CGSize(width: width, height: max(labelHeight, fieldHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let labelWidth = bounds.width * 0.25
+        let fieldX = labelWidth + gap
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
+                          proposal: ProposedViewSize(width: labelWidth, height: nil))
+        subviews[1].place(at: CGPoint(x: bounds.minX + fieldX, y: bounds.midY), anchor: .leading,
+                          proposal: ProposedViewSize(width: max(0, bounds.width - fieldX), height: nil))
+    }
+}
+
 struct EmbyItemDetailView: View {
     let source: MediaSource
     let item: MediaItem
@@ -285,7 +320,9 @@ struct EmbyItemDetailView: View {
                     }
                 }
             } else if let error { Text(verbatim: error).foregroundStyle(.secondary) }
-            else { ProgressView() }
+        }
+        .overlay {
+            if details == nil && error == nil { VesperPageLoadingOverlay() }
         }
         .navigationTitle(episode == nil ? "媒体详情" : "单集详情").navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)

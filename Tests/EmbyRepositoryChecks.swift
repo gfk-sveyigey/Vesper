@@ -13,9 +13,12 @@ struct EmbyRepositoryChecks {
         let repository = EmbyRepository(clientProvider: { _ in client })
         let source = MediaSource(id: UUID(), name: configuration.title, kind: .emby, behavior: .empty, emby: configuration)
         let roots = try await repository.rootItems(for: source)
-        precondition(roots.count == 1 && roots[0].isContainer)
+        precondition(roots.count == 3 && roots[0].isContainer)
         let libraries = try await repository.mediaLibraries(for: source)
         precondition(libraries.map(\.id.localID) == ["library"] && libraries[0].isContainer)
+        let favorites = try await repository.items(for: source, parentID: nil, startIndex: 21,
+                                                   limit: 21, scope: .favorites)
+        precondition(favorites.map(\.id.localID) == ["movie", "series", "episode"])
         let latest = try await repository.latestMedia(for: source, libraryID: libraries[0].id.localID)
         precondition(latest.count == 20 && latest.first?.id.localID == "movie-0")
         precondition(latest.allSatisfy { $0.dateCreated != nil })

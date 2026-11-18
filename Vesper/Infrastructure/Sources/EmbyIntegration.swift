@@ -83,12 +83,13 @@ struct EmbySeriesMetadata: Sendable {
 }
 
 enum EmbyBrowseScope: String, Sendable {
-    case children, titles, episodes
+    case children, titles, episodes, favorites
 
     var itemTypes: [String]? {
         switch self {
         case .children: nil
         case .titles: ["Movie", "Series", "Video", "MusicVideo", "Trailer"]
+        case .favorites: ["Movie", "Series", "Episode", "Video", "MusicVideo", "Trailer"]
         case .episodes: ["Episode"]
         }
     }
@@ -125,7 +126,13 @@ actor EmbyRepository {
         }
         guard let values = response["Items"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
         var seen = Set<MediaID>()
-        return map(values, source: source, client: client).filter { $0.isContainer && seen.insert($0.id).inserted }
+        let libraries = values.filter { value in
+            let collectionType = (value["CollectionType"] as? String)?.lowercased()
+            let itemType = (value["Type"] as? String)?.lowercased()
+            return !["boxset", "boxsets", "collection", "collections", "playlist", "playlists"].contains(collectionType ?? "")
+                && !["boxset", "playlist"].contains(itemType ?? "")
+        }
+        return map(libraries, source: source, client: client).filter { $0.isContainer && seen.insert($0.id).inserted }
     }
 
     func latestMedia(for source: MediaSource, libraryID: String) async throws -> [MediaItem] {
@@ -179,7 +186,8 @@ actor EmbyRepository {
         var query = ["StartIndex": String(startIndex), "Limit": String(limit), "Fields": "Overview,PrimaryImageAspectRatio,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData,Genres,PremiereDate",
                      "SortBy": sortBy, "SortOrder": sortOrder]
         if let parentID { query["ParentId"] = parentID }
-        else if source.emby?.userID != nil { query["ParentId"] = "" }
+        else if source.emby?.userID != nil && scope != .favorites { query["ParentId"] = "" }
+        if scope == .favorites { query["Filters"] = "IsFavorite" }
         if let itemTypes = scope.itemTypes {
             query["Recursive"] = "true"
             query["IncludeItemTypes"] = itemTypes.joined(separator: ",")

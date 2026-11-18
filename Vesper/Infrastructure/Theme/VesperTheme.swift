@@ -3,6 +3,8 @@ import Foundation
 import UIKit
 
 enum VesperTheme {
+    static let mediaCardBackground = Color(uiColor: .secondarySystemBackground)
+
     static let background = Color(uiColor: UIColor { traits in
         if traits.userInterfaceStyle == .dark { return .systemBackground }
         return UIColor(named: "VesperBackground", in: .main, compatibleWith: traits) ?? .systemBackground

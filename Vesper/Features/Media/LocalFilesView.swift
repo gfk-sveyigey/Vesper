@@ -25,7 +25,7 @@ struct LocalFilesView<SourceMenu: View>: View {
     var body: some View {
         Group {
             if directory.isEmpty {
-                VesperRootScrollView(title: "媒体", usesMediaScrollEdges: true) { files } actions: {
+                VesperRootScrollView(title: "媒体", showsLoading: loading && entries.isEmpty, usesMediaScrollEdges: true) { files } actions: {
                     HStack(spacing: 12) {
                         HStack(spacing: 0) {
                             Button("选择视频", systemImage: "document.badge.plus") {
@@ -49,6 +49,9 @@ struct LocalFilesView<SourceMenu: View>: View {
                 }
             } else {
                 ScrollView { files.padding(.top, 12).padding(.bottom, 20) }
+                    .overlay {
+                        if loading && entries.isEmpty { VesperPageLoadingOverlay() }
+                    }
                     .navigationTitle(String(directory.split(separator: "/").last ?? ""))
                     .vesperNavigationStyle(.inline)
                     .toolbar {
@@ -103,9 +106,7 @@ struct LocalFilesView<SourceMenu: View>: View {
 
     private var files: some View {
         LazyVStack(spacing: 12) {
-            if loading && entries.isEmpty {
-                ProgressView().padding(40)
-            } else if entries.isEmpty {
+            if !loading && entries.isEmpty {
                 VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
@@ -137,7 +138,7 @@ struct LocalFilesView<SourceMenu: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             if entry.isDirectory {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color("VesperSecondaryBackground"))
+                    .fill(VesperTheme.mediaCardBackground)
                     .aspectRatio(2.0 / 3.0, contentMode: .fit)
                     .overlay {
                         Image(systemName: "folder.fill")
@@ -148,7 +149,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                     .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
             } else {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color("VesperSecondaryBackground"))
+                    .fill(VesperTheme.mediaCardBackground)
                     .aspectRatio(2.0 / 3.0, contentMode: .fit)
                     .overlay {
                         Image(systemName: "doc")
