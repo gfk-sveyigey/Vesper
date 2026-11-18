@@ -25,7 +25,7 @@ struct LocalFilesView<SourceMenu: View>: View {
     var body: some View {
         Group {
             if directory.isEmpty {
-                VesperRootScrollView(title: "媒体") { files } actions: {
+                VesperRootScrollView(title: "媒体", usesMediaScrollEdges: true) { files } actions: {
                     HStack(spacing: 12) {
                         HStack(spacing: 0) {
                             Button("选择视频", systemImage: "document.badge.plus") {

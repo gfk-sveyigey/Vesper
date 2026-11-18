@@ -8,6 +8,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let content: Content
     private let extendsContentUnderHeader: Bool
     private let showsLoading: Bool
+    private let usesMediaScrollEdges: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var topInset
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
@@ -26,10 +27,12 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var interactionStartedCollapsed = false
 
     init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
+         usesMediaScrollEdges: Bool = false,
          @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
         self.extendsContentUnderHeader = extendsContentUnderHeader
         self.showsLoading = showsLoading
+        self.usesMediaScrollEdges = usesMediaScrollEdges
         self.content = content()
         self.actions = actions()
     }
@@ -117,7 +120,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         }
         .preference(key: VesperRootHeaderKey.self, value: VesperRootHeaderPresentation(
             header: AnyView(header),
-            showsStatusBarBlur: isCollapsed && !contentFitsViewport
+            showsStatusBarBlur: !usesMediaScrollEdges && isCollapsed && !contentFitsViewport
         ))
         .ignoresSafeArea(.container, edges: .top)
         .navigationTitle(title)
@@ -133,11 +136,14 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             .sharedBackgroundVisibility(.hidden)
         }
-        // The native top effect extends through the navigation/header area.
-        // A separately clipped status-bar surface owns the top blur instead.
-        .scrollEdgeEffectHidden(true, for: .top)
-        .scrollEdgeEffectStyle(.soft, for: .bottom)
-        .scrollEdgeEffectHidden(false, for: .bottom)
+        .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+        .scrollEdgeEffectHidden(!showsNativeTopEdge, for: .top)
+        .scrollEdgeEffectHidden(usesMediaScrollEdges, for: .bottom)
+    }
+
+    private var showsNativeTopEdge: Bool {
+        usesMediaScrollEdges && !contentFitsViewport && scrollOffset > 0.5
+            && (isCollapsed || headerOffset > 0.5)
     }
 
     private var snapThreshold: CGFloat { headerHeight * 0.1125 }

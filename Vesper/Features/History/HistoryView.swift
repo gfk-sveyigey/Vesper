@@ -34,7 +34,8 @@ struct HistoryView: View {
                                         Button {
                                             playback.play(entry.item, in: source, queue: group.entries.map(\.item))
                                         } label: {
-                                            MediaThumbnail(source: source, item: entry.item, playback: playback, historyEntry: entry)
+                                            MediaThumbnail(source: source, item: entry.item, playback: playback, historyEntry: entry,
+                                                           usesMediaCardBackdrop: false)
                                                 .frame(width: 132, height: 198)
                                         }
                                         .contentShape(Rectangle())

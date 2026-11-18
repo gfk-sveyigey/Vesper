@@ -71,6 +71,7 @@ struct MediaView: View {
     @EnvironmentObject private var playback: PlaybackSession
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @AppStorage("navigation.icons") private var icons = "{}"
+    @Namespace private var artworkZoom
 
     var body: some View {
         Group {
@@ -83,10 +84,12 @@ struct MediaView: View {
         }
         .navigationDestination(for: EmbyMediaRoute.self) { route in
             if route.opensLibrary {
-                EmbySeriesBrowserView(source: route.source, groupTitle: route.title, parentID: route.itemID, scope: .titles)
+                EmbySeriesBrowserView(source: route.source, groupTitle: route.title, parentID: route.itemID, scope: .titles,
+                                      artworkZoom: artworkZoom, openDetail: { path.append($0) })
             } else if let item = route.item {
                 if item.isEmbySeries {
                     EmbySeriesDetailView(source: route.source, series: item)
+                        .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
                 } else {
                     EmbyItemDetailView(source: route.source, item: item)
                 }
@@ -104,11 +107,12 @@ struct MediaView: View {
     private var mediaContent: some View {
         let featured = featured
         return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: !featured.isEmpty,
-                                   showsLoading: library.isLoadingEmbyHome) {
+                                   showsLoading: library.isLoadingEmbyHome, usesMediaScrollEdges: true) {
             VStack(alignment: .leading, spacing: 20) {
                 if let source = library.selectedSource, !featured.isEmpty {
                     EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork,
-                                         featuredArtwork: library.embyHome?.featuredArtwork)
+                                         featuredArtwork: library.embyHome?.featuredArtwork, artworkZoom: artworkZoom,
+                                         isMediaRoot: path.isEmpty)
                 }
                 if library.selectedSource == nil {
                     VesperCenteredEmptyContent(message: "未选择媒体来源", symbol: AppSection.media.symbol)
@@ -291,24 +295,25 @@ struct MediaView: View {
                 .padding(12)
             }
         } else {
-            NavigationLink(value: EmbyMediaRoute.detail(source, item)) {
+            let route = EmbyMediaRoute.detail(source, item, origin: .shelf(group.id))
+            NavigationLink(value: route) {
                 MediaThumbnail(source: source, item: item, playback: playback, aspectRatio: size.width / size.height,
                                preloadedData: data, artworkIsPrepared: artwork != nil)
                     .frame(width: size.width, height: size.height)
                     .mediaArtworkBorder()
+                    .matchedTransitionSource(id: route, in: artworkZoom)
             }
             .buttonStyle(.plain)
             .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
                                           preloadedData: data, artworkIsPrepared: artwork != nil,
-                                          showsEmbyFacts: true) { EmptyView() })
+                                          showsEmbyFacts: true, openEmbyDetails: { path.append(route) }) { EmptyView() })
             .accessibilityLabel(Text(verbatim: item.title))
         }
     }
 
     private func groupPlaceholder(_ group: EmbyMediaGroup) -> some View {
         let size = groupCardSize(group)
-        return RoundedRectangle(cornerRadius: 12)
-            .fill(.regularMaterial)
+        return MediaCardBackdrop()
             .frame(width: size.width, height: size.height)
             .mediaArtworkBorder()
     }
@@ -342,7 +347,7 @@ struct MediaView: View {
                         .disabled(library.isLoadingEmbyHome)
                 }
             }
-            Section("媒体来源") {
+            Section {
                 ForEach(library.sources) { source in
                     Button {
                         library.select(source.id)
@@ -381,6 +386,8 @@ private struct EmbyFeaturedCarousel: View {
     let items: [MediaItem]
     let artwork: [String: Data]?
     let featuredArtwork: [MediaID: EmbyFeaturedArtwork]?
+    let artworkZoom: Namespace.ID
+    let isMediaRoot: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.scenePhase) private var scenePhase
@@ -390,6 +397,9 @@ private struct EmbyFeaturedCarousel: View {
     @State private var progress = 0.0
     @State private var isDragging = false
     @State private var transitionID: UUID?
+
+    private let mirrorFraction: CGFloat = 0.18
+    private let travelFraction: CGFloat = 0.12
 
     var body: some View {
         GeometryReader { geometry in
@@ -403,20 +413,29 @@ private struct EmbyFeaturedCarousel: View {
                 ForEach(visiblePages(around: page)) { item in
                     let isCurrent = item.id == items[page].id
                     let isIncoming = item.id == incoming
-                    let shift = reduceMotion ? 0 : CGFloat(direction) * width
-                    NavigationLink(value: EmbyMediaRoute.detail(source, item)) {
+                    let shift = reduceMotion ? 0 : CGFloat(direction) * width * travelFraction
+                    let route = EmbyMediaRoute.detail(source, item, origin: .carousel)
+                    NavigationLink(value: route) {
                         EmbyFeaturedPage(source: source, item: item, size: geometry.size,
                                          artwork: artwork?[item.id.localID], artworkIsPrepared: artwork != nil,
                                          featuredArtwork: featuredArtwork?[item.id],
                                          featuredArtworkIsPrepared: featuredArtwork != nil,
                                          showsPageControl: items.count > 1,
-                                         showsInformation: isCurrent && !isTransitioning)
+                                         showsInformation: isCurrent && !isTransitioning,
+                                         mirroredEdgeFraction: (isCurrent || isIncoming) && isTransitioning && !reduceMotion ? mirrorFraction : 0)
+                            .matchedTransitionSource(id: route, in: artworkZoom)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(verbatim: item.title))
-                    .scaleEffect(isCurrent && !reduceMotion ? 1 + progress * 0.16 : 1)
-                    .opacity(isCurrent ? 1 : isIncoming ? progress : 0)
-                    .offset(x: isCurrent ? -shift * progress * 0.08 : shift * (1 - progress) * 0.16)
+                    .opacity(isCurrent || isIncoming ? 1 : 0)
+                    .frame(width: width)
+                    .offset(x: isCurrent ? -shift * progress : shift * (1 - progress))
+                    .padding(.horizontal, width * mirrorFraction)
+                    .mask {
+                        if isIncoming { transitionMask(width: width) }
+                        else { Rectangle() }
+                    }
+                    .frame(width: width)
                     .zIndex(isIncoming ? 2 : isCurrent ? 1 : 0)
                     .allowsHitTesting(isCurrent && !isTransitioning)
                     .accessibilityHidden(!isCurrent)
@@ -456,6 +475,25 @@ private struct EmbyFeaturedCarousel: View {
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
             guard !Task.isCancelled, canRotate else { return }
             startTransition(to: wrappedIndex(currentIndex + 1), direction: 1)
+        }
+    }
+
+    @ViewBuilder
+    private func transitionMask(width: CGFloat) -> some View {
+        if reduceMotion {
+            Rectangle().opacity(progress)
+        } else {
+            let blendWidth = width * 0.4
+            let maskWidth = width + blendWidth
+            // The leading edge of the reveal travels across the entire viewport.
+            LinearGradient(stops: [.init(color: .clear, location: 0),
+                                   .init(color: .black, location: 2.0 / 7.0),
+                                   .init(color: .black, location: 1)],
+                           startPoint: UnitPoint(x: 0, y: 0.5), endPoint: UnitPoint(x: 1, y: 0.5))
+                .frame(width: maskWidth)
+                .offset(x: width + blendWidth / 2 - maskWidth * progress)
+                .frame(width: width)
+                .scaleEffect(x: CGFloat(direction), y: 1)
         }
     }
 
@@ -523,7 +561,7 @@ private struct EmbyFeaturedCarousel: View {
     }
 
     private var canRotate: Bool {
-        items.count > 1 && !isDragging && transitionID == nil && !reduceMotion
+        isMediaRoot && items.count > 1 && !isDragging && transitionID == nil && !reduceMotion
             && !voiceOverEnabled && scenePhase == .active
     }
 
@@ -579,6 +617,7 @@ struct EmbyFeaturedPage: View {
     let showsPageControl: Bool
     let showsInformation: Bool
     var seriesFooter: EmbySeriesHeroFooter? = nil
+    var mirroredEdgeFraction: CGFloat = 0
     @Environment(\.colorScheme) private var colorScheme
     @State private var loadedArtwork: EmbyFeaturedArtwork?
 
@@ -586,7 +625,9 @@ struct EmbyFeaturedPage: View {
         let images = featuredArtworkIsPrepared ? featuredArtwork : loadedArtwork
         MediaThumbnail(source: source, item: item, cornerRadius: 0, fixedHeight: size.height,
                        preloadedData: images?.poster ?? artwork,
-                       artworkIsPrepared: images?.poster != nil || artworkIsPrepared, showsPlaceholder: false)
+                       artworkIsPrepared: images?.poster != nil || artworkIsPrepared,
+                       mirroredEdgeFraction: mirroredEdgeFraction,
+                       showsMissingArtwork: featuredArtworkIsPrepared || loadedArtwork != nil)
             .frame(width: size.width, height: size.height)
             .overlay(alignment: .bottom) {
                 VStack(spacing: 10) {
@@ -610,8 +651,6 @@ struct EmbyFeaturedPage: View {
                     }
                 }
                 .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
-                .opacity(showsInformation ? 1 : 0)
-                .animation(.easeInOut(duration: 0.16), value: showsInformation)
                 .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.65), radius: 3, y: 1)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 20)
@@ -620,8 +659,9 @@ struct EmbyFeaturedPage: View {
                 .frame(minHeight: size.height * 0.4, alignment: .bottom)
                 .background {
                     Rectangle()
-                        .fill(.ultraThickMaterial)
-                        .overlay(colorScheme == .dark ? Color.black.opacity(0.24) : Color.white.opacity(0.24))
+                        .fill(.regularMaterial)
+                        .opacity(0.55)
+                        .overlay(colorScheme == .dark ? Color.black.opacity(0.18) : Color.white.opacity(0.14))
                         .mask {
                             LinearGradient(stops: [.init(color: .clear, location: 0),
                                                    .init(color: .black, location: 0.5),
@@ -629,6 +669,8 @@ struct EmbyFeaturedPage: View {
                                            startPoint: .top, endPoint: .bottom)
                         }
                 }
+                .opacity(showsInformation ? 1 : 0)
+                .animation(.easeInOut(duration: 0.16), value: showsInformation)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
@@ -718,28 +760,36 @@ private struct EmbyFeaturedPageControl: UIViewRepresentable {
 }
 
 private struct EmbyMediaRoute: Hashable {
+    enum Origin: Hashable {
+        case carousel
+        case shelf(String)
+        case library(String)
+    }
+
     let source: MediaSource
     let title: String
     let itemID: String
     let item: MediaItem?
+    var origin: Origin? = nil
     var opensLibrary: Bool { item == nil }
 
     static func library(_ source: MediaSource, id: String, title: String) -> Self {
         Self(source: source, title: title, itemID: id, item: nil)
     }
 
-    static func detail(_ source: MediaSource, _ item: MediaItem) -> Self {
-        Self(source: source, title: item.title, itemID: item.id.localID, item: item)
+    static func detail(_ source: MediaSource, _ item: MediaItem, origin: Origin) -> Self {
+        Self(source: source, title: item.title, itemID: item.id.localID, item: item, origin: origin)
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.source.id == rhs.source.id && lhs.itemID == rhs.itemID && lhs.opensLibrary == rhs.opensLibrary
+        lhs.source.id == rhs.source.id && lhs.itemID == rhs.itemID && lhs.opensLibrary == rhs.opensLibrary && lhs.origin == rhs.origin
     }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(source.id)
         hasher.combine(itemID)
         hasher.combine(opensLibrary)
+        hasher.combine(origin)
     }
 }
 
@@ -748,6 +798,8 @@ private struct EmbySeriesBrowserView: View {
     let groupTitle: String
     let parentID: String
     let scope: EmbyBrowseScope
+    let artworkZoom: Namespace.ID
+    let openDetail: (EmbyMediaRoute) -> Void
     @EnvironmentObject private var playback: PlaybackSession
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var items: [MediaItem] = []
@@ -764,14 +816,16 @@ private struct EmbySeriesBrowserView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    NavigationLink(value: EmbyMediaRoute.detail(source, item)) {
+                    let route = EmbyMediaRoute.detail(source, item, origin: .library(parentID))
+                    NavigationLink(value: route) {
                         MediaThumbnail(source: source, item: item, fixedHeight: layout.thumbnailHeight)
                             .mediaArtworkBorder()
+                            .matchedTransitionSource(id: route, in: artworkZoom)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(verbatim: item.title))
                     .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
-                                                 showsEmbyFacts: true) { EmptyView() })
+                                                 showsEmbyFacts: true, openEmbyDetails: { openDetail(route) }) { EmptyView() })
                     .onAppear {
                         if didLoadFirstPage, index >= items.count - 5, errorMessage == nil {
                             Task { await loadPage() }

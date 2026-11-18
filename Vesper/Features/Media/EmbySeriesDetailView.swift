@@ -93,13 +93,10 @@ struct EmbySeriesDetailView: View {
     @State private var selectedSeason: Int?
     @State private var seasonMovesForward = true
     @State private var openedEpisodeID: MediaID?
-    @State private var scrollPhase: ScrollPhase = .idle
-    @State private var scrollY: CGFloat = 0
-    @State private var dragStartedAtTop = false
-    @State private var dismissalPull: CGFloat = 0
-    @State private var isDismissing = false
+    @State private var hasScrolled = false
+    @Namespace private var recommendationZoom
     @State private var busy: Set<MediaID> = []
-    @State private var presentedItem: MediaItem?
+    @State private var openedRecommendation: MediaItem?
     @State private var loadError: String?
     @State private var actionError: String?
     @State private var isLoading = true
@@ -117,30 +114,13 @@ struct EmbySeriesDetailView: View {
                 }
                 .padding(.bottom, 20)
             }
-            .scrollEdgeEffectHidden(true, for: .top)
-            .scrollBounceBehavior(.always, axes: .vertical)
-            .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentOffset.y + geometry.contentInsets.top
-            } action: { _, offset in
-                scrollY = offset
-                if scrollPhase == .interacting, dragStartedAtTop, !isDismissing {
-                    dismissalPull = max(0, -offset)
-                }
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .scrollEdgeEffectHidden(!hasScrolled, for: .top)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top > 0.5
+            } action: { _, hasScrolled in
+                self.hasScrolled = hasScrolled
             }
-            .onScrollPhaseChange { oldPhase, newPhase in
-                scrollPhase = newPhase
-                if newPhase == .interacting {
-                    dragStartedAtTop = scrollY <= 1
-                    dismissalPull = dragStartedAtTop ? max(0, -scrollY) : 0
-                } else if oldPhase == .interacting, !isDismissing {
-                    finishDismissalPull()
-                }
-            }
-            .background(VesperTheme.background)
-            .clipShape(RoundedRectangle(cornerRadius: reduceMotion ? 0 : min(24, dismissalPull / 4)))
-            .scaleEffect(reduceMotion ? 1 : 1 - min(0.2, dismissalPull / 440), anchor: .top)
-            .offset(y: reduceMotion ? 0 : dismissalPull * 0.32)
-            .allowsHitTesting(!isDismissing)
         }
         .ignoresSafeArea(.container, edges: .top)
         .background(VesperTheme.background.ignoresSafeArea())
@@ -166,8 +146,8 @@ struct EmbySeriesDetailView: View {
                 EmbyEpisodeDetailView(source: source, episode: episode)
             }
         }
-        .sheet(item: $presentedItem) { item in
-            NavigationStack { embySheetDetails(source: source, item: item) }
+        .navigationDestination(item: $openedRecommendation) { item in
+            recommendationDestination(for: item)
         }
         .alert("无法更新观看记录", isPresented: Binding(
             get: { actionError != nil }, set: { if !$0 { actionError = nil } }
@@ -177,16 +157,15 @@ struct EmbySeriesDetailView: View {
         .task(id: series.id) { await load() }
     }
 
-    private func finishDismissalPull() {
-        guard dismissalPull > 0 else { return }
-        if dismissalPull >= 76 {
-            isDismissing = true
-            dismiss()
-        } else {
-            withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.82)) {
-                dismissalPull = 0
-            }
+    // A recommendation can open another instance of this view.
+    private func recommendationDestination(for item: MediaItem) -> AnyView {
+        if item.isEmbySeries {
+            return AnyView(
+                EmbySeriesDetailView(source: source, series: item)
+                    .navigationTransition(.zoom(sourceID: item.id, in: recommendationZoom))
+            )
         }
+        return AnyView(EmbyItemDetailView(source: source, item: item))
     }
 
     private func hero(width: CGFloat) -> some View {
@@ -304,15 +283,16 @@ struct EmbySeriesDetailView: View {
             Text("类似作品").font(.system(size: 16, weight: .semibold)).padding(.horizontal, 20)
             shelf {
                 ForEach(similar) { item in
-                    Button { presentedItem = item } label: {
+                    Button { openedRecommendation = item } label: {
                         MediaThumbnail(source: source, item: item)
                             .frame(width: CGFloat(layout[.itemWidth]), height: CGFloat(layout[.itemHeight]))
                             .mediaArtworkBorder()
+                            .matchedTransitionSource(id: item.id, in: recommendationZoom)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(verbatim: item.title))
                     .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
-                                                 showsEmbyFacts: true) { EmptyView() })
+                                                 showsEmbyFacts: true, openEmbyDetails: { openedRecommendation = item }) { EmptyView() })
                 }
             }
         }
@@ -329,7 +309,7 @@ struct EmbySeriesDetailView: View {
                             if let image = credit.image {
                                 MediaThumbnail(source: source, item: image, aspectRatio: 1)
                             } else {
-                                Image(systemName: "person.crop.circle.fill").resizable().foregroundStyle(.secondary)
+                                MediaCardBackdrop(showsMissingArtwork: true)
                             }
                         }
                         .frame(width: 78, height: 78)
@@ -420,13 +400,22 @@ struct EmbySeriesDetailView: View {
     }
 }
 
-// Recommendations can lead to another series, so keep recursive sheet content erased.
+// Recommendations can show a series recursively, so erase the sheet's view type.
 @MainActor
-func embySheetDetails(source: MediaSource, item: MediaItem) -> AnyView {
+func embyDetailsSheet(source: MediaSource, item: MediaItem, artworkZoom: Namespace.ID) -> AnyView {
     if item.isEmbySeries {
-        return AnyView(EmbySeriesDetailView(source: source, series: item, showsCloseButton: true))
+        return AnyView(
+            NavigationStack {
+                EmbySeriesDetailView(source: source, series: item, showsCloseButton: true)
+            }
+            .navigationTransition(.zoom(sourceID: item.id, in: artworkZoom))
+        )
     }
-    return AnyView(EmbyItemDetailView(source: source, item: item, showsCloseButton: true))
+    return AnyView(
+        NavigationStack {
+            EmbyItemDetailView(source: source, item: item, showsCloseButton: true)
+        }
+    )
 }
 
 extension EmbyEpisode {
@@ -461,50 +450,63 @@ private struct EmbyEpisodeCard: View {
     let mark: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
-    @State private var image: UIImage?
-    @State private var bottomStrip: UIImage?
+    @State private var loadedArtwork: EpisodeArtwork?
+
+    private struct EpisodeArtwork {
+        let key: String
+        let image: UIImage?
+        let bottomStrip: UIImage?
+    }
+
+    private var artworkKey: String { AppCacheStore.embyArtworkKey(for: episode.item, source: source) }
+
+    private var artwork: EpisodeArtwork? {
+        loadedArtwork?.key == artworkKey ? loadedArtwork : nil
+    }
 
     private var title: String { episode.displayTitle }
     private var showsEpisodeNumber: Bool { episode.displayTitle != episode.numberLabel }
 
     private var artworkHeight: CGFloat {
-        guard let image else { return 0 }
+        guard let image = artwork?.image else { return 0 }
         return width * image.size.height / max(1, image.size.width)
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            VesperTheme.background
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .frame(width: width, height: artworkHeight)
-                    .frame(width: width, height: height, alignment: .top)
-            }
-            let blendStart = min(height * 0.38, max(0, artworkHeight - 32))
-            blurredArtwork(height: height - blendStart)
-                .offset(y: blendStart)
+        let showsMissingArtwork = artwork != nil && artwork?.image == nil
+
+        MediaCardBackdrop(showsMissingArtwork: showsMissingArtwork, iconCenterY: 1.0 / 3)
+        .frame(width: width, height: height)
+        .overlay(alignment: .top) {
+            if let image = artwork?.image {
+                ZStack(alignment: .top) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .frame(width: width, height: artworkHeight)
+                        .frame(width: width, height: height, alignment: .top)
+                        .clipped()
+                    let blendStart = min(height * 0.38, max(0, artworkHeight - 32))
+                    blurredArtwork(height: height - blendStart)
+                        .offset(y: blendStart)
+                }
                 .allowsHitTesting(false)
-            VStack {
-                Spacer(minLength: 0)
-                details
             }
         }
-        .frame(width: width, height: height)
+        .overlay(alignment: .bottomLeading) { details }
         .mediaArtworkBorder(cornerRadius: 16)
         .contentShape(RoundedRectangle(cornerRadius: 16))
         .onTapGesture(perform: open)
         .accessibilityAddTraits(.isButton)
         .contextMenu { actions } preview: {
             VStack(alignment: .leading, spacing: 8) {
-                if let image {
-                    Image(uiImage: image).resizable().scaledToFit()
-                        .mediaArtworkBorder()
-                } else {
-                    RoundedRectangle(cornerRadius: 12).fill(.regularMaterial)
-                        .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                        .mediaArtworkBorder()
-                }
+                MediaCardBackdrop(showsMissingArtwork: showsMissingArtwork)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .overlay {
+                        if let image = artwork?.image {
+                            Image(uiImage: image).resizable().scaledToFit()
+                        }
+                    }
+                    .mediaArtworkBorder()
                 if showsEpisodeNumber {
                     Text(verbatim: episode.numberLabel).font(.caption).foregroundStyle(.secondary)
                 }
@@ -513,16 +515,17 @@ private struct EmbyEpisodeCard: View {
             .frame(width: 280)
             .padding(12)
         }
-        .task(id: AppCacheStore.embyArtworkKey(for: episode.item, source: source)) {
-            guard let data = await MediaThumbnailLoader.shared.load(episode.item, source: source),
-                  !Task.isCancelled, let decoded = UIImage(data: data) else { return }
-            image = decoded
-            bottomStrip = nil
-            if let cgImage = decoded.cgImage {
+        .task(id: artworkKey) {
+            let key = artworkKey
+            let data = await MediaThumbnailLoader.shared.load(episode.item, source: source)
+            guard !Task.isCancelled else { return }
+            let image = data.flatMap { UIImage(data: $0) }
+            let bottomStrip = image.flatMap(\.cgImage).flatMap { cgImage in
                 let depth = max(1, cgImage.height / 6)
-                bottomStrip = cgImage.cropping(to: CGRect(x: 0, y: cgImage.height - depth,
-                                                        width: cgImage.width, height: depth)).map { UIImage(cgImage: $0) }
+                return cgImage.cropping(to: CGRect(x: 0, y: cgImage.height - depth,
+                                                 width: cgImage.width, height: depth)).map { UIImage(cgImage: $0) }
             }
+            loadedArtwork = EpisodeArtwork(key: key, image: image, bottomStrip: bottomStrip)
         }
     }
 
@@ -545,7 +548,7 @@ private struct EmbyEpisodeCard: View {
 
     private func blurredArtwork(height: CGFloat) -> some View {
         ZStack {
-            if let bottomStrip {
+            if let bottomStrip = artwork?.bottomStrip {
                 Image(uiImage: bottomStrip).resizable()
                     .frame(width: width + 44, height: height + 44)
                     .blur(radius: 22)

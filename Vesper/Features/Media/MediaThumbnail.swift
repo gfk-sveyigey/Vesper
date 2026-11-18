@@ -16,8 +16,19 @@ struct MediaThumbnail: View {
     var fixedHeight: CGFloat? = nil
     var preloadedData: Data? = nil
     var artworkIsPrepared = false
-    var showsPlaceholder = true
-    @State private var image: UIImage?
+    var mirroredEdgeFraction: CGFloat = 0
+    var showsMissingArtwork = true
+    var usesMediaCardBackdrop = true
+    @State private var loadedArtwork: LoadedArtwork?
+
+    private struct LoadedArtwork {
+        let key: String
+        let image: UIImage?
+    }
+
+    private var loadKey: String {
+        "\(AppCacheStore.embyArtworkKey(for: item, source: source)):\(aspectRatio):\(cacheOnly)"
+    }
 
     var body: some View {
         sizedArtwork
@@ -29,11 +40,18 @@ struct MediaThumbnail: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay {
+            if mirroredEdgeFraction > 0 {
+                mirroredEdges
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .contentShape(Rectangle())
         .accessibilityHidden(true)
-        .task(id: "\(AppCacheStore.embyArtworkKey(for: item, source: source)):\(aspectRatio)") {
+        .task(id: artworkIsPrepared ? nil : loadKey) {
             guard !artworkIsPrepared else { return }
-            image = nil
+            let key = loadKey
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.begin source=\(source.kind.rawValue) item=\(item.id.localID)") }
             let data = await MediaThumbnailLoader.shared.load(item, source: source, aspectRatio: aspectRatio,
                                                              diagnostics: logsQueueDiagnostics, cacheOnly: cacheOnly)
@@ -41,9 +59,8 @@ struct MediaThumbnail: View {
                 if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.cancelled item=\(item.id.localID)") }
                 return
             }
-            if let data, let loadedImage = UIImage(data: data) {
-                image = loadedImage
-            }
+            let image = data.flatMap { UIImage(data: $0) }
+            loadedArtwork = LoadedArtwork(key: key, image: image)
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.end item=\(item.id.localID) bytes=\(data?.count ?? 0) decoded=\(image != nil)") }
         }
     }
@@ -57,19 +74,78 @@ struct MediaThumbnail: View {
         }
     }
 
+    private var cover: UIImage? {
+        if artworkIsPrepared { return preloadedData.flatMap { UIImage(data: $0) } }
+        return loadedArtwork?.key == loadKey ? loadedArtwork?.image : nil
+    }
+
     private var artwork: some View {
         GeometryReader { geometry in
+            let cover = cover
+            let finishedLoading = artworkIsPrepared || loadedArtwork?.key == loadKey
             ZStack {
-                if showsPlaceholder { Rectangle().fill(.regularMaterial) }
-                if let cover = artworkIsPrepared ? preloadedData.flatMap({ UIImage(data: $0) }) : image {
-                    Image(uiImage: cover)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
+                if usesMediaCardBackdrop {
+                    MediaCardBackdrop(showsMissingArtwork: showsMissingArtwork && finishedLoading && cover == nil)
+                } else {
+                    Rectangle().fill(.regularMaterial)
+                }
+                if let cover {
+                    croppedArtwork(cover, size: geometry.size)
                 }
             }
         }
+    }
+
+    private func croppedArtwork(_ image: UIImage, size: CGSize) -> some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: size.width, height: size.height)
+            .clipped()
+    }
+
+    private var mirroredEdges: some View {
+        GeometryReader { geometry in
+            let size = geometry.size
+            let edgeWidth = size.width * mirroredEdgeFraction
+            let reflection = ZStack {
+                MediaCardBackdrop()
+                if let cover { croppedArtwork(cover, size: size).scaleEffect(x: -1, y: 1) }
+            }
+            .frame(width: size.width, height: size.height)
+
+            // Reflect the visible crop so the outermost pixels meet along each edge.
+            reflection
+                .frame(width: edgeWidth, alignment: .trailing)
+                .clipped()
+                .offset(x: -edgeWidth)
+            reflection
+                .frame(width: edgeWidth, alignment: .leading)
+                .clipped()
+                .offset(x: size.width)
+        }
+    }
+}
+
+struct MediaCardBackdrop: View {
+    var showsMissingArtwork = false
+    var iconCenterY: CGFloat = 0.5
+    @AppStorage("navigation.icons") private var navigationIcons = "{}"
+
+    var body: some View {
+        Color("VesperSecondaryBackground")
+            .overlay {
+                if showsMissingArtwork {
+                    GeometryReader { geometry in
+                        let size = geometry.size
+                        Image(systemName: AppSection.media.symbol(configuredIcons: navigationIcons))
+                            .font(.system(size: min(44, min(size.width, size.height) * 0.28)))
+                            .foregroundStyle(.secondary)
+                            .position(x: size.width / 2, y: size.height * iconCenterY)
+                    }
+                }
+            }
+            .accessibilityHidden(true)
     }
 }
 
@@ -377,6 +453,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     var preloadedData: Data? = nil
     var artworkIsPrepared = false
     var showsEmbyFacts = false
+    var openEmbyDetails: (() -> Void)? = nil
     @ViewBuilder let actions: () -> Actions
     @State private var shareResource: ResolvedPlaybackResource?
     @State private var showingShare = false
@@ -384,6 +461,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     @State private var shareError: String?
     @State private var showingShareError = false
     @State private var showingEmbyDetails = false
+    @Namespace private var detailsZoom
     @State private var updatingWatchState = false
     @State private var clearedServerProgress = false
     @State private var markedAsPlayed = false
@@ -397,11 +475,23 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
         !clearedServerProgress && (item.resumePosition ?? 0) > 0
     }
 
+    @ViewBuilder
+    private func detailsArtwork(_ content: Content) -> some View {
+        if source.kind == .emby, item.isEmbySeries, openEmbyDetails == nil {
+            content.matchedTransitionSource(id: item.id, in: detailsZoom)
+        } else {
+            content
+        }
+    }
+
     func body(content: Content) -> some View {
-        content
+        detailsArtwork(content)
             .contextMenu {
                 if source.kind == .emby {
-                    Button("详情", systemImage: "info.circle") { showingEmbyDetails = true }
+                    Button("详情", systemImage: "info.circle") {
+                        if let openEmbyDetails { openEmbyDetails() }
+                        else { showingEmbyDetails = true }
+                    }
                 } else {
                     Button("分享", systemImage: "square.and.arrow.up") { share() }
                         .disabled(preparingShare)
@@ -434,7 +524,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 if let shareResource { MediaVideoShareSheet(url: shareResource.url) }
             }
             .sheet(isPresented: $showingEmbyDetails) {
-                NavigationStack { embySheetDetails(source: source, item: item) }
+                embyDetailsSheet(source: source, item: item, artworkZoom: detailsZoom)
             }
             .onChange(of: item.resumePosition) { _, _ in clearedServerProgress = false }
             .onChange(of: item.isPlayed) { _, _ in markedAsPlayed = false }
@@ -498,7 +588,8 @@ private struct MediaThumbnailPreview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             MediaThumbnail(source: source, item: item, cacheOnly: true,
-                           preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared)
+                           preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared,
+                           usesMediaCardBackdrop: historyEntry == nil)
                 .frame(width: 200, height: 300)
                 .mediaArtworkBorder()
             Text(verbatim: displayName).lineLimit(2)

@@ -15,7 +15,11 @@ enum AppSection: String, CaseIterable, Identifiable {
     }
 
     var symbol: String {
-        let data = (UserDefaults.standard.string(forKey: "navigation.icons") ?? "{}").data(using: .utf8) ?? Data()
+        symbol(configuredIcons: UserDefaults.standard.string(forKey: "navigation.icons") ?? "{}")
+    }
+
+    func symbol(configuredIcons: String) -> String {
+        let data = Data(configuredIcons.utf8)
         let saved = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
         if let symbol = saved[rawValue], iconChoices.contains(symbol) { return symbol }
         return defaultSymbol
