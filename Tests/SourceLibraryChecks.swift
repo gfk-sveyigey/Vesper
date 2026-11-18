@@ -44,6 +44,33 @@ struct SourceLibraryChecks {
         let emptyRestored = SourceLibrary(defaults: defaults)
         precondition(emptyRestored.sources.isEmpty && emptyRestored.selectedID == nil)
 
+        // Device sources are unique by kind and bookmarks survive persistence.
+        library.addDeviceSource(kind: .local, name: "Local", bookmark: Data([1, 2, 3]))
+        library.addDeviceSource(kind: .local, name: "Duplicate", bookmark: Data([4]))
+        precondition(library.sources.count == 1)
+        precondition(library.sources[0].folderBookmark == Data([1, 2, 3]))
+        let deviceRestored = SourceLibrary(defaults: defaults)
+        precondition(deviceRestored.sources == library.sources)
+        library.remove(library.sources[0].id)
+
+        // Importing creates/selects one Documents-backed local source, including
+        // migration from a legacy folder bookmark, without duplicate sources.
+        library.selectImportedVideos(name: "Local")
+        let importedID = library.selectedID
+        precondition(library.sources.count == 1 && library.selectedSource?.kind == .local)
+        precondition(library.selectedSource?.folderBookmark == nil)
+        library.selectImportedVideos(name: "Local")
+        precondition(library.sources.count == 1 && library.selectedID == importedID)
+        library.remove(importedID!)
+        library.addDeviceSource(kind: .local, name: "Legacy", bookmark: Data([1]))
+        let legacyID = library.selectedID
+        library.selectImportedVideos(name: "Local")
+        precondition(library.selectedID == legacyID && library.sources.count == 1)
+        precondition(library.selectedSource?.folderBookmark == nil)
+        let importedRestored = SourceLibrary(defaults: defaults)
+        precondition(importedRestored.sources == library.sources && importedRestored.selectedID == legacyID)
+        library.remove(legacyID!)
+
         // Adapter deliberately ignores cancellation: generation guard must still
         // reject the old source's late completion.
         let race = SourceLibrary(defaults: defaults, adapter: UncooperativeAdapter())

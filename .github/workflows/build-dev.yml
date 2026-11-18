@@ -6,8 +6,10 @@ name: Build (dev)
 on:
   push:
     branches: [ dev ]
-    paths-ignore:
-      - VERSION
+    paths:
+      - 'Vesper/**'
+      - 'Vesper.xcodeproj/**'
+      - 'Info.plist'
   # 需要时也可以在 Actions 页面手动触发（手动触发不受上面的路径过滤影响）
   workflow_dispatch:
 
@@ -21,16 +23,18 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: xcode-27
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 26
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: '26'
+      - name: Verify Xcode 27 toolchain
+        run: |
+          set -e
+          xcodebuild -version
+          xcrun swift --version
+          xcodebuild -version | grep -Eq '^Xcode 27([.]|$)' || { echo "::error::Expected Xcode 27"; exit 1; }
 
       # 与发布流程一致的前置校验，让工程配置问题尽早暴露
       - name: Validate project inputs

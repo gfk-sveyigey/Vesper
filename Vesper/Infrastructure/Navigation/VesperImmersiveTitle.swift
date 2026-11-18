@@ -1,62 +1,190 @@
 import SwiftUI
 
-/// Each persistent root owns its title state and native scroll edge effect.
-private struct VesperImmersiveTitle: ViewModifier {
+/// Each root page owns its header state; detail navigation stays native.
+struct VesperRootScrollView<Actions: View, Content: View>: View {
     let title: LocalizedStringKey
+    private let actions: Actions
+    private let content: Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.vesperWindowTopInset) private var windowTopInset
-    @State private var state = ImmersiveTitleState()
-    @State private var isTitleCollapsed = false
+    @Environment(\.vesperWindowTopInset) private var topInset
+    @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
+    @ScaledMetric(relativeTo: .largeTitle) private var titleLineHeight: CGFloat = 41
+    @State private var scrollOffset: CGFloat = 0
+    @State private var headerOffset: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+    @State private var isSystemScrolling = false
+    @State private var isCollapsed = false
+    @State private var isSnapping = false
+    @State private var animationGeneration = 0
+    @State private var expandedScrollOrigin: CGFloat = 0
+    @State private var isReturningToExpanded = false
 
-    func body(content: Content) -> some View {
-        content
-            // Extend the viewport beneath the empty, visible navigation bar.
-            // Reserve only the outer Host's status safe area, not the bar height.
-            .contentMargins(.top, windowTopInset, for: .scrollContent)
-            .scrollEdgeEffectStyle(.soft, for: .top)
-            .scrollEdgeEffectHidden(false, for: .top)
-            .ignoresSafeArea(.container, edges: .top)
-            .environment(\.vesperTitleCollapsed, isTitleCollapsed)
-            .environment(\.vesperTitleFadeProgress, state.fadeProgress)
-            .onScrollGeometryChange(for: Double.self) { geometry in
-                Double(geometry.contentOffset.y + geometry.contentInsets.top)
-            } action: { _, offset in
-                observe(offset: offset)
-            }
-            .onScrollPhaseChange { oldPhase, phase, context in
-                let offset = Double(context.geometry.contentOffset.y + context.geometry.contentInsets.top)
-                observe(offset: offset, didStop: oldPhase.isScrolling && phase == .idle)
-            }
-            .vesperNavigationTitle(title)
-            .vesperNavigationStyle(.inline)
-            .onDisappear {
-                state.settle()
-                var transaction = Transaction(animation: nil)
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { isTitleCollapsed = state.isCollapsed }
-            }
+    init(title: LocalizedStringKey, @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
+        self.title = title
+        self.content = content()
+        self.actions = actions()
     }
 
-    private func observe(offset: Double, didStop: Bool = false) {
-        guard let transition = state.observe(offset: offset, didStop: didStop) else { return }
-        withAnimation(
-            .easeInOut(duration: reduceMotion ? 0.18 : 0.30),
-            completionCriteria: .logicallyComplete
-        ) {
-            isTitleCollapsed = transition.isCollapsed
-        } completion: {
-            state.complete(transition)
+    private var animation: Animation {
+        reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.38, dampingFraction: 0.88)
+    }
+
+    private var headerHeight: CGFloat {
+        headerContentHeight + topInset
+    }
+
+    private var contentReachesTitleOffset: CGFloat {
+        headerContentHeight - max(0, (headerContentHeight - titleLineHeight) / 2)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: headerHeight)
+                    .accessibilityHidden(true)
+                content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 20)
+                    .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
+            }
+            .frame(minHeight: viewportHeight + headerHeight, alignment: .top)
+        }
+        .scrollClipDisabled()
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+        .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
+            ScrollMetrics(
+                offset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
+                viewportHeight: max(0, geometry.containerSize.height - geometry.contentInsets.bottom)
+            )
+        } action: { _, metrics in
+            viewportHeight = metrics.viewportHeight
+            scrollOffset = metrics.offset
+            updateHeader(at: metrics.offset)
+        }
+        .onScrollPhaseChange { oldPhase, newPhase in
+            if newPhase == .animating {
+                animationGeneration += 1
+                isSnapping = false
+                isReturningToExpanded = false
+                isSystemScrolling = true
+                expandedScrollOrigin = 0
+                // System scroll-to-top reveals content and Header together.
+                withAnimation(animation) {
+                    isCollapsed = false
+                    headerOffset = 0
+                }
+            } else if newPhase == .interacting {
+                isSystemScrolling = false
+                if isReturningToExpanded {
+                    animationGeneration += 1
+                    isReturningToExpanded = false
+                    isSnapping = false
+                    expandedScrollOrigin = scrollOffset
+                }
+            } else if newPhase == .idle {
+                if isReturningToExpanded { expandedScrollOrigin = scrollOffset }
+                isReturningToExpanded = false
+                isSystemScrolling = false
+            }
+            if oldPhase == .interacting, newPhase != .interacting,
+               !isCollapsed, headerOffset > 0.5, scrollOffset > 0.5 {
+                settleHeader(collapsed: headerOffset >= headerHeight * 0.1125 || scrollOffset > contentReachesTitleOffset)
+            }
+        }
+        .preference(key: VesperRootHeaderKey.self, value: AnyView(header))
+        .ignoresSafeArea(.container, edges: .top)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
+        .scrollEdgeEffectStyle(.soft, for: .vertical)
+        .scrollEdgeEffectHidden(false, for: .vertical)
+    }
+
+    private var header: some View {
+        HStack(spacing: 16) {
+            Text(title)
+                .font(.largeTitle.bold())
+                .foregroundStyle(Color("VesperPrimaryText"))
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 0)
+            actions
+        }
+        .padding(.horizontal, 20)
+        .frame(height: headerContentHeight)
+        .padding(.top, topInset)
+        .frame(maxWidth: .infinity)
+        .background {
+            Rectangle().fill(.ultraThinMaterial)
+                .opacity(headerOffset > 0 ? 1 : 0)
+        }
+        .compositingGroup()
+        .blur(radius: 8 * min(1, max(0, headerOffset / headerHeight)))
+        .opacity(1 - min(1, max(0, headerOffset / headerHeight)))
+        .offset(y: reduceMotion ? 0 : -headerOffset)
+        .allowsHitTesting(!isCollapsed && headerOffset < headerHeight)
+        .accessibilityHidden(isCollapsed)
+        .clipped()
+    }
+
+    private func updateHeader(at offset: CGFloat) {
+        // Geometry updates must not overwrite the independent return animation.
+        guard !isSystemScrolling else { return }
+        if offset <= 0.5 {
+            guard headerOffset > 0 || isCollapsed || isSnapping else { return }
+            animationGeneration += 1
+            isSnapping = false
+            isReturningToExpanded = false
+            expandedScrollOrigin = 0
+            withAnimation(animation) {
+                isCollapsed = false
+                headerOffset = 0
+            }
+        } else if isReturningToExpanded {
+            expandedScrollOrigin = offset
+        } else if !isCollapsed && !isSnapping {
+            headerOffset = max(headerOffset, min(max(0, offset - expandedScrollOrigin), headerHeight))
         }
     }
+
+    private func settleHeader(collapsed: Bool) {
+        guard !isSnapping, !isCollapsed else { return }
+        isSnapping = true
+        isCollapsed = collapsed
+        isReturningToExpanded = !collapsed
+        if !collapsed { expandedScrollOrigin = scrollOffset }
+        animationGeneration += 1
+        let generation = animationGeneration
+        withAnimation(animation, completionCriteria: .logicallyComplete) {
+            headerOffset = collapsed ? headerHeight : 0
+        } completion: {
+            guard generation == animationGeneration else { return }
+            isSnapping = false
+        }
+    }
+
+    private struct ScrollMetrics: Equatable {
+        let offset: CGFloat
+        let viewportHeight: CGFloat
+    }
+
 }
 
-extension View {
-    func vesperImmersiveTitle(_ title: LocalizedStringKey) -> some View {
-        modifier(VesperImmersiveTitle(title: title))
+extension VesperRootScrollView where Actions == EmptyView {
+    init(title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
+        self.init(title: title, content: content) { EmptyView() }
     }
 }
 
-/// The outer page Host measures this before its NavigationStack adds bar insets.
 private struct VesperWindowTopInsetKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
@@ -68,53 +196,45 @@ extension EnvironmentValues {
     }
 }
 
-private struct VesperTitleCollapsedKey: EnvironmentKey {
-    static let defaultValue = false
-}
+/// Lift the root Header above the entire navigation stack without changing
+/// UIKit hit-testing, navigation bar visibility, or tab interactions.
+private struct VesperRootHeaderKey: PreferenceKey {
+    static var defaultValue: AnyView? { nil }
 
-private struct VesperTitleFadeProgressKey: EnvironmentKey {
-    static let defaultValue: Double = 0
-}
-
-private extension EnvironmentValues {
-    var vesperTitleFadeProgress: Double {
-        get { self[VesperTitleFadeProgressKey.self] }
-        set { self[VesperTitleFadeProgressKey.self] = newValue }
-    }
-
-    var vesperTitleCollapsed: Bool {
-        get { self[VesperTitleCollapsedKey.self] }
-        set { self[VesperTitleCollapsedKey.self] = newValue }
+    static func reduce(value: inout AnyView?, nextValue: () -> AnyView?) {
+        if let next = nextValue() { value = next }
     }
 }
 
-/// A scroll-content item with no background, snapshot, or custom blur. Its
-/// layout height stays stable so collapse cannot feed back into scroll geometry.
-struct VesperLargeTitle: View {
-    let title: LocalizedStringKey
-    @Environment(\.vesperTitleCollapsed) private var isCollapsed
-    @Environment(\.vesperTitleFadeProgress) private var fadeProgress
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var height: CGFloat = 80
+struct VesperNavigationHeaderLayer: ViewModifier {
+    let isRoot: Bool
 
-    init(_ title: LocalizedStringKey) { self.title = title }
+    func body(content: Content) -> some View {
+        content.overlayPreferenceValue(VesperRootHeaderKey.self, alignment: .top) { header in
+            if isRoot, let header {
+                header.ignoresSafeArea(.container, edges: .top)
+            }
+        }
+    }
+}
 
+private struct VesperEmptyContentHeightKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 420
+}
+
+extension EnvironmentValues {
+    var vesperEmptyContentHeight: CGFloat {
+        get { self[VesperEmptyContentHeightKey.self] }
+        set { self[VesperEmptyContentHeightKey.self] = newValue }
+    }
+}
+
+struct VesperCenteredEmptyContent: View {
+    let message: LocalizedStringKey
+    let symbol: String
+    @Environment(\.vesperEmptyContentHeight) private var height
     var body: some View {
-        Text(title)
-            .font(.largeTitle.bold())
-            .foregroundStyle(Color("VesperPrimaryText"))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-            // Natural movement belongs to ScrollView. This independent offset
-            // changes only after idle (or when restoring at the very top).
-            .offset(y: isCollapsed && !reduceMotion ? -height : 0)
-            .opacity(isCollapsed ? 0 : 1 - fadeProgress)
-            .clipped()
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityHidden(isCollapsed || fadeProgress >= 1)
-            .allowsHitTesting(false)
+        VesperEmptyContent(message: message, symbol: symbol)
+            .frame(maxWidth: .infinity, minHeight: height)
     }
 }

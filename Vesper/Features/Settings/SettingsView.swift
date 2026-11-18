@@ -2,19 +2,24 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs
+    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku
 
     var title: LocalizedStringKey {
         switch self {
+        case .gestures: "播放手势"
+        case .playback: "播放设置"
+        case .subtitles: "字幕设置"
+        case .danmaku: "弹幕设置"
         case .tabs: "标签设置"
         case .appearance: "外观设置"
         case .logs: "运行日志"
+        case .licenses: "开源许可"
         }
     }
 }
 
 struct SettingsView: View {
-    let openSection: (AppSection) -> Void
+    @EnvironmentObject private var playback: PlaybackSession
     @AppStorage("language.code") private var languageCode = "system"
 
     private var version: String {
@@ -22,72 +27,109 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                VesperLargeTitle("设置")
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-            .listSectionMargins([.horizontal, .bottom], 0)
-            Section("应用") {
-                NavigationLink(value: SettingsRoute.tabs) { SettingsLabel("标签设置", symbol: "rectangle.3.group") }
-                NavigationLink(value: SettingsRoute.appearance) { SettingsLabel("外观设置", symbol: "paintpalette") }
-                NavigationLink(value: SettingsRoute.logs) { SettingsLabel("运行日志", symbol: "doc.text") }
-                Picker(selection: $languageCode) {
-                    Text("跟随系统").tag("system")
-                    Text(verbatim: "简体中文").tag("zh-Hans")
-                    Text(verbatim: "繁體中文").tag("zh-Hant")
-                    Text(verbatim: "English").tag("en")
-                    Text(verbatim: "Deutsch").tag("de")
-                    Text(verbatim: "Español").tag("es")
-                    Text(verbatim: "Français").tag("fr")
-                    Text(verbatim: "日本語").tag("ja")
-                    Text(verbatim: "한국어").tag("ko")
-                } label: { SettingsLabel("语言设置", symbol: "globe") }
-                .pickerStyle(.menu)
-            }
-            Section {
-                LabeledContent { Text("尚未接入") } label: { SettingsLabel("播放器偏好", symbol: "play.rectangle") }
-                LabeledContent { Text("尚未连接") } label: { SettingsLabel("IMDb", symbol: "film") }
-                LabeledContent { Text("尚未连接") } label: { Label {
-                    Text(verbatim: "Trakt")
-                } icon: {
-                    Image("TraktIcon")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 22, height: 22)
-                        .foregroundStyle(.tint)
-                } }
-            } header: {
-                Text("后续功能")
-            } footer: {
-                Text("播放器和外部服务将在对应阶段接入，当前不会提供无效的开关或连接按钮。")
-            }
-            Section {
-                EmptyView()
-            } footer: {
+        VesperRootScrollView(title: "设置") {
+            VStack(alignment: .leading, spacing: 32) {
+                VStack(spacing: 0) {
+                    settingsLink(.tabs, title: "标签设置", symbol: "rectangle.3.group")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.logs, title: "运行日志", symbol: "doc.text")
+                    Divider().padding(.leading, 52)
+                        HStack {
+                            SettingsLabel("语言设置", symbol: "globe")
+                            Spacer(minLength: 12)
+                            Picker(selection: $languageCode) {
+                                Text("跟随系统").tag("system")
+                                Text(verbatim: "简体中文").tag("zh-Hans")
+                                Text(verbatim: "繁體中文").tag("zh-Hant")
+                                Text(verbatim: "English").tag("en")
+                                Text(verbatim: "Deutsch").tag("de")
+                                Text(verbatim: "Español").tag("es")
+                                Text(verbatim: "Français").tag("fr")
+                                Text(verbatim: "日本語").tag("ja")
+                                Text(verbatim: "한국어").tag("ko")
+                            } label: { SettingsLabel("语言设置", symbol: "globe") }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            .buttonStyle(.plain)
+                            .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .padding(.vertical, 12)
+                        .padding(.leading, 12)
+                }
+                VStack(spacing: 0) {
+                    settingsLink(.playback, title: "播放设置", symbol: "play.circle")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.gestures, title: "播放手势", symbol: "hand.draw")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.subtitles, title: "字幕设置", symbol: "captions.bubble")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.danmaku, title: "弹幕设置", symbol: "text.bubble")
+                }
+                VStack(spacing: 0) {
+                        HStack {
+                            SettingsLabel("IMDb", symbol: "film")
+                            Spacer()
+                            Text("尚未连接").foregroundStyle(.secondary)
+                        }.padding(12)
+                        Divider().padding(.leading, 56)
+                        HStack(spacing: 12) {
+                            Image("TraktIcon")
+                                .renderingMode(.template)
+                                .resizable().scaledToFit()
+                                .frame(width: 20, height: 20)
+                                .frame(width: 28, height: 28)
+                                .foregroundStyle(.tint)
+                                .accessibilityHidden(true)
+                            Text(verbatim: "Trakt").font(.body)
+                                .foregroundStyle(Color("VesperPrimaryText"))
+                            Spacer()
+                            Text("尚未连接").foregroundStyle(.secondary)
+                        }.padding(12)
+                }
+                settingsLink(.licenses, title: "开源许可", symbol: "doc.plaintext")
                 Text("Vesper \(version) · Aholic")
+                    .font(.footnote).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
+            .padding(.horizontal, 16)
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.visible)
-        .scrollContentBackground(.hidden)
-        .vesperImmersiveTitle("设置")
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
-                case .tabs: TabSettingsView(openSection: openSection)
+                case .gestures: PlayerGestureSettingsView()
+                case .playback: PlaybackSettingsView(session: playback)
+                case .subtitles: SubtitleSettingsView()
+                case .danmaku: DanmakuSettingsView()
+                case .tabs: TabSettingsView()
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()
+                case .licenses: PlaybackLicensesView()
                 }
             }
             .vesperNavigationTitle(route.title)
             .vesperNavigationStyle(.inline)
         }
     }
+
+    private func settingsLink(_ route: SettingsRoute, title: LocalizedStringKey, symbol: String) -> some View {
+        NavigationLink(value: route) {
+            HStack {
+                SettingsLabel(title, symbol: symbol)
+                    .foregroundStyle(Color("VesperPrimaryText"))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
 }
 
 private struct RuntimeLogsView: View {
@@ -101,37 +143,39 @@ private struct RuntimeLogsView: View {
     init() { store = AppLog.runtimeEntries }
 
     var body: some View {
-        List {
-            SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看运行日志，设置保留时间，或分享完整日志文件以协助排查问题。")
+        SettingsPage {
+            Group {
+                SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看、保留和分享运行日志。")
 
-            if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
-            Section("保留规则") {
-                Picker(selection: $retentionDays) {
-                    Text("无限制").tag(0)
-                    ForEach([1, 3, 7, 14, 30, 90], id: \.self) { days in
-                        Text(String(format: VesperLocalization.string("%d 天"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [days])).tag(days)
-                    }
-                } label: { Text("保留时间") }
-                .pickerStyle(.menu)
-            }
-            Section(String(format: VesperLocalization.string("日志（%d）"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [store.entries.count])) {
-                if store.entries.isEmpty {
-                    ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
-                } else {
-                    ForEach(store.entries.suffix(loadedCount).reversed()) { entry in
-                        Text(entry.message)
-                            .font(.system(.footnote, design: .monospaced))
-                            .contextMenu {
-                                Button("复制日志", systemImage: "doc.on.doc") {
-                                    UIPasteboard.general.string = entry.message
+                if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
+                SettingsSection {
+                    SettingsPicker(selection: $retentionDays) {
+                        Text("无限制").tag(0)
+                        ForEach([1, 3, 7, 14, 30, 90], id: \.self) { days in
+                            Text(String(format: VesperLocalization.string("%d 天"), locale: VesperLocalization.locale(for: UserDefaults.standard.string(forKey: "language.code") ?? "system"), arguments: [days])).tag(days)
+                        }
+                    } label: { Text("保留时间") }
+                    .pickerStyle(.menu)
+                }
+                SettingsSection {
+                    if store.entries.isEmpty {
+                        ContentUnavailableView("暂无运行日志", systemImage: "doc.text")
+                    } else {
+                        ForEach(store.entries.suffix(loadedCount).reversed()) { entry in
+                            Text(entry.message)
+                                .font(.system(.footnote, design: .monospaced))
+                                .contextMenu {
+                                    Button("复制日志", systemImage: "doc.on.doc") {
+                                        UIPasteboard.general.string = entry.message
+                                    }
                                 }
-                            }
+                        }
                     }
                 }
             }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.visible)
+        .contentMargins(.top, 0, for: .scrollContent)
+        .background(VesperTheme.background)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -162,7 +206,7 @@ private struct RuntimeLogsView: View {
         }
         .onAppear { store.setRetention(days: retentionDays) }
         .onChange(of: retentionDays) { _, _ in store.setRetention(days: retentionDays) }
-        .confirmationDialog("确定清空所有日志？", isPresented: $isShowingClearConfirmation, titleVisibility: .visible) {
+        .alert("确定清空所有日志？", isPresented: $isShowingClearConfirmation) {
             Button("清空日志", role: .destructive) { store.clear() }
             Button("取消", role: .cancel) { }
         }
@@ -244,51 +288,63 @@ private struct RuntimeLogSharePresenter: UIViewControllerRepresentable {
 private struct AppearanceSettingsView: View {
     @AppStorage("appearance.mode") private var appearanceMode = "system"
     @AppStorage("appearance.accent") private var accent = "vesper"
+    @State private var confirmingAccentReset = false
 
     var body: some View {
-        Form {
-            SettingsIntroCard(title: "外观设置", symbol: "paintpalette", description: "选择喜欢的主题、主题色和应用图标，让 Vesper 更符合你的偏好。")
+        SettingsPage {
+            Group {
+                SettingsIntroCard(title: "外观设置", symbol: "paintpalette", description: "选择主题、颜色和应用图标。")
 
-            Section {
-                Picker(selection: $appearanceMode) {
-                    Text("跟随系统").tag("system")
-                    Text("深色").tag("dark")
-                    Text("浅色").tag("light")
-                } label: { Text("主题") }
-                .pickerStyle(.menu)
-                ColorPicker(selection: Binding(
-                    get: { VesperTheme.accent(accent) },
-                    set: { color in
-                        if let identifier = VesperTheme.accentIdentifier(for: color) {
-                            accent = identifier
+                SettingsSection {
+                    SettingsPicker(selection: $appearanceMode) {
+                        Text("跟随系统").tag("system")
+                        Text("深色").tag("dark")
+                        Text("浅色").tag("light")
+                    } label: { Text("主题") }
+                    .pickerStyle(.menu)
+                    ColorPicker(selection: Binding(
+                        get: { VesperTheme.accent(accent) },
+                        set: { color in
+                            if let identifier = VesperTheme.accentIdentifier(for: color) {
+                                accent = identifier
+                            }
                         }
+                    ), supportsOpacity: false) { Text("主题色") }
+                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+                    Button { confirmingAccentReset = true } label: {
+                        Text("重置主题色")
+                            .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
-                ), supportsOpacity: false) { Text("主题色") }
-                Button("重置主题色") { accent = "vesper" }
-                    .disabled(accent == "vesper")
-            } footer: {
-                Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
-            }
-            Section("更换图标") {
-                AppIconChoices()
+                        .disabled(accent == "vesper")
+                } footer: {
+                    Text("主题模式控制浅色或深色外观；主题色应用于选中状态和交互强调色。")
+                }
+                SettingsSection {
+                    AppIconChoices()
+                }
             }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.visible)
+        .contentMargins(.top, 0, for: .scrollContent)
+        .background(VesperTheme.background)
+        .alert("重置主题色？", isPresented: $confirmingAccentReset) {
+            Button("重置主题色", role: .destructive) { accent = "vesper" }
+            Button("取消", role: .cancel) { }
+        }
     }
 }
 
 
 struct TabSettingsView: View {
     @AppStorage("navigation.icons") private var icons = "{}"
-    let openSection: (AppSection) -> Void
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
-    @AppStorage("navigation.multifunctionEnabled") private var multifunctionEnabled = true
+    @AppStorage("navigation.defaultTab") private var defaultTab = "media"
+    @AppStorage("miniPlayer.enabled") private var miniPlayerEnabled = true
+    @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
+    @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
     @State private var isShowingResetConfirmation = false
-    @State private var isShowingGestureSettings = false
     @State private var isShowingOrderSettings = false
-    @State private var isShowingEnableConfirmation = false
 
     private var sections: [AppSection] {
         let saved = order.split(separator: ",").compactMap { AppSection(rawValue: String($0)) }
@@ -296,105 +352,91 @@ struct TabSettingsView: View {
     }
 
     var body: some View {
-        List {
-            SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "选择显示的标签，调整排列顺序与多功能按钮，也可从这里打开隐藏的页面。")
+        SettingsPage {
+            Group {
+                SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "调整标签排列顺序和图标。")
 
-            Section {
-                ForEach(sections.filter { $0 != .settings }) { section in
-                    Toggle(isOn: Binding(
-                        get: { !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
-                        set: { visible in
-                            var values = Set(hidden.split(separator: ",").map(String.init))
-                            if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
-                            hidden = values.sorted().joined(separator: ",")
-                        }
-                    )) { Label(section.title, systemImage: section.symbol) }
-                }
-            } header: {
-                Text("显示标签")
-            } footer: {
-                Text("关闭只隐藏入口，不清除页面数据。设置标签始终保留。")
-            }
-            Section("跳转标签") {
-                HStack(alignment: .top, spacing: 12) {
+                SettingsSection {
                     ForEach(sections.filter { $0 != .settings }) { section in
-                        Button { openSection(section) } label: {
-                            VStack(spacing: 8) {
-                                Image(systemName: section.symbol)
-.font(.system(size: 24, weight: .medium))
-                                    .foregroundStyle(.tint)
-                                Text(section.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                        Toggle(isOn: Binding(
+                            get: { !hidden.split(separator: ",").contains(Substring(section.rawValue)) },
+                            set: { visible in
+                                var values = Set(hidden.split(separator: ",").map(String.init))
+                                if visible { values.remove(section.rawValue) } else { values.insert(section.rawValue) }
+                                hidden = values.sorted().joined(separator: ",")
+                                if !visible && defaultTab == section.rawValue { defaultTab = "settings" }
                             }
-                            .frame(maxWidth: .infinity, minHeight: 88)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-                            .contentShape(RoundedRectangle(cornerRadius: 16))
-                        }
-                        .buttonStyle(.plain)
+                        )) { SettingsLabel(LocalizedStringKey(section.title), symbol: section.symbol) }
                     }
+                } footer: {
+                    Text("关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。")
                 }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
-            Section("标签图标") {
-                HStack(alignment: .top, spacing: 10) {
-                    ForEach(sections) { section in
-                        Menu {
-                            ForEach(section.iconChoices, id: \.self) { symbol in
-                                Button { setIcon(symbol, for: section) } label: {
-                                    Label {
-                                        Text(iconTitle(symbol))
-                                    } icon: { Image(systemName: symbol) }
+                SettingsSection {
+                    SettingsPicker("默认标签页", selection: $defaultTab) {
+                        ForEach(sections.filter { $0 == .settings || !hidden.split(separator: ",").contains(Substring($0.rawValue)) }) { section in
+                            Text(section.title).tag(section.rawValue)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                } footer: {
+                    Text("打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。")
+                }
+                SettingsSection {
+                    Toggle(isOn: $tabBarCanMinimize) {
+                        SettingsLabel("允许标签栏收缩", symbol: "arrow.down.right.and.arrow.up.left")
+                    }
+                } footer: {
+                    Text("关闭后，向下滚动页面时标签栏保持展开。")
+                }
+                SettingsSection {
+                    Toggle(isOn: $miniPlayerEnabled) {
+                        SettingsLabel("启用迷你播放器", symbol: "play.rectangle")
+                    }
+                    if #available(iOS 26.1, *) {
+                        Toggle(isOn: $miniPlayerAlwaysVisible) {
+                            SettingsLabel("常显迷你播放器", symbol: "eye")
+                        }
+                        .disabled(!miniPlayerEnabled)
+                    }
+                } footer: {
+                    Text("关闭常显后，仅在有可播放内容时显示迷你播放器。")
+                }
+                Section {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(sections) { section in
+                            Menu {
+                                ForEach(section.iconChoices, id: \.self) { symbol in
+                                    Button { setIcon(symbol, for: section) } label: {
+                                        Label {
+                                            Text(iconTitle(symbol))
+                                        } icon: { Image(systemName: symbol) }
+                                    }
                                 }
+                            } label: {
+                                VStack(spacing: 8) {
+                                    Image(systemName: section.symbol)
+    .font(.system(size: 24, weight: .medium))
+                                        .foregroundStyle(.tint)
+                                    Text(section.title)
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 88)
+                                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                                .contentShape(RoundedRectangle(cornerRadius: 16))
                             }
-                        } label: {
-                            VStack(spacing: 8) {
-                                Image(systemName: section.symbol)
-.font(.system(size: 24, weight: .medium))
-                                    .foregroundStyle(.tint)
-                                Text(section.title)
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.primary)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 88)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-                            .contentShape(RoundedRectangle(cornerRadius: 16))
+                            .accessibilityHint("更换图标")
                         }
-                        .accessibilityHint("更换图标")
                     }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
             }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.visible)
+        .contentMargins(.top, 0, for: .scrollContent)
+        .background(VesperTheme.background)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        if multifunctionEnabled {
-                            multifunctionEnabled = false
-                        } else {
-                            isShowingEnableConfirmation = true
-                        }
-                    } label: {
-                        Label(
-                            multifunctionEnabled ? "关闭多功能按钮" : "启用多功能按钮",
-                            systemImage: multifunctionEnabled ? "square.grid.2x2.fill" : "square.grid.2x2"
-                        )
-                    }
-                    if multifunctionEnabled {
-                        Button { isShowingGestureSettings = true } label: {
-                            Label("手势与动作", systemImage: "hand.tap")
-                        }
-                    }
-                } label: {
-                    Image(systemName: multifunctionEnabled ? "square.grid.2x2.fill" : "square.grid.2x2")
-                }
-                .accessibilityLabel("多功能按钮设置")
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("标签顺序", systemImage: "arrow.up.arrow.down") { isShowingOrderSettings = true }
@@ -405,21 +447,16 @@ struct TabSettingsView: View {
                 .accessibilityLabel("标签设置")
             }
         }
-        .alert("启用多功能按钮？", isPresented: $isShowingEnableConfirmation) {
-            Button("启用") { multifunctionEnabled = true }
-            Button("取消", role: .cancel) { }
-        } message: {
-            Text("多功能按钮仍处于试验阶段，可能出现交互或显示问题；如影响使用，请关闭此功能。")
-        }
         .alert("恢复默认标签设置？", isPresented: $isShowingResetConfirmation) {
             Button("恢复默认", role: .destructive) {
                 order = "media,sources,history,settings"
-                hidden = ""
                 icons = "{}"
+                hidden = ""
+                defaultTab = "media"
             }
             Button("取消", role: .cancel) { }
         } message: {
-            Text("将恢复标签的显示状态、排列顺序和图标。")
+            Text("将恢复标签的排列顺序、图标、显示状态和默认标签页。")
         }
         .sheet(isPresented: $isShowingOrderSettings) {
             NavigationStack {
@@ -440,35 +477,12 @@ struct TabSettingsView: View {
                         }
                     }
             }
-            .presentationDetents([.height(360)])
+            .presentationDetents([.custom(TabOrderDetent.self)])
             .presentationDragIndicator(.hidden)
             .interactiveDismissDisabled(false)
             .presentationBackground(VesperTheme.background)
         }
-        .sheet(isPresented: $isShowingGestureSettings) {
-            NavigationStack {
-                GestureActionSettingsView()
-                    .navigationTitle("手势与动作")
-                    .vesperNavigationStyle(.inline)
-                    .toolbarRole(.automatic)
-                    .navigationBarBackButtonHidden(true)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button { isShowingGestureSettings = false } label: {
-                                Image(systemName: "xmark")
-                            }
-                            .accessibilityLabel("关闭")
-                        }
-                        ToolbarItem(placement: .principal) {
-                            Text("手势与动作").font(.headline)
-                        }
-                    }
-            }
-            .presentationDetents([.height(360)])
-            .presentationDragIndicator(.hidden)
-            .interactiveDismissDisabled(false)
-            .presentationBackground(VesperTheme.background)
-        }
+
     }
     private func setIcon(_ symbol: String, for section: AppSection) {
         let data = icons.data(using: .utf8) ?? Data()
@@ -503,58 +517,6 @@ struct TabSettingsView: View {
 }
 
 
-/// SwiftUI sheets support swipe dismissal; observe only taps outside the
-/// presented frame to add backdrop dismissal without consuming sheet controls.
-private struct SheetOutsideDismiss: UIViewControllerRepresentable {
-    let dismiss: () -> Void
-
-    func makeUIViewController(context: Context) -> Controller { Controller(dismiss: dismiss) }
-    func updateUIViewController(_ controller: Controller, context: Context) { controller.dismissAction = dismiss }
-    static func dismantleUIViewController(_ controller: Controller, coordinator: ()) { controller.uninstall() }
-
-    final class Controller: UIViewController, UIGestureRecognizerDelegate {
-        var dismissAction: () -> Void
-        private weak var container: UIView?
-        private weak var sheet: UIPresentationController?
-        private lazy var tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
-
-        init(dismiss: @escaping () -> Void) {
-            dismissAction = dismiss
-            super.init(nibName: nil, bundle: nil)
-        }
-        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            var current: UIViewController? = self
-            while let controller = current {
-                if let presentation = controller.presentationController,
-                   let view = presentation.containerView {
-                    uninstall()
-                    sheet = presentation
-                    container = view
-                    tap.delegate = self
-                    tap.cancelsTouchesInView = false
-                    view.addGestureRecognizer(tap)
-                    break
-                }
-                current = controller.parent
-            }
-        }
-        func uninstall() {
-            container?.removeGestureRecognizer(tap)
-            container = nil
-            sheet = nil
-        }
-        @objc private func tapped() { dismissAction() }
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard let sheet, let container else { return false }
-            return !sheet.frameOfPresentedViewInContainerView.contains(touch.location(in: container))
-        }
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
-    }
-}
-
 private struct TabOrderSettingsView: View {
     @AppStorage("navigation.icons") private var icons = "{}"
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
@@ -565,168 +527,52 @@ private struct TabOrderSettingsView: View {
     }
 
     var body: some View {
-        List {
-            ForEach(sections) { section in
-                Label(section.title, systemImage: section.symbol)
-            }
-            .onMove { offsets, destination in
-                var updated = sections
-                updated.move(fromOffsets: offsets, toOffset: destination)
-                // Shared storage updates both the settings list and native tabs.
-                order = updated.map(\.rawValue).joined(separator: ",")
-            }
-        }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.visible)
-        .environment(\.editMode, .constant(.active))
-    }
-}
-
-private struct GestureActionSettingsView: View {
-    @AppStorage("navigation.gestureOrder") private var gestureOrder = "tap,longPress"
-    @AppStorage("navigation.actionOrder") private var actionOrder = "tabs,search"
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                HStack(alignment: .top, spacing: 20) {
-                    GestureOrderColumn(storage: $gestureOrder, names: ["tap": "单击", "longPress": "长按"])
-                    GestureOrderColumn(storage: $actionOrder, names: ["tabs": "展开标签栏", "search": "进入搜索"])
+        SettingsPage {
+            SettingsSection {
+                ForEach(sections) { section in
+                    Label(section.title, systemImage: section.symbol)
                 }
-                Text("分别拖动两列项目，同一行的手势与动作配对并自动保存。启用多功能按钮时使用此映射；关闭时单击搜索按钮进入搜索，长按无动作。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(20)
-        }
-    }
-
-}
-
-/// Reorder only within a column. A local drag moves the actual card, rather
-/// than starting a transferable copy session (and displaying its plus badge).
-private struct GestureOrderColumn: View {
-    @Binding var storage: String
-    let names: [String: String]
-    @ScaledMetric(relativeTo: .body) private var rowHeight = 52.0
-    @GestureState private var dragOffset = CGSize.zero
-    @GestureState private var isDragging = false
-    @State private var draggedValue: String?
-    @State private var initialIndex = 0
-    @State private var localValues: [String] = []
-    @State private var feedback = UISelectionFeedbackGenerator()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var coordinateSpace
-
-    private var values: [String] {
-        localValues.isEmpty ? storage.split(separator: ",").map(String.init) : localValues
-    }
-    private var rowStride: CGFloat { rowHeight + 16 }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            ForEach(values, id: \.self) { value in
-                Text(LocalizedStringKey(names[value] ?? value))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: rowHeight)
-                    .padding(.horizontal, 8)
-                    .background {
-                        RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                        RoundedRectangle(cornerRadius: 12).fill(Color("VesperSecondaryBackground").opacity(0.42))
-                        RoundedRectangle(cornerRadius: 12).stroke(.tint, lineWidth: 1)
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: 12))
-                    .offset(y: offset(for: value))
-                    .zIndex(draggedValue == value ? 1 : 0)
-                    .gesture(
-                        DragGesture(minimumDistance: 6, coordinateSpace: .named(coordinateSpace))
-                            .updating($dragOffset) { drag, offset, _ in offset = drag.translation }
-                            .updating($isDragging) { _, active, _ in active = true }
-                            .onChanged { drag in
-                                if draggedValue != value {
-                                    draggedValue = value
-                                    initialIndex = values.firstIndex(of: value) ?? 0
-                                    feedback.prepare()
-                                }
-                                let target = min(values.count - 1, max(0,
-                                    initialIndex + Int((drag.translation.height / rowStride).rounded())))
-                                reorder(value, to: target)
-                            }
-                    )
-                    .accessibilityHint("拖动调整配对顺序")
-                    .accessibilityAction(named: Text("上移")) { move(value, by: -1) }
-                    .accessibilityAction(named: Text("下移")) { move(value, by: 1) }
+                .onMove { offsets, destination in
+                    var updated = sections
+                    updated.move(fromOffsets: offsets, toOffset: destination)
+                    order = updated.map(\.rawValue).joined(separator: ",")
+                }
             }
         }
-        .frame(maxWidth: .infinity)
-        .coordinateSpace(name: coordinateSpace)
-        .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: localValues)
-        .onAppear { localValues = storage.split(separator: ",").map(String.init) }
-        .onChange(of: storage) { _, value in
-            let saved = value.split(separator: ",").map(String.init)
-            if localValues != saved { localValues = saved }
-        }
-        .onChange(of: isDragging) { _, active in
-            if !active { withAnimation(.easeInOut(duration: 0.18)) { draggedValue = nil } }
-        }
-    }
-
-    private func offset(for value: String) -> CGFloat {
-        guard draggedValue == value, isDragging,
-              let index = values.firstIndex(of: value) else { return 0 }
-        // Compensate only for the reorder's layout change, keeping the card
-        // under the finger while its neighbours animate into their new places.
-        return dragOffset.height + CGFloat(initialIndex - index) * rowStride
-    }
-
-    private func reorder(_ value: String, to target: Int) {
-        var updated = values
-        guard let from = updated.firstIndex(of: value), from != target else { return }
-        updated.move(fromOffsets: IndexSet(integer: from), toOffset: target > from ? target + 1 : target)
-        // Animate local layout first; AppStorage is persistence, not the source
-        // of the layout animation transaction.
-        withAnimation(reduceMotion ? nil : .snappy(duration: 0.24)) { localValues = updated }
-        storage = updated.joined(separator: ",")
-        feedback.selectionChanged()
-        feedback.prepare()
-    }
-
-    private func move(_ value: String, by delta: Int) {
-        guard let index = values.firstIndex(of: value), values.indices.contains(index + delta) else { return }
-        reorder(value, to: index + delta)
+        .environment(\.editMode, .constant(.active))
+        .scrollDisabled(true)
     }
 }
 
-/// Introductory row within the native grouped list; scales with Dynamic Type.
-private struct SettingsIntroCard: View {
+private struct TabOrderDetent: CustomPresentationDetent {
+    static func height(in context: Context) -> CGFloat? {
+        min(context.maxDetentValue, context.dynamicTypeSize.isAccessibilitySize ? 540 : 360)
+    }
+}
+
+/// Introductory card shared by secondary settings pages.
+struct SettingsIntroCard: View {
     let title: LocalizedStringKey
     let symbol: String
     let description: LocalizedStringKey
-    @ScaledMetric(relativeTo: .largeTitle) private var iconSize = 38.0
-
+    @ScaledMetric(relativeTo: .largeTitle) private var iconSize = 28.0
     var body: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 12) {
-                Image(systemName: symbol)
-                    .font(.system(size: iconSize))
-                    .foregroundStyle(.white)
-                    .frame(width: iconSize + 24, height: iconSize + 24)
-                    .background(.tint, in: RoundedRectangle(cornerRadius: 18))
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(.title.bold())
-                    .accessibilityAddTraits(.isHeader)
-                Text(description)
-                    .foregroundStyle(.secondary)
-                    .lineSpacing(5)
+        HStack(alignment: .center, spacing: 16) {
+            Image(systemName: symbol)
+                .font(.system(size: iconSize)).foregroundStyle(.white)
+                .frame(width: iconSize + 20, height: iconSize + 20)
+                .background(.tint, in: RoundedRectangle(cornerRadius: 18))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline).accessibilityAddTraits(.isHeader)
+                Text(description).foregroundStyle(.secondary).font(.subheadline)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 26))
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
     }
 }
 
@@ -741,7 +587,17 @@ private struct SettingsLabel: View {
     }
 
     var body: some View {
-        Label(title, systemImage: symbol)
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(.tint)
+                .frame(width: 28, height: 28)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.body)
+                .foregroundStyle(Color("VesperPrimaryText"))
+        }
+        .frame(minHeight: 28)
     }
 }
 
@@ -766,5 +622,92 @@ private struct AppIconChoices: View {
             .accessibilityAddTraits(.isSelected)
         }
         .padding(.vertical, 8)
+    }
+}
+
+private struct PlaybackLicensesView: View {
+    private var notices: String {
+        ["PlaybackNotices", "KSPlayer-GPL-3.0"].compactMap { name in
+            Bundle.main.url(forResource: name, withExtension: "txt")
+                .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        }.joined(separator: "\n\n")
+    }
+
+    var body: some View {
+        SettingsPage {
+            SettingsIntroCard(title: "开源许可", symbol: "doc.plaintext", description: "查看第三方组件许可。")
+            SettingsSection {
+                Text(verbatim: notices)
+                    .font(.footnote)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+}
+
+/// A single native grouped List owns every row and section on a settings page.
+struct SettingsPage<Content: View>: View {
+    private let content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+    var body: some View {
+        List { content }
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(20)
+            .contentMargins(.top, 0, for: .scrollContent)
+            .scrollContentBackground(.hidden)
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+    }
+}
+
+struct SettingsSection<Rows: View, Footer: View>: View {
+    private let title: LocalizedStringKey?
+    private let rows: Rows
+    private let footer: Footer
+    init(_ title: LocalizedStringKey? = nil, @ViewBuilder content: () -> Rows, @ViewBuilder footer: () -> Footer) {
+        self.title = title
+        self.rows = content()
+        self.footer = footer()
+    }
+    var body: some View {
+        Section {
+            rows
+                .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+        } header: {
+            if let title { Text(title).textCase(nil) }
+        } footer: { footer }
+    }
+}
+
+extension SettingsSection where Footer == EmptyView {
+    init(_ title: LocalizedStringKey? = nil, @ViewBuilder content: () -> Rows) {
+        self.init(title, content: content, footer: { EmptyView() })
+    }
+}
+
+/// Keep the selected value on one line and give it priority over the row label.
+struct SettingsPicker<Selection: Hashable, Options: View, Label: View>: View {
+    let selection: Binding<Selection>
+    private let options: Options
+    private let label: Label
+    init(selection: Binding<Selection>, @ViewBuilder content: () -> Options, @ViewBuilder label: () -> Label) {
+        self.selection = selection; self.options = content(); self.label = label()
+    }
+    var body: some View {
+        HStack(spacing: 8) {
+            label.lineLimit(1).minimumScaleFactor(0.75)
+            Spacer(minLength: 4)
+            Picker(selection: selection) { options } label: { label }
+                .labelsHidden().pickerStyle(.menu)
+                .buttonStyle(.plain)
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
+        }
+        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+    }
+}
+
+extension SettingsPicker where Label == Text {
+    init(_ title: LocalizedStringKey, selection: Binding<Selection>, @ViewBuilder content: () -> Options) {
+        self.init(selection: selection, content: content, label: { Text(title) })
     }
 }

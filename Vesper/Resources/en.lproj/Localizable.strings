@@ -137,3 +137,426 @@
 "来源离线" = "Source Offline";
 "无法加载来源" = "Unable to Load Source";
 "重试" = "Retry";
+
+"未在播放" = "Not Playing";
+"打开播放器" = "Open Player";
+"播放器" = "Player";
+"选择媒体后即可开始播放。" = "Choose media to start playback.";
+"下一项" = "Next";
+"调整标签排列顺序和图标。" = "Customize tab order and icons.";
+"将恢复标签的排列顺序和图标。" = "Tab order and icons will be reset.";
+
+"测试记录 %lld" = "Test entry %lld";
+"滚动测试占位，不是真实观看记录。" = "Scrolling placeholder, not actual watch history.";
+
+"最近搜索" = "Recent Searches";
+
+"无最近搜索" = "No Recent Searches";
+
+"添加来源" = "Add Source";
+
+"相册视频" = "Photo Library Videos";
+
+"本地视频" = "Local Videos";
+
+"无法添加来源" = "Unable to Add Source";
+
+"请检查相册访问权限或重新选择本地文件夹。" = "Check photo library access or select the local folder again.";
+
+"Emby 来源尚未接入。" = "Emby sources are not available yet.";
+
+"播放功能尚未接入" = "Playback is not available yet";
+
+"默认标签页" = "Default Tab";
+
+"关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。" = "Turning a tab off removes it from the tab bar and may leave no other way to open that page. Turn it back on here when needed. Settings always remains available.";
+
+"打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。" = "Open the selected tab when the app starts. Hidden tabs cannot be the default.";
+
+"将恢复标签的排列顺序、图标、显示状态和默认标签页。" = "Tab order, icons, visibility and the default tab will be reset.";
+
+"选择视频（诊断）" = "Choose Video (Diagnostics)";
+
+"新建文件夹" = "New Folder";
+
+"重命名" = "Rename";
+
+"名称" = "Name";
+
+"保存" = "Save";
+
+"移动" = "Move";
+
+"删除项目？" = "Delete item?";
+
+"请输入完整文件名，包括扩展名。" = "Enter the full filename, including its extension.";
+
+"删除后无法恢复；删除文件夹会同时删除其中的所有文件。" = "Deletion cannot be undone. Deleting a folder also deletes all its contents.";
+
+"文件操作失败" = "File Operation Failed";
+
+"上一级" = "Parent Folder";
+
+"移到此处" = "Move Here";
+
+"名称不能为空，且不能包含斜杠或冒号。" = "Enter a name without slashes or colons.";
+
+"无法访问本地来源以外的位置或符号链接。" = "Locations outside this source and symbolic links cannot be accessed.";
+
+"目标位置已有同名文件或文件夹。" = "A file or folder with this name already exists at the destination.";
+
+"不能移动到原位置、文件夹自身或其子文件夹。" = "Cannot move to the original location, the folder itself, or its subfolders.";
+
+"正在加载" = "Loading";
+
+"无法旋转屏幕" = "Unable to Rotate Screen";
+
+"更多" = "More";
+
+"完整显示" = "Fit to Screen";
+
+"填满屏幕" = "Fill Screen";
+
+"播放速度" = "Playback Speed";
+
+"字幕与音轨" = "Subtitles & Audio";
+
+"播放列表" = "Playlist";
+
+"横屏" = "Landscape";
+
+"竖屏" = "Portrait";
+
+"画面" = "Picture";
+
+"音轨" = "Audio Tracks";
+
+"无可用音轨" = "No audio tracks available";
+
+"字幕" = "Subtitles";
+
+"关闭字幕" = "Subtitles Off";
+
+"无内嵌字幕" = "No embedded subtitles";
+
+"播放器手势" = "Player Gestures";
+
+"左侧区域" = "Left Region";
+
+"中间区域" = "Center Region";
+
+"右侧区域" = "Right Region";
+
+"双击" = "Double Tap";
+
+"上下滑动" = "Vertical Swipe";
+
+"左右滑动" = "Horizontal Swipe";
+
+"无操作" = "No Action";
+
+"显示控制层" = "Show Controls";
+
+"暂停或继续播放" = "Pause or Resume";
+
+"快退" = "Skip Backward";
+
+"快进" = "Skip Forward";
+
+"调节亮度" = "Adjust Brightness";
+
+"调节音量" = "Adjust Volume";
+
+"调整播放进度" = "Seek";
+
+"手指数" = "Fingers";
+
+"单指" = "One Finger";
+
+"双指" = "Two Fingers";
+
+"三指" = "Three Fingers";
+
+"快进快退时长" = "Skip Interval";
+
+"恢复默认手势？" = "Reset Gestures?";
+
+"画中画" = "Picture in Picture";
+
+"投屏" = "AirPlay";
+
+"音量" = "Volume";
+
+"静音" = "Mute";
+
+"取消静音" = "Unmute";
+
+"亮度 %d%%" = "Brightness %d%%";
+
+"音量 %d%%" = "Volume %d%%";
+
+"当前视频暂不支持画中画。" = "Picture in Picture is not currently available for this video.";
+
+"播放进度" = "Playback Progress";
+
+"无法播放" = "Unable to Play";
+
+"暂停" = "Pause";
+
+"弹幕设置" = "Danmaku Settings";
+
+"尚未接入弹幕来源。" = "No danmaku provider has been connected yet.";
+
+"%d 秒" = "%d seconds";
+
+"播放器按水平方向均分为左、中、右三个区域，滑动以手势开始的位置为准。按钮和进度条使用各自的操作，不触发区域手势。" = "The player is divided into left, center, and right thirds. Swipes use the region where they begin. Buttons and the progress bar have separate controls.";
+
+"默认单指单击显示控制层；双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量。多指手势默认无操作。" = "With one finger, tap to show controls; double-tap left to skip back, center to pause or resume, and right to skip forward. Swipe vertically on the left for brightness or the right for volume. Multi-finger gestures are unassigned by default.";
+
+"显示或隐藏控制层" = "Show or Hide Controls";
+
+"区域控制手势仅在控制层隐藏时生效，滑动以手势开始的位置为准。控制层显示时，单指单击空白区域即可隐藏；按钮和进度条独立操作。" = "Region gestures work only when controls are hidden and use the region where the swipe begins. With controls visible, tap an empty area with one finger to hide them. Buttons and the progress bar work separately.";
+
+"默认单指单击切换控制层；隐藏时双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量；任意区域左右滑动快退或快进。多指手势默认无操作。" = "By default, a one-finger tap toggles controls. When hidden, double-tap left to skip back, center to pause or resume, or right to skip forward. Swipe vertically on the left for brightness or right for volume. Swipe horizontally in any region to seek. Multi-finger gestures are unassigned by default.";
+
+"选择视频" = "Choose Video";
+
+"播放手势" = "Playback Gestures";
+
+"收起音量" = "Collapse Volume";
+
+"播放设置" = "Playback Settings";
+
+"字幕设置" = "Subtitle Settings";
+
+"字幕字号" = "Subtitle Font Size";
+
+"字幕背景" = "Subtitle Background";
+
+"字幕预览" = "Subtitle Preview";
+
+"在播放器的字幕菜单中选择视频内的字幕轨道。字号和背景设置应用于文字字幕。" = "Select an embedded subtitle track in the player’s subtitle menu. Font size and background settings apply to text subtitles.";
+
+"%+d 秒" = "%+d s";
+
+"外部服务尚未连接。" = "External services are not connected yet.";
+
+"更多设置" = "More Settings";
+
+"后台播放" = "Background Playback";
+
+"后台播放方式" = "Background Playback Mode";
+
+"音频播放" = "Audio Playback";
+
+"画中画播放" = "Picture in Picture Playback";
+
+"回到前台自动续播" = "Resume on Return to App";
+
+"保留播放进度" = "Remember Playback Position";
+
+"设置后台播放方式、自动续播、进度保存和跳转时长。" = "Configure background playback, automatic resume, saved positions, and skip intervals.";
+
+"调整文字字幕的字号和背景。" = "Adjust text subtitle font size and background.";
+
+"管理播放时显示的弹幕。" = "Manage on-screen danmaku during playback.";
+
+"为播放器的不同区域设置单指和多指操作。" = "Configure one-finger and multi-finger actions for each player region.";
+
+"查看播放器和第三方组件的开源许可。" = "View open-source licenses for the player and third-party components.";
+
+"播放选项" = "Playback Options";
+
+"音频" = "Audio";
+
+"视频简介" = "Video Synopsis";
+
+"详细信息" = "Details";
+
+"暂无视频简介" = "No synopsis available";
+
+"无法读取视频信息" = "Unable to read video information";
+
+"文件名" = "File Name";
+
+"文件大小" = "File Size";
+
+"分辨率" = "Resolution";
+
+"时长" = "Duration";
+
+"外部视频" = "External Video";
+
+"减小亮度" = "Decrease Brightness";
+
+"增大亮度" = "Increase Brightness";
+
+"减小音量" = "Decrease Volume";
+
+"增大音量" = "Increase Volume";
+
+"减慢播放速度" = "Decrease Playback Speed";
+
+"加快播放速度" = "Increase Playback Speed";
+
+"切换填充方式" = "Toggle Video Fit";
+
+"切换屏幕方向" = "Rotate Screen";
+
+"向上滑动" = "Swipe Up";
+
+"向下滑动" = "Swipe Down";
+
+"向左滑动" = "Swipe Left";
+
+"向右滑动" = "Swipe Right";
+
+"张开" = "Pinch Out";
+
+"捏合" = "Pinch In";
+
+"顺时针旋转" = "Rotate Clockwise";
+
+"逆时针旋转" = "Rotate Counterclockwise";
+
+"显示区域划分" = "Show Gesture Regions";
+
+"静音或取消静音" = "Toggle Mute";
+
+"全部区域" = "Entire Screen";
+
+"区域数量" = "Region Count";
+
+"单区域" = "One Region";
+
+"双区域" = "Two Regions";
+
+"三区域" = "Three Regions";
+
+"左侧区域比例" = "Left Region Ratio";
+
+"右侧区域边界" = "Right Region Boundary";
+
+"自定义区域与单指、双指操作。" = "Customize regions and one- or two-finger gestures.";
+
+"快进快退使用播放设置中的时长。每种手势均可选择任意动作。" = "Seeking uses the interval in Playback Settings. Every gesture supports any action.";
+
+"手势仅在控制层隐藏时生效，以起始区域为准。单击空白区域可隐藏控制层。" = "Gestures work with controls hidden and use the starting region. Tap an empty area to hide controls.";
+
+"查看、保留和分享运行日志。" = "View, retain and share runtime logs.";
+
+"查看第三方组件许可。" = "View third-party licenses.";
+
+"选择主题、颜色和应用图标。" = "Choose a theme, color and app icon.";
+
+"管理后台播放、进度与跳转。" = "Manage background playback, progress and seeking.";
+
+"管理播放弹幕。" = "Manage video comments.";
+
+"调整字幕字号与背景。" = "Adjust subtitle size and background.";
+
+"画面比例" = "Aspect Ratio";
+
+"帧率" = "Frame Rate";
+
+"视频码率" = "Video Bitrate";
+
+"视频编码" = "Video Codec";
+
+"音频码率" = "Audio Bitrate";
+
+"音频编码" = "Audio Codec";
+
+"音轨数量" = "Audio Tracks";
+
+"音频语言" = "Audio Language";
+
+"采样率" = "Sample Rate";
+
+"声道数" = "Channels";
+
+"音频位深" = "Audio Bit Depth";
+
+"位深" = "Bit Depth";
+
+"总码率" = "Overall Bitrate";
+
+"容器格式" = "Container Format";
+
+"色彩原色" = "Color Primaries";
+
+"传递函数" = "Transfer Function";
+
+"色彩矩阵" = "Color Matrix";
+
+"上滑／下滑" = "Swipe Up / Down";
+
+"右滑／左滑" = "Swipe Right / Left";
+
+"张开／捏合" = "Pinch Out / In";
+
+"顺时针／逆时针旋转" = "Rotate Clockwise / Counterclockwise";
+
+"快进／快退" = "Seek Forward / Backward";
+
+"增大／减小音量" = "Increase / Decrease Volume";
+
+"增大／减小亮度" = "Increase / Decrease Brightness";
+
+"加快／减慢播放速度" = "Increase / Decrease Playback Speed";
+
+"播放／暂停" = "Play / Pause";
+
+"为每种手势选择区域与动作。" = "Choose regions and actions for each gesture.";
+
+"区域划分" = "Region Layout";
+
+"区域划分预览" = "Region Layout Preview";
+
+"区域范围设置" = "Region Boundaries";
+
+"左侧区域边界" = "Left Region Boundary";
+
+"组合手势设置" = "Paired Gestures";
+
+"默认播放速度" = "Default Playback Speed";
+
+"调整填充方式" = "Adjust Video Fit";
+
+"调整屏幕方向" = "Adjust Screen Orientation";
+
+"清除播放进度" = "Clear Playback Progress";
+
+"调整音量" = "Adjust volume";
+"调整亮度" = "Adjust brightness";
+"调整播放速度" = "Adjust playback speed";
+"控制播放状态" = "Control playback";
+"显隐控制层" = "Show/hide controls";
+"退出播放" = "Exit playback";
+"重置主题色？" = "Reset accent color?";
+
+"无法分享视频" = "Unable to share video";
+
+"查看时间" = "Last watched";
+
+"优先解码方式" = "Preferred Decoding Method";
+"硬件解码" = "Hardware Decoding";
+"软件解码" = "Software Decoding";
+"文件信息" = "File Information";
+"视频信息" = "Video Information";
+"音频信息" = "Audio Information";
+"封装格式" = "Container Format";
+"编码格式" = "Codec";
+"码率" = "Bit Rate";
+"语言" = "Language";
+"轨道数量" = "Track Count";
+"动态范围" = "Dynamic Range";
+"全范围色彩" = "Full Color Range";
+"显示尺寸" = "Display Dimensions";
+"声道布局" = "Channel Layout";
+"创建时间" = "Created";
+"修改时间" = "Modified";
+
+"播放内核" = "Playback Engine";
+
+"mpv 暂不支持画中画。" = "mpv currently does not support Picture in Picture.";

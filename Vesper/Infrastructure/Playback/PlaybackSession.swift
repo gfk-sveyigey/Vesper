@@ -1,0 +1,1095 @@
+import AVFoundation
+import AudioToolbox
+@preconcurrency import Photos
+@preconcurrency import AVKit
+import MediaPlayer
+import Combine
+import SwiftUI
+@preconcurrency import KSPlayer
+import UIKit
+
+/// A single app-owned session. Tabs and player presentation never own or reset
+/// the decoder. KSPlayer APIs are contained here, outside navigation code.
+@MainActor
+final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, @preconcurrency AVPictureInPictureControllerDelegate {
+    @Published private(set) var currentEngine = PlaybackPreferences.preferredEngine
+    @Published private(set) var currentDecoder = PlaybackPreferences.preferredDecoder
+    @Published private(set) var history: [PlaybackHistoryEntry] = []
+    private var lastHistorySave = Date.distantPast
+    @Published private(set) var currentItem: MediaItem?
+    @Published private(set) var isPlaying = false
+    @Published private(set) var isLoading = false
+    @Published private(set) var currentTime: TimeInterval = 0
+    @Published private(set) var duration: TimeInterval = 0
+    @Published private(set) var errorMessage: String?
+    @Published private(set) var videoView: UIView?
+    @Published var isPresented = false
+    @Published private(set) var playbackRate: Float = 1
+    @Published private(set) var fillsScreen = false
+    @Published private(set) var bufferedTime: TimeInterval = 0
+    @Published private(set) var isSeeking = false
+    @Published private(set) var audioTracks: [PlaybackTrack] = []
+    @Published private(set) var subtitleTracks: [PlaybackTrack] = []
+    @Published private(set) var selectedSubtitleID: Int32?
+    @Published private(set) var subtitleText = ""
+    @Published private(set) var subtitleImage: UIImage?
+    @Published private(set) var isMuted = false
+    @Published private(set) var isPictureInPicturePossible = false
+    @Published private(set) var isPictureInPictureActive = false
+    @Published var playbackNotice: String?
+    private var pipController: AVPictureInPictureController?
+    private var pipObservation: NSKeyValueObservation?
+    private var pipConfigurationObservation: NSKeyValueObservation?
+    private var preferencesObservation: AnyCancellable?
+    private var appliedBackgroundPolicy = ""
+    private var pipStateSynchronization: Task<Void, Never>?
+    private var restorePiPCompletion: ((Bool) -> Void)?
+    private var restoringPiP = false
+    private var pendingSeek: (time: TimeInterval, resume: Bool)?
+    private var seekInFlight = false
+    private var seekLanding: (time: Double, deadline: Date)?
+    private let subtitleModel = SubtitleModel()
+    private var appIsInBackground = false
+    private var appIsInactive = false
+    private var decoderRestore: (time: Double, resume: Bool)?
+    private var progressRestored = false
+    private var lastProgressSave = Date.distantPast
+    private let progressStorageKey = "player.savedProgress"
+    private let durationStorageKey = "player.savedDurations"
+    @Published private(set) var savedProgressRevision = 0
+    private var suppressedProgressID: MediaID?
+
+    override init() {
+        super.init()
+        if let data = UserDefaults.standard.data(forKey: "player.history.v1"),
+           let entries = try? JSONDecoder().decode([PlaybackHistoryEntry].self, from: data) {
+            history = entries
+        }
+        refreshPlaybackPreferences()
+        preferencesObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.appliedBackgroundPolicy != self.backgroundPolicyID else { return }
+                    self.refreshPlaybackPreferences()
+                }
+            }
+        let savedRate = UserDefaults.standard.float(forKey: "player.playbackRate")
+        if [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(savedRate) { playbackRate = savedRate }
+    }
+
+    private var layer: KSPlayerLayer?
+    private var resource: ResolvedPlaybackResource?
+    private var request: Task<Void, Never>?
+    private var generation = UUID()
+    @Published private(set) var queue: [MediaItem] = []
+    private var source: MediaSource?
+    private var externalFile: IncomingVideo?
+
+    var queueSource: MediaSource? { source }
+
+    var hasNext: Bool {
+        guard let currentItem, let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return false }
+        return index + 1 < queue.count
+    }
+    var canControl: Bool { layer != nil && errorMessage == nil }
+    var canSeek: Bool { canControl && duration > 0 && layer?.player.seekable == true }
+
+    func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem]) {
+        recordPlaybackHistory()
+        externalFile = nil
+        self.queue = queue
+        self.source = source
+        isPresented = true
+        load(item, source: source)
+    }
+
+    func playExternal(_ file: IncomingVideo) {
+        recordPlaybackHistory()
+        externalFile = file
+        source = nil
+        queue = []
+        let item = MediaItem(id: MediaID(sourceID: file.id, localID: file.name),
+                             title: file.name, resource: nil)
+        isPresented = true
+        load(item, source: nil)
+    }
+
+    func setCurrentDecoder(_ decoder: PlaybackDecoder) {
+        guard decoder != currentDecoder, let item = currentItem else { return }
+        let position = currentTime
+        let playing = isPlaying
+        let rate = playbackRate
+        log("切换解码方式：\(decoder.rawValue)，位置=\(position)，继续播放=\(playing)")
+        load(item, source: source, engine: currentEngine, decoder: decoder, position: position, resume: playing, rate: rate)
+    }
+
+    func setCurrentEngine(_ engine: PlaybackEngine) {
+        guard engine != currentEngine, let item = currentItem else { return }
+        load(item, source: source, engine: engine, decoder: currentDecoder,
+             position: currentTime, resume: isPlaying, rate: playbackRate)
+    }
+
+    private func load(_ item: MediaItem, source: MediaSource?, engine: PlaybackEngine? = nil, decoder: PlaybackDecoder? = nil,
+                      position: Double? = nil, resume: Bool = true, rate: Float? = nil) {
+        request?.cancel()
+        generation = UUID()
+        let token = generation
+        saveProgress()
+        recordPlaybackHistory()
+        tearDownPlayer()
+        lastHistorySave = .distantPast
+        decoderRestore = position.map { ($0, resume) }
+        progressRestored = position != nil
+        currentEngine = engine ?? PlaybackPreferences.preferredEngine
+        currentDecoder = decoder ?? PlaybackPreferences.preferredDecoder
+        suppressedProgressID = nil
+        currentItem = item
+        currentTime = 0
+        duration = 0
+        errorMessage = nil
+        isLoading = true
+        let savedRate = UserDefaults.standard.float(forKey: "player.playbackRate")
+        playbackRate = [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(savedRate) ? savedRate : 1
+        if let rate { playbackRate = rate }
+        let selectedEngine = currentEngine
+        let selectedDecoder = currentDecoder
+        let external = externalFile
+        request = Task { [weak self] in
+            do {
+                let resolved: ResolvedPlaybackResource
+                if let external {
+                    resolved = ResolvedPlaybackResource(url: external.url, externalAccess: external.access)
+                } else if let source {
+                    resolved = try await PlaybackResourceResolver().resolve(item, source: source)
+                } else {
+                    throw PlaybackFailure.missingFile
+                }
+                guard let self, !Task.isCancelled, self.generation == token else {
+                    resolved.release()
+                    return
+                }
+                self.resource = resolved
+                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+                try AVAudioSession.sharedInstance().setActive(true)
+                self.refreshPlaybackPreferences()
+                if selectedEngine == .mpv {
+                    KSOptions.firstPlayerType = KSMPVPlayer.self
+                    KSOptions.secondPlayerType = nil
+                } else {
+                    KSOptions.firstPlayerType = selectedDecoder == .software ? KSMEPlayer.self : KSAVPlayer.self
+                    KSOptions.secondPlayerType = selectedDecoder == .software ? nil : KSMEPlayer.self
+                }
+                let options = KSOptions()
+                options.hardwareDecode = selectedDecoder == .hardware
+                options.startPlayTime = position ?? 0
+                options.startPlayRate = self.playbackRate
+                options.isSeekImageSubtitle = true
+                options.canStartPictureInPictureAutomaticallyFromInline = PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
+                let player = KSPlayerLayer(url: resolved.url, isAutoPlay: false, options: options)
+                self.layer = player
+                player.delegate = self
+                self.refreshPlaybackPreferences()
+                self.videoView = player.player.view
+                player.player.allowsExternalPlayback = true
+                player.player.isMuted = self.isMuted
+                player.player.contentMode = self.fillsScreen ? .scaleAspectFill : .scaleAspectFit
+                if resume { player.play() } else { player.prepareToPlay() }
+            } catch {
+                guard let self, !Task.isCancelled, self.generation == token else { return }
+                self.tearDownPlayer()
+                self.isLoading = false
+                self.errorMessage = error.localizedDescription
+                self.log("加载失败：\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func togglePlayback() {
+        guard let layer, errorMessage == nil else { return }
+        if isPlaying { layer.pause() } else { layer.play() }
+        pipController?.invalidatePlaybackState()
+    }
+
+    func pause() {
+        layer?.pause()
+        pipController?.invalidatePlaybackState()
+        recordPlaybackHistory()
+    }
+
+    func seek(to time: TimeInterval, resume: Bool? = nil) {
+        guard canSeek, time.isFinite else { return }
+        let target = min(max(0, time), duration)
+        pendingSeek = (target, resume ?? isPlaying)
+        seekLanding = (target, Date().addingTimeInterval(3))
+        currentTime = target
+        isSeeking = true
+        performPendingSeek()
+    }
+
+    // Coalesce scrub previews: at most one decoder seek is in flight, and the
+    // final release target always replaces any older preview waiting behind it.
+    private func performPendingSeek() {
+        guard !seekInFlight, let next = pendingSeek, let layer else { return }
+        pendingSeek = nil
+        seekInFlight = true
+        let token = generation
+        layer.seek(time: next.time, autoPlay: next.resume) { [weak self] finished in
+            Task { @MainActor in
+                guard let self, self.generation == token else { return }
+                self.seekInFlight = false
+                if self.pendingSeek != nil { self.performPendingSeek() }
+                else {
+                    self.currentTime = finished ? next.time : max(0, layer.player.currentPlaybackTime)
+                    self.seekLanding = finished ? (next.time, Date().addingTimeInterval(2)) : nil
+                    self.isSeeking = false
+                    self.updateSubtitles()
+                }
+            }
+        }
+    }
+
+    func toggleMute() {
+        isMuted.toggle()
+        layer?.player.isMuted = isMuted
+    }
+
+    func unmute() {
+        isMuted = false
+        layer?.player.isMuted = false
+    }
+
+    func startPictureInPicture() {
+        guard currentEngine != .mpv else { playbackNotice = VesperLocalization.string("mpv 暂不支持画中画。"); return }
+        configurePictureInPicture()
+        guard let pipController, pipController.isPictureInPicturePossible else {
+            playbackNotice = String(localized: "当前视频暂不支持画中画。")
+            return
+        }
+        layer?.player.contentMode = .scaleAspectFit
+        // Reuse KSPlayer's controller and playback delegate. Its isPipActive
+        // wrapper also dismisses UIKit screens/suspends the app, so presentation
+        // remains coordinated with our SwiftUI full-screen player.
+        pipController.startPictureInPicture()
+    }
+
+    private var automaticallyStartsPictureInPicture: Bool {
+        PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
+    }
+
+    private func configurePictureInPicture() {
+        guard AVPictureInPictureController.isPictureInPictureSupported(),
+              let candidate = layer?.player.pipController else { return }
+        candidate.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+        guard candidate !== pipController else { return }
+        pipController?.delegate = nil
+        pipController?.stopPictureInPicture()
+        pipObservation = nil
+        pipConfigurationObservation = nil
+        pipStateSynchronization?.cancel()
+        pipStateSynchronization = nil
+        // KSPlayer owns the controller, content source, and sample-buffer playback
+        // delegate. Vesper only observes availability and coordinates its UI.
+        pipController = candidate
+        candidate.delegate = self
+        log("KSPlayer 画中画配置：automatic=\(candidate.canStartPictureInPictureAutomaticallyFromInline) policy=\(backgroundPolicyID)")
+        isPictureInPicturePossible = candidate.isPictureInPicturePossible
+        pipConfigurationObservation = candidate.observe(\.canStartPictureInPictureAutomaticallyFromInline, options: [.new]) { [weak self] _, change in
+            guard change.newValue == true else { return }
+            Task { @MainActor in
+                guard let self, !self.automaticallyStartsPictureInPicture else { return }
+                self.pipController?.canStartPictureInPictureAutomaticallyFromInline = false
+            }
+        }
+        let identity = ObjectIdentifier(candidate)
+        pipObservation = candidate.observe(\.isPictureInPicturePossible, options: [.new]) { [weak self] _, change in
+            let possible = change.newValue ?? false
+            Task { @MainActor in
+                guard let self, let current = self.pipController, ObjectIdentifier(current) == identity else { return }
+                self.isPictureInPicturePossible = possible
+            }
+        }
+    }
+
+    private func observePictureInPicturePlayback() {
+        pipStateSynchronization?.cancel()
+        // KSPlayer's PiP controls operate on the decoder directly. Its layer's
+        // timer stops when paused, so observe the engine even while paused and
+        // reconcile transport state without replacing KSPlayer's playback delegate.
+        pipStateSynchronization = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.isPictureInPictureActive, let layer = self.layer else { return }
+                if !self.isSeeking && !self.isLoading {
+                    switch layer.player.playbackState {
+                    case .playing:
+                        if !layer.state.isPlaying { layer.play() }
+                        self.isPlaying = true
+                    case .paused:
+                        if layer.state.isPlaying { layer.pause() }
+                        self.isPlaying = false
+                    default: break
+                    }
+                }
+                do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            }
+        }
+    }
+
+    func playerDidAppear() {
+        restoringPiP = false
+        if isPictureInPictureActive { pipController?.stopPictureInPicture() }
+        let completion = restorePiPCompletion
+        restorePiPCompletion = nil
+        completion?(true)
+    }
+
+    func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        guard controller === pipController else { return }
+        log("KSPlayer 将进入画中画：automatic=\(controller.canStartPictureInPictureAutomaticallyFromInline) policy=\(backgroundPolicyID) inactive=\(appIsInactive) background=\(appIsInBackground)")
+        layer?.player.contentMode = .scaleAspectFit
+    }
+
+    private func restoreVideoContentMode() {
+        layer?.player.contentMode = fillsScreen ? .scaleAspectFill : .scaleAspectFit
+    }
+
+    func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        guard controller === pipController else { return }
+        guard !(appIsInBackground || appIsInactive) || (PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip") else {
+            controller.stopPictureInPicture()
+            if !PlaybackPreferences.backgroundEnabled { pause() }
+            return
+        }
+        isPictureInPictureActive = true
+        observePictureInPicturePlayback()
+        isPresented = false
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+        guard controller === pipController else { return }
+        isPictureInPictureActive = false
+        pipStateSynchronization?.cancel()
+        pipStateSynchronization = nil
+        restoreVideoContentMode()
+        if !restoringPiP && !isPresented && !(appIsInBackground && PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "audio") { pause() }
+        restoringPiP = false
+    }
+
+    func pictureInPictureController(_ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
+        guard controller === pipController else { return }
+        playbackNotice = error.localizedDescription
+        if appIsInBackground { pause() }
+        restoreVideoContentMode()
+        log("画中画启动失败：\(error.localizedDescription)")
+    }
+
+    func pictureInPictureController(_ controller: AVPictureInPictureController, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+        guard controller === pipController else { completionHandler(false); return }
+        restoringPiP = true
+        if isPresented { completionHandler(true) }
+        else { restorePiPCompletion = completionHandler; isPresented = true }
+    }
+
+    private var backgroundPolicyID: String {
+        "\(PlaybackPreferences.backgroundEnabled):\(PlaybackPreferences.backgroundMode)"
+    }
+
+    func setBackgroundPreferences(enabled: Bool, mode: String) {
+        // Persist first, including changes made when no player exists yet.
+        UserDefaults.standard.set(enabled, forKey: "player.background.enabled")
+        UserDefaults.standard.set(mode, forKey: "player.background.mode")
+        refreshPlaybackPreferences()
+    }
+
+    func refreshPlaybackPreferences() {
+        // The static setting controls KSPlayer's background notification handler;
+        // the instance option also applies if KSPlayer replaces its engine later.
+        KSOptions.canBackgroundPlay = PlaybackPreferences.backgroundEnabled
+        KSOptions.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+        layer?.options.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+        configurePictureInPicture()
+        if appliedBackgroundPolicy != backgroundPolicyID {
+            appliedBackgroundPolicy = backgroundPolicyID
+            log("后台配置：enabled=\(PlaybackPreferences.backgroundEnabled) mode=\(PlaybackPreferences.backgroundMode) automaticPiP=\(automaticallyStartsPictureInPicture) player=\(layer != nil)")
+        }
+        if appIsInBackground {
+            if !automaticallyStartsPictureInPicture { pipController?.stopPictureInPicture() }
+            if !PlaybackPreferences.backgroundEnabled { pause() }
+        }
+    }
+
+    func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .inactive:
+            appIsInactive = true
+            refreshPlaybackPreferences()
+        case .background:
+            appIsInBackground = true
+            saveProgress()
+            recordPlaybackHistory()
+            if !PlaybackPreferences.backgroundEnabled || PlaybackPreferences.backgroundMode != "pip" { pipController?.stopPictureInPicture() }
+            guard isPlaying else { return }
+            guard PlaybackPreferences.backgroundEnabled else {
+                pipController?.stopPictureInPicture()
+                pause()
+                return
+            }
+            // Automatic PiP is handled by KSPlayer's existing controller, using
+            // the option already applied before the app becomes inactive.
+        case .active:
+            appIsInBackground = false
+            appIsInactive = false
+            pruneUnavailableHistory()
+            if isPictureInPictureActive { isPresented = false }
+            else if let layer {
+                // Reattach the native rendering layer even when playback was
+                // paused before backgrounding. Never resume audio implicitly.
+                layer.player.enterForeground()
+                restoreVideoContentMode()
+                if !isPlaying && canSeek { seek(to: currentTime, resume: false) }
+                log("前台恢复画面：playing=\(isPlaying) position=\(currentTime)")
+            }
+        @unknown default: break
+        }
+    }
+
+    private func recordPlaybackHistory() {
+        guard let item = currentItem, let source, source.id == item.id.sourceID, externalFile == nil,
+              suppressedProgressID != item.id, currentTime > 0.5, duration > 0 else { return }
+        let entry = PlaybackHistoryEntry(mediaID: item.id, title: item.title, source: source,
+                                         watchedAt: Date(), position: currentTime, duration: duration)
+        history.removeAll { $0.mediaID == item.id }
+        history.insert(entry, at: 0)
+        if history.count > 1000 { history.removeLast(history.count - 1000) }
+        persistHistory()
+        lastHistorySave = Date()
+    }
+
+    private var progressKey: String? {
+        guard externalFile == nil, let id = currentItem?.id else { return nil }
+        return id.sourceID.uuidString + ":" + id.localID
+    }
+
+    private func saveProgress() {
+        guard PlaybackPreferences.remembersProgress, progressRestored, suppressedProgressID != currentItem?.id, let key = progressKey,
+              duration > 0, currentTime.isFinite else { return }
+        var values = UserDefaults.standard.dictionary(forKey: progressStorageKey) as? [String: Double] ?? [:]
+        var durations = UserDefaults.standard.dictionary(forKey: durationStorageKey) as? [String: Double] ?? [:]
+        if currentTime >= duration - min(2, duration * 0.05) || currentTime <= 0 {
+            values.removeValue(forKey: key); durations.removeValue(forKey: key)
+        } else { values[key] = max(0, currentTime); durations[key] = duration }
+        UserDefaults.standard.set(values, forKey: progressStorageKey)
+        UserDefaults.standard.set(durations, forKey: durationStorageKey)
+        savedProgressRevision += 1
+        lastProgressSave = Date()
+    }
+
+    func clearSavedProgress() {
+        UserDefaults.standard.removeObject(forKey: progressStorageKey)
+        UserDefaults.standard.removeObject(forKey: durationStorageKey)
+        if let currentItem { suppressedProgressID = currentItem.id }
+        history.removeAll()
+        persistHistory()
+        savedProgressRevision += 1
+    }
+
+    func savedProgress(for item: MediaItem) -> Double {
+        guard PlaybackPreferences.remembersProgress else { return 0 }
+        let key = item.id.sourceID.uuidString + ":" + item.id.localID
+        let value = UserDefaults.standard.dictionary(forKey: progressStorageKey)?[key] as? Double ?? 0
+        return value.isFinite ? max(0, value) : 0
+    }
+
+    func savedDuration(for item: MediaItem) -> Double {
+        let key = item.id.sourceID.uuidString + ":" + item.id.localID
+        let value = UserDefaults.standard.dictionary(forKey: durationStorageKey)?[key] as? Double ?? 0
+        return value.isFinite ? max(0, value) : 0
+    }
+
+    func clearSavedProgress(for item: MediaItem) {
+        let key = item.id.sourceID.uuidString + ":" + item.id.localID
+        var values = UserDefaults.standard.dictionary(forKey: progressStorageKey) as? [String: Double] ?? [:]
+        var durations = UserDefaults.standard.dictionary(forKey: durationStorageKey) as? [String: Double] ?? [:]
+        values.removeValue(forKey: key); durations.removeValue(forKey: key)
+        UserDefaults.standard.set(values, forKey: progressStorageKey)
+        UserDefaults.standard.set(durations, forKey: durationStorageKey)
+        if currentItem?.id == item.id { suppressedProgressID = item.id }
+        history.removeAll { $0.mediaID == item.id }
+        persistHistory()
+        savedProgressRevision += 1
+    }
+
+    /// Called after a successful file deletion; directory deletion also removes
+    /// descendant entries. Suppress the active item so a later stop cannot save it again.
+    func removePlaybackData(sourceID: UUID, path: String, includingDescendants: Bool) {
+        removePlaybackData { id in
+            id.sourceID == sourceID && (id.localID == path || (includingDescendants && id.localID.hasPrefix(path + "/")))
+        }
+    }
+
+    private func removePlaybackData(matching matches: (MediaID) -> Bool) {
+        if let currentItem, matches(currentItem.id) { suppressedProgressID = currentItem.id }
+        history.removeAll { matches($0.mediaID) }
+        for storageKey in [progressStorageKey, durationStorageKey] {
+            var values = UserDefaults.standard.dictionary(forKey: storageKey) as? [String: Double] ?? [:]
+            for key in Array(values.keys) {
+                guard let separator = key.firstIndex(of: ":"),
+                      let sourceID = UUID(uuidString: String(key[..<separator])) else { continue }
+                let id = MediaID(sourceID: sourceID, localID: String(key[key.index(after: separator)...]))
+                if matches(id) { values.removeValue(forKey: key) }
+            }
+            UserDefaults.standard.set(values, forKey: storageKey)
+        }
+        persistHistory()
+        savedProgressRevision += 1
+    }
+
+    private func persistHistory() {
+        if let data = try? JSONEncoder().encode(history) {
+            UserDefaults.standard.set(data, forKey: "player.history.v1")
+        }
+    }
+
+    /// Reconcile files deleted outside Vesper when returning to the app. A loss
+    /// of permission alone is not evidence that a video was deleted.
+    func pruneUnavailableHistory() {
+        var missing = Set<MediaID>()
+        let photoAccess = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        for entry in history {
+            switch entry.source.kind {
+            case .local:
+                guard let root = try? entry.source.localFolderURL() else { continue }
+                let scoped = root.startAccessingSecurityScopedResource()
+                defer { if scoped { root.stopAccessingSecurityScopedResource() } }
+                guard FileManager.default.isReadableFile(atPath: root.path) else { continue }
+                let path = entry.mediaID.localID
+                guard !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else {
+                    missing.insert(entry.mediaID)
+                    continue
+                }
+                do {
+                    let values = try root.appendingPathComponent(path).resourceValues(forKeys: [.isRegularFileKey])
+                    if values.isRegularFile != true { missing.insert(entry.mediaID) }
+                } catch {
+                    let failure = error as NSError
+                    if failure.domain == NSCocoaErrorDomain,
+                       [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(failure.code) {
+                        missing.insert(entry.mediaID)
+                    }
+                }
+            case .photos:
+                if photoAccess == .authorized,
+                   PHAsset.fetchAssets(withLocalIdentifiers: [entry.mediaID.localID], options: nil).count == 0 {
+                    missing.insert(entry.mediaID)
+                }
+            case .demo: break
+            }
+        }
+        if !missing.isEmpty { removePlaybackData { missing.contains($0) } }
+    }
+
+    private func restoreProgressIfNeeded() {
+        guard !progressRestored, canSeek else { return }
+        progressRestored = true
+        guard PlaybackPreferences.remembersProgress, let key = progressKey,
+              let saved = UserDefaults.standard.dictionary(forKey: progressStorageKey)?[key] as? Double,
+              saved > 0, saved < duration - min(2, duration * 0.05) else { return }
+        seek(to: saved, resume: isPlaying)
+    }
+
+    func mediaDetails() async -> PlaybackVideoDetails? {
+        guard let resource else { return nil }
+        let token = generation
+        let url = resource.url
+        let asset = AVURLAsset(url: url)
+        let tracks = (try? await asset.loadTracks(withMediaType: .video)) ?? []
+        var dimensions: String?
+        if let track = tracks.first,
+           let size = try? await track.load(.naturalSize),
+           let transform = try? await track.load(.preferredTransform) {
+            let transformed = size.applying(transform)
+            dimensions = "\(Int(abs(transformed.width).rounded())) × \(Int(abs(transformed.height).rounded()))"
+        }
+        var technical: [PlaybackDetailField] = []
+        technical.append(.init(label: "视频轨道数量", value: String(tracks.count)))
+        if let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]) {
+            if let date = values.creationDate { technical.append(.init(label: "创建时间", value: date.formatted())) }
+            if let date = values.contentModificationDate { technical.append(.init(label: "修改时间", value: date.formatted())) }
+        }
+        for (index, track) in tracks.enumerated() {
+            let prefix = "Video \(index + 1)"
+            if let size = try? await track.load(.naturalSize), size.height != 0 {
+                let transform = (try? await track.load(.preferredTransform)) ?? .identity
+                let display = size.applying(transform)
+                let w = Int(abs(display.width).rounded()), h = Int(abs(display.height).rounded())
+                func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? a : gcd(b, a % b) }
+                let divisor = max(1, gcd(w, h))
+                technical.append(.init(label: "画面比例", value: "\(w / divisor):\(h / divisor)"))
+            }
+            if let rate = try? await track.load(.nominalFrameRate), rate > 0 { technical.append(.init(label: "帧率", value: String(format: "%.3f fps", rate))) }
+            if let rate = try? await track.load(.estimatedDataRate), rate > 0 { technical.append(.init(label: "视频码率", value: Self.bitRateLabel(Double(rate)))) }
+            if let descriptions = try? await track.load(.formatDescriptions) {
+                for format in descriptions {
+                    technical.append(.init(label: "视频编码", value: "\(prefix) · \(Self.codecName(format))"))
+                    technical += Self.videoColorDetails(format)
+                    let size = CMVideoFormatDescriptionGetPresentationDimensions(format, usePixelAspectRatio: true, useCleanAperture: true)
+                    if size.width > 0 && size.height > 0 { technical.append(.init(label: "显示尺寸", value: "\(Int(size.width)) × \(Int(size.height))")) }
+                }
+            }
+        }
+        let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+        technical.append(.init(label: "音轨数量", value: String(audioTracks.isEmpty ? (layer?.player.tracks(mediaType: .audio).count ?? 0) : audioTracks.count)))
+        for (index, track) in audioTracks.enumerated() {
+            let prefix = "Audio \(index + 1)"
+            if let language = try? await track.load(.languageCode) { technical.append(.init(label: "音频语言", value: "\(prefix) · \(language)")) }
+            if let rate = try? await track.load(.estimatedDataRate), rate > 0 { technical.append(.init(label: "音频码率", value: Self.bitRateLabel(Double(rate)))) }
+            if let descriptions = try? await track.load(.formatDescriptions) {
+                for format in descriptions {
+                    technical.append(.init(label: "音频编码", value: "\(prefix) · \(Self.codecName(format))"))
+                    technical += Self.audioLayoutDetails(format)
+                    if let stream = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee {
+                        technical.append(.init(label: "采样率", value: String(format: "%.0f Hz", stream.mSampleRate)))
+                        technical.append(.init(label: "声道数", value: String(stream.mChannelsPerFrame)))
+                        if stream.mBitsPerChannel > 0 { technical.append(.init(label: "音频位深", value: "\(stream.mBitsPerChannel) bit")) }
+                    }
+                }
+            }
+        }
+        if let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, duration > 0 {
+            technical.append(.init(label: "总码率", value: Self.bitRateLabel(Double(bytes) * 8 / duration)))
+        }
+        technical.append(.init(label: "容器格式", value: Self.containerName(url)))
+        // FFmpeg-backed formats may not expose AVAsset tracks. Read the
+        // active decoder's public metadata rather than dropping their details.
+        if let player = layer?.player {
+            if tracks.isEmpty {
+                let size = player.naturalSize
+                if size.width > 0 && size.height > 0 {
+                    var w = Int(size.width.rounded()), h = Int(size.height.rounded())
+                    let originalW = w, originalH = h
+                    while h != 0 { (w, h) = (h, w % h) }
+                    let divisor = max(1, w)
+                    technical.append(.init(label: "画面比例", value: "\(originalW / divisor):\(originalH / divisor)"))
+                }
+            }
+            if dimensions == nil {
+                let size = player.naturalSize
+                if size.width > 0 && size.height > 0 { dimensions = "\(Int(size.width)) × \(Int(size.height))" }
+            }
+            for type in [AVMediaType.video, .audio] where (type == .video ? tracks.isEmpty : audioTracks.isEmpty) {
+                for track in player.tracks(mediaType: type) {
+                    let video = type == .video
+                    if track.bitRate > 0 { technical.append(.init(label: video ? "视频码率" : "音频码率", value: Self.bitRateLabel(Double(track.bitRate)))) }
+                    if track.bitDepth > 0 { technical.append(.init(label: video ? "视频位深" : "音频位深", value: "\(track.bitDepth) bit")) }
+                    if video && track.nominalFrameRate > 0 { technical.append(.init(label: "帧率", value: String(format: "%.3f fps", track.nominalFrameRate))) }
+                    if let format = track.formatDescription {
+                        technical.append(.init(label: video ? "视频编码" : "音频编码", value: Self.codecName(format)))
+                        if video { technical += Self.videoColorDetails(format) }
+                        else { technical += Self.audioLayoutDetails(format) }
+                        if !video, let stream = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee {
+                            technical.append(.init(label: "采样率", value: String(format: "%.0f Hz", stream.mSampleRate)))
+                            technical.append(.init(label: "声道数", value: String(stream.mChannelsPerFrame)))
+                        }
+                    }
+                }
+            }
+        }
+        var synopsis: String?
+        if let metadata = try? await asset.load(.commonMetadata) {
+            for item in metadata where item.commonKey == .commonKeyDescription {
+                if let text = try? await item.load(.stringValue), !text.isEmpty {
+                    synopsis = text
+                    break
+                }
+            }
+        }
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        let fileName = externalFile?.name ?? (source?.kind == .local ? URL(fileURLWithPath: currentItem?.id.localID ?? "").lastPathComponent : currentItem?.title)
+        guard generation == token else { return nil }
+        return PlaybackVideoDetails(fileName: fileName ?? "", dimensions: dimensions,
+                                    byteCount: values?.fileSize, synopsis: synopsis,
+                                    sourceName: source?.name ?? VesperLocalization.string("外部视频"), technical: technical)
+    }
+
+    private static func bitRateLabel(_ bitsPerSecond: Double) -> String {
+        guard bitsPerSecond.isFinite, bitsPerSecond > 0 else { return "—" }
+        if bitsPerSecond >= 1_000_000 { return String(format: "%.2f Mbit/s", bitsPerSecond / 1_000_000) }
+        if bitsPerSecond >= 1_000 { return String(format: "%.1f kbit/s", bitsPerSecond / 1_000) }
+        return String(format: "%.0f bit/s", bitsPerSecond)
+    }
+
+    private static func containerName(_ url: URL) -> String {
+        if url.isFileURL, let handle = try? FileHandle(forReadingFrom: url) {
+            defer { try? handle.close() }
+            if let data = try? handle.read(upToCount: 64) {
+                let bytes = Array(data)
+                if bytes.count >= 12, String(bytes: bytes[4..<8], encoding: .ascii) == "ftyp" {
+                    return String(bytes: bytes[8..<12], encoding: .ascii) == "qt  " ? "QuickTime / MOV" : "ISO BMFF / MP4"
+                }
+                if bytes.starts(with: [0x1A, 0x45, 0xDF, 0xA3]) { return "Matroska / WebM" }
+                if bytes.starts(with: Array("FLV".utf8)) { return "FLV" }
+                if bytes.starts(with: Array("OggS".utf8)) { return "Ogg" }
+                if bytes.first == 0x47 { return "MPEG-TS" }
+                if bytes.count >= 12, String(bytes: bytes[8..<12], encoding: .ascii) == "AVI " { return "AVI" }
+            }
+        }
+        return url.pathExtension.isEmpty ? "—" : url.pathExtension.uppercased()
+    }
+
+    private static func videoColorDetails(_ format: CMFormatDescription) -> [PlaybackDetailField] {
+        let extensions = (CMFormatDescriptionGetExtensions(format) as? [String: Any]) ?? [:]
+        var fields: [PlaybackDetailField] = []
+        let transfer = String(describing: extensions["TransferFunction"] ?? "")
+        let codec = codecName(format)
+        let range: String
+        if ["dvhe", "dvh1", "dva1", "dvav"].contains(codec) { range = "Dolby Vision" }
+        else if transfer.contains("2084") { range = "HDR (PQ / HDR10)" }
+        else if transfer.contains("HLG") { range = "HDR (HLG)" }
+        else { range = "SDR" }
+        fields.append(.init(label: "动态范围", value: range))
+        for (key, label) in [("ColorPrimaries", "色彩原色"), ("TransferFunction", "传递函数"), ("YCbCrMatrix", "色彩矩阵"), ("BitsPerComponent", "视频位深"), ("FullRangeVideo", "全范围色彩")] {
+            if let value = extensions[key] { fields.append(.init(label: label, value: String(describing: value))) }
+        }
+        return fields
+    }
+
+    private static func audioLayoutDetails(_ format: CMFormatDescription) -> [PlaybackDetailField] {
+        var layoutSize = 0
+        guard let layout = CMAudioFormatDescriptionGetChannelLayout(format, sizeOut: &layoutSize) else { return [] }
+        var name: CFString?
+        var size = UInt32(MemoryLayout<CFString?>.size)
+        let status = AudioFormatGetProperty(kAudioFormatProperty_ChannelLayoutName, UInt32(layoutSize), layout, &size, &name)
+        let value = status == noErr ? name.map { $0 as String } : nil
+        return [.init(label: "声道布局", value: value ?? String(format: "0x%08X", layout.pointee.mChannelLayoutTag))]
+    }
+
+    private static func codecName(_ description: CMFormatDescription) -> String {
+        let code = CMFormatDescriptionGetMediaSubType(description)
+        let bytes: [UInt8] = [UInt8((code >> 24) & 255), UInt8((code >> 16) & 255), UInt8((code >> 8) & 255), UInt8(code & 255)]
+        return String(bytes: bytes, encoding: .ascii)?.trimmingCharacters(in: .whitespaces) ?? String(code)
+    }
+
+    func progress(for item: MediaItem) -> Double {
+        if item.id == currentItem?.id { return currentTime }
+        let key = item.id.sourceID.uuidString + ":" + item.id.localID
+        return UserDefaults.standard.dictionary(forKey: progressStorageKey)?[key] as? Double ?? 0
+    }
+
+    func queueInfo(for item: MediaItem) async -> PlaybackQueueInfo {
+        guard let source, source.id == item.id.sourceID else { return .init() }
+        if source.kind == .photos {
+            guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [item.id.localID], options: nil).firstObject else { return .init() }
+            PlayerQueueDiagnostic.write("photos.metadata.begin id=\(item.id.localID) authorization=\(PHPhotoLibrary.authorizationStatus(for: .readWrite).rawValue)")
+            let bytes = await QueuePhotoMetadataRequest().load(asset)
+            PlayerQueueDiagnostic.write("photos.metadata.end id=\(item.id.localID) duration=\(asset.duration) bytes=\(bytes ?? -1)")
+            return .init(duration: asset.duration.isFinite ? asset.duration : 0, dimensions: "\(asset.pixelWidth) × \(asset.pixelHeight)", byteCount: bytes)
+        }
+        guard source.kind == .local, let resource = try? await PlaybackResourceResolver().resolve(item, source: source) else { return .init() }
+        defer { resource.release() }
+        let asset = AVURLAsset(url: resource.url)
+        let duration = (try? await asset.load(.duration).seconds) ?? 0
+        let tracks = (try? await asset.loadTracks(withMediaType: .video)) ?? []
+        var dimensions: String?
+        if let track = tracks.first, let size = try? await track.load(.naturalSize) {
+            let transform = (try? await track.load(.preferredTransform)) ?? .identity
+            let size = size.applying(transform)
+            dimensions = "\(Int(abs(size.width))) × \(Int(abs(size.height)))"
+        }
+        let bytes = try? resource.url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        return .init(duration: duration.isFinite ? duration : 0, dimensions: dimensions, byteCount: bytes)
+    }
+
+    func setPlaybackRate(_ rate: Float) {
+        guard [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(rate) else { return }
+        playbackRate = rate
+        layer?.player.playbackRate = rate
+    }
+
+    func toggleFill() {
+        fillsScreen.toggle()
+        if !isPictureInPictureActive { restoreVideoContentMode() }
+    }
+
+    func playQueued(_ item: MediaItem) {
+        guard let source, queue.contains(where: { $0.id == item.id }) else { return }
+        load(item, source: source, engine: currentEngine, decoder: currentDecoder)
+    }
+
+    func selectAudio(_ id: Int32) {
+        guard let player = layer?.player,
+              let track = player.tracks(mediaType: .audio).first(where: { $0.trackID == id }) else { return }
+        player.select(track: track)
+        refreshTracks()
+    }
+
+    func selectSubtitle(_ id: Int32?) {
+        guard let player = layer?.player else { return }
+        if let mpv = player as? KSMPVPlayer {
+            if let id, let track = mpv.tracks(mediaType: .subtitle).first(where: { $0.trackID == id }) { mpv.select(track: track) }
+            else { mpv.disableSubtitles() }
+            selectedSubtitleID = id
+            subtitleText = ""
+            subtitleImage = nil
+            refreshTracks()
+            return
+        }
+        subtitleModel.selectedSubtitleInfo = nil
+        if let id, let track = player.tracks(mediaType: .subtitle).first(where: { $0.trackID == id }) {
+            player.select(track: track)
+            subtitleModel.selectedSubtitleInfo = player.subtitleDataSouce?.infos.first { $0.subtitleID == String(id) }
+        } else {
+            for track in player.tracks(mediaType: .subtitle) { track.isEnabled = false }
+        }
+        selectedSubtitleID = id
+        updateSubtitles()
+        refreshTracks()
+    }
+
+    private func refreshTracks() {
+        guard let player = layer?.player else { return }
+        let audio = player.tracks(mediaType: .audio).map { PlaybackTrack(id: $0.trackID, name: $0.name, isSelected: $0.isEnabled) }
+        let subtitles = player.tracks(mediaType: .subtitle).map { PlaybackTrack(id: $0.trackID, name: $0.name, isSelected: $0.trackID == selectedSubtitleID) }
+        if audioTracks != audio { audioTracks = audio }
+        if subtitleTracks != subtitles { subtitleTracks = subtitles }
+    }
+
+    private func updateSubtitles() {
+        _ = subtitleModel.subtitle(currentTime: currentTime)
+        let text = subtitleModel.parts.compactMap { $0.text?.string }.joined(separator: "\n")
+        if subtitleText != text { subtitleText = text }
+        let image = subtitleModel.parts.compactMap(\.image).first
+        if subtitleImage !== image { subtitleImage = image }
+    }
+
+    func next() {
+        guard hasNext, let source, let currentItem,
+              let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return }
+        load(queue[index + 1], source: source, engine: currentEngine, decoder: currentDecoder)
+    }
+
+    func retry() {
+        guard let currentItem else { return }
+        load(currentItem, source: source, engine: currentEngine, decoder: currentDecoder)
+    }
+
+    func stop() {
+        saveProgress()
+        recordPlaybackHistory()
+        request?.cancel()
+        request = nil
+        generation = UUID()
+        tearDownPlayer()
+        currentItem = nil
+        source = nil
+        externalFile = nil
+        queue = []
+        currentTime = 0
+        duration = 0
+        isLoading = false
+        errorMessage = nil
+        isPresented = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func tearDownPlayer() {
+        pipController?.delegate = nil
+        pipController?.stopPictureInPicture()
+        pipObservation = nil
+        pipConfigurationObservation = nil
+        pipController = nil
+        pipStateSynchronization?.cancel()
+        pipStateSynchronization = nil
+        isPictureInPicturePossible = false
+        isPictureInPictureActive = false
+        restorePiPCompletion?(false)
+        restorePiPCompletion = nil
+        restoringPiP = false
+        pendingSeek = nil
+        seekInFlight = false
+        seekLanding = nil
+        layer?.delegate = nil
+        layer?.stop()
+        videoView?.removeFromSuperview()
+        videoView = nil
+        layer = nil
+        resource?.release()
+        resource = nil
+        subtitleModel.selectedSubtitleInfo = nil
+        _ = subtitleModel.subtitle(currentTime: 0)
+        subtitleText = ""
+        subtitleImage = nil
+        selectedSubtitleID = nil
+        audioTracks = []
+        subtitleTracks = []
+        bufferedTime = 0
+        isSeeking = false
+        isPlaying = false
+    }
+
+    func player(layer: KSPlayerLayer, state: KSPlayerState) {
+        guard layer === self.layer else { return }
+        videoView = layer.player.view
+        isPlaying = state.isPlaying
+        isLoading = state == .preparing || state == .buffering
+        if appIsInBackground && !PlaybackPreferences.backgroundEnabled && state.isPlaying {
+            layer.pause()
+            return
+        }
+        if state == .readyToPlay {
+            if let mpv = layer.player as? KSMPVPlayer {
+                currentDecoder = mpv.usingHardwareDecoder ? .hardware : .software
+            } else {
+                currentDecoder = layer.player is KSAVPlayer || layer.options.hardwareDecode ? .hardware : .software
+            }
+            if let restore = decoderRestore {
+                decoderRestore = nil
+                currentTime = restore.time
+                seekLanding = (restore.time, Date().addingTimeInterval(3))
+                layer.seek(time: restore.time, autoPlay: restore.resume) { _ in }
+            }
+            layer.player.playbackRate = playbackRate
+            layer.player.contentMode = fillsScreen ? .scaleAspectFill : .scaleAspectFit
+            layer.player.allowsExternalPlayback = true
+            layer.player.isMuted = isMuted
+            var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+            info[MPMediaItemPropertyTitle] = currentItem?.title
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+            configurePictureInPicture()
+            for track in layer.player.tracks(mediaType: .subtitle) { track.isEnabled = false }
+        }
+        refreshTracks()
+        if state == .playedToTheEnd {
+            currentTime = duration
+            saveProgress()
+            recordPlaybackHistory()
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
+        log("状态：\(state)")
+    }
+
+    func player(layer: KSPlayerLayer, currentTime: TimeInterval, totalTime: TimeInterval) {
+        guard layer === self.layer else { return }
+        // Decoder ticks already queued before a preview/final seek must not
+        // overwrite the UI target. Resume normal updates once the decoder lands.
+        if let mpv = layer.player as? KSMPVPlayer, mpv.isReadyToPlay {
+            currentDecoder = mpv.usingHardwareDecoder ? .hardware : .software
+        }
+        if !isSeeking {
+            if let landing = seekLanding {
+                if abs(currentTime - landing.time) < 1.5 || Date() >= landing.deadline {
+                    seekLanding = nil
+                    self.currentTime = currentTime.isFinite ? max(0, currentTime) : 0
+                }
+            } else { self.currentTime = currentTime.isFinite ? max(0, currentTime) : 0 }
+        }
+        duration = totalTime.isFinite ? max(0, totalTime) : 0
+        if !isSeeking && layer.player.playbackState != .seeking {
+            let playing = layer.player.isPlaying
+            if isPlaying != playing { isPlaying = playing }
+        }
+        let playable = layer.player.playableTime
+        bufferedTime = playable.isFinite ? min(duration, max(currentTime, playable)) : currentTime
+        refreshTracks()
+        updateSubtitles()
+        configurePictureInPicture()
+        restoreProgressIfNeeded()
+        if Date().timeIntervalSince(lastProgressSave) >= 5 && !isSeeking { saveProgress() }
+        if layer.player.isPlaying && !isSeeking && Date().timeIntervalSince(lastHistorySave) >= 5 { recordPlaybackHistory() }
+    }
+
+    func player(layer: KSPlayerLayer, finish error: Error?) {
+        guard layer === self.layer else { return }
+        isPlaying = false
+        isLoading = false
+        if let error {
+            errorMessage = error.localizedDescription
+            UIApplication.shared.isIdleTimerDisabled = false
+            log("播放失败：\(error.localizedDescription)")
+        }
+    }
+
+    func player(layer: KSPlayerLayer, bufferedCount: Int, consumeTime: TimeInterval) {}
+
+    private func log(_ message: String) {
+        AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [Playback] \(message)")
+    }
+}
+
+struct PlaybackTrack: Identifiable, Equatable {
+    let id: Int32
+    let name: String
+    let isSelected: Bool
+}
+
+struct PlaybackVideoDetails: Sendable {
+    let fileName: String
+    let dimensions: String?
+    let byteCount: Int?
+    let synopsis: String?
+    let sourceName: String
+    let technical: [PlaybackDetailField]
+}
+
+struct PlaybackDetailField: Sendable {
+    let label: String
+    let value: String
+}
+
+struct PlaybackQueueInfo: Sendable {
+    var duration: Double = 0
+    var dimensions: String?
+    var byteCount: Int?
+}
+
+struct PlaybackHistoryEntry: Identifiable, Codable {
+    let mediaID: MediaID
+    let title: String
+    let source: MediaSource
+    let watchedAt: Date
+    let position: Double
+    let duration: Double
+    var id: MediaID { mediaID }
+    var item: MediaItem { MediaItem(id: mediaID, title: title, resource: nil) }
+}
+
+/// Photos invokes callbacks off the main actor. Resume a request exactly once,
+/// including cancellation, without inheriting the session's actor isolation.
+@MainActor
+private final class QueuePhotoMetadataRequest {
+    private var continuation: CheckedContinuation<Int?, Never>?
+    private var requestID: PHImageRequestID?
+
+    func load(_ asset: PHAsset) async -> Int? {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(returning: nil); return }
+                self.continuation = continuation
+                let options = PHVideoRequestOptions()
+                options.isNetworkAccessAllowed = false
+                options.deliveryMode = .fastFormat
+                requestID = PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { @Sendable [weak self] avAsset, _, info in
+                    let bytes = (avAsset as? AVURLAsset).flatMap { try? $0.url.resourceValues(forKeys: [.fileSizeKey]).fileSize }
+                    let cancelled = (info?[PHImageCancelledKey] as? Bool) == true
+                    let error = (info?[PHImageErrorKey] as? NSError)?.code
+                    let hasAsset = avAsset != nil
+                    Task { @MainActor [weak self] in
+                        PlayerQueueDiagnostic.write("photos.metadata.callback asset=\(hasAsset) cancelled=\(cancelled) error=\(error.map(String.init) ?? "none")")
+                        self?.finish(bytes)
+                    }
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let requestID = self.requestID { PHImageManager.default().cancelImageRequest(requestID) }
+                self.finish(nil)
+            }
+        }
+    }
+
+    private func finish(_ bytes: Int?) {
+        let pending = continuation
+        continuation = nil
+        requestID = nil
+        pending?.resume(returning: bytes)
+    }
+}

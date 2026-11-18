@@ -137,3 +137,426 @@
 "来源离线" = "Fuente sin conexión";
 "无法加载来源" = "No se puede cargar la fuente";
 "重试" = "Reintentar";
+
+"未在播放" = "Sin reproducción";
+"打开播放器" = "Abrir reproductor";
+"播放器" = "Reproductor";
+"选择媒体后即可开始播放。" = "Selecciona contenido para iniciar la reproducción.";
+"下一项" = "Siguiente";
+"调整标签排列顺序和图标。" = "Personaliza el orden y los iconos de las pestañas.";
+"将恢复标签的排列顺序和图标。" = "Se restablecerán el orden y los iconos.";
+
+"测试记录 %lld" = "Entrada de prueba %lld";
+"滚动测试占位，不是真实观看记录。" = "Marcador de desplazamiento, no es un historial real.";
+
+"最近搜索" = "Búsquedas recientes";
+
+"无最近搜索" = "Sin búsquedas recientes";
+
+"添加来源" = "Añadir fuente";
+
+"相册视频" = "Vídeos de la fototeca";
+
+"本地视频" = "Vídeos locales";
+
+"无法添加来源" = "No se pudo añadir la fuente";
+
+"请检查相册访问权限或重新选择本地文件夹。" = "Revisa el acceso a las fotos o vuelve a seleccionar la carpeta local.";
+
+"Emby 来源尚未接入。" = "Las fuentes Emby aún no están disponibles.";
+
+"播放功能尚未接入" = "La reproducción aún no está disponible";
+
+"默认标签页" = "Pestaña predeterminada";
+
+"关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。" = "Al desactivar una pestaña, se elimina de la barra y puede que no haya otra forma de abrir esa página. Vuelve a activarla aquí cuando la necesites. Ajustes siempre estará disponible.";
+
+"打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。" = "Abrir la pestaña seleccionada al iniciar la app. Las pestañas ocultas no pueden ser la predeterminada.";
+
+"将恢复标签的排列顺序、图标、显示状态和默认标签页。" = "Se restablecerán el orden, los iconos, la visibilidad y la pestaña predeterminada.";
+
+"选择视频（诊断）" = "Elegir vídeo (diagnóstico)";
+
+"新建文件夹" = "Nueva carpeta";
+
+"重命名" = "Renombrar";
+
+"名称" = "Nombre";
+
+"保存" = "Guardar";
+
+"移动" = "Mover";
+
+"删除项目？" = "¿Eliminar elemento?";
+
+"请输入完整文件名，包括扩展名。" = "Introduce el nombre completo del archivo, incluida la extensión.";
+
+"删除后无法恢复；删除文件夹会同时删除其中的所有文件。" = "La eliminación no se puede deshacer. También se eliminará todo el contenido de la carpeta.";
+
+"文件操作失败" = "Error de operación";
+
+"上一级" = "Carpeta superior";
+
+"移到此处" = "Mover aquí";
+
+"名称不能为空，且不能包含斜杠或冒号。" = "Introduce un nombre sin barras ni dos puntos.";
+
+"无法访问本地来源以外的位置或符号链接。" = "No se puede acceder a ubicaciones fuera del origen ni a enlaces simbólicos.";
+
+"目标位置已有同名文件或文件夹。" = "Ya existe un archivo o carpeta con este nombre en el destino.";
+
+"不能移动到原位置、文件夹自身或其子文件夹。" = "No se puede mover a la ubicación original, a la propia carpeta ni a sus subcarpetas.";
+
+"正在加载" = "Cargando";
+
+"无法旋转屏幕" = "No se puede girar la pantalla";
+
+"更多" = "Más";
+
+"完整显示" = "Ajustar a la pantalla";
+
+"填满屏幕" = "Llenar pantalla";
+
+"播放速度" = "Velocidad de reproducción";
+
+"字幕与音轨" = "Subtítulos y audio";
+
+"播放列表" = "Lista de reproducción";
+
+"横屏" = "Horizontal";
+
+"竖屏" = "Vertical";
+
+"画面" = "Imagen";
+
+"音轨" = "Pistas de audio";
+
+"无可用音轨" = "No hay pistas de audio disponibles";
+
+"字幕" = "Subtítulos";
+
+"关闭字幕" = "Desactivar subtítulos";
+
+"无内嵌字幕" = "Sin subtítulos integrados";
+
+"播放器手势" = "Gestos del reproductor";
+
+"左侧区域" = "Zona izquierda";
+
+"中间区域" = "Zona central";
+
+"右侧区域" = "Zona derecha";
+
+"双击" = "Doble toque";
+
+"上下滑动" = "Deslizar verticalmente";
+
+"左右滑动" = "Deslizar horizontalmente";
+
+"无操作" = "Sin acción";
+
+"显示控制层" = "Mostrar controles";
+
+"暂停或继续播放" = "Pausar o continuar";
+
+"快退" = "Retroceder";
+
+"快进" = "Avanzar";
+
+"调节亮度" = "Ajustar brillo";
+
+"调节音量" = "Ajustar volumen";
+
+"调整播放进度" = "Cambiar posición de reproducción";
+
+"手指数" = "Número de dedos";
+
+"单指" = "Un dedo";
+
+"双指" = "Dos dedos";
+
+"三指" = "Tres dedos";
+
+"快进快退时长" = "Intervalo de salto";
+
+"恢复默认手势？" = "¿Restablecer gestos?";
+
+"画中画" = "Imagen dentro de imagen";
+
+"投屏" = "AirPlay";
+
+"音量" = "Volumen";
+
+"静音" = "Silenciar";
+
+"取消静音" = "Activar sonido";
+
+"亮度 %d%%" = "Brillo %d%%";
+
+"音量 %d%%" = "Volumen %d%%";
+
+"当前视频暂不支持画中画。" = "Imagen dentro de imagen no está disponible para este vídeo actualmente.";
+
+"播放进度" = "Progreso de reproducción";
+
+"无法播放" = "No se puede reproducir";
+
+"暂停" = "Pausar";
+
+"弹幕设置" = "Ajustes de comentarios flotantes";
+
+"尚未接入弹幕来源。" = "Aún no se ha conectado una fuente de comentarios flotantes.";
+
+"%d 秒" = "%d segundos";
+
+"播放器按水平方向均分为左、中、右三个区域，滑动以手势开始的位置为准。按钮和进度条使用各自的操作，不触发区域手势。" = "El reproductor se divide en tres zonas. Los deslizamientos usan la zona inicial. Los botones y la barra de progreso funcionan por separado.";
+
+"默认单指单击显示控制层；双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量。多指手势默认无操作。" = "Un toque muestra los controles. Doble toque: izquierda para retroceder, centro para pausar o continuar, derecha para avanzar. Deslizar verticalmente ajusta brillo a la izquierda y volumen a la derecha. Los gestos con varios dedos no tienen acción predeterminada.";
+
+"显示或隐藏控制层" = "Mostrar u ocultar controles";
+
+"区域控制手势仅在控制层隐藏时生效，滑动以手势开始的位置为准。控制层显示时，单指单击空白区域即可隐藏；按钮和进度条独立操作。" = "Los gestos por zona solo funcionan con los controles ocultos y usan la zona inicial. Con los controles visibles, toca un área vacía con un dedo para ocultarlos. Los botones y la barra de progreso funcionan por separado.";
+
+"默认单指单击切换控制层；隐藏时双击左侧快退、中间暂停或继续、右侧快进；左侧上下滑动调节亮度，右侧调节音量；任意区域左右滑动快退或快进。多指手势默认无操作。" = "Un toque con un dedo alterna los controles. Ocultos: doble toque a la izquierda para retroceder, en el centro para pausar o continuar, a la derecha para avanzar. Deslizamiento vertical: brillo a la izquierda y volumen a la derecha. Deslizar horizontalmente cambia la posición en cualquier zona. Los gestos con varios dedos no tienen acción predeterminada.";
+
+"选择视频" = "Elegir vídeo";
+
+"播放手势" = "Gestos de reproducción";
+
+"收起音量" = "Contraer volumen";
+
+"播放设置" = "Ajustes de reproducción";
+
+"字幕设置" = "Ajustes de subtítulos";
+
+"字幕字号" = "Tamaño de subtítulos";
+
+"字幕背景" = "Fondo de subtítulos";
+
+"字幕预览" = "Vista previa de subtítulos";
+
+"在播放器的字幕菜单中选择视频内的字幕轨道。字号和背景设置应用于文字字幕。" = "Selecciona una pista integrada en el menú de subtítulos. El tamaño y el fondo se aplican a los subtítulos de texto.";
+
+"%+d 秒" = "%+d s";
+
+"外部服务尚未连接。" = "Los servicios externos aún no están conectados.";
+
+"更多设置" = "Más ajustes";
+
+"后台播放" = "Reproducción en segundo plano";
+
+"后台播放方式" = "Modo de reproducción en segundo plano";
+
+"音频播放" = "Reproducción de audio";
+
+"画中画播放" = "Reproducción en imagen dentro de imagen";
+
+"回到前台自动续播" = "Continuar al volver a la app";
+
+"保留播放进度" = "Recordar posición de reproducción";
+
+"设置后台播放方式、自动续播、进度保存和跳转时长。" = "Configura reproducción en segundo plano, reanudación, posiciones guardadas e intervalos de salto.";
+
+"调整文字字幕的字号和背景。" = "Ajusta el tamaño y el fondo de los subtítulos de texto.";
+
+"管理播放时显示的弹幕。" = "Gestiona los comentarios flotantes durante la reproducción.";
+
+"为播放器的不同区域设置单指和多指操作。" = "Configura acciones de uno o varios dedos para cada zona del reproductor.";
+
+"查看播放器和第三方组件的开源许可。" = "Consulta las licencias del reproductor y los componentes de terceros.";
+
+"播放选项" = "Opciones de reproducción";
+
+"音频" = "Audio";
+
+"视频简介" = "Sinopsis del vídeo";
+
+"详细信息" = "Detalles";
+
+"暂无视频简介" = "No hay sinopsis disponible";
+
+"无法读取视频信息" = "No se puede leer la información del vídeo";
+
+"文件名" = "Nombre del archivo";
+
+"文件大小" = "Tamaño del archivo";
+
+"分辨率" = "Resolución";
+
+"时长" = "Duración";
+
+"外部视频" = "Vídeo externo";
+
+"减小亮度" = "Reducir brillo";
+
+"增大亮度" = "Aumentar brillo";
+
+"减小音量" = "Reducir volumen";
+
+"增大音量" = "Aumentar volumen";
+
+"减慢播放速度" = "Reducir velocidad";
+
+"加快播放速度" = "Aumentar velocidad";
+
+"切换填充方式" = "Cambiar ajuste de vídeo";
+
+"切换屏幕方向" = "Girar pantalla";
+
+"向上滑动" = "Deslizar hacia arriba";
+
+"向下滑动" = "Deslizar hacia abajo";
+
+"向左滑动" = "Deslizar a la izquierda";
+
+"向右滑动" = "Deslizar a la derecha";
+
+"张开" = "Separar dedos";
+
+"捏合" = "Juntar dedos";
+
+"顺时针旋转" = "Girar a la derecha";
+
+"逆时针旋转" = "Girar a la izquierda";
+
+"显示区域划分" = "Mostrar regiones";
+
+"静音或取消静音" = "Alternar silencio";
+
+"全部区域" = "Toda la pantalla";
+
+"区域数量" = "Número de regiones";
+
+"单区域" = "Una región";
+
+"双区域" = "Dos regiones";
+
+"三区域" = "Tres regiones";
+
+"左侧区域比例" = "Proporción izquierda";
+
+"右侧区域边界" = "Límite derecho";
+
+"自定义区域与单指、双指操作。" = "Personaliza regiones y gestos con uno o dos dedos.";
+
+"快进快退使用播放设置中的时长。每种手势均可选择任意动作。" = "Los saltos usan el intervalo de Ajustes de reproducción. Cada gesto admite cualquier acción.";
+
+"手势仅在控制层隐藏时生效，以起始区域为准。单击空白区域可隐藏控制层。" = "Los gestos usan la región inicial con los controles ocultos. Toca un área vacía para ocultarlos.";
+
+"查看、保留和分享运行日志。" = "Consulta, conserva y comparte registros.";
+
+"查看第三方组件许可。" = "Consulta las licencias de terceros.";
+
+"选择主题、颜色和应用图标。" = "Elige tema, color e icono de la app.";
+
+"管理后台播放、进度与跳转。" = "Gestiona reproducción en segundo plano, progreso y saltos.";
+
+"管理播放弹幕。" = "Gestiona comentarios de vídeo.";
+
+"调整字幕字号与背景。" = "Ajusta tamaño y fondo de subtítulos.";
+
+"画面比例" = "Relación de aspecto";
+
+"帧率" = "Fotogramas por segundo";
+
+"视频码率" = "Tasa de bits de vídeo";
+
+"视频编码" = "Códec de vídeo";
+
+"音频码率" = "Tasa de bits de audio";
+
+"音频编码" = "Códec de audio";
+
+"音轨数量" = "Pistas de audio";
+
+"音频语言" = "Idioma de audio";
+
+"采样率" = "Frecuencia de muestreo";
+
+"声道数" = "Canales";
+
+"音频位深" = "Profundidad de audio";
+
+"位深" = "Profundidad de bits";
+
+"总码率" = "Tasa de bits total";
+
+"容器格式" = "Formato contenedor";
+
+"色彩原色" = "Colores primarios";
+
+"传递函数" = "Función de transferencia";
+
+"色彩矩阵" = "Matriz de color";
+
+"上滑／下滑" = "Deslizar arriba / abajo";
+
+"右滑／左滑" = "Deslizar derecha / izquierda";
+
+"张开／捏合" = "Separar / juntar dedos";
+
+"顺时针／逆时针旋转" = "Girar a la derecha / izquierda";
+
+"快进／快退" = "Avanzar / retroceder";
+
+"增大／减小音量" = "Subir / bajar volumen";
+
+"增大／减小亮度" = "Subir / bajar brillo";
+
+"加快／减慢播放速度" = "Aumentar / reducir velocidad";
+
+"播放／暂停" = "Reproducir / pausar";
+
+"为每种手势选择区域与动作。" = "Elige regiones y acciones para cada gesto.";
+
+"区域划分" = "División de regiones";
+
+"区域划分预览" = "Vista previa de regiones";
+
+"区域范围设置" = "Límites de regiones";
+
+"左侧区域边界" = "Límite de la región izquierda";
+
+"组合手势设置" = "Gestos combinados";
+
+"默认播放速度" = "Velocidad predeterminada";
+
+"调整填充方式" = "Ajustar encuadre";
+
+"调整屏幕方向" = "Ajustar orientación";
+
+"清除播放进度" = "Borrar progreso de reproducción";
+
+"调整音量" = "Ajustar volumen";
+"调整亮度" = "Ajustar brillo";
+"调整播放速度" = "Ajustar velocidad de reproducción";
+"控制播放状态" = "Controlar reproducción";
+"显隐控制层" = "Mostrar/ocultar controles";
+"退出播放" = "Salir de la reproducción";
+"重置主题色？" = "¿Restablecer el color de acento?";
+
+"无法分享视频" = "No se puede compartir el vídeo";
+
+"查看时间" = "Última visualización";
+
+"优先解码方式" = "Preferred Decoding Method";
+"硬件解码" = "Hardware Decoding";
+"软件解码" = "Software Decoding";
+"文件信息" = "File Information";
+"视频信息" = "Video Information";
+"音频信息" = "Audio Information";
+"封装格式" = "Container Format";
+"编码格式" = "Codec";
+"码率" = "Bit Rate";
+"语言" = "Language";
+"轨道数量" = "Track Count";
+"动态范围" = "Dynamic Range";
+"全范围色彩" = "Full Color Range";
+"显示尺寸" = "Display Dimensions";
+"声道布局" = "Channel Layout";
+"创建时间" = "Created";
+"修改时间" = "Modified";
+
+"播放内核" = "Motor de reproducción";
+
+"mpv 暂不支持画中画。" = "mpv aún no admite imagen dentro de imagen.";

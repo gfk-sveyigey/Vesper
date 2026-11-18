@@ -2,6 +2,14 @@
 
 本文件定义界面设计的原则与交互契约。品牌定位为暮色、宁静、沉浸、精致，以薰衣草紫作为识别色。完整全屏播放界面的视觉与控制布局暂不定义；标题/导航区域的紧凑播放条及系统 PiP 属于范围，应用内可拖动小窗不属于范围。
 
+## 当前导航基线（2026-11-15）
+
+四个一级页面（含空状态）统一使用 `VesperRootScrollView` 和内容顶部的 `VesperLargeTitle`；标题行预留相同的操作宽度，右侧操作不参与标题高度计算，行高随动态字体缩放。来源原生 Menu 位于同一个标题行，与标题自然滚动。一级导航栏采用 inline 模式，透明 principal 只隐藏可见标题，保留真实标题用于返回历史。不使用 inlineLarge、Toolbar 加号或自定义标题动画。一级滚动视口延伸到导航栏下方，内容只保留窗口状态栏安全区间距，并保留 soft 滚动边缘效果。一级页面不再使用 UIKit 触摸透传桥接，避免干扰系统 Tab 回顶行为。二级页面使用系统 inline 标题、返回按钮及独立 Toolbar。
+
+底部提供媒体、来源、记录、设置和独立 Search Tab。标签顺序、图标、默认标签和显示状态可调整，设置标签始终保留；不提供多功能按钮或手势配对。`tabBarMinimizeBehavior(.onScrollDown)` 由系统响应当前页面滚动；`tabViewBottomAccessory` 承载 MiniPlayer，并随系统标签栏缩至 inline。点击 MiniPlayer 使用匹配源和 zoom 转场展开。当前仅实现播放器空状态，没有播放引擎，播放控制禁用。
+
+此基线替代下文涉及旧标签显隐、手工安全区和标题动画的历史描述。来源参考：[Apple 官方 accessory 文档](https://developer.apple.com/documentation/swiftui/view/tabviewbottomaccessory(content:))、[inlineLarge](https://developer.apple.com/documentation/swiftui/toolbartitledisplaymode/inlinelarge)、[AppleMusicBottombarSwiftUI](https://github.com/ahmetbostanciklioglu/AppleMusicBottombarSwiftUI)。
+
 ## 品牌视觉定位
 
 以暮色为灵感，以紫色作为品牌识别，结合柔和的界面层次、原生系统材质与沉浸式播放体验。
