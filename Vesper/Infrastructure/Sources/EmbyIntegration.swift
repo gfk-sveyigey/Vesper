@@ -6,7 +6,8 @@ import PlaybackContracts
 
 struct EmbyAuthentication: Sendable {
     let serverID: String
-    let userID: String
+    let userID: String?
+    let serverName: String?
 }
 
 struct EmbyPlaybackResource: Sendable {
@@ -39,27 +40,48 @@ actor EmbyRepository {
     }
 
     func rootItems(for source: MediaSource) async throws -> [MediaItem] {
-        guard let userID = source.emby?.userID else { throw EmbyError.missingAccount }
         let client = try await clientProvider(source)
-        let response = try await client.get("Users/\(userID)/Views")
+        let response: EmbyJSON
+        if let userID = source.emby?.userID {
+            response = try await client.get("Users/\(userID)/Views")
+        } else {
+            response = try await client.get("Items", query: ["Recursive": "true", "IncludeItemTypes": "Movie,Series,Episode,Folder", "Limit": "100", "SortBy": "SortName"])
+        }
         return map(response["Items"] as? [[String: Any]] ?? [], source: source, client: client)
     }
 
+    func serverName(for source: MediaSource) async throws -> String? {
+        let client = try await clientProvider(source)
+        let info = try await client.get("System/Info/Public")
+        let serverName = (info["ServerName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let productName = (info["ProductName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return serverName?.isEmpty == false ? serverName : productName
+    }
+
+    func alternateAddresses(for source: MediaSource) async throws -> [String] {
+        let client = try await clientProvider(source)
+        let info = try await client.get("System/Info")
+        let values = (info["AlternateUrls"] as? [String] ?? [])
+            + ["LocalAddress", "WanAddress", "ServerAddress"].compactMap { info[$0] as? String }
+        return Array(Set(values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != source.emby?.serverAddress })).sorted()
+    }
+
     func items(for source: MediaSource, parentID: String?, startIndex: Int) async throws -> [MediaItem] {
-        guard let userID = source.emby?.userID else { throw EmbyError.missingAccount }
         let client = try await clientProvider(source)
         var query = ["StartIndex": String(startIndex), "Limit": "100", "Fields": "Overview,PrimaryImageAspectRatio,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData"]
         if let parentID { query["ParentId"] = parentID }
-        else { query["ParentId"] = "" }
+        else if source.emby?.userID != nil { query["ParentId"] = "" }
         query["SortBy"] = "SortName"; query["SortOrder"] = "Ascending"
-        let response = try await client.get("Users/\(userID)/Items", query: query)
+        let path = source.emby?.userID.map { "Users/\($0)/Items" } ?? "Items"
+        let response = try await client.get(path, query: query)
         return map(response["Items"] as? [[String: Any]] ?? [], source: source, client: client)
     }
 
     func details(for item: MediaItem, source: MediaSource) async throws -> EmbyItemDetails {
-        guard let userID = source.emby?.userID else { throw EmbyError.missingAccount }
         let client = try await clientProvider(source)
-        let response = try await client.get("Users/\(userID)/Items/\(item.id.localID)")
+        let path = source.emby?.userID.map { "Users/\($0)/Items/\(item.id.localID)" } ?? "Items/\(item.id.localID)"
+        let response = try await client.get(path)
         let sources = response["MediaSources"] as? [[String: Any]] ?? []
         let media = sources.first(where: { $0["Id"] as? String == item.embyMediaSourceID }) ?? sources.first ?? [:]
         var fields: [PlaybackDetailField] = []
@@ -103,12 +125,13 @@ actor EmbyRepository {
     }
 
     func playbackResource(item: MediaItem, source: MediaSource, position: Double) async throws -> EmbyPlaybackResource {
-        guard let itemID = item.embyItemID, let userID = source.emby?.userID else { throw EmbyError.invalidResponse }
+        guard let itemID = item.embyItemID else { throw EmbyError.invalidResponse }
         let client = try await clientProvider(source)
-        var payload: [String: Any] = ["UserId": userID, "MaxStreamingBitrate": 120_000_000,
+        var payload: [String: Any] = ["MaxStreamingBitrate": 120_000_000,
                                       "StartTimeTicks": Int64(max(0, position) * 10_000_000),
                                       "EnableDirectPlay": true, "EnableDirectStream": true, "EnableTranscoding": true,
                                       "DeviceProfile": Self.deviceProfile]
+        if let userID = source.emby?.userID { payload["UserId"] = userID }
         if let mediaSourceID = item.embyMediaSourceID { payload["MediaSourceId"] = mediaSourceID }
         let response = try await client.send("Items/\(itemID)/PlaybackInfo", method: "POST", body: EmbyJSON(payload))
         guard let playSessionID = response["PlaySessionId"] as? String else { throw EmbyError.invalidResponse }
@@ -131,8 +154,13 @@ actor EmbyRepository {
             }
         }
         let duration = (media["RunTimeTicks"] as? NSNumber).map { $0.doubleValue / 10_000_000 } ?? 0
-        let detail = try await client.get("Users/\(userID)/Items/\(itemID)")
-        let progressTicks = (detail["UserData"] as? [String: Any])?["PlaybackPositionTicks"] as? NSNumber
+        let progressTicks: NSNumber?
+        if let userID = source.emby?.userID {
+            let detail = try await client.get("Users/\(userID)/Items/\(itemID)")
+            progressTicks = (detail["UserData"] as? [String: Any])?["PlaybackPositionTicks"] as? NSNumber
+        } else {
+            progressTicks = nil
+        }
         let subtitles = externalSubtitles(media: media, itemID: itemID, client: client)
         return EmbyPlaybackResource(resource: PlayableResource(url: url, headers: headers), sessionID: playSessionID,
                                     mediaSourceID: mediaSourceID, duration: duration,

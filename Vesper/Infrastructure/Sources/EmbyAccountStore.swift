@@ -2,7 +2,8 @@ import Foundation
 import Security
 
 private struct EmbyAccount: Codable {
-    var token: String
+    var token: String?
+    var userID: String?
     var deviceID: String
     var customHeaders: [String: String]
 }
@@ -17,18 +18,24 @@ final class EmbyAccountStore {
         let client = try EmbyAPIClient(configuration: config, token: nil, deviceID: deviceID())
         let publicInfo = try await client.get("System/Info/Public")
         guard let serverID = publicInfo["Id"] as? String else { throw EmbyError.invalidResponse }
+        let serverName = (publicInfo["ServerName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if username.isEmpty && password.isEmpty {
+            try save(EmbyAccount(token: nil, userID: nil, deviceID: deviceID(), customHeaders: config.customHeaders), sourceID: source.id)
+            return EmbyAuthentication(serverID: serverID, userID: nil, serverName: serverName?.isEmpty == false ? serverName : nil)
+        }
         let payload: [String: Any] = ["Username": username, "Pw": password]
         let result = try await client.send("Users/AuthenticateByName", method: "POST", body: EmbyJSON(payload))
         guard let token = result["AccessToken"] as? String,
               let user = result["User"] as? [String: Any],
               let userID = user["Id"] as? String else { throw EmbyError.authentication }
-        try save(EmbyAccount(token: token, deviceID: deviceID(), customHeaders: config.customHeaders), sourceID: source.id)
-        return EmbyAuthentication(serverID: serverID, userID: userID)
+        try save(EmbyAccount(token: token, userID: userID, deviceID: deviceID(), customHeaders: config.customHeaders), sourceID: source.id)
+        return EmbyAuthentication(serverID: serverID, userID: userID, serverName: serverName?.isEmpty == false ? serverName : nil)
     }
 
     func client(for source: MediaSource) throws -> EmbyAPIClient {
         guard var config = source.emby, let account = account(sourceID: source.id) else { throw EmbyError.missingAccount }
         config.customHeaders = account.customHeaders
+        config.userID = account.userID
         return try EmbyAPIClient(configuration: config, token: account.token, deviceID: account.deviceID)
     }
 

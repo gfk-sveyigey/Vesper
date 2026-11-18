@@ -1,5 +1,6 @@
 import SwiftUI
 import Photos
+import UIKit
 
 struct SourcesView: View {
     @EnvironmentObject private var library: SourceLibrary
@@ -17,8 +18,19 @@ struct SourcesView: View {
                     ForEach(library.sources) { source in
                         Button { library.select(source.id) } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: source.kind == .emby ? "server.rack" : source.kind == .photos ? "play.rectangle.on.rectangle" : "folder")
-                                    .frame(width: 28)
+                                if source.kind == .emby {
+                                    Group {
+                                        if let data = source.emby?.iconData, let image = UIImage(data: data) {
+                                            Image(uiImage: image).resizable().scaledToFill()
+                                        } else {
+                                            Image("EmbyLogo").resizable().scaledToFit().padding(2).background(.white)
+                                        }
+                                    }
+                                    .frame(width: 36, height: 36).clipShape(RoundedRectangle(cornerRadius: 7))
+                                } else {
+                                    Image(systemName: source.kind == .photos ? "play.rectangle.on.rectangle" : "folder")
+                                        .frame(width: 36)
+                                }
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(verbatim: source.name).foregroundStyle(.primary)
                                     if let note = source.emby?.note, !note.isEmpty {
@@ -64,7 +76,9 @@ struct SourcesView: View {
             if !library.sources.contains(where: { $0.kind == .local }) {
                 Button("本地视频", systemImage: "folder") { addLocalVideos() }
             }
-            Button("Emby", systemImage: "server.rack") { isShowingEmbyEditor = true }
+            Button { isShowingEmbyEditor = true } label: {
+                Label("Emby", image: "EmbyLogo")
+            }
         } label: {
             Image(systemName: "folder.badge.plus")
                 .font(.system(size: 17, weight: .medium))

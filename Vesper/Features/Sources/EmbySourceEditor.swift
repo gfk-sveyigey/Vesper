@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 
 struct EmbySourceEditor: View {
     let source: MediaSource?
@@ -6,63 +8,116 @@ struct EmbySourceEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var note = ""
-    @State private var address = ""
+    @State private var schemeIsHTTPS = true
+    @State private var host = ""
+    @State private var port = ""
+    @State private var path = ""
     @State private var username = ""
     @State private var password = ""
+    @State private var showPassword = false
     @State private var alternateAddress = ""
     @State private var alternateAddresses: [String] = []
+    @State private var fetchAlternateAddresses = false
     @State private var syncProgress = true
-    @State private var syncWatched = true
     @State private var allowTranscoding = true
+    @State private var strmDirectPlayback = false
+    @State private var iconData: Data?
+    @State private var selectedIcon: PhotosPickerItem?
+    @State private var showingMoreSettings = false
     @State private var saving = false
     @State private var errorMessage: String?
+    @FocusState private var focusedField: AddressField?
+
+    private enum AddressField { case host, port, path }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("标题", text: $title)
-                    TextField("备注", text: $note, axis: .vertical).lineLimit(2...4)
+                    HStack(alignment: .top, spacing: 12) {
+                        PhotosPicker(selection: $selectedIcon, matching: .images) {
+                            sourceIcon
+                                .frame(width: 56, height: 56)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(alignment: .bottomTrailing) {
+                                    Image(systemName: "pencil.circle.fill")
+                                        .symbolRenderingMode(.palette).foregroundStyle(.white, .gray)
+                                        .offset(x: 4, y: 4)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("使用默认图标", systemImage: "arrow.counterclockwise") {
+                                iconData = nil
+                                selectedIcon = nil
+                            }
+                        }
+                        VStack(spacing: 0) {
+                            fieldRow("名称") { TextField("", text: $title) }
+                            fieldRow("备注") { TextField("", text: $note, axis: .vertical).lineLimit(1...3) }
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                }
+                Section("服务器") {
+                    fieldRow("HTTPS") {
+                        Toggle("", isOn: $schemeIsHTTPS).labelsHidden()
+                    }
+                    fieldRow("域名") {
+                        TextField("example.com", text: $host)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                            .focused($focusedField, equals: .host)
+                    }
+                    fieldRow("端口") {
+                        TextField(schemeIsHTTPS ? "443" : "8096", text: $port)
+                            .keyboardType(.numberPad).focused($focusedField, equals: .port)
+                    }
+                    fieldRow("路径") {
+                        TextField("emby", text: $path)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .focused($focusedField, equals: .path)
+                    }
+                }
+                Section("账户") {
+                    fieldRow("用户名") {
+                        TextField("", text: $username).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    }
+                    fieldRow("密码") {
+                        HStack(spacing: 8) {
+                            Group {
+                                if showPassword { TextField("", text: $password) }
+                                else { SecureField("", text: $password) }
+                            }
+                            Button { showPassword.toggle() } label: {
+                                Image(systemName: showPassword ? "eye.slash" : "eye")
+                            }
+                            .buttonStyle(.plain).accessibilityLabel(showPassword ? "隐藏密码" : "显示密码")
+                        }
+                    }
+                }
+                Section("备用线路") {
+                    Toggle("从服务器获取", isOn: $fetchAlternateAddresses)
+                    if !fetchAlternateAddresses {
+                        ForEach(alternateAddresses, id: \.self) { Text($0).lineLimit(1) }
+                            .onDelete { alternateAddresses.remove(atOffsets: $0) }
+                        HStack {
+                            TextField("添加线路地址", text: $alternateAddress)
+                                .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                            Button("添加") { addAlternateAddress() }
+                                .disabled(alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                }
+                Section("高级功能") {
+                    Toggle("STRM 直连", isOn: $strmDirectPlayback)
                 }
                 Section {
-                    TextField("地址", text: $address)
-                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("用户名", text: $username)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    SecureField(source == nil ? "密码" : "密码（留空保留登录状态）", text: $password)
-                } footer: {
-                    Text("支持直接粘贴完整地址，例如 https://example.com:8096/emby。")
-                }
-                Section {
-                    ForEach(alternateAddresses, id: \.self) { value in
-                        Text(value).lineLimit(1)
+                    DisclosureGroup("更多设置", isExpanded: $showingMoreSettings) {
+                        Toggle("同步播放进度", isOn: $syncProgress)
+                        Toggle("允许服务器转码", isOn: $allowTranscoding)
                     }
-                    .onDelete { alternateAddresses.remove(atOffsets: $0) }
-                    HStack {
-                        TextField("添加备用地址", text: $alternateAddress)
-                            .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        Button("添加") { addAlternateAddress() }
-                            .disabled(alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                } header: {
-                    Text("备用线路")
-                } footer: {
-                    Text("备用线路仅由你手动选择，不会在播放失败时自动切换。")
-                }
-                Section("播放") {
-                    Toggle("同步播放进度", isOn: $syncProgress)
-                    Toggle("同步已观看标记", isOn: $syncWatched)
-                    Toggle("允许服务器转码", isOn: $allowTranscoding)
                 }
                 if let errorMessage { Text(verbatim: errorMessage).foregroundStyle(.red) }
-                Button { save() } label: {
-                    HStack {
-                        Text(source == nil ? "登录并添加" : "保存")
-                        Spacer()
-                        if saving { ProgressView() }
-                    }
-                }
-                .disabled(saving || address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .navigationTitle(source == nil ? "添加 Emby 来源" : "编辑 Emby 来源")
             .navigationBarTitleDisplayMode(.inline)
@@ -70,69 +125,126 @@ struct EmbySourceEditor: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("关闭", systemImage: "xmark") { dismiss() }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { save() }.disabled(saving || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
             }
         }
-        .onAppear {
-            guard let source, let configuration = library.embyConfiguration(for: source.id) else { return }
-            title = configuration.title; note = configuration.note
-            address = configuration.serverAddress; username = configuration.username
-            alternateAddresses = configuration.alternateAddresses ?? []
-            syncProgress = configuration.syncPlaybackProgress ?? true
-            syncWatched = configuration.syncWatchedState ?? true
-            allowTranscoding = configuration.allowServerTranscoding ?? true
+        .onAppear(perform: loadSource)
+        .onChange(of: focusedField) { oldValue, newValue in
+            if oldValue == .host && newValue != .host { parseFullAddressIfNeeded() }
+        }
+        .onChange(of: selectedIcon) { _, item in
+            Task { iconData = try? await item?.loadTransferable(type: Data.self) }
         }
         .interactiveDismissDisabled(saving)
     }
 
+    private var sourceIcon: some View {
+        Group {
+            if let iconData, let image = UIImage(data: iconData) { Image(uiImage: image).resizable().scaledToFill() }
+            else { Image("EmbyLogo").resizable().scaledToFit().padding(4).background(Color.white) }
+        }
+        .frame(width: 56, height: 56)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
+        .accessibilityLabel("更换 Emby 图标")
+    }
+
+    private func fieldRow<Field: View>(_ label: String, @ViewBuilder field: () -> Field) -> some View {
+        GeometryReader { proxy in
+            HStack(spacing: 8) {
+                Text(label).frame(width: proxy.size.width * 0.25, alignment: .leading)
+                field()
+            }
+        }
+        .frame(height: 40)
+    }
+
+    private func loadSource() {
+        guard let source, let configuration = library.embyConfiguration(for: source.id) else { return }
+        title = configuration.title
+        note = configuration.note
+        username = configuration.username
+        iconData = configuration.iconData
+        alternateAddresses = configuration.alternateAddresses ?? []
+        fetchAlternateAddresses = configuration.fetchAlternateAddresses ?? false
+        syncProgress = configuration.syncPlaybackProgress ?? true
+        allowTranscoding = configuration.allowServerTranscoding ?? true
+        strmDirectPlayback = configuration.strmDirectPlayback ?? false
+        if let components = URLComponents(string: configuration.serverAddress) {
+            schemeIsHTTPS = components.scheme?.lowercased() != "http"
+            host = components.host ?? ""
+            port = components.port.map(String.init) ?? ""
+            path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+    }
+
+    private func parseFullAddressIfNeeded() {
+        let input = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard input.contains("://"), let components = URLComponents(string: input), let parsedHost = components.host else { return }
+        schemeIsHTTPS = components.scheme?.lowercased() != "http"
+        host = parsedHost
+        port = components.port.map(String.init) ?? ""
+        path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    private var serverAddress: String {
+        let scheme = schemeIsHTTPS ? "https" : "http"
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectivePort = port.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultPort = schemeIsHTTPS ? "443" : "8096"
+        let portPart = effectivePort.isEmpty ? ":\(defaultPort)" : ":\(effectivePort)"
+        let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        return "\(scheme)://\(normalizedHost)\(portPart)" + (cleanPath.isEmpty ? "" : "/\(cleanPath)")
+    }
+
     private func save() {
-        var values = source.flatMap { library.embyConfiguration(for: $0.id)?.customHeaders } ?? [:]
-        values = values.filter { $0.key.caseInsensitiveCompare("User-Agent") != .orderedSame }
-        let trimmedAddress = Self.normalizedAddress(address)
-        guard !trimmedAddress.isEmpty else { errorMessage = "请输入服务器地址。"; return }
-        let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? Self.displayName(for: trimmedAddress)
-            : title.trimmingCharacters(in: .whitespacesAndNewlines)
-        var configuration = EmbySourceConfiguration(title: resolvedTitle,
-                                                      note: note, serverAddress: trimmedAddress, username: username,
-                                                      customHeaders: values)
+        let trimmedAddress = serverAddress
+        guard let components = URLComponents(string: trimmedAddress), components.host != nil,
+              components.port == nil || (1...65535).contains(components.port!) else {
+            errorMessage = "服务器地址无效。"
+            return
+        }
+        let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        var configuration = EmbySourceConfiguration(title: resolvedTitle, note: note,
+            serverAddress: trimmedAddress, username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+            customHeaders: source.flatMap { library.embyConfiguration(for: $0.id)?.customHeaders } ?? [:])
         configuration.serverID = source?.emby?.serverID
         configuration.userID = source?.emby?.userID
         configuration.alternateAddresses = alternateAddresses
+        configuration.fetchAlternateAddresses = fetchAlternateAddresses
         configuration.syncPlaybackProgress = syncProgress
-        configuration.syncWatchedState = syncWatched
+        configuration.syncWatchedState = syncProgress
         configuration.allowServerTranscoding = allowTranscoding
-        if let old = source?.emby, (old.serverAddress != trimmedAddress || old.username != username), password.isEmpty {
-            errorMessage = "修改服务器或用户名后，请重新输入密码。"; return
-        }
-        saving = true; errorMessage = nil
+        configuration.strmDirectPlayback = strmDirectPlayback
+        configuration.iconData = iconData
+        saving = true
+        errorMessage = nil
         Task {
             do {
-                if let source { try await library.updateEmby(source.id, configuration: configuration, password: password) }
+                if let source { try await library.updateEmby(source.id, configuration: configuration, password: password.isEmpty ? nil : password) }
                 else { try await library.addEmby(configuration: configuration, password: password) }
-                saving = false; dismiss()
-            } catch { saving = false; errorMessage = error.localizedDescription }
+                if fetchAlternateAddresses,
+                   let savedSource = source ?? library.sources.last(where: { $0.kind == .emby && $0.emby?.serverAddress == trimmedAddress }),
+                   let fetched = try? await EmbyRepository.shared.alternateAddresses(for: savedSource) {
+                    var refreshed = library.embyConfiguration(for: savedSource.id) ?? configuration
+                    refreshed.alternateAddresses = fetched
+                    try await library.updateEmby(savedSource.id, configuration: refreshed, password: nil)
+                }
+                saving = false
+                dismiss()
+            } catch {
+                saving = false
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
     private func addAlternateAddress() {
         let value = alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, value != address, !alternateAddresses.contains(value) else { return }
+        guard !value.isEmpty, !alternateAddresses.contains(value) else { return }
         alternateAddresses.append(value)
         alternateAddress = ""
-    }
-
-    private static func displayName(for address: String) -> String {
-        if let components = URLComponents(string: address), let host = components.host, !host.isEmpty {
-            return host
-        }
-        return address.split(separator: "/").first.map(String.init) ?? "Emby"
-    }
-
-    private static func normalizedAddress(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
-        if trimmed.contains("://") { return trimmed }
-        return "https://" + trimmed
     }
 }
 
@@ -158,9 +270,7 @@ struct EmbyItemDetailView: View {
                                 Button("播放") { playback.play(item, in: source, queue: [item]); dismiss() }
                             } else {
                                 ForEach(Array(details.versions.enumerated()), id: \.offset) { _, version in
-                                    Button(version.subtitle ?? "播放") {
-                                        playback.play(version, in: source, queue: [version]); dismiss()
-                                    }
+                                    Button(version.subtitle ?? "播放") { playback.play(version, in: source, queue: [version]); dismiss() }
                                 }
                             }
                         }
@@ -175,9 +285,7 @@ struct EmbyItemDetailView: View {
                 else { ProgressView() }
             }
             .navigationTitle("媒体详情").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("关闭", systemImage: "xmark") { dismiss() } }
-            }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("关闭", systemImage: "xmark") { dismiss() } } }
         }
         .task {
             do { details = try await EmbyRepository.shared.details(for: item, source: source) }

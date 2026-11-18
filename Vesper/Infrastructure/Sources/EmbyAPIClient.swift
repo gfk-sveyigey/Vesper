@@ -19,6 +19,9 @@ struct EmbySourceConfiguration: Codable, Equatable, Sendable {
     var syncPlaybackProgress: Bool? = nil
     var syncWatchedState: Bool? = nil
     var allowServerTranscoding: Bool? = nil
+    var fetchAlternateAddresses: Bool? = nil
+    var iconData: Data? = nil
+    var strmDirectPlayback: Bool? = nil
 }
 
 enum EmbyUserAgentPolicy {

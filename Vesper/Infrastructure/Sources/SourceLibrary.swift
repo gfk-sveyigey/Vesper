@@ -242,17 +242,26 @@ final class SourceLibrary: ObservableObject {
     }
 
     func addEmby(configuration: EmbySourceConfiguration, password: String) async throws {
-        let source = MediaSource(id: UUID(), name: configuration.title, kind: .emby,
+        let fallbackName = configuration.title.isEmpty ? Self.embyHostName(configuration.serverAddress) : configuration.title
+        let source = MediaSource(id: UUID(), name: fallbackName, kind: .emby,
                                  behavior: .empty, emby: configuration)
         let auth = try await EmbyAccountStore.shared.authenticate(source: source, username: configuration.username,
                                                                   password: password)
         var authenticated = source
         authenticated.emby?.serverID = auth.serverID
         authenticated.emby?.userID = auth.userID
+        if configuration.title.isEmpty, let name = auth.serverName, !name.isEmpty {
+            authenticated.name = name
+            authenticated.emby?.title = name
+        }
         authenticated.emby?.customHeaders = [:]
         sources.append(authenticated)
         if selectedID == nil { selectedID = source.id; reload() }
         persist()
+    }
+
+    private static func embyHostName(_ address: String) -> String {
+        URLComponents(string: address)?.host ?? "Emby"
     }
 
     func updateEmby(_ id: UUID, configuration: EmbySourceConfiguration, password: String?) async throws {
