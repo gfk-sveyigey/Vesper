@@ -29,7 +29,7 @@ jobs:
 
       - name: Verify Xcode 27 and Swift 6.3 toolchain
         run: |
-          set -e
+          set -euo pipefail
           xcodebuild -version
           xcrun swift --version
 
@@ -95,7 +95,8 @@ jobs:
 
       - name: Build unsigned iOS app (Debug)
         run: |
-          set -e
+          set -euo pipefail
+          mkdir -p build
           xcodebuild \
             -project Vesper.xcodeproj \
             -scheme Vesper \
@@ -110,7 +111,17 @@ jobs:
             IPHONEOS_DEPLOYMENT_TARGET=26.0 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build
+            build 2>&1 | tee build/xcodebuild.log
+
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vesper-build-diagnostics-${{ github.run_number }}
+          path: |
+            build/xcodebuild.log
+            build/DerivedData/Logs/**/*.xcactivitylog
+          if-no-files-found: warn
 
       - name: Audit playback framework isolation
         run: |
