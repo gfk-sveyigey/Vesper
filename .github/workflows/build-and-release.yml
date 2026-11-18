@@ -20,18 +20,41 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Verify Xcode 27 toolchain
+      - name: Verify Xcode 27 and Swift 6.3 toolchain
         run: |
           set -e
           xcodebuild -version
           xcrun swift --version
-          xcodebuild -version | grep -Eq '^Xcode 27([.]|$)' || { echo "::error::Expected Xcode 27"; exit 1; }
+
+          xcodebuild -version | grep -Eq '^Xcode 27([.]|$)' || {
+            echo "::error::Expected Xcode 27"
+            exit 1
+          }
+
+          SWIFT_VERSION="$(xcrun swift --version | sed -nE 's/^Apple Swift version ([0-9]+\.[0-9]+).*/\1/p' | head -1)"
+          if [ -z "$SWIFT_VERSION" ] || ! awk -F. -v version="$SWIFT_VERSION" 'BEGIN {
+            split(version, v, ".")
+            exit !((v[1] + 0) > 6 || ((v[1] + 0) == 6 && (v[2] + 0) >= 3))
+          }'; then
+            echo "::error::Swift 6.3 or newer is required; found ${SWIFT_VERSION:-unknown}"
+            exit 1
+          fi
 
       - name: Validate project inputs
         run: |
           set -e
-          test -d Vesper.xcodeproj || { echo "::error::Vesper.xcodeproj not found; add the iOS project first"; exit 1; }
-          test -f Info.plist || { echo "::error::Info.plist not found"; exit 1; }
+          test -d Vesper.xcodeproj || {
+            echo "::error::Vesper.xcodeproj not found"
+            exit 1
+          }
+          test -f Info.plist || {
+            echo "::error::Info.plist not found"
+            exit 1
+          }
+          test -f Vesper.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved || {
+            echo "::error::Commit the resolved Swift package graph before building"
+            exit 1
+          }
           plutil -lint Info.plist
 
       - name: Read version
@@ -97,13 +120,24 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/DerivedData \
+            -disableAutomaticPackageResolution \
             MARKETING_VERSION='${{ steps.version.outputs.raw }}' \
             CURRENT_PROJECT_VERSION='${{ github.run_number }}' \
-            PRODUCT_BUNDLE_IDENTIFIER=com.aholic.vesper \
             IPHONEOS_DEPLOYMENT_TARGET=26.0 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             build
+
+      - name: Audit playback framework isolation
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          set -e
+          APP="build/DerivedData/Build/Products/Release-iphoneos/Vesper.app"
+          test -d "$APP" || {
+            echo "::error::Vesper.app was not produced"
+            exit 1
+          }
+          python3 BuildSupport/audit_playback_isolation.py "$APP"
 
       - name: Package unsigned IPA
         if: steps.check.outputs.exists == 'false'
@@ -112,11 +146,22 @@ jobs:
           APP="build/DerivedData/Build/Products/Release-iphoneos/Vesper.app"
           IPA="build/Vesper-${{ steps.version.outputs.raw }}-unsigned.ipa"
 
-          test -d "$APP"
+          test -d "$APP" || {
+            echo "::error::Vesper.app was not produced"
+            exit 1
+          }
+
           BUNDLE_ID=$(plutil -extract CFBundleIdentifier raw "$APP/Info.plist")
-          test "$BUNDLE_ID" = com.aholic.vesper || { echo "::error::Unexpected bundle identifier: $BUNDLE_ID"; exit 1; }
+          test "$BUNDLE_ID" = com.aholic.vesper || {
+            echo "::error::Unexpected bundle identifier: $BUNDLE_ID"
+            exit 1
+          }
+
           MINIMUM_OS=$(plutil -extract MinimumOSVersion raw "$APP/Info.plist")
-          test "$MINIMUM_OS" = 26.0 || { echo "::error::MinimumOSVersion must be 26.0, got: $MINIMUM_OS"; exit 1; }
+          test "$MINIMUM_OS" = 26.0 || {
+            echo "::error::MinimumOSVersion must be 26.0, got: $MINIMUM_OS"
+            exit 1
+          }
 
           rm -rf build/Payload "$IPA"
           mkdir -p build/Payload
@@ -148,6 +193,15 @@ jobs:
             cat build/SHA256.txt
             echo '```'
           } >> build/PR_BODY.md
+
+      - name: Upload isolation report
+        if: steps.check.outputs.exists == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vesper-${{ steps.version.outputs.raw }}-release-isolation
+          path: build/DerivedData/Build/Products/Release-iphoneos/playback-isolation-report.txt
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Create Release
         if: steps.check.outputs.exists == 'false'
