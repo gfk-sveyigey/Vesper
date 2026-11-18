@@ -182,8 +182,8 @@ struct EmbyAPIClient: Sendable {
         return headers
     }
 
-    func imageURL(itemID: String, tag: String?, width: Int = 640) -> URL? {
-        var url = baseURL.appendingPathComponent("Items").appendingPathComponent(itemID).appendingPathComponent("Images").appendingPathComponent("Primary")
+    func imageURL(itemID: String, tag: String?, width: Int = 640, type: String = "Primary") -> URL? {
+        var url = baseURL.appendingPathComponent("Items").appendingPathComponent(itemID).appendingPathComponent("Images").appendingPathComponent(type)
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.queryItems = [URLQueryItem(name: "maxWidth", value: String(width))]
         if let tag { components?.queryItems?.append(URLQueryItem(name: "tag", value: tag)) }

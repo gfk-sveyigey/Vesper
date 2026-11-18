@@ -12,11 +12,10 @@ final class MediaLayoutSettings: ObservableObject {
         var defaultValue: Int {
             switch self {
             case .thumbnailHeight, .titlePadding, .scrollPadding: 0
-            case .groupSpacing: 24
-            case .itemWidth: 88
-            case .itemHeight: 132
-            case .itemVerticalPadding, .itemSpacing: 12
-            case .endPadding: 20
+            case .groupSpacing: 20
+            case .itemWidth: 104
+            case .itemHeight: 156
+            case .itemVerticalPadding, .itemSpacing, .endPadding: 13
             }
         }
 
@@ -78,9 +77,13 @@ struct MediaView: View {
         }
         .navigationDestination(for: EmbyMediaRoute.self) { route in
             if route.opensLibrary {
-                EmbySeriesBrowserView(source: route.source, groupTitle: route.title, parentID: route.itemID)
+                EmbySeriesBrowserView(source: route.source, groupTitle: route.title, parentID: route.itemID, scope: .titles)
             } else if let item = route.item {
-                EmbyItemDetailView(source: route.source, item: item)
+                if item.isEmbySeries {
+                    EmbySeriesBrowserView(source: route.source, groupTitle: route.title, parentID: route.itemID, scope: .episodes)
+                } else {
+                    EmbyItemDetailView(source: route.source, item: item)
+                }
             }
         }
     }
@@ -97,7 +100,8 @@ struct MediaView: View {
         return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: !featured.isEmpty) {
             VStack(alignment: .leading, spacing: 20) {
                 if let source = library.selectedSource, !featured.isEmpty {
-                    EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork)
+                    EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork,
+                                         featuredArtwork: library.embyHome?.featuredArtwork)
                 }
                 if library.selectedSource == nil {
                     VesperCenteredEmptyContent(message: "未选择媒体来源", symbol: AppSection.media.symbol)
@@ -211,11 +215,12 @@ struct MediaView: View {
                                             }
                                         }
                                     }
-                                    .padding(.horizontal, CGFloat(layout[.endPadding]))
+                                    .scrollTargetLayout()
                                     .padding(.vertical, CGFloat(layout[.itemVerticalPadding]))
                                 }
                                 .scrollIndicators(.hidden)
-                                .contentMargins(.horizontal, 0, for: .scrollContent)
+                                .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
+                                .scrollTargetBehavior(.viewAligned(anchor: .leading))
                                 .padding(.vertical, CGFloat(layout[.scrollPadding]))
                             }
                         }
@@ -240,7 +245,7 @@ struct MediaView: View {
                 .buttonStyle(.plain)
             }
         }
-        .font(.title2.bold())
+        .font(.title3)
         .foregroundStyle(.primary)
         .accessibilityAddTraits(.isHeader)
         .padding(.horizontal, 20)
@@ -250,17 +255,14 @@ struct MediaView: View {
     @ViewBuilder
     private func groupCard(_ item: MediaItem, in group: EmbyMediaGroup, source: MediaSource, artwork: [String: Data]?) -> some View {
         let data = artwork?[item.id.localID]
-        let width = CGFloat(layout[.itemWidth])
-        let height = CGFloat(layout[.itemHeight])
+        let size = groupCardSize(group)
         if group.id == EmbyMediaGroup.librariesID {
             let route = EmbyMediaRoute.library(source, id: item.id.localID, title: item.title)
-            // Keep the existing landscape proportions at the default settings.
-            let landscapeWidth = width * 198 / 88
-            let landscapeHeight = height * 111.375 / 132
             NavigationLink(value: route) {
-                MediaThumbnail(source: source, item: item, aspectRatio: landscapeWidth / landscapeHeight,
+                MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
                                preloadedData: data, artworkIsPrepared: artwork != nil)
-                    .frame(width: landscapeWidth, height: landscapeHeight)
+                    .frame(width: size.width, height: size.height)
+                    .overlay { groupCardBorder }
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(verbatim: item.title))
@@ -269,7 +271,7 @@ struct MediaView: View {
             } preview: {
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 8) {
-                        MediaThumbnail(source: source, item: item, aspectRatio: 16.0 / 9.0,
+                        MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
                                        cacheOnly: true, preloadedData: data, artworkIsPrepared: artwork != nil)
                         Text(verbatim: item.title).font(.headline).lineLimit(2)
                         if let duration = item.duration, duration > 0 {
@@ -282,9 +284,10 @@ struct MediaView: View {
             }
         } else {
             NavigationLink(value: EmbyMediaRoute.detail(source, item)) {
-                MediaThumbnail(source: source, item: item, playback: playback, aspectRatio: width / height,
+                MediaThumbnail(source: source, item: item, playback: playback, aspectRatio: size.width / size.height,
                                preloadedData: data, artworkIsPrepared: artwork != nil)
-                    .frame(width: width, height: height)
+                    .frame(width: size.width, height: size.height)
+                    .overlay { groupCardBorder }
             }
             .buttonStyle(.plain)
             .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
@@ -294,12 +297,24 @@ struct MediaView: View {
     }
 
     private func groupPlaceholder(_ group: EmbyMediaGroup) -> some View {
-        let isLibraries = group.id == EmbyMediaGroup.librariesID
-        let width = CGFloat(layout[.itemWidth]) * (isLibraries ? 198.0 / 88.0 : 1)
-        let height = CGFloat(layout[.itemHeight]) * (isLibraries ? 111.375 / 132.0 : 1)
+        let size = groupCardSize(group)
         return RoundedRectangle(cornerRadius: 12)
             .fill(.regularMaterial)
-            .frame(width: width, height: height)
+            .frame(width: size.width, height: size.height)
+            .overlay { groupCardBorder }
+    }
+
+    private func groupCardSize(_ group: EmbyMediaGroup) -> CGSize {
+        let isLibraries = group.id == EmbyMediaGroup.librariesID
+        let width = CGFloat(layout[.itemWidth]) * (isLibraries ? 2.25 : 1)
+        return CGSize(width: width, height: CGFloat(layout[.itemHeight]))
+    }
+
+    private var groupCardBorder: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .strokeBorder(Color.gray.opacity(0.55), lineWidth: 1)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     private var mediaSourceMenu: some View {
@@ -363,65 +378,334 @@ private struct EmbyFeaturedCarousel: View {
     let source: MediaSource
     let items: [MediaItem]
     let artwork: [String: Data]?
+    let featuredArtwork: [MediaID: EmbyFeaturedArtwork]?
     @EnvironmentObject private var playback: PlaybackSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.scenePhase) private var scenePhase
     @State private var selection: MediaID?
+    @State private var incoming: MediaID?
+    @State private var direction = 1
+    @State private var progress = 0.0
+    @State private var isDragging = false
+    @State private var transitionID: UUID?
 
     var body: some View {
         GeometryReader { geometry in
             let pull = max(0, geometry.frame(in: .scrollView(axis: .vertical)).minY)
             let scale = reduceMotion ? 1 : 1 + min(pull / max(geometry.size.height, 1), 0.08)
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 0) {
-                    ForEach(items) { item in
-                        NavigationLink(value: EmbyMediaRoute.detail(source, item)) {
-                            MediaThumbnail(source: source, item: item, cornerRadius: 0,
-                                           fixedHeight: geometry.size.height,
-                                           preloadedData: artwork?[item.id.localID],
-                                           artworkIsPrepared: artwork != nil, showsPlaceholder: false)
-                                .frame(width: geometry.size.width, height: geometry.size.height)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Text(verbatim: item.title))
-                        .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
-                                                      preloadedData: artwork?[item.id.localID],
-                                                      artworkIsPrepared: artwork != nil) { EmptyView() })
-                        .id(item.id)
+            let width = geometry.size.width
+            let page = currentIndex
+            let isTransitioning = isDragging || transitionID != nil
+            ZStack {
+                // Keep adjacent artwork mounted so a pan can reveal it immediately.
+                ForEach(visiblePages(around: page)) { item in
+                    let isCurrent = item.id == items[page].id
+                    let isIncoming = item.id == incoming
+                    let shift = reduceMotion ? 0 : CGFloat(direction) * width
+                    NavigationLink(value: EmbyMediaRoute.detail(source, item)) {
+                        EmbyFeaturedPage(source: source, item: item, size: geometry.size,
+                                         artwork: artwork?[item.id.localID], artworkIsPrepared: artwork != nil,
+                                         featuredArtwork: featuredArtwork?[item.id],
+                                         featuredArtworkIsPrepared: featuredArtwork != nil,
+                                         showsPageControl: items.count > 1,
+                                         showsInformation: isCurrent && !isTransitioning)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(verbatim: item.title))
+                    .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
+                                                  preloadedData: artwork?[item.id.localID],
+                                                  artworkIsPrepared: artwork != nil) { EmptyView() })
+                    .scaleEffect(isCurrent && !reduceMotion ? 1 + progress * 0.16 : 1)
+                    .opacity(isCurrent ? 1 : isIncoming ? progress : 0)
+                    .offset(x: isCurrent ? -shift * progress * 0.08 : shift * (1 - progress) * 0.16)
+                    .zIndex(isIncoming ? 2 : isCurrent ? 1 : 0)
+                    .allowsHitTesting(isCurrent && !isTransitioning)
+                    .accessibilityHidden(!isCurrent)
                 }
-                .scrollTargetLayout()
             }
-            .scrollTargetBehavior(.paging)
-            .scrollPosition(id: $selection)
-            .scrollIndicators(.hidden)
-            .contentMargins(.horizontal, 0, for: .scrollContent)
-            .frame(width: geometry.size.width, height: geometry.size.height)
+            .frame(width: width, height: geometry.size.height)
+            .clipped()
+            .contentShape(Rectangle())
+            .gesture(EmbyCarouselPan(enabled: items.count > 1 && transitionID == nil) { state, translation, velocity in
+                handlePan(state, translation: translation, velocity: velocity, width: width)
+            })
+            .overlay(alignment: .bottom) {
+                if items.count > 1 {
+                    EmbyFeaturedPageControl(count: items.count, current: page) { target in
+                        guard !isDragging, transitionID == nil, items.indices.contains(target), target != page else { return }
+                        let forward = (target - page + items.count) % items.count
+                        startTransition(to: target, direction: forward <= items.count - forward ? 1 : -1)
+                    }
+                    .fixedSize()
+                    .padding(.bottom, 6)
+                    .allowsHitTesting(!isTransitioning)
+                }
+            }
             .scaleEffect(scale, anchor: .top)
-            .frame(width: geometry.size.width, height: geometry.size.height + pull, alignment: .top)
+            .frame(width: width, height: geometry.size.height + pull, alignment: .top)
             .clipped()
             .offset(y: -pull)
         }
         .aspectRatio(3.0 / 5.0, contentMode: .fit)
         .onChange(of: items.map(\.id), initial: true) { _, ids in
+            resetTransition()
             if selection.map(ids.contains) != true { selection = ids.first }
         }
+        .onDisappear { resetTransition() }
         .task(id: RotationState(items: items.map(\.id), selection: selection, enabled: canRotate)) {
-            guard canRotate, let selection, let current = items.firstIndex(where: { $0.id == selection }) else { return }
+            guard canRotate else { return }
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
-            withAnimation { self.selection = items[(current + 1) % items.count].id }
+            guard !Task.isCancelled, canRotate else { return }
+            startTransition(to: wrappedIndex(currentIndex + 1), direction: 1)
         }
     }
 
+    private var currentIndex: Int { items.firstIndex { $0.id == selection } ?? 0 }
+
+    private func wrappedIndex(_ index: Int) -> Int {
+        (index + items.count) % items.count
+    }
+
+    private func visiblePages(around page: Int) -> [MediaItem] {
+        guard !items.isEmpty else { return [] }
+        let neighbors = Set([page, wrappedIndex(page - 1), wrappedIndex(page + 1)])
+        return items.enumerated().compactMap { index, item in
+            neighbors.contains(index) || item.id == incoming ? item : nil
+        }
+    }
+
+    private func handlePan(_ state: UIGestureRecognizer.State, translation: CGFloat, velocity: CGFloat, width: CGFloat) {
+        guard items.count > 1, transitionID == nil, width > 0 else { return }
+        switch state {
+        case .began, .changed:
+            isDragging = true
+            direction = translation <= 0 ? 1 : -1
+            incoming = items[wrappedIndex(currentIndex + direction)].id
+            progress = min(abs(translation) / width, 1)
+        case .ended:
+            guard isDragging else { return }
+            let projectedDistance = translation + velocity * 0.18
+            let advances = abs(translation) >= width * 0.28
+                || (abs(projectedDistance) >= width * 0.28 && projectedDistance * translation > 0)
+            settle(advances: advances)
+        case .cancelled, .failed:
+            if isDragging { settle(advances: false) }
+        default:
+            break
+        }
+    }
+
+    private func startTransition(to index: Int, direction: Int) {
+        guard transitionID == nil, items.indices.contains(index), index != currentIndex else { return }
+        self.direction = direction
+        incoming = items[index].id
+        settle(advances: true)
+    }
+
+    private func settle(advances: Bool) {
+        let token = UUID()
+        let destination = advances ? incoming : nil
+        transitionID = token
+        isDragging = false
+        withAnimation(.easeOut(duration: reduceMotion ? 0.16 : 0.32), completionCriteria: .removed) {
+            progress = advances ? 1 : 0
+        } completion: {
+            guard transitionID == token else { return }
+            if let destination { selection = destination }
+            resetTransition()
+        }
+    }
+
+    private func resetTransition() {
+        incoming = nil
+        progress = 0
+        isDragging = false
+        transitionID = nil
+    }
+
     private var canRotate: Bool {
-        items.count > 1 && !reduceMotion && !voiceOverEnabled && scenePhase == .active
+        items.count > 1 && !isDragging && transitionID == nil && !reduceMotion
+            && !voiceOverEnabled && scenePhase == .active
     }
 
     private struct RotationState: Equatable {
         let items: [MediaID]
         let selection: MediaID?
         let enabled: Bool
+    }
+}
+
+private struct EmbyCarouselPan: UIGestureRecognizerRepresentable {
+    let enabled: Bool
+    let onPan: (UIGestureRecognizer.State, CGFloat, CGFloat) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
+        recognizer.maximumNumberOfTouches = 1
+        context.coordinator.enabled = enabled
+        recognizer.delegate = context.coordinator
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        context.coordinator.enabled = enabled
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        onPan(recognizer.state, recognizer.translation(in: recognizer.view).x,
+              recognizer.velocity(in: recognizer.view).x)
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var enabled = false
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard enabled, let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
+            let velocity = pan.velocity(in: pan.view)
+            return abs(velocity.x) > abs(velocity.y)
+        }
+    }
+}
+
+private struct EmbyFeaturedPage: View {
+    let source: MediaSource
+    let item: MediaItem
+    let size: CGSize
+    let artwork: Data?
+    let artworkIsPrepared: Bool
+    let featuredArtwork: EmbyFeaturedArtwork?
+    let featuredArtworkIsPrepared: Bool
+    let showsPageControl: Bool
+    let showsInformation: Bool
+    @State private var loadedArtwork: EmbyFeaturedArtwork?
+
+    var body: some View {
+        let images = featuredArtworkIsPrepared ? featuredArtwork : loadedArtwork
+        MediaThumbnail(source: source, item: item, cornerRadius: 0, fixedHeight: size.height,
+                       preloadedData: images?.poster ?? artwork,
+                       artworkIsPrepared: images?.poster != nil || artworkIsPrepared, showsPlaceholder: false)
+            .frame(width: size.width, height: size.height)
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 10) {
+                    if let logo = images?.logo, let image = UIImage(data: logo) {
+                        Image(uiImage: image).resizable().scaledToFit()
+                            .frame(maxWidth: size.width * 0.68, maxHeight: size.height * 0.15)
+                    } else {
+                        Text(verbatim: item.title)
+                            .font(.title2.weight(.semibold))
+                            .lineLimit(2)
+                    }
+                    VStack(spacing: 4) {
+                        Text(verbatim: firstLine)
+                        if !secondLine.isEmpty { Text(verbatim: secondLine) }
+                    }
+                    .font(.footnote)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                }
+                .foregroundStyle(.white)
+                .opacity(showsInformation ? 1 : 0)
+                .animation(.easeInOut(duration: 0.16), value: showsInformation)
+                .shadow(color: .black.opacity(0.65), radius: 3, y: 1)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
+                .padding(.bottom, showsPageControl ? 54 : 18)
+                .frame(maxWidth: .infinity)
+                .frame(height: size.height * 0.4, alignment: .bottom)
+                .background {
+                    Rectangle()
+                        .fill(.regularMaterial)
+                        .environment(\.colorScheme, .dark)
+                        .mask { LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom) }
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+            .task(id: item) {
+                guard !featuredArtworkIsPrepared else { return }
+                loadedArtwork = nil
+                let images = await MediaThumbnailLoader.shared.featuredArtwork(for: item, source: source)
+                if !Task.isCancelled { loadedArtwork = images }
+            }
+    }
+
+    private var firstLine: String {
+        let kind: String
+        switch item.embyItemType {
+        case "Series": kind = String(localized: "剧集")
+        case "Movie": kind = String(localized: "电影")
+        default: kind = String(localized: "视频")
+        }
+        let genres = (item.embyPresentation?.genres ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return ([kind] + genres.prefix(3)).joined(separator: " · ")
+    }
+
+    private var secondLine: String {
+        let metadata = item.embyPresentation
+        let month = metadata?.premiereDate?.formatted(
+            Date.FormatStyle(timeZone: TimeZone(secondsFromGMT: 0) ?? .current).year().month()
+        )
+        let status: String?
+        switch metadata?.status {
+        case "Continuing": status = String(localized: "连载中")
+        case "Ended": status = String(localized: "已完结")
+        case "Upcoming": status = String(localized: "即将播出")
+        default: status = metadata?.status
+        }
+        return [month, status, metadata?.rating].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+}
+
+private struct EmbyFeaturedPageControl: UIViewRepresentable {
+    let count: Int
+    let current: Int
+    let onChange: (Int) -> Void
+
+    func makeUIView(context: Context) -> UIPageControl {
+        let control = UIPageControl()
+        control.backgroundStyle = .minimal
+        control.allowsContinuousInteraction = false
+        control.addTarget(context.coordinator, action: #selector(Coordinator.pageChanged(_:)), for: .valueChanged)
+        control.currentPageIndicatorTintColor = .white
+        control.pageIndicatorTintColor = UIColor.white.withAlphaComponent(0.65)
+        control.preferredCurrentPageIndicatorImage = UIImage(
+            systemName: "circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 9)
+        )
+        return control
+    }
+
+    func updateUIView(_ control: UIPageControl, context: Context) {
+        context.coordinator.onChange = onChange
+        control.numberOfPages = count
+        control.currentPage = current
+        for index in 0..<count {
+            let distance = abs(index - current)
+            let size: CGFloat = distance <= 1 ? 7 : distance == 2 ? 5 : 3
+            control.setIndicatorImage(
+                UIImage(systemName: "circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: size)),
+                forPage: index
+            )
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIPageControl, context: Context) -> CGSize? {
+        uiView.size(forNumberOfPages: count)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onChange: onChange) }
+
+    final class Coordinator: NSObject {
+        var onChange: (Int) -> Void
+
+        init(onChange: @escaping (Int) -> Void) { self.onChange = onChange }
+
+        @objc func pageChanged(_ control: UIPageControl) { onChange(control.currentPage) }
     }
 }
 
@@ -451,10 +735,11 @@ private struct EmbyMediaRoute: Hashable {
     }
 }
 
-struct EmbySeriesBrowserView: View {
+private struct EmbySeriesBrowserView: View {
     let source: MediaSource
     let groupTitle: String
     let parentID: String
+    let scope: EmbyBrowseScope
     @EnvironmentObject private var playback: PlaybackSession
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var items: [MediaItem] = []
@@ -510,7 +795,7 @@ struct EmbySeriesBrowserView: View {
     }
 
     private var cacheScope: String { AppCacheStore.scope(for: source) }
-    private var cacheKey: String { "browser:\(parentID)" }
+    private var cacheKey: String { "browser:\(scope.rawValue):\(parentID)" }
 
     private func loadPage() async {
         guard !isLoading, !reachedEnd else { return }
@@ -521,7 +806,8 @@ struct EmbySeriesBrowserView: View {
             let generation = await AppCacheStore.shared.libraryGeneration
             let page = try await EmbyRepository.shared.items(for: source, parentID: parentID,
                                                              startIndex: nextOffset, limit: pageSize,
-                                                             sortBy: "DateCreated", sortOrder: "Descending")
+                                                             sortBy: "DateCreated", sortOrder: "Descending",
+                                                             scope: scope)
             try Task.checkCancellation()
             if !didLoadFirstPage { items = [] }
             var seen = Set(items.map(\.id))

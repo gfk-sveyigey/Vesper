@@ -768,7 +768,7 @@ private extension MediaLayoutSettings.Metric {
         case .itemHeight: "媒体库分组项目高度"
         case .itemVerticalPadding: "媒体库分组项目上下间距"
         case .itemSpacing: "媒体库分组项目左右间距"
-        case .endPadding: "媒体库分组首尾项留空间距"
+        case .endPadding: "媒体库滚动区域左右内缩"
         }
     }
 }

@@ -52,6 +52,18 @@ struct EmbyMediaGroup: Identifiable, Sendable {
     }
 }
 
+enum EmbyBrowseScope: String, Sendable {
+    case children, titles, episodes
+
+    var itemTypes: [String]? {
+        switch self {
+        case .children: nil
+        case .titles: ["Movie", "Series", "Video", "MusicVideo", "Trailer"]
+        case .episodes: ["Episode"]
+        }
+    }
+}
+
 actor EmbyRepository {
     static let shared = EmbyRepository()
     private let clientProvider: @MainActor @Sendable (MediaSource) throws -> EmbyAPIClient
@@ -97,19 +109,20 @@ actor EmbyRepository {
     private func latestMedia(for source: MediaSource, parentID: String?, limit: Int) async throws -> [MediaItem] {
         let client = try await clientProvider(source)
         let path = source.emby?.userID.map { "Users/\($0)/Items" } ?? "Items"
+        let titleTypes = EmbyBrowseScope.titles.itemTypes ?? []
         var query = [
             "Recursive": "true",
-            "IncludeItemTypes": "Movie,Episode,Video,MusicVideo,Trailer",
+            "IncludeItemTypes": titleTypes.joined(separator: ","),
             "SortBy": "DateCreated", "SortOrder": "Descending", "StartIndex": "0", "Limit": String(limit),
             "EnableImages": "true",
-            "Fields": "DateCreated,ProductionYear,RunTimeTicks,UserData"
+            "Fields": "DateCreated,ProductionYear,RunTimeTicks,UserData,Genres,PremiereDate,Status,OfficialRating"
         ]
         if let parentID { query["ParentId"] = parentID }
         let response = try await client.get(path, query: query)
         guard let values = response["Items"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
         var seen = Set<MediaID>()
         return Array(map(values, source: source, client: client)
-            .filter { !$0.isContainer && seen.insert($0.id).inserted }.prefix(limit))
+            .filter { titleTypes.contains($0.embyItemType ?? "") && seen.insert($0.id).inserted }.prefix(limit))
     }
 
     func serverName(for source: MediaSource) async throws -> String? {
@@ -130,19 +143,23 @@ actor EmbyRepository {
     }
 
     func items(for source: MediaSource, parentID: String?, startIndex: Int,
-               limit: Int = 100, sortBy: String = "SortName", sortOrder: String = "Ascending") async throws -> [MediaItem] {
+               limit: Int = 100, sortBy: String = "SortName", sortOrder: String = "Ascending",
+               scope: EmbyBrowseScope = .children) async throws -> [MediaItem] {
         let client = try await clientProvider(source)
         var query = ["StartIndex": String(startIndex), "Limit": String(limit), "Fields": "Overview,PrimaryImageAspectRatio,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData",
                      "SortBy": sortBy, "SortOrder": sortOrder]
         if let parentID { query["ParentId"] = parentID }
         else if source.emby?.userID != nil { query["ParentId"] = "" }
-        if limit == 21 {
+        if let itemTypes = scope.itemTypes {
             query["Recursive"] = "true"
-            query["IncludeItemTypes"] = "Movie,Episode,Video,MusicVideo,Trailer"
+            query["IncludeItemTypes"] = itemTypes.joined(separator: ",")
         }
         let path = source.emby?.userID.map { "Users/\($0)/Items" } ?? "Items"
         let response = try await client.get(path, query: query)
-        return map(response["Items"] as? [[String: Any]] ?? [], source: source, client: client)
+        guard let values = response["Items"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
+        let items = map(values, source: source, client: client)
+        guard let itemTypes = scope.itemTypes else { return items }
+        return items.filter { itemTypes.contains($0.embyItemType ?? "") }
     }
 
     func details(for item: MediaItem, source: MediaSource) async throws -> EmbyItemDetails {
@@ -298,22 +315,64 @@ actor EmbyRepository {
             let seriesImage = (value["SeriesId"] as? String).flatMap { seriesID in
                 seriesID.isEmpty || seriesID == id ? nil : client.imageURL(itemID: seriesID, tag: value["SeriesPrimaryImageTag"] as? String)
             }
+            let imageTags = value["ImageTags"] as? [String: String] ?? [:]
+            let logoURL: URL?
+            if let tag = imageTags["Logo"] {
+                logoURL = client.imageURL(itemID: id, tag: tag, type: "Logo")
+            } else if let parentID = value["ParentLogoItemId"] as? String, let tag = value["ParentLogoImageTag"] as? String {
+                logoURL = client.imageURL(itemID: parentID, tag: tag, type: "Logo")
+            } else {
+                logoURL = nil
+            }
             let item = MediaItem(id: MediaID(sourceID: source.id, localID: id), title: name,
                                  resource: nil,
                                  subtitle: (value["ProductionYear"] as? NSNumber).map { String($0.intValue) },
                                  isContainer: folder || type == "Series" || type == "Season",
-                                 embyItemID: id, embyMediaSourceID: sourceID,
-                                 imageURL: client.imageURL(itemID: id, tag: value["ImageTags"].flatMap { ($0 as? [String: Any])?["Primary"] as? String }),
+                                 embyItemID: id, embyItemType: type, embyMediaSourceID: sourceID,
+                                 imageURL: client.imageURL(itemID: id, tag: imageTags["Primary"]),
                                  fallbackImageURL: seriesImage,
                                  duration: (value["RunTimeTicks"] as? NSNumber).map { $0.doubleValue / 10_000_000 },
                                  resumePosition: ((value["UserData"] as? [String: Any])?["PlaybackPositionTicks"] as? NSNumber)
                                     .map { $0.doubleValue / 10_000_000 },
-                                 dateCreated: (value["DateCreated"] as? String).flatMap {
-                                     (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse($0))
-                                         ?? (try? Date.ISO8601FormatStyle().parse($0))
-                                 })
+                                 dateCreated: Self.parseDate(value["DateCreated"] as? String),
+                                 embyPresentation: EmbyPresentation(
+                                     genres: value["Genres"] as? [String] ?? [],
+                                     premiereDate: Self.parseDate(value["PremiereDate"] as? String),
+                                     status: value["Status"] as? String,
+                                     rating: value["OfficialRating"] as? String,
+                                     logoURL: logoURL
+                                 ))
             return item
         }
+    }
+
+    private static func parseDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        return (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(value))
+            ?? (try? Date.ISO8601FormatStyle().parse(value))
+            ?? (try? Date.ISO8601FormatStyle().year().month().day().parse(value))
+    }
+
+    func featuredPosterCandidates(for item: MediaItem, source: MediaSource) async -> [URL] {
+        guard let client = try? await clientProvider(source),
+              let response = try? await client.get("Items/\(item.id.localID)/RemoteImages", query: [
+                "Type": "Primary", "IncludeAllLanguages": "true", "Limit": "50"
+              ]) else { return [] }
+        let images = response["Images"] as? [[String: Any]] ?? []
+        return Array(images.compactMap { image -> URL? in
+            let language = (image["Language"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard ["", "00", "zxx"].contains(language),
+                  let width = image["Width"] as? Int, let height = image["Height"] as? Int, width > 0, height > width,
+                  let rawURL = image["Url"] as? String, let url = URL(string: rawURL),
+                  url.scheme?.lowercased() == "https", url.host != nil,
+                  url.user == nil, url.password == nil else { return nil }
+            return url
+        }.prefix(3))
+    }
+
+    func featuredLogoData(for url: URL, source: MediaSource) async -> Data? {
+        guard let client = try? await clientProvider(source), client.sameOrigin(url) else { return nil }
+        return await fetchThumbnail(url, client: client)
     }
 
     private func externalSubtitles(media: [String: Any], itemID: String, client: EmbyAPIClient) -> [EngineExternalSubtitle] {

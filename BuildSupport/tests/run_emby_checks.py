@@ -17,6 +17,11 @@ ITEM = {'Id': 'movie', 'Name': 'Movie', 'Type': 'Movie', 'RunTimeTicks': 6000000
         'UserData': {'PlaybackPositionTicks': 300000000}, 'Overview': 'A movie',
         'SeriesId': 'series', 'SeriesPrimaryImageTag': 'series-tag',
         'MediaSources': [dict(MEDIA, Id='v1', Name='Version 1'), MEDIA]}
+SERIES = {'Id': 'series', 'Name': 'Series', 'Type': 'Series', 'IsFolder': True,
+          'DateCreated': '2026-11-18T01:58:30Z', 'PremiereDate': '2024-03-01',
+          'Genres': ['Drama', 'Mystery'], 'Status': 'Continuing', 'OfficialRating': 'TV-14',
+          'ImageTags': {'Primary': 'cover', 'Logo': 'logo'}}
+EPISODE = {'Id': 'episode', 'Name': 'Episode', 'Type': 'Episode', 'SeriesId': 'series'}
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -36,22 +41,44 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404); self.end_headers(); return
         if path.path == '/proxy/emby/Items/series/Images/Primary':
             self.respond({'image': 'series'}); return
+        if path.path == '/proxy/emby/Items/series/Images/Logo':
+            assert self.headers.get('X-Emby-Token') == 'secret'
+            assert parse_qs(path.query)['tag'] == ['logo']
+            self.respond({'image': 'logo'}); return
+        if path.path == '/proxy/emby/Items/series/RemoteImages':
+            query = parse_qs(path.query)
+            assert query['Type'] == ['Primary'] and query['IncludeAllLanguages'] == ['true']
+            self.respond({'Images': [
+                {'Url': 'https://images.example/titled.jpg', 'Width': 600, 'Height': 900, 'Language': 'en'},
+                {'Url': 'https://images.example/wide.jpg', 'Width': 900, 'Height': 600, 'Language': None},
+                {'Url': 'https://images.example/textless.jpg', 'Width': 600, 'Height': 900, 'Language': None}
+            ]}); return
         if path.path == '/proxy/emby/Array':
             self.respond([{'Id': '1'}]); return
         if path.path == '/proxy/emby/Users/user/Views':
             self.respond({'Items': [{'Id': 'library', 'Name': 'Movies', 'Type': 'CollectionFolder', 'IsFolder': True}]}); return
         if path.path == '/proxy/emby/Users/user/Items':
             query = parse_qs(path.query)
+            if query['Limit'] in (['10'], ['20']) or query.get('ParentId') == ['library'] and query['Limit'] == ['21']:
+                assert set(query['IncludeItemTypes'][0].split(',')) == {'Movie', 'Series', 'Video', 'MusicVideo', 'Trailer'}
             if query['Limit'] == ['10']:
                 assert 'ParentId' not in query
                 assert query['StartIndex'] == ['0'] and query['Recursive'] == ['true']
                 assert query['SortBy'] == ['DateCreated'] and query['SortOrder'] == ['Descending']
-                self.respond({'Items': [dict(ITEM, Id=f'featured-{i}') for i in range(10)]}); return
+                self.respond({'Items': [dict(ITEM, Id=f'featured-{i}') for i in range(9)] + [SERIES]}); return
             if query['Limit'] == ['20']:
                 assert query['ParentId'] == ['library']
                 assert query['StartIndex'] == ['0'] and query['Recursive'] == ['true']
                 assert query['SortBy'] == ['DateCreated'] and query['SortOrder'] == ['Descending']
-                self.respond({'Items': [dict(ITEM, Id=f'movie-{i}', DateCreated=f'2026-11-18T01:{59-i:02d}:00.0000000Z') for i in range(20)]}); return
+                self.respond({'Items': [dict(ITEM, Id=f'movie-{i}', DateCreated=f'2026-11-18T01:{59-i:02d}:00.0000000Z') for i in range(19)] + [SERIES]}); return
+            if query['Limit'] == ['21']:
+                assert query['Recursive'] == ['true']
+                if query['ParentId'] == ['library']:
+                    assert query['StartIndex'] == ['21']
+                    self.respond({'Items': [ITEM, SERIES]}); return
+                assert query['ParentId'] == ['series'] and query['StartIndex'] == ['0']
+                assert query['IncludeItemTypes'] == ['Episode']
+                self.respond({'Items': [EPISODE]}); return
             assert query['StartIndex'] == ['100']
             self.respond({'Items': [ITEM, {'Id': 'book', 'Name': 'Book', 'Type': 'Book'}]}); return
         if path.path == '/proxy/emby/Users/user/Items/movie':

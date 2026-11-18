@@ -23,12 +23,24 @@ struct MediaItem: Identifiable, Hashable, Codable, Sendable {
     var subtitle: String? = nil
     var isContainer = false
     var embyItemID: String? = nil
+    var embyItemType: String? = nil
     var embyMediaSourceID: String? = nil
     var imageURL: URL? = nil
     var fallbackImageURL: URL? = nil
     var duration: Double? = nil
     var resumePosition: Double? = nil
     var dateCreated: Date? = nil
+    var embyPresentation: EmbyPresentation? = nil
+
+    var isEmbySeries: Bool { embyItemType == "Series" }
+}
+
+struct EmbyPresentation: Codable, Hashable, Sendable {
+    var genres: [String]
+    var premiereDate: Date?
+    var status: String?
+    var rating: String?
+    var logoURL: URL?
 }
 
 struct SourceCapabilities: OptionSet, Sendable {
@@ -148,6 +160,7 @@ final class SourceLibrary: ObservableObject {
         var groups: [EmbyMediaGroup]
         var featured: [MediaItem]
         var artwork: [String: Data]? = nil
+        var featuredArtwork: [MediaID: EmbyFeaturedArtwork]? = nil
     }
 
     @Published private(set) var embyHome: EmbyHome?
@@ -361,7 +374,7 @@ final class SourceLibrary: ObservableObject {
                 async let featuredRequest = try? repository.featuredMedia(for: source)
                 let libraries = try await librariesRequest
                 let fetchedFeatured = await featuredRequest
-                let cachedFeatured = await cache.items(scope: scope, key: "featured")
+                let cachedFeatured = await cache.items(scope: scope, key: "featured:titles")
                 let featured = fetchedFeatured ?? previous?.featured ?? cachedFeatured ?? []
                 try Task.checkCancellation()
                 guard generation == token else { return }
@@ -377,14 +390,14 @@ final class SourceLibrary: ObservableObject {
                 }
                 await cache.save(libraries, scope: scope, key: "libraries", generation: cacheGeneration)
                 if let fetchedFeatured {
-                    await cache.save(fetchedFeatured, scope: scope, key: "featured", generation: cacheGeneration)
+                    await cache.save(fetchedFeatured, scope: scope, key: "featured:titles", generation: cacheGeneration)
                 }
 
                 await withTaskGroup(of: (Int, EmbyMediaGroup).self) { tasks in
                     for (index, library) in libraries.enumerated() {
                         tasks.addTask {
                             let id = library.id.localID
-                            let key = "latest:\(id)"
+                            let key = "latest:titles:\(id)"
                             var group = EmbyMediaGroup(id: id, title: library.title, items: [])
                             do {
                                 group.items = try await repository.latestMedia(for: source, libraryID: id)
@@ -412,9 +425,11 @@ final class SourceLibrary: ObservableObject {
                     var seen = Set<MediaID>()
                     let items = (featured + groups.flatMap(\.items)).filter { seen.insert($0.id).inserted }
                     let artwork = await Self.prepareEmbyArtwork(items, source: source)
+                    let featuredArtwork = await MediaThumbnailLoader.shared.prepareFeaturedArtwork(featured, source: source)
                     try Task.checkCancellation()
                     guard generation == token else { return }
-                    embyHome = EmbyHome(scope: scope, groups: groups, featured: featured, artwork: artwork)
+                    embyHome = EmbyHome(scope: scope, groups: groups, featured: featured,
+                                        artwork: artwork, featuredArtwork: featuredArtwork)
                     content = .loaded([])
                 }
             } catch {
@@ -423,10 +438,10 @@ final class SourceLibrary: ObservableObject {
                    let cachedLibraries = await cache.items(scope: scope, key: "libraries") {
                     var cachedGroups = [EmbyMediaGroup(id: EmbyMediaGroup.librariesID, title: "我的媒体", items: cachedLibraries)]
                     for library in cachedLibraries {
-                        let items = await cache.items(scope: scope, key: "latest:\(library.id.localID)") ?? []
+                        let items = await cache.items(scope: scope, key: "latest:titles:\(library.id.localID)") ?? []
                         cachedGroups.append(EmbyMediaGroup(id: library.id.localID, title: library.title, items: items))
                     }
-                    let cachedFeatured = await cache.items(scope: scope, key: "featured") ?? EmbyMediaGroup.featured(in: cachedGroups)
+                    let cachedFeatured = await cache.items(scope: scope, key: "featured:titles") ?? EmbyMediaGroup.featured(in: cachedGroups)
                     guard !Task.isCancelled, generation == token else { return }
                     embyHome = EmbyHome(scope: scope, groups: cachedGroups, featured: cachedFeatured)
                     content = .loaded([])

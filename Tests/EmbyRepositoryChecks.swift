@@ -19,16 +19,32 @@ struct EmbyRepositoryChecks {
         let latest = try await repository.latestMedia(for: source, libraryID: libraries[0].id.localID)
         precondition(latest.count == 20 && latest.first?.id.localID == "movie-0")
         precondition(latest.allSatisfy { $0.dateCreated != nil })
+        precondition(latest.last?.isEmbySeries == true && latest.last?.isContainer == true)
         let featuredMedia = try await repository.featuredMedia(for: source)
         precondition(featuredMedia.count == 10 && featuredMedia.first?.id.localID == "featured-0")
+        precondition(featuredMedia.last?.isEmbySeries == true)
+        let series = featuredMedia.last!
+        precondition(series.embyPresentation?.genres == ["Drama", "Mystery"])
+        precondition(series.embyPresentation?.status == "Continuing" && series.embyPresentation?.rating == "TV-14")
+        precondition(series.embyPresentation?.premiereDate?.timeIntervalSince1970 == 1_709_251_200)
+        let posterCandidates = await repository.featuredPosterCandidates(for: series, source: source)
+        precondition(posterCandidates.map(\.lastPathComponent) == ["textless.jpg"])
+        let logo = await repository.featuredLogoData(for: series.embyPresentation!.logoURL!, source: source)
+        precondition(logo != nil)
         let featured = EmbyMediaGroup.featured(in: [
             .init(id: EmbyMediaGroup.librariesID, title: "Libraries", items: libraries),
             .init(id: "first", title: "First", items: Array(latest.dropFirst())),
             .init(id: "second", title: "Second", items: Array(latest.prefix(2)))
         ])
-        precondition(featured.map(\.id) == latest.prefix(10).map(\.id))
+        precondition(featured.map(\.id) == [latest[0].id, latest.last!.id] + latest.dropFirst().prefix(8).map(\.id))
         let cachedItems = try JSONDecoder().decode([MediaItem].self, from: JSONEncoder().encode(latest))
         precondition(cachedItems == latest)
+        let titles = try await repository.items(for: source, parentID: "library", startIndex: 21,
+                                                limit: 21, scope: .titles)
+        precondition(titles.map(\.id.localID) == ["movie", "series"] && titles.last?.isEmbySeries == true)
+        let episodes = try await repository.items(for: source, parentID: "series", startIndex: 0,
+                                                  limit: 21, scope: .episodes)
+        precondition(episodes.map(\.embyItemType) == ["Episode"])
         let items = try await repository.items(for: source, parentID: "library", startIndex: 100)
         precondition(items.count == 1 && !items[0].isContainer)
         var item = items[0]

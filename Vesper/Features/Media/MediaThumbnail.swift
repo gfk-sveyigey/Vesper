@@ -73,6 +73,11 @@ struct MediaThumbnail: View {
     }
 }
 
+struct EmbyFeaturedArtwork: Sendable {
+    var poster: Data?
+    var logo: Data?
+}
+
 @MainActor
 final class MediaThumbnailLoader {
     static let shared = MediaThumbnailLoader()
@@ -81,6 +86,54 @@ final class MediaThumbnailLoader {
 
     private init() {
         durationCache.countLimit = 256
+    }
+
+    func prepareFeaturedArtwork(_ items: [MediaItem], source: MediaSource) async -> [MediaID: EmbyFeaturedArtwork] {
+        await withTaskGroup(of: (MediaID, EmbyFeaturedArtwork).self) { group in
+            for item in items {
+                group.addTask { (item.id, await self.featuredArtwork(for: item, source: source)) }
+            }
+            var artwork: [MediaID: EmbyFeaturedArtwork] = [:]
+            for await (id, images) in group { artwork[id] = images }
+            return artwork
+        }
+    }
+
+    func featuredArtwork(for item: MediaItem, source: MediaSource) async -> EmbyFeaturedArtwork {
+        guard item.id.sourceID == source.id else { return .init() }
+        async let logo = featuredLogo(for: item, source: source)
+        async let poster = textlessPoster(for: item, source: source)
+        return await EmbyFeaturedArtwork(poster: poster, logo: logo)
+    }
+
+    private func featuredLogo(for item: MediaItem, source: MediaSource) async -> Data? {
+        guard let url = item.embyPresentation?.logoURL else { return nil }
+        let key = "featured-logo|\(AppCacheStore.scope(for: source))|\(url.absoluteString)"
+        let (cached, generation) = await AppCacheStore.shared.image(key: key)
+        if let cached, UIImage(data: cached) != nil { return cached }
+        guard let data = await EmbyRepository.shared.featuredLogoData(for: url, source: source),
+              UIImage(data: data) != nil, !Task.isCancelled else { return nil }
+        await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
+        return data
+    }
+
+    private func textlessPoster(for item: MediaItem, source: MediaSource) async -> Data? {
+        let key = "featured-textless|\(AppCacheStore.embyArtworkKey(for: item, source: source))"
+        let (cached, generation) = await AppCacheStore.shared.image(key: key)
+        if let cached, UIImage(data: cached) != nil { return cached }
+        for url in await EmbyRepository.shared.featuredPosterCandidates(for: item, source: source) {
+            guard !Task.isCancelled else { return nil }
+            // Provider artwork uses an unauthenticated request.
+            var request = URLRequest(url: url, timeoutInterval: 8)
+            request.httpShouldHandleCookies = false
+            guard let (data, response) = try? await EmbyNetworkSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  data.count <= 8 * 1024 * 1024, UIImage(data: data) != nil else { continue }
+            guard !Task.isCancelled else { return nil }
+            await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
+            return data
+        }
+        return nil
     }
 
     func load(_ item: MediaItem, source: MediaSource, aspectRatio: CGFloat = 2.0 / 3.0,
