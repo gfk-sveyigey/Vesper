@@ -8,6 +8,7 @@ on:
     branches: [ dev ]
     paths-ignore:
       - VERSION
+      - .github/**
   # 需要时也可以在 Actions 页面手动触发（手动触发不受上面的路径过滤影响）
   workflow_dispatch:
 
