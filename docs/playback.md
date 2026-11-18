@@ -1,10 +1,10 @@
 # Playback integration
 
-Vesper uses KSPlayer **2.3.4 (GPLv3)**, fixed to commit
-`bdfa2da39bb18865b317c4ffd08cdef5f8efc043`, and FFmpegKit **6.1.4**, fixed
-to `c32be9bfb628042737ad3ef622e930c5c7b15954`. Both are pinned in the Xcode
-project and Package.resolved. This source release supports iPhone devices;
-the newer KSPlayer 5.6.2 GPL binary package has no iPhone device slice.
+Vesper uses the official KSPlayer GPL source snapshot associated with **5.6.2**,
+fixed to commit `be7f60d3b94a0941c643fe8699113cfce4f08e83`, and FFmpegKit
+**6.1.4**, fixed to `c32be9bfb628042737ad3ef622e930c5c7b15954`. Both are pinned in
+the Xcode project and Package.resolved. The 5.6.2 binary XCFramework has no iPhone
+device slice, so Vesper uses its official source snapshot, which supports iPhone.
 Upstream: https://github.com/kingslay/KSPlayer and https://github.com/kingslay/FFmpegKit.
 The KSPlayer GPL text and playback notices are bundled in the app and available
 under Settings → Open-source licenses.
@@ -130,7 +130,7 @@ state. Queue playback keeps the chosen engine and decoder. KSPlayer remains the
 default and continues to own its original PiP path.
 
 The official KSMPVPlayer sources are vendored with compatibility patches for
-KSPlayer 2.3.4; see Vesper/Infrastructure/Playback/KSMPVPlayer/UPSTREAM.md for the
+the KSPlayer source API; see Vesper/Infrastructure/Playback/KSMPVPlayer/UPSTREAM.md for the
 exact revision and patch scope. The former VesperMPVPlayer OpenGL renderer is
 removed. Official MPVPlayer 5.6.2 cannot be linked directly on iPhone because its
 KSPlayer XCFramework has no iPhone device slice. MPV's official backend has no

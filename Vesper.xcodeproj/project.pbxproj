@@ -46,7 +46,7 @@ EAE3EFDF80ACC04A878444D7 = { isa = PBXFileReference; lastKnownFileType = text; p
 E5F00B8ED34E093308F3BE5B = { isa = PBXBuildFile; fileRef = 23813B14AD970B819E5CC657; };
 B15D8AD0F75E360F571701DE = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Features/Player/PlayerScreen.swift"; sourceTree = SOURCE_ROOT; };
 E07D485E9EDF0C870E17E1F9 = { isa = PBXBuildFile; fileRef = B15D8AD0F75E360F571701DE; };
-F32593571BEEDA08396F8D3B = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/kingslay/KSPlayer.git"; requirement = { kind = exactVersion; version = 2.3.4; }; };
+F32593571BEEDA08396F8D3B = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/kingslay/KSPlayer.git"; requirement = { kind = branch; branch = GPLv3; }; };
 5A2B9B2C0B9AF99F6BDEB8F3 = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/kingslay/FFmpegKit.git"; requirement = { kind = exactVersion; version = 6.1.4; }; };
 23C7AE937DCC712CC6835E7E = { isa = XCSwiftPackageProductDependency; package = F32593571BEEDA08396F8D3B; productName = KSPlayer; };
 0CDC264974EE982FF93D616E = { isa = PBXBuildFile; productRef = 23C7AE937DCC712CC6835E7E; };

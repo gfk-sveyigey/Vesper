@@ -5,12 +5,14 @@ License: GPLv3 (the bundled KSPlayer GPL text applies).
 
 The five Swift files originate from the official MPVPlayer target. This is a
 source backport, not a dependency on the 5.6.2 binary: that release omits the
-iPhone device slice. Vesper retains build 310's KSPlayer 2.3.4 and FFmpegKit 6.1.4.
+iPhone device slice. Vesper now uses the official KSPlayer GPL source snapshot
+`be7f60d3b94a0941c643fe8699113cfce4f08e83`, immediately preceding the 5.6.2
+binary packaging change, and FFmpegKit 6.1.4.
 MPVCommand, MPVOption and MPVProperty are unmodified upstream files.
 
 Compatibility changes in KSMPVPlayer / MPVHandle:
-- Adapt init/replace/shutdown, fileSize, track rotation and subtitle protocol to 2.3.4.
-- Supply a CAMetalLayer host because 2.3.4's MetalView is internal; keep upstream
+- Adapt init/replace/shutdown, fileSize, track rotation and subtitle protocol to
+  the KSPlayer source API. Supply a CAMetalLayer host because MetalView is internal; keep upstream
   gpu-next/Vulkan/MoltenVK rendering, rather than Vesper's previous OpenGL adapter.
 - Serialize event delivery and player access on MainActor; detach wakeup callback
   before destroying the mpv handle. Correct C flag widths and end-file payload.
