@@ -33,7 +33,7 @@ struct EmbySourceEditor: View {
                 } footer: {
                     Text("支持直接粘贴完整地址，例如 https://example.com:8096/emby。")
                 }
-                Section("备用线路") {
+                Section {
                     ForEach(alternateAddresses, id: \.self) { value in
                         Text(value).lineLimit(1)
                     }
@@ -44,6 +44,8 @@ struct EmbySourceEditor: View {
                         Button("添加") { addAlternateAddress() }
                             .disabled(alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
+                } header: {
+                    Text("备用线路")
                 } footer: {
                     Text("备用线路仅由你手动选择，不会在播放失败时自动切换。")
                 }
