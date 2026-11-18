@@ -114,6 +114,23 @@ class IsolationGateTests(unittest.TestCase):
 
 
 class EmbedClosureTests(unittest.TestCase):
+    def test_unsigned_package_is_prepared_for_resigning(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = Path(temp) / 'Vesper.app'
+            signature = app / 'Frameworks/Codec.framework/_CodeSignature'
+            signature.mkdir(parents=True)
+            resources = signature / 'CodeResources'
+            resources.write_text('upstream signature')
+            binary = signature.parent / 'Codec'
+            binary.write_text('framework binary')
+            resources.chmod(0o444)
+            binary.chmod(0o555)
+
+            embed.prepare_for_external_signing(app)
+
+            self.assertFalse(signature.exists())
+            self.assertTrue(binary.stat().st_mode & 0o200)
+
     def test_transitive_dynamic_dependencies_are_embedded(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -9,6 +9,7 @@ from pathlib import Path
 import plistlib
 import re
 import shutil
+import stat
 import subprocess
 
 def output(*args):
@@ -18,6 +19,24 @@ def executable(bundle):
     with (bundle / 'Info.plist').open('rb') as stream:
         info = plistlib.load(stream)
     return bundle / info['CFBundleExecutable']
+
+def prepare_for_external_signing(app):
+    """Remove vendor signatures and read-only modes from unsigned app bundles.
+
+    Self-signing tools replace nested framework signatures after extracting an
+    IPA. Preserved XCFramework CodeResources are commonly mode 0444, causing
+    those tools to fail before they can sign the app.
+    """
+    for signature in list(app.rglob('_CodeSignature')):
+        if signature.is_dir() and not signature.is_symlink():
+            shutil.rmtree(signature)
+    for root, directories, files in os.walk(app, followlinks=False):
+        for name in directories + files:
+            path = Path(root) / name
+            if path.is_symlink():
+                continue
+            mode = path.stat(follow_symlinks=False).st_mode
+            os.chmod(path, mode | stat.S_IWUSR, follow_symlinks=False)
 
 def main():
     products = Path(os.environ['BUILT_PRODUCTS_DIR'])
@@ -76,6 +95,8 @@ def main():
         if target.exists():
             shutil.rmtree(target)
         shutil.copytree(bundle, target, symlinks=True)
+    if os.environ.get('CODE_SIGNING_ALLOWED') == 'NO':
+        prepare_for_external_signing(app)
 
 if __name__ == '__main__':
     main()

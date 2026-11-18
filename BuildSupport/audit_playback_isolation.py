@@ -34,6 +34,12 @@ def audit(app):
     for name in BRIDGES:
         if not (frameworks / (name + '.framework')).is_dir():
             raise RuntimeError(f'Missing isolated framework: {name}')
+    if any(path.is_dir() for path in app.rglob('_CodeSignature')):
+        raise RuntimeError('Unsigned IPA contains stale nested code signatures; external signing will fail')
+    read_only = [str(path.relative_to(app)) for path in app.rglob('*')
+                 if not path.is_symlink() and path.is_file() and not path.stat().st_mode & 0o200]
+    if read_only:
+        raise RuntimeError(f'Unsigned IPA contains read-only files that block re-signing: {read_only[:12]}')
     binaries = [binary(app)] + [binary(p) for p in frameworks.glob('*.framework')]
     # Xcode's Debug executable is a trampoline; inspect its real image too.
     binaries += list(app.glob('*.dylib'))
