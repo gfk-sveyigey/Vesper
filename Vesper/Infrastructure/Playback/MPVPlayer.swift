@@ -23,6 +23,7 @@ final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
     private var backgroundVideoID: String?
     private var loaded = false
     private var failed = false
+    private var reachedEnd = false
     private var mediaTracks: [MPVMediaTrack] = []
     private let coordinatorPlayer = AVPlayer()
 
@@ -120,6 +121,7 @@ final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
         if let handle { mpv_terminate_destroy(handle) }
         handle = nil
         loaded = false
+        reachedEnd = false
         isReadyToPlay = false
         loadState = .idle
         playbackState = .stopped
@@ -154,7 +156,11 @@ final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
         displayLink?.isPaused = false
         surface?.setNeedsDisplay()
     }
-    func thumbnailImageAtCurrentTime() async -> CGImage? { nil }
+    func thumbnailImageAtCurrentTime() async -> CGImage? {
+        guard loaded, UIApplication.shared.applicationState != .background,
+              let surface, surface.window != nil else { return nil }
+        return surface.snapshot.cgImage
+    }
     func tracks(mediaType: AVMediaType) -> [any MediaPlayerTrack] { mediaTracks.filter { $0.mediaType == mediaType } }
     func select(track: some MediaPlayerTrack) {
         set(track.mediaType == .audio ? "aid" : "sid", String(track.trackID))
@@ -192,7 +198,7 @@ final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
                 if let data = event.data?.assumingMemoryBound(to: mpv_event_end_file.self).pointee,
                    data.reason == MPV_END_FILE_REASON_ERROR { fail("mpv: \(errorString(data.error))") }
                 else if let data = event.data?.assumingMemoryBound(to: mpv_event_end_file.self).pointee,
-                        data.reason == MPV_END_FILE_REASON_EOF { playbackState = .finished; delegate?.finish(player: self, error: nil) }
+                        data.reason == MPV_END_FILE_REASON_EOF { finishPlayback() }
             case MPV_EVENT_LOG_MESSAGE:
                 if let message = event.data?.assumingMemoryBound(to: mpv_event_log_message.self).pointee,
                    let text = message.text { log(String(cString: text).trimmingCharacters(in: .whitespacesAndNewlines)) }
@@ -206,7 +212,12 @@ final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
             playableTime = currentPlaybackTime + number("demuxer-cache-duration")
             let next: MediaLoadState = flag("paused-for-cache") ? .loading : .playable
             if loadState != next { loadState = next; delegate?.changeLoadState(player: self) }
-            if seekCompletion == nil { playbackState = flag("pause") ? .paused : .playing }
+            if flag("eof-reached") {
+                finishPlayback()
+            } else {
+                reachedEnd = false
+                if seekCompletion == nil { playbackState = flag("pause") ? .paused : .playing }
+            }
             if seekCompletion != nil && Date() > seekDeadline {
                 let completion = seekCompletion
                 seekCompletion = nil
@@ -214,6 +225,13 @@ final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
             }
         }
         surface?.drawPendingFrame()
+    }
+
+    private func finishPlayback() {
+        guard !reachedEnd else { return }
+        reachedEnd = true
+        playbackState = .finished
+        delegate?.finish(player: self, error: nil)
     }
 
     private func refreshTracks() {
