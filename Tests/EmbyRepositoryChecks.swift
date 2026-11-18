@@ -31,6 +31,20 @@ struct EmbyRepositoryChecks {
         precondition(posterCandidates.map(\.lastPathComponent) == ["textless.jpg"])
         let logo = await repository.featuredLogoData(for: series.embyPresentation!.logoURL!, source: source)
         precondition(logo != nil)
+        let metadata = try await repository.seriesMetadata(for: series, source: source)
+        precondition(metadata.item.embyPresentation?.overview == "Series synopsis")
+        precondition(metadata.credits.first?.role == "Detective" && metadata.credits.first?.image?.id.localID == "actor")
+        precondition(Set(metadata.links.map(\.name)) == ["IMDb", "豆瓣"])
+        let seriesEpisodes = try await repository.seriesEpisodes(for: series, source: source)
+        precondition(seriesEpisodes.map(\.season) == [1, 2] && seriesEpisodes.map(\.played) == [false, true])
+        let episode = seriesEpisodes[0]
+        precondition(episode.number == 2 && episode.item.resumePosition == 30)
+        precondition(episode.item.embyPresentation?.overview == "Episode synopsis")
+        precondition(episode.is4K && episode.dolbyVision && episode.dolbyAtmos)
+        let similar = try await repository.similarTitles(for: series, source: source)
+        precondition(similar.map(\.id.localID) == ["movie"])
+        try await repository.updateEpisode(episode, source: source, markPlayed: false)
+        try await repository.updateEpisode(episode, source: source, markPlayed: true)
         let featured = EmbyMediaGroup.featured(in: [
             .init(id: EmbyMediaGroup.librariesID, title: "Libraries", items: libraries),
             .init(id: "first", title: "First", items: Array(latest.dropFirst())),

@@ -41,6 +41,7 @@ struct EmbyPresentation: Codable, Hashable, Sendable {
     var status: String?
     var rating: String?
     var logoURL: URL?
+    var overview: String? = nil
 }
 
 struct SourceCapabilities: OptionSet, Sendable {

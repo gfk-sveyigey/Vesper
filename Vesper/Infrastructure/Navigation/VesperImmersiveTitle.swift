@@ -7,6 +7,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let actions: Actions
     private let content: Content
     private let extendsContentUnderHeader: Bool
+    private let showsLoading: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var topInset
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
@@ -24,10 +25,11 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var interactionStartHeaderOffset: CGFloat = 0
     @State private var interactionStartedCollapsed = false
 
-    init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false,
+    init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
          @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
         self.extendsContentUnderHeader = extendsContentUnderHeader
+        self.showsLoading = showsLoading
         self.content = content()
         self.actions = actions()
     }
@@ -57,6 +59,14 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
             }
             .frame(minHeight: viewportHeight, alignment: .top)
+        }
+        .scrollDisabled(showsLoading)
+        .overlay {
+            if showsLoading {
+                VesperTheme.background
+                    .overlay { ProgressView().controlSize(.large).accessibilityLabel("正在加载") }
+                    .padding(.top, max(topInset, headerHeight - headerOffset))
+            }
         }
         .scrollClipDisabled()
         .scrollBounceBehavior(.always, axes: .vertical)

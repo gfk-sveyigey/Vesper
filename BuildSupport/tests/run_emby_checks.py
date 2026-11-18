@@ -83,6 +83,28 @@ class Handler(BaseHTTPRequestHandler):
             self.respond({'Items': [ITEM, {'Id': 'book', 'Name': 'Book', 'Type': 'Book'}]}); return
         if path.path == '/proxy/emby/Users/user/Items/movie':
             self.respond(ITEM); return
+        if path.path == '/proxy/emby/Users/user/Items/series':
+            self.respond(dict(SERIES, Overview='Series synopsis',
+                              People=[{'Id': 'actor', 'Name': 'Actor', 'Role': 'Detective', 'PrimaryImageTag': 'actor-tag'}],
+                              ProviderIds={'IMDb': 'tt12345', 'Douban': '54321'})); return
+        if path.path == '/proxy/emby/Shows/series/Episodes':
+            query = parse_qs(path.query)
+            assert query['UserId'] == ['user'] and query['EnableUserData'] == ['true']
+            next_season = dict(EPISODE, Id='next-season', ParentIndexNumber=2, IndexNumber=1,
+                               UserData={'Played': True})
+            first_season = dict(EPISODE, ParentIndexNumber=1, IndexNumber=2, Overview='Episode synopsis',
+                                UserData={'Played': False, 'PlaybackPositionTicks': 300000000},
+                                MediaStreams=[{'Type': 'Video', 'Width': 3840, 'VideoRangeType': 'DOVI'},
+                                              {'Type': 'Audio', 'DisplayTitle': 'Dolby Atmos'}])
+            if query['StartIndex'] == ['0']:
+                self.respond({'Items': [next_season], 'TotalRecordCount': 2}); return
+            assert query['StartIndex'] == ['1']
+            self.respond({'Items': [first_season], 'TotalRecordCount': 2}); return
+        if path.path == '/proxy/emby/Items/series/Similar':
+            self.respond({'Items': [SERIES, ITEM, EPISODE, ITEM]}); return
+        if path.path == '/proxy/emby/Users/user/Items/episode':
+            self.respond(dict(EPISODE, UserData={'PlaybackPositionTicks': 300000000, 'Played': False,
+                                                 'IsFavorite': True})); return
         if path.path == '/proxy/emby/Events':
             self.respond({'Items': EVENTS}); return
         assert path.path == '/proxy/emby/Echo', path.path
@@ -93,7 +115,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == '/proxy/emby/Empty':
             self.send_response(204); self.end_headers(); return
+        if self.path == '/proxy/emby/Users/user/PlayedItems/episode':
+            self.send_response(204); self.end_headers(); return
         payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        if self.path == '/proxy/emby/Users/user/Items/episode/UserData':
+            assert payload == {'PlaybackPositionTicks': 0, 'Played': False, 'IsFavorite': True}
+            self.send_response(204); self.end_headers(); return
         if self.path == '/proxy/emby/Items/movie/PlaybackInfo':
             assert payload['UserId'] == 'user'
             media = dict(MEDIA)

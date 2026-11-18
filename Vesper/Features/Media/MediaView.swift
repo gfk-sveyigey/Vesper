@@ -80,7 +80,7 @@ struct MediaView: View {
                 EmbySeriesBrowserView(source: route.source, groupTitle: route.title, parentID: route.itemID, scope: .titles)
             } else if let item = route.item {
                 if item.isEmbySeries {
-                    EmbySeriesBrowserView(source: route.source, groupTitle: route.title, parentID: route.itemID, scope: .episodes)
+                    EmbySeriesDetailView(source: route.source, series: item)
                 } else {
                     EmbyItemDetailView(source: route.source, item: item)
                 }
@@ -97,7 +97,8 @@ struct MediaView: View {
 
     private var mediaContent: some View {
         let featured = featured
-        return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: !featured.isEmpty) {
+        return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: !featured.isEmpty,
+                                   showsLoading: library.isLoadingEmbyHome) {
             VStack(alignment: .leading, spacing: 20) {
                 if let source = library.selectedSource, !featured.isEmpty {
                     EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork,
@@ -238,14 +239,15 @@ struct MediaView: View {
                 NavigationLink(value: EmbyMediaRoute.library(source, id: group.id, title: group.title)) {
                     HStack(spacing: 6) {
                         Text(verbatim: group.title)
-                        Image(systemName: "chevron.right").font(.subheadline.weight(.semibold))
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(uiColor: .systemGray2))
                             .accessibilityHidden(true)
                     }
                 }
                 .buttonStyle(.plain)
             }
         }
-        .font(.title3)
+        .font(.system(size: 16, weight: .semibold))
         .foregroundStyle(.primary)
         .accessibilityAddTraits(.isHeader)
         .padding(.horizontal, 20)
@@ -274,9 +276,7 @@ struct MediaView: View {
                         MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
                                        cacheOnly: true, preloadedData: data, artworkIsPrepared: artwork != nil)
                         Text(verbatim: item.title).font(.headline).lineLimit(2)
-                        if let duration = item.duration, duration > 0 {
-                            Text(verbatim: mediaTimeLabel(duration)).foregroundStyle(.secondary).font(.caption)
-                        }
+                        EmbyPreviewFacts(item: item)
                     }
                     .frame(width: 280)
                 }
@@ -291,7 +291,8 @@ struct MediaView: View {
             }
             .buttonStyle(.plain)
             .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
-                                          preloadedData: data, artworkIsPrepared: artwork != nil) { EmptyView() })
+                                          preloadedData: data, artworkIsPrepared: artwork != nil,
+                                          showsEmbyFacts: true) { EmptyView() })
             .accessibilityLabel(Text(verbatim: item.title))
         }
     }
@@ -379,7 +380,6 @@ private struct EmbyFeaturedCarousel: View {
     let items: [MediaItem]
     let artwork: [String: Data]?
     let featuredArtwork: [MediaID: EmbyFeaturedArtwork]?
-    @EnvironmentObject private var playback: PlaybackSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.scenePhase) private var scenePhase
@@ -413,9 +413,6 @@ private struct EmbyFeaturedCarousel: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(verbatim: item.title))
-                    .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
-                                                  preloadedData: artwork?[item.id.localID],
-                                                  artworkIsPrepared: artwork != nil) { EmptyView() })
                     .scaleEffect(isCurrent && !reduceMotion ? 1 + progress * 0.16 : 1)
                     .opacity(isCurrent ? 1 : isIncoming ? progress : 0)
                     .offset(x: isCurrent ? -shift * progress * 0.08 : shift * (1 - progress) * 0.16)
@@ -438,7 +435,7 @@ private struct EmbyFeaturedCarousel: View {
                         startTransition(to: target, direction: forward <= items.count - forward ? 1 : -1)
                     }
                     .fixedSize()
-                    .padding(.bottom, 6)
+                    .padding(.bottom, 12)
                     .allowsHitTesting(!isTransitioning)
                 }
             }
@@ -570,7 +567,7 @@ private struct EmbyCarouselPan: UIGestureRecognizerRepresentable {
     }
 }
 
-private struct EmbyFeaturedPage: View {
+struct EmbyFeaturedPage: View {
     let source: MediaSource
     let item: MediaItem
     let size: CGSize
@@ -580,6 +577,7 @@ private struct EmbyFeaturedPage: View {
     let featuredArtworkIsPrepared: Bool
     let showsPageControl: Bool
     let showsInformation: Bool
+    var seriesFooter: EmbySeriesHeroFooter? = nil
     @State private var loadedArtwork: EmbyFeaturedArtwork?
 
     var body: some View {
@@ -595,16 +593,17 @@ private struct EmbyFeaturedPage: View {
                             .frame(maxWidth: size.width * 0.68, maxHeight: size.height * 0.15)
                     } else {
                         Text(verbatim: item.title)
-                            .font(.title2.weight(.semibold))
+                            .font(.largeTitle.weight(.semibold))
                             .lineLimit(2)
                     }
                     VStack(spacing: 4) {
                         Text(verbatim: firstLine)
                         if !secondLine.isEmpty { Text(verbatim: secondLine) }
                     }
-                    .font(.footnote)
+                    .font(.subheadline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
+                    if let seriesFooter { seriesFooter }
                 }
                 .foregroundStyle(.white)
                 .opacity(showsInformation ? 1 : 0)
@@ -612,14 +611,19 @@ private struct EmbyFeaturedPage: View {
                 .shadow(color: .black.opacity(0.65), radius: 3, y: 1)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 20)
-                .padding(.bottom, showsPageControl ? 54 : 18)
+                .padding(.bottom, showsPageControl ? 60 : 18)
                 .frame(maxWidth: .infinity)
-                .frame(height: size.height * 0.4, alignment: .bottom)
+                .frame(minHeight: size.height * 0.4, alignment: .bottom)
                 .background {
                     Rectangle()
-                        .fill(.regularMaterial)
+                        .fill(.ultraThickMaterial)
                         .environment(\.colorScheme, .dark)
-                        .mask { LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom) }
+                        .mask {
+                            LinearGradient(stops: [.init(color: .clear, location: 0),
+                                                   .init(color: .black, location: 0.5),
+                                                   .init(color: .black, location: 1)],
+                                           startPoint: .top, endPoint: .bottom)
+                        }
                 }
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)

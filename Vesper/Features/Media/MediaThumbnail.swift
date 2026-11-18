@@ -353,6 +353,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     var historyEntry: PlaybackHistoryEntry? = nil
     var preloadedData: Data? = nil
     var artworkIsPrepared = false
+    var showsEmbyFacts = false
     @ViewBuilder let actions: () -> Actions
     @State private var shareResource: ResolvedPlaybackResource?
     @State private var showingShare = false
@@ -378,7 +379,8 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 actions()
             } preview: {
                 MediaThumbnailPreview(source: source, item: item, historyEntry: historyEntry,
-                                      preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared)
+                                      preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared,
+                                      showsEmbyFacts: showsEmbyFacts)
             }
             .sheet(isPresented: $showingShare, onDismiss: {
                 shareResource?.release()
@@ -387,7 +389,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 if let shareResource { MediaVideoShareSheet(url: shareResource.url) }
             }
             .sheet(isPresented: $showingEmbyDetails) {
-                NavigationStack { EmbyItemDetailView(source: source, item: item, showsCloseButton: true) }
+                NavigationStack { embySheetDetails(source: source, item: item) }
             }
             .alert("无法分享视频", isPresented: $showingShareError) {
                 Button("好", role: .cancel) { }
@@ -418,6 +420,7 @@ private struct MediaThumbnailPreview: View {
     var historyEntry: PlaybackHistoryEntry? = nil
     var preloadedData: Data? = nil
     var artworkIsPrepared = false
+    var showsEmbyFacts = false
     @State private var duration: Double = 0
     private var displayName: String {
         VideoImporter.isVideoType(URL(fileURLWithPath: item.title)) ? (item.title as NSString).deletingPathExtension : item.title
@@ -433,6 +436,8 @@ private struct MediaThumbnailPreview: View {
                     .foregroundStyle(.secondary)
                 Text(historyEntry.watchedAt, format: .dateTime.hour().minute())
                     .foregroundStyle(.secondary)
+            } else if showsEmbyFacts {
+                EmbyPreviewFacts(item: item)
             } else if duration > 0 {
                 Text(verbatim: mediaTimeLabel(duration)).foregroundStyle(.secondary)
             }
@@ -440,7 +445,9 @@ private struct MediaThumbnailPreview: View {
         .padding(14)
         .frame(width: 228)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
-        .task { duration = await MediaThumbnailLoader.shared.duration(item, source: source) }
+        .task {
+            if !showsEmbyFacts { duration = await MediaThumbnailLoader.shared.duration(item, source: source) }
+        }
     }
 }
 
