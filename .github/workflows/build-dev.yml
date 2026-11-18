@@ -1,22 +1,21 @@
 name: Build (dev)
 
-# 提交到 dev 时立即编译验证：编译 + 打包无签名 IPA，上传为 Actions 工件；不发布 Release。
-# 只改动 VERSION 的推送（例如单纯发版号）不触发 —— 这类改动不影响编译。
-# 注意：只要这次推送还改了别的文件，仍会正常触发。
+# 只改 VERSION 或 .github 配置不会触发构建。
+# App、播放引擎、隔离脚本或 Xcode 工程变化会触发构建。
 on:
   push:
     branches: [ dev ]
     paths:
       - 'Vesper/**'
+      - 'Playback/**'
+      - 'BuildSupport/**'
       - 'Vesper.xcodeproj/**'
       - 'Info.plist'
-  # 需要时也可以在 Actions 页面手动触发（手动触发不受上面的路径过滤影响）
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# 同一分支只保留最新一次构建：新的推送会取消进行中的旧构建，省 runner 时间
 concurrency:
   group: build-dev-${{ github.ref }}
   cancel-in-progress: true
@@ -29,19 +28,41 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify Xcode 27 toolchain
+      - name: Verify Xcode 27 and Swift 6.3 toolchain
         run: |
           set -e
           xcodebuild -version
           xcrun swift --version
-          xcodebuild -version | grep -Eq '^Xcode 27([.]|$)' || { echo "::error::Expected Xcode 27"; exit 1; }
 
-      # 与发布流程一致的前置校验，让工程配置问题尽早暴露
+          xcodebuild -version | grep -Eq '^Xcode 27([.]|$)' || {
+            echo "::error::Expected Xcode 27"
+            exit 1
+          }
+
+          SWIFT_VERSION="$(xcrun swift --version | sed -nE 's/^Apple Swift version ([0-9]+\.[0-9]+).*/\1/p' | head -1)"
+          if [ -z "$SWIFT_VERSION" ] || ! awk -F. -v version="$SWIFT_VERSION" 'BEGIN {
+            split(version, v, ".")
+            exit !((v[1] + 0) > 6 || ((v[1] + 0) == 6 && (v[2] + 0) >= 3))
+          }'; then
+            echo "::error::Swift 6.3 or newer is required; found ${SWIFT_VERSION:-unknown}"
+            exit 1
+          fi
+
       - name: Validate project inputs
         run: |
           set -e
-          test -d Vesper.xcodeproj || { echo "::error::Vesper.xcodeproj not found; add the iOS project first"; exit 1; }
-          test -f Info.plist || { echo "::error::Info.plist not found"; exit 1; }
+          test -d Vesper.xcodeproj || {
+            echo "::error::Vesper.xcodeproj not found"
+            exit 1
+          }
+          test -f Info.plist || {
+            echo "::error::Info.plist not found"
+            exit 1
+          }
+          test -f Vesper.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved || {
+            echo "::error::Commit the resolved Swift package graph before building"
+            exit 1
+          }
           plutil -lint Info.plist
 
       - name: Read version
@@ -74,13 +95,23 @@ jobs:
             -configuration Debug \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/DerivedData \
+            -disableAutomaticPackageResolution \
             MARKETING_VERSION='${{ steps.version.outputs.raw }}(Build dev ${{ github.run_number }})' \
             CURRENT_PROJECT_VERSION='${{ github.run_number }}' \
-            PRODUCT_BUNDLE_IDENTIFIER=com.aholic.vesper \
             IPHONEOS_DEPLOYMENT_TARGET=26.0 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             build
+
+      - name: Audit playback framework isolation
+        run: |
+          set -e
+          APP="build/DerivedData/Build/Products/Debug-iphoneos/Vesper.app"
+          test -d "$APP" || {
+            echo "::error::Vesper.app was not produced"
+            exit 1
+          }
+          python3 BuildSupport/audit_playback_isolation.py "$APP"
 
       - name: Package unsigned IPA
         run: |
@@ -88,12 +119,22 @@ jobs:
           APP="build/DerivedData/Build/Products/Debug-iphoneos/Vesper.app"
           IPA="build/Vesper-${{ steps.version.outputs.raw }}-dev${{ github.run_number }}-unsigned.ipa"
 
-          test -d "$APP" || { echo "::error::Vesper.app was not produced"; exit 1; }
+          test -d "$APP" || {
+            echo "::error::Vesper.app was not produced"
+            exit 1
+          }
 
           BUNDLE_ID=$(plutil -extract CFBundleIdentifier raw "$APP/Info.plist")
-          test "$BUNDLE_ID" = com.aholic.vesper || { echo "::error::Unexpected bundle identifier: $BUNDLE_ID"; exit 1; }
+          test "$BUNDLE_ID" = com.aholic.vesper || {
+            echo "::error::Unexpected bundle identifier: $BUNDLE_ID"
+            exit 1
+          }
+
           MINIMUM_OS=$(plutil -extract MinimumOSVersion raw "$APP/Info.plist")
-          test "$MINIMUM_OS" = 26.0 || { echo "::error::MinimumOSVersion must be 26.0, got: $MINIMUM_OS"; exit 1; }
+          test "$MINIMUM_OS" = 26.0 || {
+            echo "::error::MinimumOSVersion must be 26.0, got: $MINIMUM_OS"
+            exit 1
+          }
 
           rm -rf build/Payload "$IPA"
           mkdir -p build/Payload
@@ -115,11 +156,12 @@ jobs:
           ls -la "$APP"
           plutil -p "$APP/Info.plist" | grep -E "CFBundleDisplayName|CFBundleIdentifier"
 
-      # 只上传为 Actions 工件（可在 run 页面下载），不创建 Release
-      - name: Upload IPA artifact
+      - name: Upload IPA and isolation report
         uses: actions/upload-artifact@v4
         with:
           name: Vesper-${{ steps.version.outputs.raw }}-dev${{ github.run_number }}
-          path: build/Vesper-*-unsigned.ipa
+          path: |
+            build/Vesper-*-unsigned.ipa
+            build/DerivedData/Build/Products/Debug-iphoneos/playback-isolation-report.txt
           if-no-files-found: error
           retention-days: 14
