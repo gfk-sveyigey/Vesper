@@ -79,6 +79,11 @@ internal import AetherEngine
         var options = LoadOptions()
         options.autoplay = configuration.autoplay
         options.preferredDecodePath = configuration.decoder == .software ? .software : .automatic
+        options.httpHeaders = configuration.requestHeaders
+        options.externalSubtitles = configuration.externalSubtitles.map {
+            ExternalSubtitleTrack(url: $0.url, name: $0.name, language: $0.language,
+                                  httpHeaders: $0.headers, formatHint: $0.format)
+        }
         _ = try await engine.load(url: url, startPosition: configuration.position, options: options)
         try Task.checkCancellation()
         engine.clearSubtitle()

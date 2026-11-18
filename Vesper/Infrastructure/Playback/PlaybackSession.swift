@@ -95,6 +95,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var previouslyActivePiP = false
     private var requestedDecoder: PlaybackDecoder?
     private var resource: ResolvedPlaybackResource?
+    private var embySession: EmbyPlaybackSession?
     private var request: Task<Void, Never>?
     private var generation = UUID()
     @Published private(set) var queue: [MediaItem] = []
@@ -180,7 +181,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 if let external {
                     resolved = ResolvedPlaybackResource(url: external.url, externalAccess: external.access)
                 } else if let source {
-                    resolved = try await PlaybackResourceResolver().resolve(item, source: source)
+                    resolved = try await PlaybackResourceResolver().resolve(item, source: source, position: position ?? 0)
                 } else {
                     throw PlaybackFailure.missingFile
                 }
@@ -189,14 +190,26 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                     return
                 }
                 self.resource = resolved
+                self.progressRestored = true
+                if let source, source.kind == .emby, let playSessionID = resolved.embyPlaySessionID {
+                    let session = EmbyPlaybackSession(source: source, item: item, playSessionID: playSessionID,
+                                                       mediaSourceID: resolved.embyMediaSourceID ?? item.embyMediaSourceID ?? "")
+                    self.embySession = session
+                }
                 try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
                 try AVAudioSession.sharedInstance().setActive(true)
                 self.refreshPlaybackPreferences()
                 var configuration = self.engineConfiguration
                 configuration.decoder = selectedDecoder == .software ? .software : .hardware
-                configuration.position = position ?? 0
+                let savedLocalPosition = source?.kind == .emby ? 0 : (self.savedProgress(for: item))
+                configuration.position = position ?? (PlaybackPreferences.remembersProgress
+                    ? max(savedLocalPosition, resolved.resumePosition ?? 0) : 0)
                 configuration.autoplay = resume
-                try await self.core.load(resolved.url, preferred: selectedEngine == .aether ? .aether : .vlc, configuration: configuration, audio: previousAudio, subtitle: previousSubtitle)
+                configuration.requestHeaders = resolved.headers
+                configuration.externalSubtitles = resolved.externalSubtitles
+                try await self.core.load(resolved.url, preferred: selectedEngine == .aether ? .aether : .vlc,
+                                         configuration: configuration, audio: previousAudio, subtitle: previousSubtitle,
+                                         server: self.embySession)
                 guard !Task.isCancelled, self.generation == token else { return }
                 self.syncCoreState()
                 if let requested = self.requestedDecoder {
@@ -263,6 +276,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                     self.seekLanding = finished ? (next.time, Date().addingTimeInterval(2)) : nil
                     self.isSeeking = false
                     self.updateSubtitles()
+                    if finished { self.embySession?.didSeek(to: next.time, paused: !self.isPlaying) }
                 }
             }
         }
@@ -580,7 +594,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                    PHAsset.fetchAssets(withLocalIdentifiers: [entry.mediaID.localID], options: nil).count == 0 {
                     missing.insert(entry.mediaID)
                 }
-            case .demo: break
+            case .demo, .emby: break
             }
         }
         if !missing.isEmpty { removePlaybackData { missing.contains($0) } }
@@ -596,6 +610,9 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     func mediaDetails() async -> PlaybackVideoDetails? {
+        if let source, source.kind == .emby, let item = currentItem {
+            return try? await EmbyRepository.shared.details(for: item, source: source).video
+        }
         guard let resource else { return nil }
         let token = generation
         let url = resource.url
@@ -752,6 +769,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
 
     func queueInfo(for item: MediaItem) async -> PlaybackQueueInfo {
         guard let source, source.id == item.id.sourceID else { return .init() }
+        if source.kind == .emby { return .init(duration: item.duration ?? 0) }
         if source.kind == .photos {
             guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [item.id.localID], options: nil).firstObject else { return .init() }
             PlayerQueueDiagnostic.write("photos.metadata.begin id=\(item.id.localID) authorization=\(PHPhotoLibrary.authorizationStatus(for: .readWrite).rawValue)")
@@ -874,8 +892,14 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         seekInFlight = false
         seekLanding = nil
         let retirement = core.shutdown()
+        let retiringEmbySession = embySession
+        embySession = nil
         let retiringResource = resource
-        Task { await retirement.value; retiringResource?.release() }
+        Task {
+            await retirement.value
+            if let ending = retiringEmbySession?.finish() { await ending.value }
+            retiringResource?.release()
+        }
         videoView?.removeFromSuperview()
         videoView = nil
         trackIDs = [:]; nextTrackID = 1
@@ -900,6 +924,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         value.automaticPiP = automaticallyStartsPictureInPicture
         value.subtitleFontSize = UserDefaults.standard.object(forKey: "player.subtitle.fontSize") as? Double ?? 22
         value.subtitleBackground = UserDefaults.standard.object(forKey: "player.subtitle.background") as? Bool ?? true
+        value.requestHeaders = resource?.headers ?? [:]
+        value.externalSubtitles = resource?.externalSubtitles ?? []
         return value
     }
     private func syncCoreState() {
@@ -915,12 +941,19 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 if abs(state.time - landing.time) < 1.5 || Date() >= landing.deadline { seekLanding = nil; currentTime = max(0, state.time) }
             } else { currentTime = state.time.isFinite ? max(0, state.time) : 0 }
         }
-        if !isLoading || state.duration > 0 { duration = state.duration.isFinite ? max(0, state.duration) : 0 }
+        if !isLoading || state.duration > 0 {
+            let engineDuration = state.duration.isFinite ? max(0, state.duration) : 0
+            duration = engineDuration > 0 ? engineDuration : (resource?.duration ?? 0)
+        }
         bufferedTime = state.buffered.isFinite ? max(currentTime, state.buffered) : currentTime
         if case .failed(let message) = state.phase { errorMessage = message; isLoading = false }
         if state.phase == .ended {
             currentTime = duration; saveProgress(); recordPlaybackHistory()
+            embySession?.finish()
         }
+        embySession?.update(position: currentTime, paused: !isPlaying, rate: playbackRate,
+                            remembersProgress: PlaybackPreferences.remembersProgress,
+                            ready: !isLoading && (state.phase == .playing || state.phase == .paused || state.phase == .ended))
         refreshTracks(); updateSubtitles(); configurePictureInPicture()
         // SwiftVLC retains its native AVKit delegate; consume its observable PiP state.
         isPictureInPicturePossible = state.pipPossible
@@ -945,7 +978,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     private func log(_ message: String) {
-        AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [Playback] \(message)")
+        AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [Playback] \(EmbyAPIClient.redacted(message))")
     }
 }
 
@@ -983,7 +1016,10 @@ struct PlaybackHistoryEntry: Identifiable, Codable {
     let position: Double
     let duration: Double
     var id: MediaID { mediaID }
-    var item: MediaItem { MediaItem(id: mediaID, title: title, resource: nil) }
+    var item: MediaItem {
+        MediaItem(id: mediaID, title: title, resource: nil,
+                  embyItemID: source.kind == .emby ? mediaID.localID : nil, duration: duration)
+    }
 }
 
 /// Photos invokes callbacks off the main actor. Resume a request exactly once,

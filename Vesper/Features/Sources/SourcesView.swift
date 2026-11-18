@@ -5,7 +5,8 @@ struct SourcesView: View {
     @EnvironmentObject private var library: SourceLibrary
     @AppStorage("navigation.icons") private var icons = "{}"
     @State private var isShowingError = false
-    @State private var isShowingEmbyNotice = false
+    @State private var isShowingEmbyEditor = false
+    @State private var editingEmby: MediaSource?
 
     var body: some View {
         VesperRootScrollView(title: "来源") {
@@ -16,9 +17,14 @@ struct SourcesView: View {
                     ForEach(library.sources) { source in
                         Button { library.select(source.id) } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: source.kind == .photos ? "play.rectangle.on.rectangle" : "folder")
+                                Image(systemName: source.kind == .emby ? "server.rack" : source.kind == .photos ? "play.rectangle.on.rectangle" : "folder")
                                     .frame(width: 28)
-                                Text(verbatim: source.name).foregroundStyle(.primary)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(verbatim: source.name).foregroundStyle(.primary)
+                                    if let note = source.emby?.note, !note.isEmpty {
+                                        Text(verbatim: note).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                    }
+                                }
                                 Spacer()
                                 if source.id == library.selectedID { Image(systemName: "checkmark") }
                             }
@@ -29,6 +35,9 @@ struct SourcesView: View {
                         .accessibilityAddTraits(source.id == library.selectedID ? .isSelected : [])
                         .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
                         .contextMenu {
+                            if source.kind == .emby {
+                                Button("编辑", systemImage: "pencil") { editingEmby = source }
+                            }
                             Button("删除", role: .destructive) { library.remove(source.id) }
                         }
                         .accessibilityAction(named: Text("删除")) { library.remove(source.id) }
@@ -43,9 +52,8 @@ struct SourcesView: View {
         .alert("无法添加来源", isPresented: $isShowingError) {
             Button("好", role: .cancel) { }
         } message: { Text("请检查相册访问权限或本地视频文件。") }
-        .alert("Emby", isPresented: $isShowingEmbyNotice) {
-            Button("好", role: .cancel) { }
-        } message: { Text("Emby 来源尚未接入。") }
+        .sheet(isPresented: $isShowingEmbyEditor) { EmbySourceEditor(source: nil) }
+        .sheet(item: $editingEmby) { source in EmbySourceEditor(source: source) }
     }
 
     private var addMenu: some View {
@@ -56,7 +64,7 @@ struct SourcesView: View {
             if !library.sources.contains(where: { $0.kind == .local }) {
                 Button("本地视频", systemImage: "folder") { addLocalVideos() }
             }
-            Button("Emby", systemImage: "play.rectangle") { isShowingEmbyNotice = true }
+            Button("Emby", systemImage: "server.rack") { isShowingEmbyEditor = true }
         } label: {
             Image(systemName: "folder.badge.plus")
                 .font(.system(size: 17, weight: .medium))

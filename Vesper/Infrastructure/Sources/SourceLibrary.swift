@@ -12,6 +12,7 @@ struct MediaID: Hashable, Codable, Sendable {
 
 struct PlayableResource: Hashable, Sendable {
     let url: URL
+    var headers: [String: String] = [:]
 }
 
 struct MediaItem: Identifiable, Hashable, Sendable {
@@ -19,6 +20,12 @@ struct MediaItem: Identifiable, Hashable, Sendable {
     let title: String
     let resource: PlayableResource?
     var subtitle: String? = nil
+    var isContainer = false
+    var embyItemID: String? = nil
+    var embyMediaSourceID: String? = nil
+    var imageURL: URL? = nil
+    var duration: Double? = nil
+    var resumePosition: Double? = nil
 }
 
 struct SourceCapabilities: OptionSet, Sendable {
@@ -42,17 +49,18 @@ enum DemoSourceBehavior: String, Codable, CaseIterable, Identifiable, Sendable {
 
 /// Demo is an explicit source kind; service accounts are not media sources.
 struct MediaSource: Identifiable, Codable, Equatable, Sendable {
-    enum Kind: String, Codable { case demo, photos, local }
+    enum Kind: String, Codable { case demo, photos, local, emby }
     let id: UUID
     var name: String
     let kind: Kind
     var folderBookmark: Data? = nil
     var behavior: DemoSourceBehavior
+    var emby: EmbySourceConfiguration? = nil
     var capabilities: SourceCapabilities { kind == .demo ? [.browse] : [.browse, .playback] }
 }
 
 enum SourceFailure: Error, Equatable {
-    case unavailable, offline
+    case unavailable, offline, message(String)
 }
 
 protocol SourceAdapter: Sendable {
@@ -92,6 +100,9 @@ struct DemoSourceAdapter: SourceAdapter {
             throw SourceFailure.unavailable
             #endif
         }
+        if source.kind == .emby {
+            return try await EmbyRepository.shared.rootItems(for: source)
+        }
         try await Task.sleep(for: .milliseconds(250))
         switch source.behavior {
         case .empty: return []
@@ -124,6 +135,14 @@ final class SourceLibrary: ObservableObject {
     private var request: Task<Void, Never>?
     private var generation = UUID()
     private static let storageKey = "sources.snapshot.v1"
+    private var embyParentStack: [(MediaItem, [MediaItem], Bool)] = []
+    private var currentEmbyParentID: String?
+    @Published private(set) var hasMoreEmbyItems = false
+    @Published private(set) var loadingMore = false
+    @Published private(set) var paginationError: String?
+    private var moreRequest: Task<Void, Never>?
+
+    var canNavigateBack: Bool { !embyParentStack.isEmpty }
 
     var selectedSource: MediaSource? { sources.first { $0.id == selectedID } }
 
@@ -139,7 +158,7 @@ final class SourceLibrary: ObservableObject {
     }
 
     func addDeviceSource(kind: MediaSource.Kind, name: String, bookmark: Data? = nil) {
-        guard kind != .demo, !sources.contains(where: { $0.kind == kind }) else { return }
+        guard kind == .local || kind == .photos, !sources.contains(where: { $0.kind == kind }) else { return }
         let source = MediaSource(id: UUID(), name: name, kind: kind, folderBookmark: bookmark, behavior: .empty)
         sources.append(source)
         if selectedID == nil { selectedID = source.id; reload() }
@@ -169,8 +188,92 @@ final class SourceLibrary: ObservableObject {
     func select(_ id: UUID) {
         guard sources.contains(where: { $0.id == id }) else { return }
         selectedID = id
+        embyParentStack.removeAll()
+        currentEmbyParentID = nil
+        hasMoreEmbyItems = false
         persist()
         reload()
+    }
+
+    func open(_ item: MediaItem) {
+        guard item.isContainer, selectedSource?.kind == .emby else { return }
+        guard case .loaded(let current) = content else { return }
+        embyParentStack.append((item, current, hasMoreEmbyItems))
+        currentEmbyParentID = item.embyItemID
+        hasMoreEmbyItems = false
+        loadEmbyItems(parentID: item.embyItemID)
+    }
+
+    func navigateEmbyBack() {
+        request?.cancel(); moreRequest?.cancel()
+        generation = UUID(); loadingMore = false; paginationError = nil
+        guard let previous = embyParentStack.popLast() else { return }
+        currentEmbyParentID = embyParentStack.last?.0.embyItemID
+        content = .loaded(previous.1)
+        hasMoreEmbyItems = previous.2
+    }
+
+    func loadMoreEmbyItems() {
+        guard case .loaded(let current) = content, let source = selectedSource,
+              source.kind == .emby, hasMoreEmbyItems, !loadingMore, currentEmbyParentID != nil else { return }
+        let token = generation
+        let parentID = currentEmbyParentID
+        loadingMore = true; paginationError = nil
+        moreRequest = Task {
+            defer { if generation == token { loadingMore = false } }
+            do {
+                let next = try await EmbyRepository.shared.items(for: source, parentID: parentID,
+                                                                  startIndex: current.count)
+                guard generation == token, selectedID == source.id,
+                      case .loaded(let latest) = content else { return }
+                let seen = Set(latest.map(\.id))
+                content = .loaded(latest + next.filter { !seen.contains($0.id) })
+                hasMoreEmbyItems = next.count >= 100
+            } catch {
+                if !Task.isCancelled, generation == token { paginationError = error.localizedDescription }
+            }
+        }
+    }
+
+    func embyConfiguration(for id: UUID) -> EmbySourceConfiguration? {
+        guard var configuration = sources.first(where: { $0.id == id })?.emby else { return nil }
+        configuration.customHeaders = EmbyAccountStore.shared.customHeaders(sourceID: id)
+        return configuration
+    }
+
+    func addEmby(configuration: EmbySourceConfiguration, password: String) async throws {
+        let source = MediaSource(id: UUID(), name: configuration.title, kind: .emby,
+                                 behavior: .empty, emby: configuration)
+        let auth = try await EmbyAccountStore.shared.authenticate(source: source, username: configuration.username,
+                                                                  password: password)
+        var authenticated = source
+        authenticated.emby?.serverID = auth.serverID
+        authenticated.emby?.userID = auth.userID
+        authenticated.emby?.customHeaders = [:]
+        sources.append(authenticated)
+        if selectedID == nil { selectedID = source.id; reload() }
+        persist()
+    }
+
+    func updateEmby(_ id: UUID, configuration: EmbySourceConfiguration, password: String?) async throws {
+        guard let index = sources.firstIndex(where: { $0.id == id && $0.kind == .emby }) else { return }
+        _ = try EmbyAPIClient(configuration: configuration, token: nil, deviceID: "validation")
+        var updated = sources[index]
+        updated.name = configuration.title
+        updated.emby = configuration
+        if let password, !password.isEmpty {
+            let auth = try await EmbyAccountStore.shared.authenticate(source: updated, username: configuration.username,
+                                                                      password: password)
+            updated.emby?.serverID = auth.serverID
+            updated.emby?.userID = auth.userID
+        } else {
+            try EmbyAccountStore.shared.updateCustomHeaders(configuration.customHeaders, sourceID: id)
+        }
+        updated.emby?.customHeaders = [:]
+        guard let currentIndex = sources.firstIndex(where: { $0.id == id }) else { return }
+        sources[currentIndex] = updated
+        persist()
+        if selectedID == id { reload() }
     }
 
     func configure(_ id: UUID, behavior: DemoSourceBehavior) {
@@ -181,13 +284,41 @@ final class SourceLibrary: ObservableObject {
     }
 
     func remove(_ id: UUID) {
+        if let source = sources.first(where: { $0.id == id }), source.kind == .emby {
+            EmbyAccountStore.shared.logout(source: source)
+        }
         sources.removeAll { $0.id == id }
         if selectedID == id { selectedID = nil; reload() }
         persist()
     }
 
-    func reload() {
+    private func loadEmbyItems(parentID: String?) {
         request?.cancel()
+        moreRequest?.cancel(); loadingMore = false; paginationError = nil
+        generation = UUID()
+        let token = generation
+        guard let source = selectedSource else { return }
+        content = .loading
+        request = Task { [weak self] in
+            do {
+                let items = try await EmbyRepository.shared.items(for: source, parentID: parentID, startIndex: 0)
+                guard !Task.isCancelled, let self, self.generation == token else { return }
+                self.content = .loaded(items)
+                self.hasMoreEmbyItems = items.count >= 100
+            } catch {
+                guard !Task.isCancelled, let self, self.generation == token else { return }
+                self.content = .failed(.message(error.localizedDescription))
+            }
+        }
+    }
+
+    func reload() {
+        if selectedSource?.kind == .emby, let parentID = currentEmbyParentID {
+            loadEmbyItems(parentID: parentID)
+            return
+        }
+        request?.cancel()
+        moreRequest?.cancel(); loadingMore = false; paginationError = nil
         let token = UUID()
         generation = token
         guard let source = selectedSource else { content = .unselected; return }
@@ -202,7 +333,7 @@ final class SourceLibrary: ObservableObject {
                 return
             } catch {
                 guard !Task.isCancelled, let self, self.generation == token else { return }
-                self.content = .failed(error as? SourceFailure ?? .unavailable)
+                self.content = .failed(error as? SourceFailure ?? .message(error.localizedDescription))
             }
         }
     }

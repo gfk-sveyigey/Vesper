@@ -70,6 +70,11 @@ private final class MediaThumbnailLoader {
         guard item.id.sourceID == source.id, !Task.isCancelled else { return nil }
         switch source.kind {
         case .demo: return nil
+        case .emby:
+            let key = "emby:\(source.id):\(item.embyItemID ?? item.id.localID):\(item.imageURL?.absoluteString ?? "")" as NSString
+            if let data = cache.object(forKey: key) { return data as Data }
+            let data = await EmbyRepository.shared.thumbnailData(for: item, source: source)
+            return remember(data, key: key)
         case .photos:
             let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
             guard status == .authorized || status == .limited,
@@ -101,6 +106,7 @@ private final class MediaThumbnailLoader {
     func duration(_ item: MediaItem, source: MediaSource) async -> Double {
         guard item.id.sourceID == source.id, !Task.isCancelled else { return 0 }
         switch source.kind {
+        case .emby: return item.duration ?? 0
         case .photos:
             let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
             guard status == .authorized || status == .limited else { return 0 }
@@ -133,7 +139,10 @@ private struct ThumbnailPlaybackProgress: View {
     let item: MediaItem
     @AppStorage("player.rememberProgress") private var remembersProgress = true
     @State private var duration: Double = 0
-    private var progress: Double { remembersProgress ? session.savedProgress(for: item) : 0 }
+    private var progress: Double {
+        guard remembersProgress else { return 0 }
+        return source.kind == .emby ? (item.resumePosition ?? 0) : session.savedProgress(for: item)
+    }
     private var total: Double { duration > 0 ? duration : session.savedDuration(for: item) }
     var body: some View {
         Group {
@@ -263,14 +272,21 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     @State private var preparingShare = false
     @State private var shareError: String?
     @State private var showingShareError = false
+    @State private var showingEmbyDetails = false
 
     func body(content: Content) -> some View {
         content
             .contextMenu {
-                Button("分享", systemImage: "square.and.arrow.up") { share() }
-                    .disabled(preparingShare)
+                if source.kind == .emby {
+                    Button("详情", systemImage: "info.circle") { showingEmbyDetails = true }
+                } else {
+                    Button("分享", systemImage: "square.and.arrow.up") { share() }
+                        .disabled(preparingShare)
+                }
                 if playback.savedProgress(for: item) > 0 || playback.history.contains(where: { $0.mediaID == item.id }) {
-                    Button("清除播放进度", systemImage: "clock.arrow.circlepath") { playback.clearSavedProgress(for: item) }
+                    Button(source.kind == .emby ? "清除本地记录" : "清除播放进度", systemImage: "clock.arrow.circlepath") {
+                        playback.clearSavedProgress(for: item)
+                    }
                 }
                 actions()
             } preview: {
@@ -282,6 +298,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
             }) {
                 if let shareResource { MediaVideoShareSheet(url: shareResource.url) }
             }
+            .sheet(isPresented: $showingEmbyDetails) { EmbyItemDetailView(source: source, item: item) }
             .alert("无法分享视频", isPresented: $showingShareError) {
                 Button("好", role: .cancel) { }
             } message: { Text(verbatim: shareError ?? "") }

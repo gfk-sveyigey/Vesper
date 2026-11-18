@@ -41,12 +41,29 @@ internal import SwiftVLC
         return result
     }
     public func load(url: URL, configuration: EngineConfiguration) async throws {
+        let supportedHeaders = Set(["user-agent", "referer", "referrer", "cookie"])
+        let unsupportedHeaders = configuration.requestHeaders.keys.filter { !supportedHeaders.contains($0.lowercased()) }
+        guard unsupportedHeaders.isEmpty else {
+            throw PlaybackCoreError.failed("SwiftVLC 当前无法附加自定义请求头：\(unsupportedHeaders.joined(separator: ", "))。正在尝试 AetherEngine。")
+        }
         self.configuration = configuration
         let player = Player()
         self.player = player
         installSurface(player)
         let media = try Media(url: url)
+        for subtitle in configuration.externalSubtitles {
+            try media.addSlave(from: subtitle.url, type: .subtitle)
+        }
         media.addOption(configuration.decoder == .software ? ":avcodec-hw=none" : ":avcodec-hw=any")
+        for (name, value) in configuration.requestHeaders {
+            guard !value.contains("\r"), !value.contains("\n") else { continue }
+            switch name.lowercased() {
+            case "user-agent": media.addOption(":http-user-agent=\(value)")
+            case "referer", "referrer": media.addOption(":http-referrer=\(value)")
+            case "cookie": media.addOption(":http-cookie=\(value)")
+            default: break
+            }
+        }
         media.addOption(":no-video-title-show")
         if configuration.position > 0 { media.addOption(":start-time=\(configuration.position)") }
         if !configuration.autoplay { media.addOption(":start-paused") }

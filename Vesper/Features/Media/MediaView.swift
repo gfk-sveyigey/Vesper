@@ -34,7 +34,8 @@ struct MediaView: View {
                                 ForEach(items) { item in
                                     Button {
                                         guard let source = library.selectedSource else { return }
-                                        playback.play(item, in: source, queue: items)
+                                        if item.isContainer { library.open(item) }
+                                        else { playback.play(item, in: source, queue: items.filter { !$0.isContainer }) }
                                     } label: {
                                         VStack(alignment: .leading, spacing: 8) {
                                             if let source = library.selectedSource {
@@ -55,17 +56,39 @@ struct MediaView: View {
                                 }
                             }
                             .padding(.horizontal, 20)
+                            if library.selectedSource?.kind == .emby, library.hasMoreEmbyItems {
+                                Button("加载更多") { library.loadMoreEmbyItems() }
+                                    .frame(maxWidth: .infinity)
+                                    .disabled(library.loadingMore)
+                                if library.loadingMore { ProgressView().frame(maxWidth: .infinity) }
+                                if let message = library.paginationError {
+                                    Text(verbatim: message).foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     case .failed(let error):
-                        ContentUnavailableView {
-                            Label(LocalizedStringKey(error == .offline ? "来源离线" : "无法加载来源"), systemImage: error == .offline ? "wifi.slash" : "exclamationmark.triangle")
-                        } actions: {
-                            Button("重试") { library.reload() }
+                        if case .message(let message) = error {
+                            ContentUnavailableView {
+                                Label("无法加载来源", systemImage: "exclamationmark.triangle")
+                            } description: { Text(verbatim: message) } actions: {
+                                Button("重试") { library.reload() }
+                            }
+                        } else {
+                            ContentUnavailableView {
+                                Label(LocalizedStringKey(error == .offline ? "来源离线" : "无法加载来源"), systemImage: error == .offline ? "wifi.slash" : "exclamationmark.triangle")
+                            } actions: {
+                                Button("重试") { library.reload() }
+                            }
                         }
                     }
                 }
             }
         } actions: {
+            if library.canNavigateBack {
+                Button { library.navigateEmbyBack() } label: { Image(systemName: "chevron.left") }
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
             if !library.sources.isEmpty {
                 mediaSourceMenu
             }
@@ -83,6 +106,7 @@ struct MediaView: View {
         case .photos: "play.rectangle.on.rectangle"
         case .local: "folder"
         case .demo: "play.rectangle"
+        case .emby: "server.rack"
         case nil: "externaldrive"
         }
     }

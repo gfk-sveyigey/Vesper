@@ -19,6 +19,8 @@
 <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>NSPhotoLibraryUsageDescription</key><string>浏览相册中的视频以添加媒体来源。</string>
+<key>NSLocalNetworkUsageDescription</key><string>连接你添加的 Emby 媒体服务器。</string>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 <key>UIFileSharingEnabled</key><true/>
 <key>LSSupportsOpeningDocumentsInPlace</key><false/>
 <key>CFBundleDocumentTypes</key>

@@ -36,7 +36,20 @@ public struct EngineConfiguration: Sendable {
     public var automaticPiP = false
     public var subtitleFontSize: Double = 22
     public var subtitleBackground = true
+    public var requestHeaders: [String: String] = [:]
+    public var externalSubtitles: [EngineExternalSubtitle] = []
     public init() {}
+}
+
+public struct EngineExternalSubtitle: Sendable {
+    public let url: URL
+    public let name: String
+    public let language: String?
+    public let format: String
+    public let headers: [String: String]
+    public init(url: URL, name: String, language: String?, format: String, headers: [String: String] = [:]) {
+        self.url = url; self.name = name; self.language = language; self.format = format; self.headers = headers
+    }
 }
 /// Value-only state; no FFmpeg/VLC pointers or upstream Swift types cross a bridge.
 @MainActor public struct EngineSnapshot {
