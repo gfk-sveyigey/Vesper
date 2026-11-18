@@ -52,9 +52,6 @@ struct EmbySourceEditor: View {
                     Toggle("同步已观看标记", isOn: $syncWatched)
                     Toggle("允许服务器转码", isOn: $allowTranscoding)
                 }
-                Section("高级设置") {
-                    NavigationLink("客户端模拟", destination: EmbyClientSimulationSettingsView())
-                }
                 if let errorMessage { Text(verbatim: errorMessage).foregroundStyle(.red) }
                 Button { save() } label: {
                     HStack {
