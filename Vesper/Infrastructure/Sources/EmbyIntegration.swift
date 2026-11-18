@@ -29,6 +29,12 @@ struct EmbyItemDetails: Sendable {
     let versions: [MediaItem]
 }
 
+struct EmbyMediaGroup: Identifiable, Sendable {
+    let id: String
+    let title: String
+    let items: [MediaItem]
+}
+
 actor EmbyRepository {
     static let shared = EmbyRepository()
     private let clientProvider: @MainActor @Sendable (MediaSource) throws -> EmbyAPIClient
@@ -50,6 +56,50 @@ actor EmbyRepository {
         return map(response["Items"] as? [[String: Any]] ?? [], source: source, client: client)
     }
 
+    func mediaGroups(for source: MediaSource) async throws -> [EmbyMediaGroup] {
+        let client = try await clientProvider(source)
+        let viewsPath = source.emby?.userID.map { "Users/\($0)/Views" } ?? "Library/MediaFolders"
+        let views = try await client.get(viewsPath)
+        let libraries = views["Items"] as? [[String: Any]] ?? []
+        let allItems = try await fetchItems(source: source, client: client, parentID: nil, limit: nil)
+        var groups = [EmbyMediaGroup(id: "all-media", title: "我的媒体", items: allItems)]
+        for library in libraries {
+            guard let id = library["Id"] as? String,
+                  let title = library["Name"] as? String,
+                  !id.isEmpty, !title.isEmpty else { continue }
+            let items = try await fetchItems(source: source, client: client, parentID: id, limit: 20)
+            groups.append(EmbyMediaGroup(id: id, title: title, items: items))
+        }
+        return groups
+    }
+
+    private func fetchItems(source: MediaSource, client: EmbyAPIClient, parentID: String?, limit: Int?) async throws -> [MediaItem] {
+        let path = source.emby?.userID.map { "Users/\($0)/Items" } ?? "Items"
+        let pageSize = limit ?? 100
+        var startIndex = 0
+        var result: [MediaItem] = []
+        repeat {
+            var query = [
+                "Recursive": "true",
+                "IncludeItemTypes": "Movie,Episode,Video,MusicVideo,Trailer",
+                "SortBy": "DateCreated",
+                "SortOrder": "Descending",
+                "StartIndex": String(startIndex),
+                "Limit": String(min(pageSize, limit.map { max(1, $0 - result.count) } ?? pageSize)),
+                "Fields": "Overview,PrimaryImageAspectRatio,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData"
+            ]
+            if let parentID { query["ParentId"] = parentID }
+            let response = try await client.get(path, query: query)
+            let values = response["Items"] as? [[String: Any]] ?? []
+            let items = map(values, source: source, client: client)
+            result.append(contentsOf: items)
+            startIndex += values.count
+            if let limit, result.count >= limit { break }
+            if values.count < pageSize { break }
+        } while true
+        return result
+    }
+
     func serverName(for source: MediaSource) async throws -> String? {
         let client = try await clientProvider(source)
         let info = try await client.get("System/Info/Public")
@@ -67,12 +117,17 @@ actor EmbyRepository {
             .filter { !$0.isEmpty && $0 != source.emby?.serverAddress })).sorted()
     }
 
-    func items(for source: MediaSource, parentID: String?, startIndex: Int) async throws -> [MediaItem] {
+    func items(for source: MediaSource, parentID: String?, startIndex: Int,
+               limit: Int = 100, sortBy: String = "SortName", sortOrder: String = "Ascending") async throws -> [MediaItem] {
         let client = try await clientProvider(source)
-        var query = ["StartIndex": String(startIndex), "Limit": "100", "Fields": "Overview,PrimaryImageAspectRatio,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData"]
+        var query = ["StartIndex": String(startIndex), "Limit": String(limit), "Fields": "Overview,PrimaryImageAspectRatio,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData",
+                     "SortBy": sortBy, "SortOrder": sortOrder]
         if let parentID { query["ParentId"] = parentID }
         else if source.emby?.userID != nil { query["ParentId"] = "" }
-        query["SortBy"] = "SortName"; query["SortOrder"] = "Ascending"
+        if limit == 21 {
+            query["Recursive"] = "true"
+            query["IncludeItemTypes"] = "Movie,Episode,Video,MusicVideo,Trailer"
+        }
         let path = source.emby?.userID.map { "Users/\($0)/Items" } ?? "Items"
         let response = try await client.get(path, query: query)
         return map(response["Items"] as? [[String: Any]] ?? [], source: source, client: client)

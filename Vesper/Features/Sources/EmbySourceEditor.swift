@@ -251,7 +251,6 @@ struct EmbySourceEditor: View {
 struct EmbyItemDetailView: View {
     let source: MediaSource
     let item: MediaItem
-    @EnvironmentObject private var playback: PlaybackSession
     @Environment(\.dismiss) private var dismiss
     @State private var details: EmbyItemDetails?
     @State private var error: String?
@@ -261,19 +260,12 @@ struct EmbyItemDetailView: View {
             List {
                 if let details {
                     Section {
-                        Text(verbatim: item.title).font(.title2.bold())
-                        if let synopsis = details.video.synopsis { Text(verbatim: synopsis) }
-                    }
-                    if !item.isContainer {
-                        Section("播放") {
-                            if details.versions.isEmpty {
-                                Button("播放") { playback.play(item, in: source, queue: [item]); dismiss() }
-                            } else {
-                                ForEach(Array(details.versions.enumerated()), id: \.offset) { _, version in
-                                    Button(version.subtitle ?? "播放") { playback.play(version, in: source, queue: [version]); dismiss() }
-                                }
-                            }
+                        LabeledContent("名称", value: item.title)
+                        if let year = item.subtitle { LabeledContent("年份", value: year) }
+                        if let duration = item.duration, duration > 0 {
+                            LabeledContent("时长", value: duration.formatted(.time(pattern: .hourMinute)))
                         }
+                        if let synopsis = details.video.synopsis { Text(verbatim: synopsis) }
                     }
                     Section("详细信息") {
                         if let dimensions = details.video.dimensions { LabeledContent("分辨率", value: dimensions) }

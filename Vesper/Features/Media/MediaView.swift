@@ -27,7 +27,9 @@ struct MediaView: View {
                     case .loading:
                         ProgressView().frame(maxWidth: .infinity).padding(40)
                     case .loaded(let items):
-                        if items.isEmpty {
+                        if library.selectedSource?.kind == .emby && !library.canNavigateBack {
+                            embyMediaGroups
+                        } else if items.isEmpty {
                             VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
                         } else {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
@@ -96,6 +98,72 @@ struct MediaView: View {
         .refreshable { library.reload() }
     }
 
+    @ViewBuilder
+    private var embyMediaGroups: some View {
+        if let source = library.selectedSource {
+            if library.embyMediaGroups.isEmpty {
+                VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
+            } else {
+                VStack(alignment: .leading, spacing: 24) {
+                    ForEach(library.embyMediaGroups) { group in
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(verbatim: group.title)
+                                .font(.headline).foregroundStyle(.secondary)
+                                .padding(.horizontal, 20)
+                            if group.items.isEmpty {
+                                Text("暂无媒体")
+                                    .font(.subheadline).foregroundStyle(.tertiary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 20).padding(.vertical, 16)
+                            } else {
+                                ScrollView(.horizontal) {
+                                    LazyHStack(spacing: 12) {
+                                        ForEach(group.items) { item in
+                                            Group {
+                                                if group.id == "all-media" {
+                                                    NavigationLink {
+                                                        EmbySeriesBrowserView(source: source, groupTitle: item.title,
+                                                                              parentID: item.embyItemID ?? item.id.localID)
+                                                    } label: {
+                                                        mediaGroupCard(item, source: source, landscape: true)
+                                                    }
+                                                } else {
+                                                    NavigationLink {
+                                                        EmbyItemDetailView(source: source, item: item)
+                                                    } label: {
+                                                        mediaGroupCard(item, source: source, landscape: false)
+                                                    }
+                                                }
+                                            }
+                                            .buttonStyle(.plain)
+                                            .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
+                                            .accessibilityLabel(Text(verbatim: item.title))
+                                        }
+                                    }
+                                    .padding(.horizontal, 20).padding(.vertical, 12)
+                                }
+                                .scrollIndicators(.hidden)
+                                .contentMargins(.horizontal, 0, for: .scrollContent)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func mediaGroupCard(_ item: MediaItem, source: MediaSource, landscape: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            MediaThumbnail(source: source, item: item, playback: playback,
+                           aspectRatio: landscape ? 16.0 / 9.0 : 2.0 / 3.0)
+                .frame(width: 132, height: landscape ? 74.25 : 198)
+            Text(verbatim: item.title)
+                .font(.subheadline).lineLimit(1).truncationMode(.tail)
+                .frame(width: 132, alignment: .leading)
+        }
+        .contentShape(Rectangle())
+    }
+
     private var mediaSourceMenu: some View {
         sourceMenuButton
             .glassEffect(.regular.interactive(), in: .circle)
@@ -133,6 +201,75 @@ struct MediaView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("选择媒体来源")
+    }
+}
+
+struct EmbySeriesBrowserView: View {
+    let source: MediaSource
+    let groupTitle: String
+    let parentID: String
+    @State private var items: [MediaItem] = []
+    @State private var isLoading = false
+    @State private var reachedEnd = false
+    @State private var errorMessage: String?
+
+    private let pageSize = 21
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
+
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 14) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    NavigationLink {
+                        EmbyItemDetailView(source: source, item: item)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            MediaThumbnail(source: source, item: item, aspectRatio: 2.0 / 3.0)
+                            Text(verbatim: item.title).font(.subheadline).lineLimit(2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .onAppear {
+                        if index >= items.count - 5 { loadNextPage() }
+                    }
+                }
+            }
+            .padding(12)
+            if isLoading { ProgressView().tint(.white).padding() }
+            if let errorMessage {
+                Button("重试") { self.errorMessage = nil; loadNextPage() }
+                    .foregroundStyle(.white).padding()
+                Text(verbatim: errorMessage).font(.caption).foregroundStyle(.white.opacity(0.7))
+            }
+        }
+        .background(Color.black.ignoresSafeArea())
+        .foregroundStyle(.white)
+        .scrollIndicators(.hidden)
+        .navigationTitle(groupTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.black, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .task { loadNextPage() }
+    }
+
+    private func loadNextPage() {
+        guard !isLoading, !reachedEnd else { return }
+        isLoading = true
+        let start = items.count
+        Task {
+            do {
+                let page = try await EmbyRepository.shared.items(for: source, parentID: parentID,
+                                                                  startIndex: start, limit: pageSize,
+                                                                  sortBy: "DateCreated", sortOrder: "Descending")
+                items.append(contentsOf: page)
+                reachedEnd = page.count < pageSize
+                isLoading = false
+            } catch {
+                errorMessage = error.localizedDescription
+                isLoading = false
+            }
+        }
     }
 }
 

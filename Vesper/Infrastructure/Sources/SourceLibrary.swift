@@ -140,6 +140,7 @@ final class SourceLibrary: ObservableObject {
     @Published private(set) var hasMoreEmbyItems = false
     @Published private(set) var loadingMore = false
     @Published private(set) var paginationError: String?
+    @Published private(set) var embyMediaGroups: [EmbyMediaGroup] = []
     private var moreRequest: Task<Void, Never>?
 
     var canNavigateBack: Bool { !embyParentStack.isEmpty }
@@ -321,9 +322,34 @@ final class SourceLibrary: ObservableObject {
         }
     }
 
+    private func loadEmbyMediaGroups() {
+        request?.cancel()
+        moreRequest?.cancel(); loadingMore = false; paginationError = nil
+        generation = UUID()
+        let token = generation
+        guard let source = selectedSource, source.kind == .emby else { return }
+        content = .loading
+        request = Task { [weak self] in
+            do {
+                let groups = try await EmbyRepository.shared.mediaGroups(for: source)
+                guard !Task.isCancelled, let self, self.generation == token else { return }
+                self.embyMediaGroups = groups
+                self.content = .loaded([])
+            } catch {
+                guard !Task.isCancelled, let self, self.generation == token else { return }
+                self.embyMediaGroups = []
+                self.content = .failed(.message(error.localizedDescription))
+            }
+        }
+    }
+
     func reload() {
         if selectedSource?.kind == .emby, let parentID = currentEmbyParentID {
             loadEmbyItems(parentID: parentID)
+            return
+        }
+        if selectedSource?.kind == .emby {
+            loadEmbyMediaGroups()
             return
         }
         request?.cancel()
