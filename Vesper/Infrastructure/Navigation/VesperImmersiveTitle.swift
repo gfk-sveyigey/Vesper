@@ -6,6 +6,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     let title: LocalizedStringKey
     private let actions: Actions
     private let content: Content
+    private let extendsContentUnderHeader: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var topInset
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
@@ -23,8 +24,10 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var interactionStartHeaderOffset: CGFloat = 0
     @State private var interactionStartedCollapsed = false
 
-    init(title: LocalizedStringKey, @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
+    init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false,
+         @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
+        self.extendsContentUnderHeader = extendsContentUnderHeader
         self.content = content()
         self.actions = actions()
     }
@@ -44,8 +47,10 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                Color.clear.frame(height: headerHeight)
-                    .accessibilityHidden(true)
+                if !extendsContentUnderHeader {
+                    Color.clear.frame(height: headerHeight)
+                        .accessibilityHidden(true)
+                }
                 content
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 20)

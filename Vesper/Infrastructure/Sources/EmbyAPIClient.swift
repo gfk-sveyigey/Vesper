@@ -273,7 +273,12 @@ struct EmbyAPIClient: Sendable {
 
 /// Never forward account credentials or custom headers to a redirected origin.
 final class EmbyNetworkSession: NSObject, URLSessionTaskDelegate, Sendable {
-    static let shared = URLSession(configuration: .default, delegate: EmbyNetworkSession(), delegateQueue: nil)
+    static let shared: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        // Vesper manages metadata and artwork explicitly so they can be cleared by category.
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration, delegate: EmbyNetworkSession(), delegateQueue: nil)
+    }()
 
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,

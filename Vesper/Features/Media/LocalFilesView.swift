@@ -9,6 +9,7 @@ struct LocalFilesView<SourceMenu: View>: View {
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
     @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
+    @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var entries: [LocalFileEntry] = []
     @State private var loading = true
     @State private var reloadGeneration = 0
@@ -143,7 +144,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                             .font(.system(size: 48)).foregroundStyle(.tint)
                     }
             } else if VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
-                MediaThumbnail(source: source, item: mediaItem(entry), playback: playback)
+                MediaThumbnail(source: source, item: mediaItem(entry), playback: playback, fixedHeight: layout.thumbnailHeight)
                     .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
             } else {
                 RoundedRectangle(cornerRadius: 12)
@@ -154,9 +155,11 @@ struct LocalFilesView<SourceMenu: View>: View {
                             .font(.largeTitle).foregroundStyle(.secondary)
                     }
             }
-            Text(verbatim: entry.isDirectory ? entry.name : (entry.name as NSString).deletingPathExtension)
-                .font(.headline).foregroundStyle(.primary)
-                .lineLimit(1).truncationMode(.tail)
+            if entry.isDirectory || !VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
+                Text(verbatim: entry.name)
+                    .font(.headline).foregroundStyle(.primary)
+                    .lineLimit(1).truncationMode(.tail)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())

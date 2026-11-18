@@ -18,6 +18,15 @@ struct EmbyRepositoryChecks {
         precondition(libraries.map(\.id.localID) == ["library"] && libraries[0].isContainer)
         let latest = try await repository.latestMedia(for: source, libraryID: libraries[0].id.localID)
         precondition(latest.count == 20 && latest.first?.id.localID == "movie-0")
+        precondition(latest.allSatisfy { $0.dateCreated != nil })
+        let featured = EmbyMediaGroup.featured(in: [
+            .init(id: EmbyMediaGroup.librariesID, title: "Libraries", items: libraries),
+            .init(id: "first", title: "First", items: Array(latest.dropFirst())),
+            .init(id: "second", title: "Second", items: Array(latest.prefix(2)))
+        ])
+        precondition(featured.map(\.id) == latest.prefix(10).map(\.id))
+        let cachedItems = try JSONDecoder().decode([MediaItem].self, from: JSONEncoder().encode(latest))
+        precondition(cachedItems == latest)
         let items = try await repository.items(for: source, parentID: "library", startIndex: 100)
         precondition(items.count == 1 && !items[0].isContainer)
         var item = items[0]

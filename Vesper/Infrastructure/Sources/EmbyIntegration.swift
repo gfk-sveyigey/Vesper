@@ -30,11 +30,22 @@ struct EmbyItemDetails: Sendable {
 }
 
 struct EmbyMediaGroup: Identifiable, Sendable {
+    static let librariesID = "all-media"
     let id: String
     let title: String
     var items: [MediaItem]
     var isLoading = false
     var errorMessage: String? = nil
+
+    static func featured(in groups: [Self]) -> [MediaItem] {
+        let sorted = groups.filter { $0.id != librariesID }.flatMap(\.items).sorted {
+            let left = $0.dateCreated ?? .distantPast
+            let right = $1.dateCreated ?? .distantPast
+            return left == right ? $0.id.localID < $1.id.localID : left > right
+        }
+        var seen = Set<MediaID>()
+        return Array(sorted.filter { seen.insert($0.id).inserted }.prefix(10))
+    }
 }
 
 actor EmbyRepository {
@@ -78,7 +89,7 @@ actor EmbyRepository {
             "ParentId": libraryID, "Recursive": "true",
             "IncludeItemTypes": "Movie,Episode,Video,MusicVideo,Trailer",
             "SortBy": "DateCreated", "SortOrder": "Descending", "StartIndex": "0", "Limit": "20",
-            "Fields": "ProductionYear,RunTimeTicks,UserData"
+            "Fields": "DateCreated,ProductionYear,RunTimeTicks,UserData"
         ])
         guard let values = response["Items"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
         var seen = Set<MediaID>()
@@ -277,7 +288,11 @@ actor EmbyRepository {
                                  imageURL: client.imageURL(itemID: id, tag: value["ImageTags"].flatMap { ($0 as? [String: Any])?["Primary"] as? String }),
                                  duration: (value["RunTimeTicks"] as? NSNumber).map { $0.doubleValue / 10_000_000 },
                                  resumePosition: ((value["UserData"] as? [String: Any])?["PlaybackPositionTicks"] as? NSNumber)
-                                    .map { $0.doubleValue / 10_000_000 })
+                                    .map { $0.doubleValue / 10_000_000 },
+                                 dateCreated: (value["DateCreated"] as? String).flatMap {
+                                     (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse($0))
+                                         ?? (try? Date.ISO8601FormatStyle().parse($0))
+                                 })
             return item
         }
     }
@@ -299,7 +314,8 @@ actor EmbyRepository {
 
     func thumbnailData(for item: MediaItem, source: MediaSource) async -> Data? {
         guard let client = try? await clientProvider(source),
-              let imageURL = item.imageURL ?? client.imageURL(itemID: item.id.localID, tag: nil) else { return nil }
+              let imageURL = item.imageURL ?? client.imageURL(itemID: item.id.localID, tag: nil),
+              client.sameOrigin(imageURL) else { return nil }
         var request = URLRequest(url: imageURL, timeoutInterval: 15)
         for (name, value) in client.requestHeaders(accept: "image/*,*/*;q=0.8", kind: .image) {
             request.setValue(value, forHTTPHeaderField: name)

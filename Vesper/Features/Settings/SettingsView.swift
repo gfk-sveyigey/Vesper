@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku, debug
+    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku, debug, cache
 
     var title: LocalizedStringKey {
         switch self {
@@ -15,13 +15,21 @@ private enum SettingsRoute: Hashable {
         case .logs: "运行日志"
         case .licenses: "开源许可"
         case .debug: "调试功能"
+        case .cache: "缓存管理"
         }
     }
+}
+
+@MainActor
+private final class DebugSettingsVisibility: ObservableObject {
+    static let shared = DebugSettingsVisibility()
+    @Published var isRevealed = false
 }
 
 struct SettingsView: View {
     @EnvironmentObject private var playback: PlaybackSession
     @AppStorage("language.code") private var languageCode = "system"
+    @ObservedObject private var debugVisibility = DebugSettingsVisibility.shared
 
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
@@ -37,7 +45,7 @@ struct SettingsView: View {
                     Divider().padding(.leading, 52)
                     settingsLink(.logs, title: "运行日志", symbol: "doc.text")
                     Divider().padding(.leading, 52)
-                    settingsLink(.debug, title: "调试功能", symbol: "ladybug")
+                    settingsLink(.cache, title: "缓存管理", symbol: "internaldrive")
                     Divider().padding(.leading, 52)
                         HStack {
                             SettingsLabel("语言设置", symbol: "globe")
@@ -91,10 +99,21 @@ struct SettingsView: View {
                             Text("尚未连接").foregroundStyle(.secondary)
                         }.padding(12)
                 }
+                if debugVisibility.isRevealed {
+                    VStack(spacing: 0) {
+                        settingsLink(.debug, title: "调试功能", symbol: "ladybug")
+                    }
+                }
                 settingsLink(.licenses, title: "开源许可", symbol: "doc.plaintext")
                 Text("Vesper \(version) · Aholic")
                     .font(.footnote).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
+                    .contentShape(Rectangle())
+                    .onLongPressGesture(minimumDuration: 10) {
+                        guard !debugVisibility.isRevealed else { return }
+                        debugVisibility.isRevealed = true
+                        UISelectionFeedbackGenerator().selectionChanged()
+                    }
             }
             .padding(.horizontal, 16)
         }
@@ -109,11 +128,16 @@ struct SettingsView: View {
                 case .appearance: AppearanceSettingsView()
                 case .logs: RuntimeLogsView()
                 case .licenses: PlaybackLicensesView()
-                case .debug: EmbyClientSimulationSettingsView()
+                case .debug: DebugSettingsView()
+                case .cache:
+                    CacheManagementView()
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar(.visible, for: .navigationBar)
+                        .toolbarRole(.editor)
                 }
             }
             .vesperNavigationTitle(route.title)
-            .vesperNavigationStyle(.inline)
+            .modifier(SettingsNavigationStyle(useSharedStyle: route != .cache))
         }
     }
 
@@ -134,6 +158,15 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
+}
+
+private struct SettingsNavigationStyle: ViewModifier {
+    let useSharedStyle: Bool
+
+    func body(content: Content) -> some View {
+        if useSharedStyle { content.vesperNavigationStyle(.inline) }
+        else { content }
+    }
 }
 
 private struct RuntimeLogsView: View {
@@ -697,7 +730,24 @@ extension SettingsPicker where Label == Text {
     }
 }
 
-struct EmbyClientSimulationSettingsView: View {
+private extension MediaLayoutSettings.Metric {
+    var label: LocalizedStringKey {
+        switch self {
+        case .thumbnailHeight: "缩略图高度"
+        case .groupSpacing: "媒体库分组上下间距"
+        case .titlePadding: "媒体库分组标题上下间距"
+        case .scrollPadding: "媒体库分组滚动区域上下间距"
+        case .itemWidth: "媒体库分组项目宽度"
+        case .itemHeight: "媒体库分组项目高度"
+        case .itemVerticalPadding: "媒体库分组项目上下间距"
+        case .itemSpacing: "媒体库分组项目左右间距"
+        case .endPadding: "媒体库分组首尾项留空间距"
+        }
+    }
+}
+
+private struct DebugSettingsView: View {
+    @ObservedObject private var layout = MediaLayoutSettings.shared
     @AppStorage(EmbyUserAgentPolicy.enabledKey) private var enabled = false
     @AppStorage(EmbyUserAgentPolicy.nameKey) private var clientName = ""
     @AppStorage(EmbyUserAgentPolicy.versionKey) private var clientVersion = ""
@@ -720,6 +770,203 @@ struct EmbyClientSimulationSettingsView: View {
             } footer: {
                 Text("客户端名称和版本会同时用于 User-Agent 及 Emby Authorization 请求头。留空或关闭时使用 Vesper 默认值。")
             }
+            SettingsSection("界面设计") {
+                ForEach(MediaLayoutSettings.Metric.allCases, id: \.self) { metric in
+                    layoutStepper(metric)
+                }
+                Button("恢复默认值", systemImage: "arrow.counterclockwise") { layout.reset() }
+            }
+        }
+    }
+
+    private func layoutStepper(_ metric: MediaLayoutSettings.Metric) -> some View {
+        let value = layout[metric]
+        let displayValue = metric == .thumbnailHeight && value == 0
+            ? Text("自动")
+            : Text("\(value) pt")
+        return Stepper(value: Binding(get: { layout[metric] }, set: { layout[metric] = $0 }),
+                       in: metric.range) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(metric.label)
+                displayValue.font(.footnote).monospacedDigit().foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityLabel(Text(metric.label))
+        .accessibilityValue(displayValue)
+    }
+}
+
+private extension AppCacheCategory {
+    var label: String {
+        switch self {
+        case .library: String(localized: "媒体库信息")
+        case .images: String(localized: "图片")
+        case .videos: String(localized: "视频")
+        case .subtitles: String(localized: "字幕")
+        case .danmaku: String(localized: "弹幕")
+        case .other: String(localized: "其他")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .library: "books.vertical"
+        case .images: "photo"
+        case .videos: "film"
+        case .subtitles: "captions.bubble"
+        case .danmaku: "text.bubble"
+        case .other: "archivebox"
+        }
+    }
+}
+
+private struct CacheManagementView: View {
+    @State private var sizes: [AppCacheCategory: Int64] = [:]
+    @State private var selecting = false
+    @State private var selected: Set<AppCacheCategory> = []
+    @State private var confirmation: Set<AppCacheCategory> = []
+    @State private var showsConfirmation = false
+    @State private var clearing = false
+    @State private var failed: [String] = []
+    @State private var showsFailure = false
+
+    private var categoriesToClear: Set<AppCacheCategory> {
+        selecting ? selected : Set(AppCacheCategory.allCases)
+    }
+
+    var body: some View {
+        CacheCategoryList(sizes: sizes, selecting: $selecting, selected: $selected, clearing: clearing)
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .accessibilityAction(named: Text("选择缓存类别")) {
+                if !clearing { selecting = true }
+            }
+            .navigationBarBackButtonHidden(selecting)
+            .toolbar {
+                if selecting {
+                    ToolbarItemGroup(placement: .topBarLeading) {
+                        Button("完成", systemImage: "checkmark") {
+                            selecting = false
+                            selected.removeAll()
+                        }
+                        .labelStyle(.iconOnly)
+                        Button("全选") { selected = Set(AppCacheCategory.allCases) }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("清理") {
+                        confirmation = categoriesToClear
+                        showsConfirmation = true
+                    }
+                    .disabled(clearing || categoriesToClear.isEmpty)
+                }
+            }
+            .alert(selecting ? "清理选中的缓存？" : "清理所有缓存？", isPresented: $showsConfirmation) {
+                Button("取消", role: .cancel) {}
+                Button("清理", role: .destructive) {
+                    let categories = confirmation
+                    clearing = true
+                    Task {
+                        let cache = AppCacheStore.shared
+                        let failures = await cache.clear(categories)
+                        sizes = await cache.sizes()
+                        selected.subtract(categories.subtracting(failures))
+                        failed = AppCacheCategory.allCases.filter { failures.contains($0) }.map(\.label)
+                        clearing = false
+                        showsFailure = !failed.isEmpty
+                    }
+                }
+            }
+            .alert("部分缓存无法清理", isPresented: $showsFailure) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text(verbatim: failed.joined(separator: "、"))
+            }
+            .task { sizes = await AppCacheStore.shared.sizes() }
+    }
+}
+
+private struct CacheCategoryList: UIViewRepresentable {
+    let sizes: [AppCacheCategory: Int64]
+    @Binding var selecting: Bool
+    @Binding var selected: Set<AppCacheCategory>
+    let clearing: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UITableView {
+        let table = UITableView(frame: .zero, style: .insetGrouped)
+        table.allowsSelectionDuringEditing = true
+        table.allowsMultipleSelectionDuringEditing = true
+        table.estimatedRowHeight = 52
+        table.rowHeight = UITableView.automaticDimension
+        table.dataSource = context.coordinator
+        table.delegate = context.coordinator
+        return table
+    }
+
+    func updateUIView(_ table: UITableView, context: Context) {
+        let coordinator = context.coordinator
+        let changedSizes = coordinator.view.sizes != sizes
+        coordinator.view = self
+        table.isUserInteractionEnabled = !clearing
+        if table.isEditing != selecting { table.setEditing(selecting, animated: true) }
+        if changedSizes { table.reloadData() }
+        let selectedRows = Set(table.indexPathsForSelectedRows ?? [])
+        let desiredRows = Set(AppCacheCategory.allCases.enumerated().compactMap { index, category in
+            selecting && selected.contains(category) ? IndexPath(row: index, section: 0) : nil
+        })
+        for row in selectedRows.subtracting(desiredRows) { table.deselectRow(at: row, animated: false) }
+        for row in desiredRows.subtracting(selectedRows) { table.selectRow(at: row, animated: false, scrollPosition: .none) }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
+        var view: CacheCategoryList
+        init(_ view: CacheCategoryList) { self.view = view }
+
+        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+            AppCacheCategory.allCases.count
+        }
+
+        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+            let category = AppCacheCategory.allCases[indexPath.row]
+            let cell = tableView.dequeueReusableCell(withIdentifier: "CacheCategory")
+                ?? UITableViewCell(style: .value1, reuseIdentifier: "CacheCategory")
+            var content = UIListContentConfiguration.valueCell()
+            content.image = UIImage(systemName: category.symbol)
+            content.imageProperties.tintColor = tableView.tintColor
+            content.text = category.label
+            content.secondaryText = view.sizes[category].map {
+                ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
+            } ?? "—"
+            cell.contentConfiguration = content
+            return cell
+        }
+
+        func tableView(_ tableView: UITableView, shouldBeginMultipleSelectionInteractionAt indexPath: IndexPath) -> Bool {
+            !view.clearing
+        }
+
+        func tableView(_ tableView: UITableView, didBeginMultipleSelectionInteractionAt indexPath: IndexPath) {
+            tableView.setEditing(true, animated: true)
+            view.selecting = true
+        }
+
+        func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
+            tableView.isEditing ? indexPath : nil
+        }
+
+        func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+            view.selected.insert(AppCacheCategory.allCases[indexPath.row])
+        }
+
+        func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
+            view.selected.remove(AppCacheCategory.allCases[indexPath.row])
+        }
+
+        func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCell.EditingStyle {
+            .none
         }
     }
 }

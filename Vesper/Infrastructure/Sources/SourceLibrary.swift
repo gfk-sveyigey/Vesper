@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CryptoKit
 #if canImport(Photos)
 import Photos
 #endif
@@ -10,12 +11,12 @@ struct MediaID: Hashable, Codable, Sendable {
     let localID: String
 }
 
-struct PlayableResource: Hashable, Sendable {
+struct PlayableResource: Hashable, Codable, Sendable {
     let url: URL
     var headers: [String: String] = [:]
 }
 
-struct MediaItem: Identifiable, Hashable, Sendable {
+struct MediaItem: Identifiable, Hashable, Codable, Sendable {
     let id: MediaID
     let title: String
     let resource: PlayableResource?
@@ -26,6 +27,7 @@ struct MediaItem: Identifiable, Hashable, Sendable {
     var imageURL: URL? = nil
     var duration: Double? = nil
     var resumePosition: Double? = nil
+    var dateCreated: Date? = nil
 }
 
 struct SourceCapabilities: OptionSet, Sendable {
@@ -333,11 +335,30 @@ final class SourceLibrary: ObservableObject {
         request = Task { [weak self] in
             do {
                 let repository = EmbyRepository.shared
+                let cache = AppCacheStore.shared
+                let scope = AppCacheStore.scope(for: source)
+                let cacheGeneration = await cache.libraryGeneration
+                func groups(for libraries: [MediaItem]) async -> [EmbyMediaGroup] {
+                    var groups = [EmbyMediaGroup(id: EmbyMediaGroup.librariesID, title: "我的媒体", items: libraries)]
+                    for library in libraries {
+                        let id = library.id.localID
+                        let items = await cache.items(scope: scope, key: "latest:\(id)") ?? []
+                        groups.append(EmbyMediaGroup(id: id, title: library.title, items: items, isLoading: items.isEmpty))
+                    }
+                    return groups
+                }
+                if let cached = await cache.items(scope: scope, key: "libraries") {
+                    let groups = await groups(for: cached)
+                    guard !Task.isCancelled, let self, self.generation == token else { return }
+                    self.embyMediaGroups = groups
+                    self.content = .loaded([])
+                }
                 let libraries = try await repository.mediaLibraries(for: source)
+                let initialGroups = await groups(for: libraries)
                 guard !Task.isCancelled, let self, self.generation == token else { return }
-                self.embyMediaGroups = [EmbyMediaGroup(id: "all-media", title: "我的媒体", items: libraries)]
-                    + libraries.map { EmbyMediaGroup(id: $0.id.localID, title: $0.title, items: [], isLoading: true) }
+                self.embyMediaGroups = initialGroups
                 self.content = .loaded([])
+                await cache.save(libraries, scope: scope, key: "libraries", generation: cacheGeneration)
                 await withTaskGroup(of: EmbyMediaGroup.self) { tasks in
                     for library in libraries {
                         tasks.addTask {
@@ -357,14 +378,26 @@ final class SourceLibrary: ObservableObject {
                             break
                         }
                         if let index = self.embyMediaGroups.firstIndex(where: { $0.id == group.id }) {
-                            self.embyMediaGroups[index] = group
+                            if let error = group.errorMessage {
+                                self.embyMediaGroups[index].isLoading = false
+                                self.embyMediaGroups[index].errorMessage = error
+                            } else {
+                                self.embyMediaGroups[index] = group
+                                await cache.save(group.items, scope: scope, key: "latest:\(group.id)", generation: cacheGeneration)
+                            }
                         }
                     }
                 }
             } catch {
                 guard !Task.isCancelled, let self, self.generation == token else { return }
-                self.embyMediaGroups = []
-                self.content = .failed(.message(error.localizedDescription))
+                if self.embyMediaGroups.isEmpty {
+                    self.content = .failed(.message(error.localizedDescription))
+                } else {
+                    for index in self.embyMediaGroups.indices where self.embyMediaGroups[index].isLoading {
+                        self.embyMediaGroups[index].isLoading = false
+                        self.embyMediaGroups[index].errorMessage = error.localizedDescription
+                    }
+                }
             }
         }
     }
@@ -405,5 +438,139 @@ final class SourceLibrary: ObservableObject {
             defaults.set(data, forKey: Self.storageKey)
             storageFailed = false
         } catch { storageFailed = true }
+    }
+}
+
+enum AppCacheCategory: String, CaseIterable, Hashable, Sendable {
+    case library, images, videos, subtitles, danmaku, other
+}
+
+actor AppCacheStore {
+    static let shared = AppCacheStore()
+    private let directory = URL.cachesDirectory.appending(path: "VesperCache-v1", directoryHint: .isDirectory)
+    private var migrated = false
+    private var imageGeneration = UUID()
+    private(set) var libraryGeneration = UUID()
+    private var writes: [AppCacheCategory: Int] = [:]
+
+    nonisolated static func scope(for source: MediaSource) -> String {
+        "\(source.id)|\(source.emby?.serverAddress ?? "")|\(source.emby?.userID ?? "")|\(source.emby?.username ?? "")"
+    }
+
+    func items(scope: String, key: String) -> [MediaItem]? {
+        migrateIfNeeded()
+        return read("items|\(scope)|\(key)", category: .library)
+            .flatMap { try? JSONDecoder().decode([MediaItem].self, from: $0) }
+    }
+
+    func save(_ items: [MediaItem], scope: String, key: String, generation: UUID) {
+        guard generation == libraryGeneration, items.allSatisfy({ $0.resource == nil }),
+              let data = try? JSONEncoder().encode(items) else { return }
+        migrateIfNeeded()
+        write(data, key: "items|\(scope)|\(key)", category: .library)
+    }
+
+    func image(key: String) -> (Data?, UUID) {
+        migrateIfNeeded()
+        return (read("image|\(key)", category: .images), imageGeneration)
+    }
+
+    func saveImage(_ data: Data, key: String, generation: UUID) {
+        guard generation == imageGeneration else { return }
+        write(data, key: "image|\(key)", category: .images)
+    }
+
+    func sizes() -> [AppCacheCategory: Int64] {
+        migrateIfNeeded()
+        return Dictionary(uniqueKeysWithValues: AppCacheCategory.allCases.map { category in
+            (category, files(in: folder(category)).reduce(0) { $0 + $1.bytes })
+        })
+    }
+
+    func clear(_ categories: Set<AppCacheCategory>) -> Set<AppCacheCategory> {
+        migrateIfNeeded()
+        if categories.contains(.images) { imageGeneration = UUID() }
+        if categories.contains(.library) { libraryGeneration = UUID() }
+        var failures = Set<AppCacheCategory>()
+        for category in categories {
+            do {
+                try FileManager.default.removeItem(at: folder(category))
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+                continue
+            } catch {
+                failures.insert(category)
+            }
+        }
+        return failures
+    }
+
+    private func folder(_ category: AppCacheCategory) -> URL {
+        directory.appending(path: category.rawValue, directoryHint: .isDirectory)
+    }
+
+    private func file(_ key: String, category: AppCacheCategory) -> URL {
+        let digest = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+        return folder(category).appending(path: digest)
+    }
+
+    private func read(_ key: String, category: AppCacheCategory) -> Data? {
+        try? Data(contentsOf: file(key, category: category))
+    }
+
+    private func write(_ data: Data, key: String, category: AppCacheCategory) {
+        guard data.count <= 8 * 1024 * 1024 else { return }
+        try? FileManager.default.createDirectory(at: folder(category), withIntermediateDirectories: true)
+        try? data.write(to: file(key, category: category), options: .atomic)
+        writes[category, default: 0] += 1
+        if writes[category] == 1 || writes[category, default: 0].isMultiple(of: 32) {
+            trim(category, limit: (category == .images ? 128 : 32) * 1024 * 1024)
+        }
+    }
+
+    private func files(in folder: URL) -> [(url: URL, bytes: Int64, date: Date)] {
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+        guard let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: Array(keys)) else { return [] }
+        var entries: [(URL, Int64, Date)] = []
+        for case let url as URL in enumerator {
+            guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true else { continue }
+            entries.append((url, Int64(values.fileSize ?? 0), values.contentModificationDate ?? .distantPast))
+        }
+        return entries
+    }
+
+    private func trim(_ category: AppCacheCategory, limit: Int64) {
+        let entries = files(in: folder(category))
+        var bytes = entries.reduce(0) { $0 + $1.bytes }
+        for entry in entries.sorted(by: { $0.date < $1.date }) where bytes > limit {
+            if (try? FileManager.default.removeItem(at: entry.url)) != nil { bytes -= entry.bytes }
+        }
+    }
+
+    private func migrateIfNeeded() {
+        guard !migrated else { return }
+        migrated = true
+        let legacy = URL.cachesDirectory.appending(path: "EmbyMedia-v1", directoryHint: .isDirectory)
+        let manager = FileManager.default
+        for entry in files(in: legacy) {
+            guard let handle = try? FileHandle(forReadingFrom: entry.url) else { continue }
+            let firstByte = try? handle.read(upToCount: 1)
+            try? handle.close()
+            let category: AppCacheCategory = firstByte?.first == 91 ? .library : .images
+            let folder = folder(category)
+            do {
+                try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+                let target = folder.appending(path: entry.url.lastPathComponent)
+                if manager.fileExists(atPath: target.path) {
+                    try manager.removeItem(at: entry.url)
+                } else {
+                    try manager.moveItem(at: entry.url, to: target)
+                }
+            } catch {
+                // The old entry can be migrated on the next launch.
+            }
+        }
+        if (try? manager.contentsOfDirectory(atPath: legacy.path).isEmpty) == true {
+            try? manager.removeItem(at: legacy)
+        }
     }
 }

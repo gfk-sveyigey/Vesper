@@ -1,8 +1,70 @@
 import SwiftUI
+import UIKit
+
+@MainActor
+final class MediaLayoutSettings: ObservableObject {
+    static let shared = MediaLayoutSettings()
+
+    enum Metric: String, CaseIterable {
+        case thumbnailHeight, groupSpacing, titlePadding, scrollPadding
+        case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding
+
+        var defaultValue: Int {
+            switch self {
+            case .thumbnailHeight, .titlePadding, .scrollPadding: 0
+            case .groupSpacing: 24
+            case .itemWidth: 88
+            case .itemHeight: 132
+            case .itemVerticalPadding, .itemSpacing: 12
+            case .endPadding: 20
+            }
+        }
+
+        var range: ClosedRange<Int> {
+            switch self {
+            case .thumbnailHeight: 0...600
+            case .itemWidth, .itemHeight: 24...480
+            default: 0...120
+            }
+        }
+    }
+
+    private static let storageKey = "debug.mediaLayout"
+    @Published private var values: [String: Int]
+
+    private init() {
+        values = UserDefaults.standard.dictionary(forKey: Self.storageKey) as? [String: Int] ?? [:]
+    }
+
+    subscript(_ metric: Metric) -> Int {
+        get {
+            let value = values[metric.rawValue] ?? metric.defaultValue
+            return min(max(value, metric.range.lowerBound), metric.range.upperBound)
+        }
+        set {
+            var updated = values
+            updated[metric.rawValue] = min(max(newValue, metric.range.lowerBound), metric.range.upperBound)
+            values = updated
+            UserDefaults.standard.set(updated, forKey: Self.storageKey)
+        }
+    }
+
+    var thumbnailHeight: CGFloat? {
+        let value = self[.thumbnailHeight]
+        return value == 0 ? nil : CGFloat(value)
+    }
+
+    func reset() {
+        values = [:]
+        UserDefaults.standard.removeObject(forKey: Self.storageKey)
+    }
+}
 
 struct MediaView: View {
+    @Binding var path: NavigationPath
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
+    @ObservedObject private var layout = MediaLayoutSettings.shared
     @AppStorage("navigation.icons") private var icons = "{}"
 
     var body: some View {
@@ -14,11 +76,28 @@ struct MediaView: View {
                 mediaContent
             }
         }
+        .navigationDestination(for: EmbyMediaRoute.self) { route in
+            if route.opensLibrary {
+                EmbySeriesBrowserView(source: route.source, groupTitle: route.title, parentID: route.itemID)
+            } else if let item = route.item {
+                EmbyItemDetailView(source: route.source, item: item)
+            }
+        }
+    }
+
+    private var featured: [MediaItem] {
+        guard library.selectedSource?.kind == .emby, !library.canNavigateBack,
+              case .loaded = library.content else { return [] }
+        return EmbyMediaGroup.featured(in: library.embyMediaGroups)
     }
 
     private var mediaContent: some View {
-        VesperRootScrollView(title: "媒体") {
+        let featured = featured
+        return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: !featured.isEmpty) {
             VStack(alignment: .leading, spacing: 20) {
+                if let source = library.selectedSource, !featured.isEmpty {
+                    EmbyFeaturedCarousel(source: source, items: featured)
+                }
                 if library.selectedSource == nil {
                     VesperCenteredEmptyContent(message: "未选择媒体来源", symbol: AppSection.media.symbol)
                 } else {
@@ -41,13 +120,9 @@ struct MediaView: View {
                                     } label: {
                                         VStack(alignment: .leading, spacing: 8) {
                                             if let source = library.selectedSource {
-                                                MediaThumbnail(source: source, item: item, playback: playback)
+                                                MediaThumbnail(source: source, item: item, playback: playback,
+                                                               fixedHeight: layout.thumbnailHeight)
                                                     .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
-                                            }
-                                            Text(verbatim: item.title).font(.headline)
-                                                .lineLimit(1).truncationMode(.tail)
-                                            if library.selectedSource?.kind == .demo {
-                                                Text("演示内容，不可播放").font(.caption).foregroundStyle(.secondary)
                                             }
                                         }
                                         .contentShape(Rectangle())
@@ -104,17 +179,15 @@ struct MediaView: View {
             if library.embyMediaGroups.isEmpty {
                 VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
             } else {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: CGFloat(layout[.groupSpacing])) {
                     ForEach(library.embyMediaGroups) { group in
                         VStack(alignment: .leading, spacing: 0) {
-                            Text(verbatim: group.title)
-                                .font(.headline).foregroundStyle(.secondary)
-                                .padding(.horizontal, 20)
-                            if group.isLoading {
+                            groupTitle(group, source: source)
+                            if group.isLoading && group.items.isEmpty {
                                 ProgressView()
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.horizontal, 20).padding(.vertical, 16)
-                            } else if let errorMessage = group.errorMessage {
+                            } else if let errorMessage = group.errorMessage, group.items.isEmpty {
                                 Text(verbatim: errorMessage)
                                     .font(.subheadline).foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -126,33 +199,17 @@ struct MediaView: View {
                                     .padding(.horizontal, 20).padding(.vertical, 16)
                             } else {
                                 ScrollView(.horizontal) {
-                                    LazyHStack(spacing: 12) {
+                                    LazyHStack(spacing: CGFloat(layout[.itemSpacing])) {
                                         ForEach(group.items) { item in
-                                            Group {
-                                                if group.id == "all-media" {
-                                                    NavigationLink {
-                                                        EmbySeriesBrowserView(source: source, groupTitle: item.title,
-                                                                              parentID: item.embyItemID ?? item.id.localID)
-                                                    } label: {
-                                                        mediaGroupCard(item, source: source, landscape: true)
-                                                    }
-                                                } else {
-                                                    NavigationLink {
-                                                        EmbyItemDetailView(source: source, item: item)
-                                                    } label: {
-                                                        mediaGroupCard(item, source: source, landscape: false)
-                                                    }
-                                                }
-                                            }
-                                            .buttonStyle(.plain)
-                                            .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
-                                            .accessibilityLabel(Text(verbatim: item.title))
+                                            groupCard(item, in: group, source: source)
                                         }
                                     }
-                                    .padding(.horizontal, 20).padding(.vertical, 12)
+                                    .padding(.horizontal, CGFloat(layout[.endPadding]))
+                                    .padding(.vertical, CGFloat(layout[.itemVerticalPadding]))
                                 }
                                 .scrollIndicators(.hidden)
                                 .contentMargins(.horizontal, 0, for: .scrollContent)
+                                .padding(.vertical, CGFloat(layout[.scrollPadding]))
                             }
                         }
                     }
@@ -161,16 +218,62 @@ struct MediaView: View {
         }
     }
 
-    private func mediaGroupCard(_ item: MediaItem, source: MediaSource, landscape: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            MediaThumbnail(source: source, item: item, playback: playback,
-                           aspectRatio: landscape ? 16.0 / 9.0 : 2.0 / 3.0)
-                .frame(width: 132, height: landscape ? 74.25 : 198)
-            Text(verbatim: item.title)
-                .font(.subheadline).lineLimit(1).truncationMode(.tail)
-                .frame(width: 132, alignment: .leading)
+    private func groupTitle(_ group: EmbyMediaGroup, source: MediaSource) -> some View {
+        Group {
+            if group.id == EmbyMediaGroup.librariesID {
+                Text("我的媒体")
+            } else {
+                NavigationLink(value: EmbyMediaRoute.library(source, id: group.id, title: group.title)) {
+                    HStack(spacing: 6) {
+                        Text(verbatim: group.title)
+                        Image(systemName: "chevron.right").font(.subheadline.weight(.semibold))
+                            .accessibilityHidden(true)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .contentShape(Rectangle())
+        .font(.title2.bold())
+        .foregroundStyle(.primary)
+        .accessibilityAddTraits(.isHeader)
+        .padding(.horizontal, 20)
+        .padding(.vertical, CGFloat(layout[.titlePadding]))
+    }
+
+    @ViewBuilder
+    private func groupCard(_ item: MediaItem, in group: EmbyMediaGroup, source: MediaSource) -> some View {
+        let width = CGFloat(layout[.itemWidth])
+        let height = CGFloat(layout[.itemHeight])
+        if group.id == EmbyMediaGroup.librariesID {
+            let route = EmbyMediaRoute.library(source, id: item.id.localID, title: item.title)
+            // Keep the existing landscape proportions at the default settings.
+            let landscapeWidth = width * 198 / 88
+            let landscapeHeight = height * 111.375 / 132
+            NavigationLink(value: route) {
+                MediaThumbnail(source: source, item: item, aspectRatio: landscapeWidth / landscapeHeight)
+                    .frame(width: landscapeWidth, height: landscapeHeight)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(verbatim: item.title))
+            .contextMenu {
+                Button("打开媒体库", systemImage: "arrow.right") { path.append(route) }
+            } preview: {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(verbatim: item.title).font(.headline).lineLimit(2)
+                    MediaThumbnail(source: source, item: item, aspectRatio: 16.0 / 9.0, cacheOnly: true)
+                }
+                .padding(12)
+                .frame(width: 280)
+            }
+        } else {
+            NavigationLink(value: EmbyMediaRoute.detail(source, item)) {
+                MediaThumbnail(source: source, item: item, playback: playback, aspectRatio: width / height)
+                    .frame(width: width, height: height)
+            }
+            .buttonStyle(.plain)
+            .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
+            .accessibilityLabel(Text(verbatim: item.title))
+        }
     }
 
     private var mediaSourceMenu: some View {
@@ -213,13 +316,85 @@ struct MediaView: View {
     }
 }
 
+private struct EmbyFeaturedCarousel: View {
+    let source: MediaSource
+    let items: [MediaItem]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var selection: MediaID?
+
+    var body: some View {
+        TabView(selection: $selection) {
+            ForEach(items) { item in
+                NavigationLink(value: EmbyMediaRoute.detail(source, item)) {
+                    MediaThumbnail(source: source, item: item, aspectRatio: 3.0 / 5.0, cornerRadius: 0)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: item.title))
+                .tag(Optional(item.id))
+            }
+        }
+        .tabViewStyle(.page)
+        .aspectRatio(3.0 / 5.0, contentMode: .fit)
+        .clipped()
+        .onChange(of: items.map(\.id), initial: true) { _, ids in
+            if selection.map(ids.contains) != true { selection = ids.first }
+        }
+        .task(id: RotationState(items: items.map(\.id), selection: selection, enabled: canRotate)) {
+            guard canRotate, let selection, let current = items.firstIndex(where: { $0.id == selection }) else { return }
+            do { try await Task.sleep(for: .seconds(6)) } catch { return }
+            withAnimation { self.selection = items[(current + 1) % items.count].id }
+        }
+    }
+
+    private var canRotate: Bool {
+        items.count > 1 && !reduceMotion && !voiceOverEnabled && scenePhase == .active
+    }
+
+    private struct RotationState: Equatable {
+        let items: [MediaID]
+        let selection: MediaID?
+        let enabled: Bool
+    }
+}
+
+private struct EmbyMediaRoute: Hashable {
+    let source: MediaSource
+    let title: String
+    let itemID: String
+    let item: MediaItem?
+    var opensLibrary: Bool { item == nil }
+
+    static func library(_ source: MediaSource, id: String, title: String) -> Self {
+        Self(source: source, title: title, itemID: id, item: nil)
+    }
+
+    static func detail(_ source: MediaSource, _ item: MediaItem) -> Self {
+        Self(source: source, title: item.title, itemID: item.id.localID, item: item)
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.source.id == rhs.source.id && lhs.itemID == rhs.itemID && lhs.opensLibrary == rhs.opensLibrary
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(source.id)
+        hasher.combine(itemID)
+        hasher.combine(opensLibrary)
+    }
+}
+
 struct EmbySeriesBrowserView: View {
     let source: MediaSource
     let groupTitle: String
     let parentID: String
+    @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var items: [MediaItem] = []
     @State private var isLoading = false
     @State private var reachedEnd = false
+    @State private var didLoadFirstPage = false
+    @State private var nextOffset = 0
     @State private var errorMessage: String?
 
     private let pageSize = 21
@@ -229,55 +404,66 @@ struct EmbySeriesBrowserView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    NavigationLink {
-                        EmbyItemDetailView(source: source, item: item)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            MediaThumbnail(source: source, item: item, aspectRatio: 2.0 / 3.0)
-                            Text(verbatim: item.title).font(.subheadline).lineLimit(2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                    NavigationLink(value: EmbyMediaRoute.detail(source, item)) {
+                        MediaThumbnail(source: source, item: item, fixedHeight: layout.thumbnailHeight)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(Text(verbatim: item.title))
                     .onAppear {
-                        if index >= items.count - 5 { loadNextPage() }
+                        if didLoadFirstPage, index >= items.count - 5, errorMessage == nil {
+                            Task { await loadPage() }
+                        }
                     }
                 }
             }
             .padding(12)
-            if isLoading { ProgressView().tint(.white).padding() }
+            if isLoading && (items.isEmpty || didLoadFirstPage) { ProgressView().padding() }
+            if reachedEnd && items.isEmpty {
+                Text("暂无媒体").foregroundStyle(.secondary).padding()
+            }
             if let errorMessage {
-                Button("重试") { self.errorMessage = nil; loadNextPage() }
-                    .foregroundStyle(.white).padding()
-                Text(verbatim: errorMessage).font(.caption).foregroundStyle(.white.opacity(0.7))
+                Button("重试") { Task { await loadPage() } }
+                    .padding()
+                Text(verbatim: errorMessage).font(.caption).foregroundStyle(.secondary)
             }
         }
-        .background(Color.black.ignoresSafeArea())
-        .foregroundStyle(.white)
+        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
         .scrollIndicators(.hidden)
         .navigationTitle(groupTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.black, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .task { loadNextPage() }
+        .toolbar(.visible, for: .navigationBar)
+        .task {
+            guard !didLoadFirstPage else { return }
+            let cached = await AppCacheStore.shared.items(scope: cacheScope, key: cacheKey)
+            guard !Task.isCancelled else { return }
+            if let cached, items.isEmpty { items = cached }
+            await loadPage()
+        }
     }
 
-    private func loadNextPage() {
+    private var cacheScope: String { AppCacheStore.scope(for: source) }
+    private var cacheKey: String { "browser:\(parentID)" }
+
+    private func loadPage() async {
         guard !isLoading, !reachedEnd else { return }
         isLoading = true
-        let start = items.count
-        Task {
-            do {
-                let page = try await EmbyRepository.shared.items(for: source, parentID: parentID,
-                                                                  startIndex: start, limit: pageSize,
-                                                                  sortBy: "DateCreated", sortOrder: "Descending")
-                items.append(contentsOf: page)
-                reachedEnd = page.count < pageSize
-                isLoading = false
-            } catch {
-                errorMessage = error.localizedDescription
-                isLoading = false
-            }
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            let generation = await AppCacheStore.shared.libraryGeneration
+            let page = try await EmbyRepository.shared.items(for: source, parentID: parentID,
+                                                             startIndex: nextOffset, limit: pageSize,
+                                                             sortBy: "DateCreated", sortOrder: "Descending")
+            try Task.checkCancellation()
+            if !didLoadFirstPage { items = [] }
+            var seen = Set(items.map(\.id))
+            items.append(contentsOf: page.filter { seen.insert($0.id).inserted })
+            nextOffset += page.count
+            reachedEnd = page.count < pageSize
+            didLoadFirstPage = true
+            await AppCacheStore.shared.save(items, scope: cacheScope, key: cacheKey, generation: generation)
+        } catch {
+            if !Task.isCancelled { errorMessage = error.localizedDescription }
         }
     }
 }

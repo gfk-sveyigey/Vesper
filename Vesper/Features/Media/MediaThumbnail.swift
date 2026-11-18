@@ -11,39 +11,26 @@ struct MediaThumbnail: View {
     var historyEntry: PlaybackHistoryEntry? = nil
     var aspectRatio: CGFloat = 2.0 / 3.0
     var logsQueueDiagnostics = false
+    var cacheOnly = false
+    var cornerRadius: CGFloat = 12
+    var fixedHeight: CGFloat? = nil
     @State private var image: UIImage?
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                Color("VesperSecondaryBackground")
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                } else {
-                    Image(systemName: "play.rectangle")
-                        .font(.largeTitle).foregroundStyle(.secondary)
-                }
-            }
-        }
-        .aspectRatio(aspectRatio, contentMode: .fit)
-        .overlay(alignment: .bottomLeading) {
+        sizedArtwork.overlay(alignment: .bottomLeading) {
             if let historyEntry {
                 ThumbnailProgressBadge(position: historyEntry.position, total: historyEntry.duration, showsPosition: true, title: mediaDisplayName(item.title))
             } else if let playback {
                 ThumbnailPlaybackProgress(session: playback, source: source, item: item)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .contentShape(Rectangle())
         .accessibilityHidden(true)
-        .task(id: "\(item.id):\(aspectRatio)") {
-            image = nil
+        .task(id: "\(item.id):\(aspectRatio):\(item.imageURL?.absoluteString ?? ""):\(AppCacheStore.scope(for: source))") {
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.begin source=\(source.kind.rawValue) item=\(item.id.localID)") }
-            let data = await MediaThumbnailLoader.shared.load(item, source: source, aspectRatio: aspectRatio, diagnostics: logsQueueDiagnostics)
+            let data = await MediaThumbnailLoader.shared.load(item, source: source, aspectRatio: aspectRatio,
+                                                             diagnostics: logsQueueDiagnostics, cacheOnly: cacheOnly)
             guard !Task.isCancelled else {
                 if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.cancelled item=\(item.id.localID)") }
                 return
@@ -52,38 +39,72 @@ struct MediaThumbnail: View {
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.end item=\(item.id.localID) bytes=\(data?.count ?? 0) decoded=\(image != nil)") }
         }
     }
+
+    @ViewBuilder
+    private var sizedArtwork: some View {
+        if let fixedHeight {
+            artwork.frame(height: fixedHeight)
+        } else {
+            artwork.aspectRatio(aspectRatio, contentMode: .fit)
+        }
+    }
+
+    private var artwork: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Rectangle().fill(.regularMaterial)
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                }
+            }
+        }
+    }
 }
 
 @MainActor
 private final class MediaThumbnailLoader {
     static let shared = MediaThumbnailLoader()
-    private let cache = NSCache<NSString, NSData>()
     private let durationCache = NSCache<NSString, NSNumber>()
+    private var pendingEmbyImages: [String: Task<Data?, Never>] = [:]
 
     private init() {
         durationCache.countLimit = 256
-        cache.countLimit = 160
-        cache.totalCostLimit = 32 * 1024 * 1024
     }
 
-    func load(_ item: MediaItem, source: MediaSource, aspectRatio: CGFloat = 2.0 / 3.0, diagnostics: Bool = false) async -> Data? {
+    func load(_ item: MediaItem, source: MediaSource, aspectRatio: CGFloat = 2.0 / 3.0,
+              diagnostics: Bool = false, cacheOnly: Bool = false) async -> Data? {
         guard item.id.sourceID == source.id, !Task.isCancelled else { return nil }
         switch source.kind {
         case .demo: return nil
         case .emby:
-            let key = "emby:\(source.id):\(item.embyItemID ?? item.id.localID):\(item.imageURL?.absoluteString ?? "")" as NSString
-            if let data = cache.object(forKey: key) { return data as Data }
-            let data = await EmbyRepository.shared.thumbnailData(for: item, source: source)
-            return remember(data, key: key)
+            let key = "\(AppCacheStore.scope(for: source))|\(item.id.localID)|\(item.imageURL?.absoluteString ?? "")"
+            let (data, generation) = await AppCacheStore.shared.image(key: key)
+            if let data, UIImage(data: data) != nil { return data }
+            let requestKey = "\(key)|\(generation)"
+            if let pending = pendingEmbyImages[requestKey] { return await pending.value }
+            guard !cacheOnly, !Task.isCancelled else { return nil }
+            let task = Task { () -> Data? in
+                defer { pendingEmbyImages[requestKey] = nil }
+                guard let data = await EmbyRepository.shared.thumbnailData(for: item, source: source),
+                      UIImage(data: data) != nil else { return nil }
+                await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
+                return data
+            }
+            pendingEmbyImages[requestKey] = task
+            return await task.value
         case .photos:
             let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
             guard status == .authorized || status == .limited,
                   let asset = PHAsset.fetchAssets(withLocalIdentifiers: [item.id.localID], options: nil).firstObject else { return nil }
-            let key = "photos:\(item.id.localID):\(asset.modificationDate?.timeIntervalSince1970 ?? 0):\(aspectRatio)" as NSString
-            if let data = cache.object(forKey: key) { return data as Data }
-            let targetSize = CGSize(width: 400, height: 400 / max(0.1, aspectRatio))
-            let data = await PhotoThumbnailRequest().load(asset, targetSize: targetSize, diagnostics: diagnostics)
-            return remember(data, key: key)
+            let key = "photos:\(item.id.localID):\(asset.modificationDate?.timeIntervalSince1970 ?? 0):\(aspectRatio)"
+            return await cachedImage(key: key, cacheOnly: cacheOnly) {
+                let targetSize = CGSize(width: 400, height: 400 / max(0.1, aspectRatio))
+                return await PhotoThumbnailRequest().load(asset, targetSize: targetSize, diagnostics: diagnostics)
+            }
         case .local:
             guard let root = try? source.localFolderURL() else { return nil }
             let scoped = root.startAccessingSecurityScopedResource()
@@ -96,10 +117,10 @@ private final class MediaThumbnailLoader {
                   url.pathComponents.starts(with: base.pathComponents), url != base,
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]),
                   values.isRegularFile == true else { return nil }
-            let key = "local:\(source.id):\(item.id.localID):\(values.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values.fileSize ?? 0)" as NSString
-            if let data = cache.object(forKey: key) { return data as Data }
-            let data = await VideoImporter.shared.thumbnail(at: url)
-            return remember(data, key: key)
+            let key = "local:\(source.id):\(item.id.localID):\(values.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values.fileSize ?? 0)"
+            return await cachedImage(key: key, cacheOnly: cacheOnly) {
+                await VideoImporter.shared.thumbnail(at: url)
+            }
         }
     }
 
@@ -125,9 +146,12 @@ private final class MediaThumbnailLoader {
         }
     }
 
-    private func remember(_ data: Data?, key: NSString) -> Data? {
-        guard !Task.isCancelled, let data else { return nil }
-        cache.setObject(data as NSData, forKey: key, cost: data.count)
+    private func cachedImage(key: String, cacheOnly: Bool, generate: () async -> Data?) async -> Data? {
+        let (data, generation) = await AppCacheStore.shared.image(key: key)
+        if let data, UIImage(data: data) != nil { return data }
+        guard !cacheOnly, !Task.isCancelled,
+              let data = await generate(), UIImage(data: data) != nil, !Task.isCancelled else { return nil }
+        await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
         return data
     }
 }
@@ -298,7 +322,9 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
             }) {
                 if let shareResource { MediaVideoShareSheet(url: shareResource.url) }
             }
-            .sheet(isPresented: $showingEmbyDetails) { EmbyItemDetailView(source: source, item: item) }
+            .sheet(isPresented: $showingEmbyDetails) {
+                NavigationStack { EmbyItemDetailView(source: source, item: item, showsCloseButton: true) }
+            }
             .alert("无法分享视频", isPresented: $showingShareError) {
                 Button("好", role: .cancel) { }
             } message: { Text(verbatim: shareError ?? "") }
@@ -333,8 +359,6 @@ private struct MediaThumbnailPreview: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            MediaThumbnail(source: source, item: item)
-                .frame(width: 200, height: 300)
             Text(verbatim: displayName).lineLimit(2)
             if let historyEntry {
                 Text(verbatim: "\(mediaTimeLabel(historyEntry.position)) / \(mediaTimeLabel(historyEntry.duration))")
@@ -344,6 +368,8 @@ private struct MediaThumbnailPreview: View {
             } else if duration > 0 {
                 Text(verbatim: mediaTimeLabel(duration)).foregroundStyle(.secondary)
             } else { ProgressView() }
+            MediaThumbnail(source: source, item: item, cacheOnly: true)
+                .frame(width: 200, height: 300)
         }
         .padding(14)
         .frame(width: 228)

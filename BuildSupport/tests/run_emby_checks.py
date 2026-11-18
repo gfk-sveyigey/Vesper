@@ -43,7 +43,7 @@ class Handler(BaseHTTPRequestHandler):
                 assert query['ParentId'] == ['library']
                 assert query['StartIndex'] == ['0'] and query['Recursive'] == ['true']
                 assert query['SortBy'] == ['DateCreated'] and query['SortOrder'] == ['Descending']
-                self.respond({'Items': [dict(ITEM, Id=f'movie-{i}') for i in range(20)]}); return
+                self.respond({'Items': [dict(ITEM, Id=f'movie-{i}', DateCreated=f'2026-11-18T01:{59-i:02d}:00.0000000Z') for i in range(20)]}); return
             assert query['StartIndex'] == ['100']
             self.respond({'Items': [ITEM, {'Id': 'book', 'Name': 'Book', 'Type': 'Book'}]}); return
         if path.path == '/proxy/emby/Users/user/Items/movie':

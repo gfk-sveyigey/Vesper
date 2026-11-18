@@ -251,33 +251,37 @@ struct EmbySourceEditor: View {
 struct EmbyItemDetailView: View {
     let source: MediaSource
     let item: MediaItem
+    var showsCloseButton = false
     @Environment(\.dismiss) private var dismiss
     @State private var details: EmbyItemDetails?
     @State private var error: String?
 
     var body: some View {
-        NavigationStack {
-            List {
-                if let details {
-                    Section {
-                        LabeledContent("名称", value: item.title)
-                        if let year = item.subtitle { LabeledContent("年份", value: year) }
-                        if let duration = item.duration, duration > 0 {
-                            LabeledContent("时长", value: Duration.seconds(duration).formatted(.time(pattern: .hourMinute)))
-                        }
-                        if let synopsis = details.video.synopsis { Text(verbatim: synopsis) }
+        List {
+            if let details {
+                Section {
+                    LabeledContent("名称", value: item.title)
+                    if let year = item.subtitle { LabeledContent("年份", value: year) }
+                    if let duration = item.duration, duration > 0 {
+                        LabeledContent("时长", value: Duration.seconds(duration).formatted(.time(pattern: .hourMinute)))
                     }
-                    Section("详细信息") {
-                        if let dimensions = details.video.dimensions { LabeledContent("分辨率", value: dimensions) }
-                        ForEach(Array(details.video.technical.enumerated()), id: \.offset) { _, field in
-                            LabeledContent(field.label, value: field.value)
-                        }
+                    if let synopsis = details.video.synopsis { Text(verbatim: synopsis) }
+                }
+                Section("详细信息") {
+                    if let dimensions = details.video.dimensions { LabeledContent("分辨率", value: dimensions) }
+                    ForEach(Array(details.video.technical.enumerated()), id: \.offset) { _, field in
+                        LabeledContent(field.label, value: field.value)
                     }
-                } else if let error { Text(verbatim: error).foregroundStyle(.secondary) }
-                else { ProgressView() }
+                }
+            } else if let error { Text(verbatim: error).foregroundStyle(.secondary) }
+            else { ProgressView() }
+        }
+        .navigationTitle("媒体详情").navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            if showsCloseButton {
+                ToolbarItem(placement: .topBarLeading) { Button("关闭", systemImage: "xmark") { dismiss() } }
             }
-            .navigationTitle("媒体详情").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("关闭", systemImage: "xmark") { dismiss() } } }
         }
         .task {
             do { details = try await EmbyRepository.shared.details(for: item, source: source) }
