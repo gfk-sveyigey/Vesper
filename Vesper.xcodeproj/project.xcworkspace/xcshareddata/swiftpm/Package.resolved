@@ -14,8 +14,8 @@
       "kind": "remoteSourceControl",
       "location": "https://github.com/kingslay/FFmpegKit.git",
       "state": {
-        "revision": "20e3ba2a4c36978fed7b12a56839fadd92e901ea",
-        "version": "9.0.2"
+        "revision": "c32be9bfb628042737ad3ef622e930c5c7b15954",
+        "version": "6.1.4"
       }
     }
   ],
