@@ -12,7 +12,8 @@ import libmpv
 final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
     weak var delegate: MediaPlayerDelegate?
     private var handle: OpaquePointer?
-    private let surface = MPVRenderView()
+    private let surface: MPVRenderView?
+    private let fallbackSurface = UIView()
     private var eventTimer: Timer?
     private var displayLink: CADisplayLink?
     private var url: URL
@@ -34,7 +35,7 @@ final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
     private(set) var isReadyToPlay = false
     private(set) var playbackState: MediaPlaybackState = .idle
     private(set) var loadState: MediaLoadState = .idle
-    var view: UIView? { surface }
+    var view: UIView? { surface ?? fallbackSurface }
     var isPlaying: Bool { playbackState == .playing }
     var seekable: Bool { loaded && flag("seekable") }
     var subtitleDataSouce: SubtitleDataSouce? { nil } // mpv/libass renders subtitles into the video.
@@ -54,6 +55,12 @@ final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
     required init(url: URL, options: KSOptions) {
         self.url = url
         self.options = options
+        if let context = EAGLContext(api: .openGLES2) {
+            surface = MPVRenderView(context: context)
+        } else {
+            surface = nil
+            fallbackSurface.backgroundColor = .black
+        }
         super.init()
     }
 
@@ -66,6 +73,7 @@ final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
     func prepareToPlay() {
         guard handle == nil else { return }
         failed = false
+        guard let surface else { fail("OpenGL ES 不可用，无法启动 mpv 渲染"); return }
         guard let context = mpv_create() else { fail("无法创建 mpv 播放器"); return }
         handle = context
         let initialOptions = [
@@ -299,11 +307,10 @@ private final class MPVMediaTrack: @preconcurrency MediaPlayerTrack {
 /// libmpv's public render API owns the video and libass subtitle composition.
 /// GL objects are created, used and released with the same EAGLContext current.
 @MainActor
-private final class MPVRenderView: GLKView, GLKViewDelegate {
+private final class MPVRenderView: GLKView, @preconcurrency GLKViewDelegate {
     private var renderContext: OpaquePointer?
-    init?() {
+    init(context: EAGLContext) {
         // OpenGL ES is the render API provided by this pinned libmpv build.
-        guard let context = EAGLContext(api: .openGLES2) else { return nil }
         super.init(frame: .zero, context: context)
         delegate = self
         enableSetNeedsDisplay = true
