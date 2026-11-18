@@ -532,16 +532,18 @@ struct PlayerVolumeTouchSurface: UIViewRepresentable {
     }
 }
 
-/// Request display cadence for player UI independently of the video's frame rate.
-/// The link only runs while interactive UI is visible; decoding cadence is unchanged.
+/// UI cadence belongs to the scene, not the renderer's media clock. A passive
+/// CADisplayLink alone does not request continuous UIKit/SwiftUI updates.
 struct PlayerInterfaceRefreshDriver: UIViewRepresentable {
     let isActive: Bool
+    var context = "controls"
 
     func makeUIView(context: Context) -> RefreshView { RefreshView() }
 
     func updateUIView(_ view: RefreshView, context: Context) {
         view.isActive = isActive
-        view.updateDisplayLink()
+        view.diagnosticContext = self.context
+        view.updateLink()
     }
 
     static func dismantleUIView(_ view: RefreshView, coordinator: ()) {
@@ -550,39 +552,76 @@ struct PlayerInterfaceRefreshDriver: UIViewRepresentable {
 
     final class RefreshView: UIView {
         var isActive = false
-        private var displayLink: CADisplayLink?
-        private weak var linkedScreen: UIScreen?
+        var diagnosticContext = "controls" {
+            didSet {
+                if oldValue != diagnosticContext { resetMeasurement() }
+            }
+        }
+        private var link: UIUpdateLink?
+        private weak var linkedScene: UIWindowScene?
+        private var sampleStart: TimeInterval?
+        private var updateCount = 0
+        private var didReport = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            updateDisplayLink()
+            updateLink()
         }
 
-        func updateDisplayLink() {
-            guard isActive, let screen = window?.windowScene?.screen else {
+        func updateLink() {
+            guard isActive, let scene = window?.windowScene else {
                 stop()
                 return
             }
-            guard displayLink == nil || linkedScreen !== screen else { return }
+            guard link == nil || linkedScene !== scene else { return }
             stop()
-            let maximum = Float(screen.maximumFramesPerSecond)
-            let link = CADisplayLink(target: self, selector: #selector(tick))
+            // Bind to the scene so a sheet/menu covering this particular view
+            // does not make its UI update request passive or inactive.
+            let link = UIUpdateLink(windowScene: scene) { [weak self] _, info in
+                self?.measureUpdate(at: info.modelTime)
+            }
+            let maximum = Float(scene.screen.maximumFramesPerSecond)
             link.preferredFrameRateRange = CAFrameRateRange(
-                minimum: min(60, maximum), maximum: maximum, preferred: maximum
+                minimum: maximum, maximum: maximum, preferred: maximum
             )
-            linkedScreen = screen
-            displayLink = link
-            link.add(to: .main, forMode: .common)
+            link.requiresContinuousUpdates = true
+            link.isEnabled = true
+            linkedScene = scene
+            self.link = link
         }
 
         func stop() {
-            displayLink?.invalidate()
-            displayLink = nil
-            linkedScreen = nil
+            link?.isEnabled = false
+            link?.requiresContinuousUpdates = false
+            link = nil
+            linkedScene = nil
+            resetMeasurement()
         }
 
-        // Keeping the link active advertises UI demand to ProMotion. UIKit and
-        // SwiftUI still draw the UI; this must never drive video presentation.
-        @objc private func tick() {}
+        private func resetMeasurement() {
+            sampleStart = nil
+            updateCount = 0
+            didReport = false
+        }
+
+        private func measureUpdate(at time: TimeInterval) {
+            guard !didReport else { return }
+            guard let start = sampleStart else { sampleStart = time; return }
+            updateCount += 1
+            let elapsed = time - start
+            guard elapsed >= 2 else { return }
+            didReport = true
+            // This measures scene UI updates, not video FPS or a guarantee of
+            // panel refresh. Low Power Mode and thermal limits remain OS-owned.
+            let hz = Double(updateCount) / elapsed
+            let maximum = linkedScene?.screen.maximumFramesPerSecond ?? 0
+            let power = ProcessInfo.processInfo.isLowPowerModeEnabled
+            let thermal = ProcessInfo.processInfo.thermalState.rawValue
+            AppLog.runtimeEntries.append(
+                "\(ISO8601DateFormatter().string(from: Date())) [PlayerRefresh] "
+                + "context=\(diagnosticContext) uiUpdates=\(String(format: "%.1f", hz))Hz "
+                + "requested=\(maximum)Hz lowPower=\(power) thermal=\(thermal)"
+            )
+        }
     }
 }

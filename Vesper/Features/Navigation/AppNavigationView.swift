@@ -125,14 +125,14 @@ struct AppNavigationView: View {
             tabContent
                 .tabViewBottomAccessory(isEnabled: shouldShowMiniPlayer) {
                     MiniPlayerAccessory(session: playback) {
-                        if !miniPlayerAlwaysVisible { playback.isPresented = true }
+                        if playback.currentItem != nil { playback.isPresented = true }
                     }
                 }
         } else if shouldShowMiniPlayer {
             tabContent
                 .tabViewBottomAccessory {
                     MiniPlayerAccessory(session: playback) {
-                        if !miniPlayerAlwaysVisible { playback.isPresented = true }
+                        if playback.currentItem != nil { playback.isPresented = true }
                     }
                 }
         } else {

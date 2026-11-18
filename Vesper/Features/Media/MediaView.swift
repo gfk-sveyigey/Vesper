@@ -8,7 +8,7 @@ struct MediaView: View {
     var body: some View {
         Group {
             if let source = library.selectedSource, source.kind == .local {
-                LocalFilesView(source: source) { sourceMenuButton }
+                LocalFilesView(source: source) { mediaSourceMenu }
                     .id(source.id)
             } else {
                 mediaContent
@@ -78,6 +78,15 @@ struct MediaView: View {
             .glassEffect(.regular.interactive(), in: .circle)
     }
 
+    private func sourceSymbol(_ source: MediaSource?) -> String {
+        switch source?.kind {
+        case .photos: "photo"
+        case .local: "folder"
+        case .demo: "play.rectangle"
+        case nil: "externaldrive"
+        }
+    }
+
     private var sourceMenuButton: some View {
         Menu {
             ForEach(library.sources) { source in
@@ -87,12 +96,13 @@ struct MediaView: View {
                     Label {
                         Text(verbatim: source.name)
                     } icon: {
-                        Image(systemName: source.id == library.selectedID ? "checkmark" : "folder")
+                        Image(systemName: source.id == library.selectedID ? "checkmark" : sourceSymbol(source))
                     }
                 }
             }
         } label: {
-            Image(systemName: "list.bullet")
+            Image(systemName: sourceSymbol(library.selectedSource))
+                .contentTransition(.symbolEffect(.replace))
                 .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())

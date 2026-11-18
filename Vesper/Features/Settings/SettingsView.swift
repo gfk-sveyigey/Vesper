@@ -372,6 +372,11 @@ struct TabSettingsView: View {
                     Text("关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。")
                 }
                 SettingsSection {
+                    Button { isShowingOrderSettings = true } label: {
+                        SettingsLabel("标签顺序", symbol: "arrow.up.arrow.down")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
                     SettingsPicker("默认标签页", selection: $defaultTab) {
                         ForEach(sections.filter { $0 == .settings || !hidden.split(separator: ",").contains(Substring($0.rawValue)) }) { section in
                             Text(section.title).tag(section.rawValue)
@@ -438,13 +443,10 @@ struct TabSettingsView: View {
         .background(VesperTheme.background)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("标签顺序", systemImage: "arrow.up.arrow.down") { isShowingOrderSettings = true }
-                    Button("恢复默认", systemImage: "arrow.counterclockwise") { isShowingResetConfirmation = true }
-                } label: {
-                    Image(systemName: "ellipsis")
+                Button("恢复默认", systemImage: "arrow.counterclockwise") {
+                    isShowingResetConfirmation = true
                 }
-                .accessibilityLabel("标签设置")
+                .labelStyle(.iconOnly)
             }
         }
         .alert("恢复默认标签设置？", isPresented: $isShowingResetConfirmation) {
@@ -468,12 +470,6 @@ struct TabSettingsView: View {
                     .toolbar {
                         ToolbarItem(placement: .principal) {
                             Text("标签顺序").font(.headline)
-                        }
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button { isShowingOrderSettings = false } label: {
-                                Image(systemName: "xmark")
-                            }
-                            .accessibilityLabel("关闭")
                         }
                     }
             }

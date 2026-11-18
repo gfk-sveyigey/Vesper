@@ -25,24 +25,26 @@ struct LocalFilesView<SourceMenu: View>: View {
         Group {
             if directory.isEmpty {
                 VesperRootScrollView(title: "媒体") { files } actions: {
-                    HStack(spacing: 0) {
-                        Button("选择视频", systemImage: "document.badge.plus") {
-                            incomingVideos.selectVideo()
-                        }
-                        .labelStyle(.iconOnly)
-                        .font(.system(size: 17, weight: .medium))
-                        .frame(width: 44, height: 44)
-                        .buttonStyle(.plain)
-                        .disabled(busy)
-                        Button("新建文件夹", systemImage: "folder.badge.plus", action: createFolder)
+                    HStack(spacing: 12) {
+                        HStack(spacing: 0) {
+                            Button("选择视频", systemImage: "document.badge.plus") {
+                                incomingVideos.selectVideo()
+                            }
                             .labelStyle(.iconOnly)
                             .font(.system(size: 17, weight: .medium))
                             .frame(width: 44, height: 44)
                             .buttonStyle(.plain)
                             .disabled(busy)
+                            Button("新建文件夹", systemImage: "folder.badge.plus", action: createFolder)
+                                .labelStyle(.iconOnly)
+                                .font(.system(size: 17, weight: .medium))
+                                .frame(width: 44, height: 44)
+                                .buttonStyle(.plain)
+                                .disabled(busy)
+                        }
+                        .glassEffect(.regular.interactive(), in: .capsule)
                         sourceMenu()
                     }
-                    .glassEffect(.regular.interactive(), in: .capsule)
                 }
             } else {
                 ScrollView { files.padding(.top, 12).padding(.bottom, 20) }
@@ -81,7 +83,11 @@ struct LocalFilesView<SourceMenu: View>: View {
             }
             Button("取消", role: .cancel) { deleteEntry = nil }
         } message: {
-            Text("删除后无法恢复；删除文件夹会同时删除其中的所有文件。")
+            if deleteEntry?.isDirectory == true {
+                Text("删除后无法恢复；删除文件夹会同时删除其中的所有文件。")
+            } else {
+                Text("删除后无法恢复。")
+            }
         }
         .sheet(item: $movingEntry, onDismiss: { Task { await reload() } }) { entry in
             LocalMoveView(source: source, entry: entry, initialDirectory: directory) {

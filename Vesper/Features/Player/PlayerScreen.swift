@@ -136,7 +136,8 @@ struct PlayerScreen: View {
         .background {
             PlayerInterfaceRefreshDriver(
                 isActive: scenePhase == .active && session.isPresented
-                    && (controlsVisible || menuPresented || panel != nil || showingNotice || regionsVisible || !hudText.isEmpty)
+                    && (controlsVisible || menuPresented || panel != nil || showingNotice || regionsVisible || !hudText.isEmpty),
+                context: panel?.rawValue ?? (menuPresented ? "menu" : "controls")
             )
             .allowsHitTesting(false)
             .accessibilityHidden(true)
