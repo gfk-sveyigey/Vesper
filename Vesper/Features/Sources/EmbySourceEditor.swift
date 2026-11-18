@@ -28,7 +28,7 @@ struct EmbySourceEditor: View {
     @State private var errorMessage: String?
     @FocusState private var focusedField: AddressField?
 
-    private enum AddressField { case host, port, path }
+    private enum AddressField: Hashable { case host, port, path }
 
     var body: some View {
         NavigationStack {
