@@ -1,10 +1,9 @@
 name: Build (dev)
 
 # 只改 VERSION 或 .github 配置不会触发构建。
-# App、播放引擎、隔离脚本或 Xcode 工程变化会触发构建。
 on:
   push:
-    branches: [ dev ]
+    branches: [dev]
     paths:
       - 'Vesper/**'
       - 'Playback/**'
@@ -70,6 +69,7 @@ jobs:
             -project Vesper.xcodeproj \
             -scheme Vesper \
             -derivedDataPath build/DerivedData
+
           test -f Vesper.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved || {
             echo "::error::Xcode did not produce Package.resolved"
             exit 1
@@ -165,13 +165,10 @@ jobs:
           ls -la "$APP"
           plutil -p "$APP/Info.plist" | grep -E "CFBundleDisplayName|CFBundleIdentifier"
 
-      - name: Upload IPA and isolation report
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: Vesper-${{ steps.version.outputs.raw }}-dev${{ github.run_number }}
-          path: |
-            build/Vesper-*-unsigned.ipa
-            build/DerivedData/Build/Products/Debug-iphoneos/playback-isolation-report.txt
-            Vesper.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          path: build/Vesper-*-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
