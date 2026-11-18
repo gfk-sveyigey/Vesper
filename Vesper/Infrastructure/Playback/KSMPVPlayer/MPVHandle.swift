@@ -9,6 +9,9 @@ import Foundation
 @preconcurrency import KSPlayer
 import libmpv
 import QuartzCore
+import GLKit
+import OpenGLES
+import Darwin
 #if canImport(UIKit)
 import UIKit
 #else
@@ -17,53 +20,100 @@ import AppKit
 @MainActor
 public class MPVHandle: NSObject, @unchecked Sendable {
     private(set) var initializationStatus: Int32 = 0
+    private(set) var initializationError: String?
     var mpv: OpaquePointer?
-    let metalView: MetalView
-    @MainActor
+    let renderView: KSMPVRenderView?
+    private let fallbackView = UIView()
+    var videoView: UIView { renderView ?? fallbackView }
+    private var displayLink: CADisplayLink?
+    private var eventTimer: Timer?
+    private var displayTarget: KSMPVDisplayTarget?
+    private(set) var recentErrors: [String] = []
+
     public init(options: KSOptions) {
-        metalView = MetalView()
+        if let context = EAGLContext(api: .openGLES3) ?? EAGLContext(api: .openGLES2) {
+            renderView = KSMPVRenderView(context: context)
+        } else {
+            renderView = nil
+        }
         super.init()
+        fallbackView.backgroundColor = .black
         initializeHandle(options: options)
     }
 
     func initializeHandle(options: KSOptions) {
         guard mpv == nil else { return }
-        mpv = mpv_create()
-        guard mpv != nil else { initializationStatus = -1; return }
-        #if DEBUG
-        check(status: mpv_request_log_messages(mpv, "debug"))
-        #else
-        check(status: mpv_request_log_messages(mpv, "no"))
-        #endif
-        setOption(name: MPVOption.Input.inputMediaKeys, value: "yes")
-        var layer = Int64(Int(bitPattern: Unmanaged.passUnretained(metalView.layer).toOpaque()))
-        check(status: mpv_set_option(mpv, MPVOption.Window.wid, MPV_FORMAT_INT64, &layer))
-        setOption(name: "subs-match-os-language", value: "yes")
-//        setOption(name: "subs-fallback", value: "yes")
-//        setOption(name: MPVOption.Subtitles.subAssOverride, value: "no")
-//        setOption(name: MPVOption.GPURendererOptions.targetColorspaceHint, value: "yes")
-        setOption(name: MPVOption.Video.vo, value: "gpu-next")
-        setOption(name: MPVOption.GPURendererOptions.gpuApi, value: "vulkan")
-        setOption(name: MPVOption.GPURendererOptions.gpuContext, value: "moltenvk")
-        setOption(name: MPVOption.Video.hwdec, value: options.hardwareDecode ? "videotoolbox" : "no")
-        setOption(name: "idle", value: "yes")
-        setOption(name: "pause", value: "yes")
-        setOption(name: "keep-open", value: "yes")
-        setOption(name: "volume-max", value: "100")
-        setOption(name: MPVOption.Audio.ao, value: "audiounit")
-        setOption(name: MPVOption.Cache.cacheSecs, value: String(Int(options.maxBufferDuration)))
-        setOption(name: MPVOption.Cache.cachePauseWait, value: String(Int(options.preferredForwardBufferDuration)))
-        setOption(name: MPVOption.Cache.cachePauseInitial, value: "yes")
-        for (k, v) in observeProperties {
-            mpv_observe_property(mpv, 0, k, v)
+        initializationStatus = 0
+        initializationError = nil
+        recentErrors = []
+        guard let renderView else {
+            initializationStatus = -18
+            initializationError = "OpenGL ES 不可用"
+            return
         }
-        initializationStatus = mpv_initialize(mpv)
-        check(status: initializationStatus)
-        mpv_set_wakeup_callback(mpv, { ctx in
-            guard let ctx else { return }
-            let owner = Unmanaged<MPVHandle>.fromOpaque(ctx).takeUnretainedValue()
-            Task { @MainActor [weak owner] in owner?.readEvents() }
-        }, Unmanaged.passUnretained(self).toOpaque())
+        guard let handle = mpv_create() else {
+            initializationStatus = -2
+            initializationError = "无法创建 libmpv 实例"
+            return
+        }
+        mpv = handle
+        // FFmpegKit 6.1.4 bundles mpv 0.37 with ios-gl, not the newer
+        // gpu-next/MoltenVK CAMetalLayer window backend. KSMPVPlayer keeps
+        // upstream playback/track handling and uses its public render API here.
+        let settings: [(String, String)] = [
+            ("config", "no"), ("terminal", "no"), ("vo", "libmpv"),
+            ("hwdec", options.hardwareDecode ? "auto-safe" : "no"),
+            ("ao", "audiounit"), ("idle", "yes"), ("pause", "yes"),
+            ("keep-open", "yes"), ("volume-max", "100"), ("sid", "no"),
+            ("input-default-bindings", "no"), ("input-vo-keyboard", "no"),
+            ("cache-secs", String(max(1, Int(options.maxBufferDuration)))),
+            ("cache-pause-wait", String(max(1, Int(options.preferredForwardBufferDuration)))),
+            ("speed", String(options.startPlayRate))
+        ]
+        for (name, value) in settings {
+            let status = mpv_set_option_string(handle, name, value)
+            if status < 0 {
+                check(status: status, operation: "option \(name)=\(value)")
+                if name == "vo" || name == "ao" {
+                    initializationStatus = status
+                    initializationError = "\(name): \(String(cString: mpv_error_string(status)))"
+                    return
+                }
+            }
+        }
+        mpv_request_log_messages(handle, "warn")
+        for (name, format) in observeProperties {
+            check(status: mpv_observe_property(handle, 0, name, format), operation: "observe \(name)")
+        }
+        initializationStatus = mpv_initialize(handle)
+        guard initializationStatus >= 0 else {
+            initializationError = String(cString: mpv_error_string(initializationStatus))
+            check(status: initializationStatus, operation: "initialize")
+            return
+        }
+        initializationStatus = renderView.attach(handle)
+        guard initializationStatus >= 0 else {
+            initializationError = "libmpv OpenGL 渲染初始化失败：\(String(cString: mpv_error_string(initializationStatus)))"
+            check(status: initializationStatus, operation: "render context create")
+            return
+        }
+        let target = KSMPVDisplayTarget(owner: self)
+        displayTarget = target
+        let link = CADisplayLink(target: target, selector: #selector(KSMPVDisplayTarget.tick))
+        link.preferredFramesPerSecond = 60
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+        // Keep processing EOF/errors/audio state even when display refresh stops
+        // in the background. No C callback retains or dereferences a dead owner.
+        eventTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.readEvents() }
+        }
+        diagnostic("已初始化 KSMPVPlayer，libmpv=\(getString("mpv-version") ?? "unknown")，renderer=libmpv/OpenGL ES，hardware=\(options.hardwareDecode)")
+    }
+
+    fileprivate func tick() {
+        readEvents()
+        renderView?.drawPendingFrame()
     }
 
     private func readEvents() {
@@ -73,11 +123,26 @@ public class MPVHandle: NSObject, @unchecked Sendable {
         }
     }
 
+    func setRenderingInBackground(_ background: Bool) {
+        displayLink?.isPaused = background
+        if !background { renderView?.setNeedsDisplay() }
+    }
+
     func destroyHandle() {
+        eventTimer?.invalidate()
+        eventTimer = nil
+        displayLink?.invalidate()
+        displayLink = nil
+        displayTarget = nil
+        // Render context must be freed with its EAGLContext current, BEFORE mpv.
+        renderView?.detach()
         guard let handle = mpv else { return }
-        mpv_set_wakeup_callback(handle, nil, nil)
         mpv = nil
         mpv_terminate_destroy(handle)
+    }
+
+    func diagnostic(_ message: String) {
+        AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [KSMPVPlayer] \(message)")
     }
 
     open func handle(event: mpv_event) {
@@ -91,8 +156,14 @@ public class MPVHandle: NSObject, @unchecked Sendable {
                 change(property: property, name: propertyName)
             }
         case MPV_EVENT_LOG_MESSAGE:
-            if let msg = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(event.data)) {
-                KSLog("[\(String(cString: (msg.pointee.prefix)!))] \(String(cString: (msg.pointee.level)!))=\(String(cString: (msg.pointee.text)!))")
+            if let data = event.data {
+                let msg = data.load(as: mpv_event_log_message.self)
+                let message = "[\(String(cString: msg.prefix))] \(String(cString: msg.text).trimmingCharacters(in: .whitespacesAndNewlines))"
+                if msg.log_level <= MPV_LOG_LEVEL_ERROR.rawValue {
+                    recentErrors.append(message)
+                    recentErrors = Array(recentErrors.suffix(6))
+                }
+                diagnostic(message)
             }
         default:
             if let eventName = mpv_event_name(event.event_id) {
@@ -109,43 +180,11 @@ public class MPVHandle: NSObject, @unchecked Sendable {
 #endif
 
     private let observeProperties: [String: mpv_format] = [
-        MPVProperty.trackList: MPV_FORMAT_NONE,
-        MPVProperty.vf: MPV_FORMAT_NONE,
-        MPVProperty.af: MPV_FORMAT_NONE,
-        MPVProperty.timePos: MPV_FORMAT_DOUBLE,
+        "time-pos": MPV_FORMAT_DOUBLE,
+        "duration": MPV_FORMAT_DOUBLE,
         "eof-reached": MPV_FORMAT_FLAG,
-        MPVOption.TrackSelection.vid: MPV_FORMAT_INT64,
-        MPVOption.TrackSelection.aid: MPV_FORMAT_INT64,
-        MPVOption.TrackSelection.sid: MPV_FORMAT_INT64,
-        MPVOption.Subtitles.secondarySid: MPV_FORMAT_INT64,
-        MPVOption.PlaybackControl.pause: MPV_FORMAT_FLAG,
-        MPVOption.PlaybackControl.loopPlaylist: MPV_FORMAT_STRING,
-        MPVOption.PlaybackControl.loopFile: MPV_FORMAT_STRING,
-        MPVProperty.chapter: MPV_FORMAT_INT64,
-        MPVOption.Video.deinterlace: MPV_FORMAT_FLAG,
-        MPVOption.Video.hwdec: MPV_FORMAT_STRING,
-        MPVOption.Video.videoRotate: MPV_FORMAT_INT64,
-        MPVOption.Audio.mute: MPV_FORMAT_FLAG,
-        MPVOption.Audio.volume: MPV_FORMAT_DOUBLE,
-        MPVOption.Audio.audioDelay: MPV_FORMAT_DOUBLE,
-        MPVOption.PlaybackControl.speed: MPV_FORMAT_DOUBLE,
-        MPVOption.Subtitles.subDelay: MPV_FORMAT_DOUBLE,
-        MPVOption.Subtitles.subScale: MPV_FORMAT_DOUBLE,
-        MPVOption.Subtitles.subPos: MPV_FORMAT_DOUBLE,
-        MPVOption.Equalizer.contrast: MPV_FORMAT_INT64,
-        MPVOption.Equalizer.brightness: MPV_FORMAT_INT64,
-        MPVOption.Equalizer.gamma: MPV_FORMAT_INT64,
-        MPVOption.Equalizer.hue: MPV_FORMAT_INT64,
-        MPVOption.Equalizer.saturation: MPV_FORMAT_INT64,
-        MPVOption.Window.fullscreen: MPV_FORMAT_FLAG,
-        MPVOption.Window.ontop: MPV_FORMAT_FLAG,
-        MPVOption.Window.windowScale: MPV_FORMAT_DOUBLE,
-        MPVProperty.mediaTitle: MPV_FORMAT_STRING,
-        MPVProperty.videoParamsRotate: MPV_FORMAT_INT64,
-        MPVProperty.videoParamsPrimaries: MPV_FORMAT_STRING,
-        MPVProperty.videoParamsGamma: MPV_FORMAT_STRING,
-        MPVProperty.idleActive: MPV_FORMAT_FLAG,
-        MPVProperty.pausedForCache: MPV_FORMAT_FLAG,
+        "pause": MPV_FORMAT_FLAG,
+        "paused-for-cache": MPV_FORMAT_FLAG
     ]
 }
 
@@ -164,7 +203,7 @@ extension MPVHandle {
 
     /// Send arbitrary mpv command.
     func command(_ command: MPVCommand, args: [String?] = [], checkError: Bool = true) -> Int32 {
-        guard let mpv else { return 0 }
+        guard let mpv else { return -3 }
         var cargs = makeCArgs(command, args).map { $0.flatMap { UnsafePointer<CChar>(strdup($0)) } }
         defer {
             for ptr in cargs {
@@ -175,7 +214,7 @@ extension MPVHandle {
         }
         let returnValue = mpv_command(mpv, &cargs)
         if checkError {
-            check(status: returnValue)
+            check(status: returnValue, operation: "command \(command.rawValue)")
         }
         return returnValue
     }
@@ -196,7 +235,7 @@ extension MPVHandle {
         }
         let returnValue = mpv_command_async(mpv, replyUserdata, &cargs)
         if checkError {
-            check(status: returnValue)
+            check(status: returnValue, operation: "command \(command.rawValue)")
         }
     }
 
@@ -208,19 +247,19 @@ extension MPVHandle {
     func setFlag(_ name: String, _ flag: Bool) {
         guard let mpv else { return }
         var data: Int32 = flag ? 1 : 0
-        mpv_set_property(mpv, name, MPV_FORMAT_FLAG, &data)
+        check(status: mpv_set_property(mpv, name, MPV_FORMAT_FLAG, &data), operation: "set \(name)")
     }
 
     func setInt(_ name: String, _ value: Int) {
         guard let mpv else { return }
         var data = Int64(value)
-        mpv_set_property(mpv, name, MPV_FORMAT_INT64, &data)
+        check(status: mpv_set_property(mpv, name, MPV_FORMAT_INT64, &data), operation: "set \(name)")
     }
 
     func setDouble(_ name: String, _ value: Double) {
         guard let mpv else { return }
         var data = value
-        mpv_set_property(mpv, name, MPV_FORMAT_DOUBLE, &data)
+        check(status: mpv_set_property(mpv, name, MPV_FORMAT_DOUBLE, &data), operation: "set \(name)")
     }
 
     func setFlagAsync(_ name: String, _ flag: Bool) {
@@ -243,10 +282,11 @@ extension MPVHandle {
 
     func setString(_ name: String, _ value: String) {
         guard let mpv else { return }
-        mpv_set_property_string(mpv, name, value)
+        check(status: mpv_set_property_string(mpv, name, value), operation: "set \(name)")
     }
 
     func getInt(_ name: String) -> Int {
+        guard let mpv else { return 0 }
         var data = Int64()
         mpv_get_property(mpv, name, MPV_FORMAT_INT64, &data)
         return Int(data)
@@ -267,6 +307,7 @@ extension MPVHandle {
     }
 
     func getString(_ name: String) -> String? {
+        guard let mpv else { return nil }
         let cstr = mpv_get_property_string(mpv, name)
         let str: String? = cstr == nil ? nil : String(cString: cstr!)
         mpv_free(cstr)
@@ -275,21 +316,93 @@ extension MPVHandle {
 
     func setOption(name: String, value: String) {
         guard let mpv else { return }
-        check(status: mpv_set_option_string(mpv, name, value))
+        check(status: mpv_set_option_string(mpv, name, value), operation: "option \(name)")
     }
 
-    func check(status: CInt) {
-        if status < 0 {
-            AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [KSMPVPlayer] error=\(status) \(String(cString: mpv_error_string(status)))")
-            KSLog("MPV API error=\(String(cString: mpv_error_string(status))), Return value=\(status).")
-        }
+    func check(status: CInt, operation: String = "API") {
+        if status < 0 { diagnostic("\(operation)：\(status) \(String(cString: mpv_error_string(status)))") }
     }
 }
 
-// KSPlayer 2.3.4's MetalView is internal; provide the same CAMetalLayer host.
 @MainActor
-final class MetalView: UIView {
-    override class var layerClass: AnyClass { CAMetalLayer.self }
+private final class KSMPVDisplayTarget: NSObject {
+    weak var owner: MPVHandle?
+    init(owner: MPVHandle) { self.owner = owner }
+    @objc func tick() { owner?.tick() }
+}
+
+/// libmpv's public render API owns the video and libass subtitle composition.
+/// GL objects are created, used and released with the same EAGLContext current.
+@MainActor
+final class KSMPVRenderView: GLKView, @preconcurrency GLKViewDelegate {
+    private var renderContext: OpaquePointer?
+    init(context: EAGLContext) {
+        // OpenGL ES is the render API provided by this pinned libmpv build.
+        super.init(frame: .zero, context: context)
+        delegate = self
+        enableSetNeedsDisplay = true
+        drawableDepthFormat = .formatNone
+        drawableColorFormat = .RGBA8888
+        contentScaleFactor = traitCollection.displayScale
+        backgroundColor = .black
+        isOpaque = true
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func attach(_ handle: OpaquePointer) -> Int32 {
+        EAGLContext.setCurrent(context)
+        var gl = mpv_opengl_init_params(get_proc_address: { _, name in
+            guard let name else { return nil }
+            return dlsym(UnsafeMutableRawPointer(bitPattern: -2), name)
+        }, get_proc_address_ctx: nil)
+        let api = strdup("opengl")!
+        defer { free(api) }
+        return withUnsafeMutablePointer(to: &gl) { glPointer in
+            var params = [
+                mpv_render_param(type: MPV_RENDER_PARAM_API_TYPE, data: UnsafeMutableRawPointer(api)),
+                mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data: UnsafeMutableRawPointer(glPointer)),
+                mpv_render_param(type: MPV_RENDER_PARAM_INVALID, data: nil)
+            ]
+            return params.withUnsafeMutableBufferPointer { mpv_render_context_create(&renderContext, handle, $0.baseAddress) }
+        }
+    }
+    func detach() {
+        EAGLContext.setCurrent(context)
+        if let renderContext { mpv_render_context_free(renderContext) }
+        renderContext = nil
+    }
+    func drawPendingFrame() {
+        guard let renderContext, window != nil, bounds.width > 0, bounds.height > 0,
+              UIApplication.shared.applicationState != .background else { return }
+        EAGLContext.setCurrent(context)
+        if mpv_render_context_update(renderContext) & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 { display() }
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard renderContext != nil, UIApplication.shared.applicationState != .background else { return }
+        display()
+    }
+    func glkView(_ view: GLKView, drawIn rect: CGRect) {
+        guard let renderContext, UIApplication.shared.applicationState != .background else { return }
+        var framebuffer: GLint = 0
+        glGetIntegerv(GLenum(GL_FRAMEBUFFER_BINDING), &framebuffer)
+        var fbo = mpv_opengl_fbo(fbo: framebuffer, w: Int32(drawableWidth), h: Int32(drawableHeight), internal_format: 0)
+        var flip: Int32 = 1
+        var block: Int32 = 0
+        withUnsafeMutablePointer(to: &fbo) { fboPointer in
+            withUnsafeMutablePointer(to: &flip) { flipPointer in
+                withUnsafeMutablePointer(to: &block) { blockPointer in
+                    var params = [
+                        mpv_render_param(type: MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, data: UnsafeMutableRawPointer(blockPointer)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_FBO, data: UnsafeMutableRawPointer(fboPointer)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_FLIP_Y, data: UnsafeMutableRawPointer(flipPointer)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_INVALID, data: nil)
+                    ]
+                    params.withUnsafeMutableBufferPointer { mpv_render_context_render(renderContext, $0.baseAddress) }
+                }
+            }
+        }
+        mpv_render_context_report_swap(renderContext)
+    }
 }
 
 @MainActor

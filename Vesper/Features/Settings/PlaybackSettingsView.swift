@@ -11,7 +11,7 @@ enum PlaybackPreferences {
 enum PlaybackEngine: String, CaseIterable, Identifiable {
     case ksplayer, mpv
     var id: Self { self }
-    var title: String { self == .mpv ? "mpv" : "KSPlayer" }
+    var title: String { self == .mpv ? "KSMPVPlayer" : "KSPlayer" }
 }
 
 enum PlaybackDecoder: String, CaseIterable, Identifiable {

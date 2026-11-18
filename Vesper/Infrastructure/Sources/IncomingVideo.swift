@@ -39,6 +39,13 @@ final class IncomingVideoReceiver: ObservableObject {
     static let shared = IncomingVideoReceiver()
     @Published private(set) var videos: [IncomingVideo] = []
     @Published private(set) var nonVideoCount = 0
+    @Published var isSelectingVideo = false
+
+    func selectVideo() {
+        guard !isSelectingVideo else { return }
+        log("请求由根页面打开视频文件选择器")
+        isSelectingVideo = true
+    }
     private struct Request {
         let access: IncomingFileAccess
         let requiresCopy: Bool

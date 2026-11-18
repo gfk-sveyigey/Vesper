@@ -12,12 +12,19 @@ MPVCommand, MPVOption and MPVProperty are unmodified upstream files.
 
 Compatibility changes in KSMPVPlayer / MPVHandle:
 - Adapt init/replace/shutdown, fileSize, track rotation and subtitle protocol to
-  the KSPlayer source API. Supply a CAMetalLayer host because MetalView is internal; keep upstream
-  gpu-next/Vulkan/MoltenVK rendering, rather than Vesper's previous OpenGL adapter.
-- Serialize event delivery and player access on MainActor; detach wakeup callback
-  before destroying the mpv handle. Correct C flag widths and end-file payload.
+  the KSPlayer source API.
+- Replace the newer CAMetalLayer/gpu-next/MoltenVK window path with the public
+  libmpv OpenGL ES render API supported by FFmpegKit 6.1.4's mpv 0.37 build.
+  KSMPVPlayer remains the player implementation; this is a rendering backport,
+  not the unmodified upstream renderer or a separate VesperMPVPlayer backend.
+- Poll events and render updates on MainActor. Stop display/event timers and
+  release the render context with its EAGLContext current before destroying mpv.
+- Correct C flag widths and end-file error payloads; report initialization stage
+  and mpv error details. Complete seeks on playback restart rather than command
+  submission, with a timeout for failed seeks.
 - Respect hardware/software decode, playback rate/start position, volume 0...1,
-  aspect fill, track selection and subtitle disabling.
+  aspect fill, track selection and subtitle disabling. Pause video rendering in
+  the background and restore the video track on foregrounding.
 
 Upstream configPIP is empty: this backend does not provide picture-in-picture.
 Select KSPlayer to use its existing PiP implementation. MPV renders ASS subtitles

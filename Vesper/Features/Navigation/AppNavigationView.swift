@@ -25,6 +25,8 @@ struct AppNavigationView: View {
     @State private var historyPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
     @State private var searchQuery = ""
+    @State private var pickedVideoAccess: IncomingFileAccess?
+    @State private var videoPickerDismissed = true
     @State private var previewVideo: IncomingVideo?
     @State private var playAfterPreviewDismiss: IncomingVideo?
     @State private var acknowledgedNonVideoCount = 0
@@ -75,6 +77,21 @@ struct AppNavigationView: View {
         .onChange(of: incomingVideos.nonVideoCount) { _, _ in presentNextIncomingVideo() }
         .onChange(of: isShowingImportNotice) { _, showing in
             if !showing { presentNextIncomingVideo() }
+        }
+        .onChange(of: incomingVideos.isSelectingVideo) { _, selecting in
+            if selecting { videoPickerDismissed = false }
+        }
+        .sheet(isPresented: $incomingVideos.isSelectingVideo, onDismiss: {
+            videoPickerDismissed = true
+            deliverPickedVideo()
+        }) {
+            VideoDocumentPicker { access in
+                pickedVideoAccess = access
+                incomingVideos.isSelectingVideo = false
+                deliverPickedVideo()
+            } onCancel: {
+                incomingVideos.isSelectingVideo = false
+            }
         }
         .sheet(item: $previewVideo, onDismiss: incomingPreviewDismissed) { file in
             VideoImportSheet(file: file) {
@@ -172,8 +189,21 @@ struct AppNavigationView: View {
         miniPlayerEnabled && (miniPlayerAlwaysVisible || hasPlayableContent)
     }
 
+    private func deliverPickedVideo() {
+        guard videoPickerDismissed else { return }
+        if let access = pickedVideoAccess {
+            pickedVideoAccess = nil
+            FileDeliveryLog.write("根页面文档选择器已关闭，交付视频")
+            withExtendedLifetime(access) {
+                FileDeliveryRouter.receive(access.url, origin: "documentPicker", requiresCopy: false)
+            }
+        } else {
+            presentNextIncomingVideo()
+        }
+    }
+
     private func presentNextIncomingVideo() {
-        guard previewVideo == nil, !isShowingImportNotice, playAfterPreviewDismiss == nil else { return }
+        guard videoPickerDismissed, !incomingVideos.isSelectingVideo, previewVideo == nil, !isShowingImportNotice, playAfterPreviewDismiss == nil else { return }
         let hasNotice = incomingVideos.nonVideoCount > acknowledgedNonVideoCount
         guard hasNotice || !incomingVideos.videos.isEmpty else { return }
         // Dismiss the existing full-screen UI before presenting the preview.

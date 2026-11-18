@@ -8,6 +8,7 @@ struct LocalFilesView<SourceMenu: View>: View {
     @ViewBuilder let sourceMenu: () -> SourceMenu
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
+    @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
     @State private var entries: [LocalFileEntry] = []
     @State private var loading = true
     @State private var reloadGeneration = 0
@@ -19,9 +20,6 @@ struct LocalFilesView<SourceMenu: View>: View {
     @State private var renameEntry: LocalFileEntry?
     @State private var deleteEntry: LocalFileEntry?
     @State private var movingEntry: LocalFileEntry?
-    @State private var isShowingVideoPicker = false
-    @State private var hasVideoPickerDismissed = true
-    @State private var pickedVideoAccess: IncomingFileAccess?
 
     var body: some View {
         Group {
@@ -29,10 +27,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                 VesperRootScrollView(title: "媒体") { files } actions: {
                     HStack(spacing: 0) {
                         Button("选择视频", systemImage: "square.and.arrow.down") {
-                            FileDeliveryLog.write("打开视频文件选择器，asCopy=true")
-                            pickedVideoAccess = nil
-                            hasVideoPickerDismissed = false
-                            isShowingVideoPicker = true
+                            incomingVideos.selectVideo()
                         }
                         .labelStyle(.iconOnly)
                         .font(.system(size: 17, weight: .medium))
@@ -60,13 +55,6 @@ struct LocalFilesView<SourceMenu: View>: View {
                         }
                     }
             }
-        }
-        .sheet(isPresented: $isShowingVideoPicker, onDismiss: videoPickerDismissed) {
-            VideoDocumentPicker { access in
-                pickedVideoAccess = access
-                isShowingVideoPicker = false
-                deliverPickedVideoIfReady()
-            } onCancel: { isShowingVideoPicker = false }
         }
         .task(id: source.id) { await reload() }
         .refreshable { await reload() }
@@ -104,25 +92,6 @@ struct LocalFilesView<SourceMenu: View>: View {
         .alert("文件操作失败", isPresented: $isShowingError) {
             Button("好", role: .cancel) { }
         } message: { Text(verbatim: errorMessage ?? "") }
-    }
-
-    private func videoPickerDismissed() {
-        FileDeliveryLog.write("文档选择器已关闭，待处理文件=\(pickedVideoAccess != nil)")
-        hasVideoPickerDismissed = true
-        deliverPickedVideoIfReady()
-    }
-
-    private func deliverPickedVideoIfReady() {
-        // UIKit can deliver didPickDocumentsAt either before or after SwiftUI's
-        // onDismiss. Both callbacks must retry delivery once their event arrives.
-        guard hasVideoPickerDismissed, let access = pickedVideoAccess else { return }
-        pickedVideoAccess = nil
-        FileDeliveryLog.write("文档选择与关闭均已完成，交付视频检查")
-        // Keep the selected file accessible until the shared receiver owns it.
-        // Preview presentation starts only after the picker sheet has dismissed.
-        withExtendedLifetime(access) {
-            FileDeliveryRouter.receive(access.url, origin: "documentPicker", requiresCopy: false)
-        }
     }
 
     private var files: some View {
@@ -358,7 +327,7 @@ private struct LocalMoveView: View {
 }
 
 /// Use the documented delegate and retain copy-mode delivery for file providers.
-private struct VideoDocumentPicker: UIViewControllerRepresentable {
+struct VideoDocumentPicker: UIViewControllerRepresentable {
     let onPick: (IncomingFileAccess) -> Void
     let onCancel: () -> Void
 

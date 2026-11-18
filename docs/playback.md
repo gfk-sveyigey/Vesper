@@ -70,7 +70,7 @@ or thumbnail does not prevent the user choosing an action.
 - Direct Play retains the original file's security access in PlaybackSession. It
   does not add a source or copy the video into Documents. Dismissing the sheet/player
   does not release a file that is still playing; Stop or replacement releases it.
-- Save File copies into Documents, creates/selects the local source and refreshes
+- Save File copies into Documents, creates the local source without switching the current source and refreshes
   the media list. Existing filenames receive numeric suffixes. External originals
   are preserved. Opening a file already at the Documents root does not duplicate it.
 - Dismiss releases the preview's access without saving or changing playback.
@@ -124,18 +124,25 @@ can change which system callbacks reach the guest app. No private host APIs are 
 
 ## Official KSMPVPlayer backend (build 310 baseline)
 
-Settings → Playback → Playback engine selects KSPlayer or mpv. The player's More
+Settings → Playback → Playback engine selects KSPlayer or KSMPVPlayer. The player's More
 Settings menu switches the current item while retaining position, rate and pause
 state. Queue playback keeps the chosen engine and decoder. KSPlayer remains the
 default and continues to own its original PiP path.
 
 The official KSMPVPlayer sources are vendored with compatibility patches for
 the KSPlayer source API; see Vesper/Infrastructure/Playback/KSMPVPlayer/UPSTREAM.md for the
-exact revision and patch scope. The former VesperMPVPlayer OpenGL renderer is
-removed. Official MPVPlayer 5.6.2 cannot be linked directly on iPhone because its
+exact revision and patch scope. KSMPVPlayer uses the public libmpv OpenGL ES render API through a GLKView host,
+matching the pinned FFmpegKit 6.1.4 build. The newer upstream CAMetalLayer /
+gpu-next / MoltenVK window path is not used. Official MPVPlayer 5.6.2 cannot be linked directly on iPhone because its
 KSPlayer XCFramework has no iPhone device slice. MPV's official backend has no
 PiP implementation; the app reports that limitation rather than switching engines.
 
 Device checks: MP4/MKV playback, hardware/software decode, seeking while paused,
 rate, volume, audio/subtitle selection, next/retry, background audio, returning
 to foreground, and switching engines with position restoration.
+
+The Local Video header import action requests a document picker owned by
+AppNavigationView, above the tab/navigation content. The picker is not presented
+from the page subtree whose header actions are lifted into the navigation overlay.
+Selected-file access stays retained until both document delivery and picker
+dismissal finish, then the existing import validation/preview flow takes over.

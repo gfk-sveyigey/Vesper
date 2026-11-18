@@ -62,6 +62,12 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
         didSet { setDouble("panscan", contentMode == .scaleAspectFill ? 1 : 0) }
     }
     private var reachedEnd = false
+    private var hasRequestedLoad = false
+    private var seekCompletion: ((Bool) -> Void)?
+    private var seekTimeout: Task<Void, Never>?
+    private var muted = false
+    private var rate: Float = 1
+    private var volume: Float = 1
     private var tracks = [MPVTrack]()
     private var url: URL
     private var options: KSOptions
@@ -79,10 +85,15 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
         switch event.event_id {
         case MPV_EVENT_FILE_LOADED:
             sourceDidOpened()
+        case MPV_EVENT_PLAYBACK_RESTART:
+            completeSeek(true)
+            renderView?.setNeedsDisplay()
         case MPV_EVENT_END_FILE:
-            let end = event.data.load(as: mpv_event_end_file.self)
+            guard let data = event.data else { return }
+            let end = data.load(as: mpv_event_end_file.self)
             guard end.reason == MPV_END_FILE_REASON_EOF || end.reason == MPV_END_FILE_REASON_ERROR else { return }
-            let error = end.reason == MPV_END_FILE_REASON_ERROR ? NSError(domain: "mpv", code: Int(end.error)) : nil
+            let error = end.reason == MPV_END_FILE_REASON_ERROR ? playbackError(end.error, stage: "load/playback") : nil
+            completeSeek(false)
             runOnMainThread { [weak self] in
                 guard let self else {
                     return
@@ -113,6 +124,11 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
                 reachedEnd = true
                 delegate?.finish(player: self, error: nil)
             }
+        case "duration":
+            if let data = property.data {
+                let value = data.load(as: Double.self)
+                duration = value.isFinite ? max(0, value) : 0
+            }
         case MPVProperty.timePos:
             if let time = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee {
                 currentPlaybackTime = time
@@ -126,7 +142,7 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
         reachedEnd = false
         isReadyToPlay = true
         seekable = getFlag(MPVProperty.seekable)
-        duration = getDouble(MPVProperty.duration)
+        duration = max(0, getDouble(MPVProperty.duration))
         AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [KSMPVPlayer] 已加载，duration=\(duration)，hwdec=\(getString(MPVProperty.hwdecCurrent) ?? "unknown")")
         fileSize = Double(getInt(MPVProperty.fileSize))
         naturalSize = CGSize(width: getInt(MPVProperty.width), height: getInt(MPVProperty.height))
@@ -153,8 +169,8 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
             guard let self else {
                 return
             }
+            setDouble("panscan", contentMode == .scaleAspectFill ? 1 : 0)
             loadState = .playable
-            if options.startPlayTime > 0 { seek(time: options.startPlayTime) { _ in } }
             delegate?.readyToPlay(player: self)
         }
     }
@@ -176,7 +192,7 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
 extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
 
     public var view: UIView? {
-        metalView
+        videoView
     }
 
     public var playableTime: TimeInterval {
@@ -185,28 +201,31 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
 
     public var isMuted: Bool {
         get {
-            getFlag(MPVOption.Audio.mute)
+            muted
         }
         set(newValue) {
+            muted = newValue
             setFlag(MPVOption.Audio.mute, newValue)
         }
     }
 
     public var playbackRate: Float {
         get {
-            Float(getDouble(MPVOption.PlaybackControl.speed))
+            rate
         }
         set(newValue) {
-            setDouble(MPVOption.PlaybackControl.speed, Double(newValue))
+            rate = newValue.isFinite ? max(0.25, min(4, newValue)) : 1
+            setDouble(MPVOption.PlaybackControl.speed, Double(rate))
         }
     }
 
     public var playbackVolume: Float {
         get {
-            Float(getDouble(MPVOption.Audio.volume) / 100)
+            volume
         }
         set(newValue) {
-            setDouble(MPVOption.Audio.volume, Double(newValue) * 100)
+            volume = newValue.isFinite ? max(0, min(1, newValue)) : 1
+            setDouble(MPVOption.Audio.volume, Double(volume) * 100)
         }
     }
 
@@ -220,10 +239,10 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
     }
 
     public func replace(url: URL, options: KSOptions) {
+        shutdown()
         self.url = url
         self.options = options
-        if mpv == nil { initializeHandle(options: options) }
-        reset()
+        rate = options.startPlayRate
     }
 
     public var isPlaying: Bool { playbackState == .playing }
@@ -235,6 +254,8 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
     public func disableSubtitles() { setString(MPVOption.TrackSelection.sid, "no") }
 
     public func play() {
+        if !hasRequestedLoad { prepareToPlay() }
+        guard initializationStatus >= 0 else { return }
         playbackState = .playing
         setFlagAsync(MPVOption.PlaybackControl.pause, false)
     }
@@ -245,12 +266,14 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
     }
 
     public func enterBackground() {
+        setRenderingInBackground(true)
         guard backgroundVideoID == nil else { return }
         backgroundVideoID = getInt(MPVOption.TrackSelection.vid)
         setString(MPVOption.TrackSelection.vid, "no")
     }
 
     public func enterForeground() {
+        setRenderingInBackground(false)
         if let id = backgroundVideoID {
             backgroundVideoID = nil
             if id > 0 { setInt(MPVOption.TrackSelection.vid, id) }
@@ -259,7 +282,9 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
     }
 
     public func thumbnailImageAtCurrentTime() async -> CGImage? {
-        nil
+        guard isReadyToPlay, UIApplication.shared.applicationState != .background,
+              let renderView, renderView.window != nil else { return nil }
+        return renderView.snapshot.cgImage
     }
 
     public func tracks(mediaType: AVMediaType) -> [any KSPlayer.MediaPlayerTrack] {
@@ -273,55 +298,77 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
     }
 
     public func prepareToPlay() {
+        guard !hasRequestedLoad else { return }
         if mpv == nil { initializeHandle(options: options) }
         guard initializationStatus >= 0 else {
-            delegate?.finish(player: self, error: NSError(domain: "mpv", code: Int(initializationStatus)))
+            delegate?.finish(player: self, error: playbackError(initializationStatus, stage: "initialize"))
             return
         }
-        setDouble(MPVOption.PlaybackControl.speed, Double(options.startPlayRate))
-        loadFile(url: url)
+        hasRequestedLoad = true
+        reachedEnd = false
+        loadState = .loading
+        playbackRate = options.startPlayRate
+        setFlag("mute", muted)
+        setDouble("volume", Double(volume) * 100)
+        if options.startPlayTime > 0 { setString("start", String(options.startPlayTime)) }
+        let code = command(.loadfile, args: [url.isFileURL ? url.path : url.absoluteString, "replace"])
+        if code < 0 {
+            delegate?.finish(player: self, error: playbackError(code, stage: "loadfile"))
+        }
     }
 
     public func shutdown() {
+        completeSeek(false)
         destroyHandle()
+        hasRequestedLoad = false
+        backgroundVideoID = nil
+        reachedEnd = false
+        tracks = []
+        duration = 0
+        currentPlaybackTime = 0
         isReadyToPlay = false
         playbackState = .stopped
         loadState = .idle
     }
 
-    public func reset() {
-        _ = command(.stop)
-    }
+    public func reset() { shutdown() }
 
     public func seek(time: TimeInterval, completion: @escaping (Bool) -> Void) {
+        guard isReadyToPlay, seekable, time.isFinite else { completion(false); return }
+        completeSeek(false)
         reachedEnd = false
-        let wasPlaying = isPlaying
-        playbackState = .seeking
-        let code = command(.seek, args: [String(time), "absolute+exact"])
-        playbackState = wasPlaying ? .playing : .paused
-        runOnMainThread {
-            completion(code == 0)
+        seekCompletion = completion
+        let target = min(duration, max(0, time))
+        // Pause is independent of seeking; don't overwrite the transport state.
+        let code = command(.seek, args: [String(target), "absolute+exact"])
+        guard code >= 0 else { completeSeek(false); return }
+        seekTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled else { return }
+            self?.diagnostic("seek 超时")
+            self?.completeSeek(false)
         }
+    }
+
+    private func completeSeek(_ finished: Bool) {
+        seekTimeout?.cancel()
+        seekTimeout = nil
+        let callback = seekCompletion
+        seekCompletion = nil
+        if finished { currentPlaybackTime = getDouble("time-pos") }
+        callback?(finished)
+    }
+
+    private func playbackError(_ code: Int32, stage: String) -> NSError {
+        let reason = String(cString: mpv_error_string(code))
+        let details = initializationError ?? recentErrors.last ?? reason
+        diagnostic("\(stage) 失败：code=\(code)，\(details)")
+        return NSError(domain: "KSMPVPlayer", code: Int(code), userInfo: [
+            NSLocalizedDescriptionKey: "KSMPVPlayer：\(details)（\(code)）"
+        ])
     }
 
     public func configPIP() {}
-}
-
-extension KSMPVPlayer {
-    private func loadFile(url: URL, options: [String] = []) {
-        let urlString: String
-        if url.isFileURL {
-            urlString = url.path
-        } else {
-            urlString = url.absoluteString
-        }
-        var args = [urlString]
-        if !options.isEmpty {
-            args.append("replace")
-            args.append(options.joined(separator: ","))
-        }
-        _ = command(.loadfile, args: args)
-    }
 }
 
 @available(macOS 12.0, iOS 15.0, tvOS 15.0, *)
