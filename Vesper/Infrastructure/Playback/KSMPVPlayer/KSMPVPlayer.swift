@@ -57,9 +57,14 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
         }
     }()
 
+    private var backgroundVideoID: Int?
+    public var contentMode: UIView.ContentMode = .scaleAspectFit {
+        didSet { setDouble("panscan", contentMode == .scaleAspectFill ? 1 : 0) }
+    }
+    private var reachedEnd = false
     private var tracks = [MPVTrack]()
     private var url: URL
-    private let options: KSOptions
+    private var options: KSOptions
     @MainActor
     public var pipController: KSPictureInPictureController?
     @MainActor
@@ -82,7 +87,10 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
                 guard let self else {
                     return
                 }
+                if error != nil || !reachedEnd {
+                reachedEnd = true
                 delegate?.finish(player: self, error: error)
+            }
             }
         default:
             break
@@ -100,6 +108,11 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
             if let paused = UnsafePointer<Int32>(OpaquePointer(property.data))?.pointee {
                 loadState = paused != 0 ? .loading : .playable
             }
+        case "eof-reached":
+            if getFlag("eof-reached"), !reachedEnd, isReadyToPlay {
+                reachedEnd = true
+                delegate?.finish(player: self, error: nil)
+            }
         case MPVProperty.timePos:
             if let time = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee {
                 currentPlaybackTime = time
@@ -110,9 +123,12 @@ public final class KSMPVPlayer: MPVHandle, @unchecked Sendable {
     }
 
     private func sourceDidOpened() {
+        reachedEnd = false
         isReadyToPlay = true
+        loadState = .playable
         seekable = getFlag(MPVProperty.seekable)
         duration = getDouble(MPVProperty.duration)
+        AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [KSMPVPlayer] 已加载，duration=\(duration)，hwdec=\(getString(MPVProperty.hwdecCurrent) ?? "unknown")")
         fileSize = Double(getInt(MPVProperty.fileSize))
         naturalSize = CGSize(width: getInt(MPVProperty.width), height: getInt(MPVProperty.height))
         let trackCount = getInt(MPVProperty.trackListCount)
@@ -202,8 +218,10 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
         // swiftlint:enable force_cast
     }
 
-    public func replace(url: URL, options _: KSOptions) {
+    public func replace(url: URL, options: KSOptions) {
         self.url = url
+        self.options = options
+        if mpv == nil { initializeHandle(options: options) }
         reset()
     }
 
@@ -212,9 +230,6 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
     public var usingHardwareDecoder: Bool {
         guard let decoder = getString(MPVProperty.hwdecCurrent) else { return false }
         return decoder != "no" && !decoder.isEmpty
-    }
-    public var contentMode: UIView.ContentMode = .scaleAspectFit {
-        didSet { setDouble("panscan", contentMode == .scaleAspectFill ? 1 : 0) }
     }
     public func disableSubtitles() { setString(MPVOption.TrackSelection.sid, "no") }
 
@@ -228,9 +243,19 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
         setFlagAsync(MPVOption.PlaybackControl.pause, true)
     }
 
-    public func enterBackground() {}
+    public func enterBackground() {
+        guard backgroundVideoID == nil else { return }
+        backgroundVideoID = getInt(MPVOption.TrackSelection.vid)
+        setString(MPVOption.TrackSelection.vid, "no")
+    }
 
-    public func enterForeground() {}
+    public func enterForeground() {
+        if let id = backgroundVideoID {
+            backgroundVideoID = nil
+            if id > 0 { setInt(MPVOption.TrackSelection.vid, id) }
+            else { setString(MPVOption.TrackSelection.vid, "auto") }
+        }
+    }
 
     public func thumbnailImageAtCurrentTime() async -> CGImage? {
         nil
@@ -247,6 +272,11 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
     }
 
     public func prepareToPlay() {
+        if mpv == nil { initializeHandle(options: options) }
+        guard initializationStatus >= 0 else {
+            delegate?.finish(player: self, error: NSError(domain: "mpv", code: Int(initializationStatus)))
+            return
+        }
         setDouble(MPVOption.PlaybackControl.speed, Double(options.startPlayRate))
         loadFile(url: url, options: options.startPlayTime > 0 ? ["start=\(options.startPlayTime)"] : [])
     }
@@ -263,6 +293,7 @@ extension KSMPVPlayer: @preconcurrency MediaPlayerProtocol {
     }
 
     public func seek(time: TimeInterval, completion: @escaping (Bool) -> Void) {
+        reachedEnd = false
         let wasPlaying = isPlaying
         playbackState = .seeking
         let code = command(.seek, args: [String(time), "absolute+exact"])
@@ -319,7 +350,7 @@ extension KSMPVPlayer: AVPlaybackCoordinatorPlaybackControlDelegate {
         if abs(currentPlaybackTime - seekTime) < CGFLOAT_EPSILON {
             return
         }
-        await _ = seek(time: seekTime)
+        seek(time: seekTime) { _ in }
     }
 
     public func playbackCoordinator(_: AVDelegatingPlaybackCoordinator, didIssue bufferingCommand: AVDelegatingPlaybackCoordinatorBufferingCommand) async {

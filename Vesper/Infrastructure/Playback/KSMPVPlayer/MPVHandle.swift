@@ -16,13 +16,20 @@ import AppKit
 #endif
 @MainActor
 public class MPVHandle: NSObject, @unchecked Sendable {
-    var mpv: OpaquePointer? = mpv_create()
+    private(set) var initializationStatus: Int32 = 0
+    var mpv: OpaquePointer?
     let metalView: MetalView
-    private let queue = DispatchQueue(label: "com.ksplayer.mpv", qos: .userInitiated)
     @MainActor
     public init(options: KSOptions) {
         metalView = MetalView()
         super.init()
+        initializeHandle(options: options)
+    }
+
+    func initializeHandle(options: KSOptions) {
+        guard mpv == nil else { return }
+        mpv = mpv_create()
+        guard mpv != nil else { initializationStatus = -1; return }
         #if DEBUG
         check(status: mpv_request_log_messages(mpv, "debug"))
         #else
@@ -50,7 +57,8 @@ public class MPVHandle: NSObject, @unchecked Sendable {
         for (k, v) in observeProperties {
             mpv_observe_property(mpv, 0, k, v)
         }
-        check(status: mpv_initialize(mpv))
+        initializationStatus = mpv_initialize(mpv)
+        check(status: initializationStatus)
         mpv_set_wakeup_callback(mpv, { ctx in
             guard let ctx else { return }
             let owner = Unmanaged<MPVHandle>.fromOpaque(ctx).takeUnretainedValue()
@@ -105,6 +113,7 @@ public class MPVHandle: NSObject, @unchecked Sendable {
         MPVProperty.vf: MPV_FORMAT_NONE,
         MPVProperty.af: MPV_FORMAT_NONE,
         MPVProperty.timePos: MPV_FORMAT_DOUBLE,
+        "eof-reached": MPV_FORMAT_FLAG,
         MPVOption.TrackSelection.vid: MPV_FORMAT_INT64,
         MPVOption.TrackSelection.aid: MPV_FORMAT_INT64,
         MPVOption.TrackSelection.sid: MPV_FORMAT_INT64,
@@ -271,6 +280,7 @@ extension MPVHandle {
 
     func check(status: CInt) {
         if status < 0 {
+            AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [KSMPVPlayer] error=\(status) \(String(cString: mpv_error_string(status)))")
             KSLog("MPV API error=\(String(cString: mpv_error_string(status))), Return value=\(status).")
         }
     }
