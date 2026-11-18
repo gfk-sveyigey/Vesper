@@ -55,7 +55,7 @@ final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
     required init(url: URL, options: KSOptions) {
         self.url = url
         self.options = options
-        if let context = EAGLContext(api: .openGLES2) {
+        if let context = EAGLContext(api: .openGLES3) ?? EAGLContext(api: .openGLES2) {
             surface = MPVRenderView(context: context)
         } else {
             surface = nil
@@ -89,7 +89,7 @@ final class VesperMPVPlayer: NSObject, @preconcurrency MediaPlayerProtocol {
         }
         let result = mpv_initialize(context)
         guard result >= 0 else { fail("mpv initialize: \(errorString(result))"); return }
-        guard let surface, surface.attach(context) else { fail("mpv OpenGL 渲染初始化失败"); return }
+        guard surface.attach(context) else { fail("mpv OpenGL 渲染初始化失败"); return }
         mpv_request_log_messages(context, "warn")
         loadState = .loading
         delegate?.changeLoadState(player: self)
@@ -316,7 +316,7 @@ private final class MPVRenderView: GLKView, @preconcurrency GLKViewDelegate {
         enableSetNeedsDisplay = true
         drawableDepthFormat = .formatNone
         drawableColorFormat = .RGBA8888
-        contentScaleFactor = UIScreen.main.scale
+        contentScaleFactor = traitCollection.displayScale
         backgroundColor = .black
         isOpaque = true
     }
