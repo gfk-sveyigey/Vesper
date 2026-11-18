@@ -1,10 +1,17 @@
 import SwiftUI
 
 enum PlaybackPreferences {
+    static var preferredEngine: PlaybackEngine { PlaybackEngine(rawValue: UserDefaults.standard.string(forKey: "player.engine") ?? "ksplayer") ?? .ksplayer }
     static var preferredDecoder: PlaybackDecoder { PlaybackDecoder(rawValue: UserDefaults.standard.string(forKey: "player.decoder") ?? "hardware") ?? .hardware }
     static var backgroundEnabled: Bool { UserDefaults.standard.object(forKey: "player.background.enabled") as? Bool ?? true }
     static var backgroundMode: String { UserDefaults.standard.string(forKey: "player.background.mode") ?? "audio" }
     static var remembersProgress: Bool { UserDefaults.standard.object(forKey: "player.rememberProgress") as? Bool ?? true }
+}
+
+enum PlaybackEngine: String, CaseIterable, Identifiable {
+    case ksplayer, mpv
+    var id: Self { self }
+    var title: String { self == .mpv ? "mpv" : "KSPlayer" }
 }
 
 enum PlaybackDecoder: String, CaseIterable, Identifiable {
@@ -17,6 +24,7 @@ struct PlaybackSettingsView: View {
     @ObservedObject var session: PlaybackSession
     @AppStorage("player.background.enabled") private var backgroundEnabled = true
     @AppStorage("player.background.mode") private var backgroundMode = "audio"
+    @AppStorage("player.engine") private var engine = PlaybackEngine.ksplayer
     @AppStorage("player.decoder") private var decoder = PlaybackDecoder.hardware
     @AppStorage("player.playbackRate") private var defaultRate = 1.0
     @AppStorage("player.rememberProgress") private var remembersProgress = true
@@ -26,6 +34,9 @@ struct PlaybackSettingsView: View {
             Group {
                 SettingsIntroCard(title: "播放设置", symbol: "play.circle", description: "管理后台播放、进度与跳转。")
                 SettingsSection {
+                    SettingsPicker("播放内核", selection: $engine) {
+                        ForEach(PlaybackEngine.allCases) { mode in Text(verbatim: mode.title).tag(mode) }
+                    }
                     SettingsPicker("优先解码方式", selection: $decoder) {
                         ForEach(PlaybackDecoder.allCases) { mode in
                             Text(LocalizedStringKey(mode.title)).tag(mode)

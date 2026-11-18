@@ -10,3 +10,8 @@ See upstream source for individual component copyright and license notices.
 
 Vesper playback integration source:
 https://github.com/gfk-sveyigey/Vesper
+
+libmpv (mpv) — GPL version 2 or later
+Source: https://github.com/mpv-player/mpv
+Distributed via FFmpegKit 6.1.4's libmpv Swift package product.
+The mpv path uses libmpv's public OpenGL render API and its libass subtitle renderer.

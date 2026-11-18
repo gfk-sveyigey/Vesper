@@ -556,3 +556,7 @@
 "声道布局" = "Channel Layout";
 "创建时间" = "Created";
 "修改时间" = "Modified";
+
+"播放内核" = "Moteur de lecture";
+
+"mpv 暂不支持画中画。" = "mpv ne prend pas encore en charge le mode image dans l’image.";

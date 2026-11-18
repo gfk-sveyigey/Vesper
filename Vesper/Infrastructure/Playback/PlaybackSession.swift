@@ -12,6 +12,7 @@ import UIKit
 /// the decoder. KSPlayer APIs are contained here, outside navigation code.
 @MainActor
 final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, @preconcurrency AVPictureInPictureControllerDelegate {
+    @Published private(set) var currentEngine = PlaybackPreferences.preferredEngine
     @Published private(set) var currentDecoder = PlaybackPreferences.preferredDecoder
     @Published private(set) var history: [PlaybackHistoryEntry] = []
     private var lastHistorySave = Date.distantPast
@@ -119,10 +120,16 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         let playing = isPlaying
         let rate = playbackRate
         log("切换解码方式：\(decoder.rawValue)，位置=\(position)，继续播放=\(playing)")
-        load(item, source: source, decoder: decoder, position: position, resume: playing, rate: rate)
+        load(item, source: source, engine: currentEngine, decoder: decoder, position: position, resume: playing, rate: rate)
     }
 
-    private func load(_ item: MediaItem, source: MediaSource?, decoder: PlaybackDecoder? = nil,
+    func setCurrentEngine(_ engine: PlaybackEngine) {
+        guard engine != currentEngine, let item = currentItem else { return }
+        load(item, source: source, engine: engine, decoder: currentDecoder,
+             position: currentTime, resume: isPlaying, rate: playbackRate)
+    }
+
+    private func load(_ item: MediaItem, source: MediaSource?, engine: PlaybackEngine? = nil, decoder: PlaybackDecoder? = nil,
                       position: Double? = nil, resume: Bool = true, rate: Float? = nil) {
         request?.cancel()
         generation = UUID()
@@ -133,6 +140,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         lastHistorySave = .distantPast
         decoderRestore = position.map { ($0, resume) }
         progressRestored = position != nil
+        currentEngine = engine ?? PlaybackPreferences.preferredEngine
         currentDecoder = decoder ?? PlaybackPreferences.preferredDecoder
         suppressedProgressID = nil
         currentItem = item
@@ -143,6 +151,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         let savedRate = UserDefaults.standard.float(forKey: "player.playbackRate")
         playbackRate = [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(savedRate) ? savedRate : 1
         if let rate { playbackRate = rate }
+        let selectedEngine = currentEngine
         let selectedDecoder = currentDecoder
         let external = externalFile
         request = Task { [weak self] in
@@ -163,8 +172,13 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
                 try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
                 try AVAudioSession.sharedInstance().setActive(true)
                 self.refreshPlaybackPreferences()
-                KSOptions.firstPlayerType = selectedDecoder == .software ? KSMEPlayer.self : KSAVPlayer.self
-                KSOptions.secondPlayerType = selectedDecoder == .software ? nil : KSMEPlayer.self
+                if selectedEngine == .mpv {
+                    KSOptions.firstPlayerType = VesperMPVPlayer.self
+                    KSOptions.secondPlayerType = nil
+                } else {
+                    KSOptions.firstPlayerType = selectedDecoder == .software ? KSMEPlayer.self : KSAVPlayer.self
+                    KSOptions.secondPlayerType = selectedDecoder == .software ? nil : KSMEPlayer.self
+                }
                 let options = KSOptions()
                 options.hardwareDecode = selectedDecoder == .hardware
                 options.startPlayTime = position ?? 0
@@ -245,6 +259,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func startPictureInPicture() {
+        guard currentEngine != .mpv else { playbackNotice = VesperLocalization.string("mpv 暂不支持画中画。"); return }
         configurePictureInPicture()
         guard let pipController, pipController.isPictureInPicturePossible else {
             playbackNotice = String(localized: "当前视频暂不支持画中画。")
@@ -796,7 +811,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func playQueued(_ item: MediaItem) {
         guard let source, queue.contains(where: { $0.id == item.id }) else { return }
-        load(item, source: source)
+        load(item, source: source, engine: currentEngine, decoder: currentDecoder)
     }
 
     func selectAudio(_ id: Int32) {
@@ -808,6 +823,15 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func selectSubtitle(_ id: Int32?) {
         guard let player = layer?.player else { return }
+        if let mpv = player as? VesperMPVPlayer {
+            if let id, let track = mpv.tracks(mediaType: .subtitle).first(where: { $0.trackID == id }) { mpv.select(track: track) }
+            else { mpv.disableSubtitles() }
+            selectedSubtitleID = id
+            subtitleText = ""
+            subtitleImage = nil
+            refreshTracks()
+            return
+        }
         subtitleModel.selectedSubtitleInfo = nil
         if let id, let track = player.tracks(mediaType: .subtitle).first(where: { $0.trackID == id }) {
             player.select(track: track)
@@ -839,12 +863,12 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     func next() {
         guard hasNext, let source, let currentItem,
               let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return }
-        load(queue[index + 1], source: source)
+        load(queue[index + 1], source: source, engine: currentEngine, decoder: currentDecoder)
     }
 
     func retry() {
         guard let currentItem else { return }
-        load(currentItem, source: source)
+        load(currentItem, source: source, engine: currentEngine, decoder: currentDecoder)
     }
 
     func stop() {
@@ -911,7 +935,11 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             return
         }
         if state == .readyToPlay {
-            currentDecoder = layer.player is KSAVPlayer || layer.options.hardwareDecode ? .hardware : .software
+            if let mpv = layer.player as? VesperMPVPlayer {
+                currentDecoder = mpv.usingHardwareDecoder ? .hardware : .software
+            } else {
+                currentDecoder = layer.player is KSAVPlayer || layer.options.hardwareDecode ? .hardware : .software
+            }
             if let restore = decoderRestore {
                 decoderRestore = nil
                 currentTime = restore.time
@@ -942,6 +970,9 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         guard layer === self.layer else { return }
         // Decoder ticks already queued before a preview/final seek must not
         // overwrite the UI target. Resume normal updates once the decoder lands.
+        if let mpv = layer.player as? VesperMPVPlayer, mpv.isReadyToPlay {
+            currentDecoder = mpv.usingHardwareDecoder ? .hardware : .software
+        }
         if !isSeeking {
             if let landing = seekLanding {
                 if abs(currentTime - landing.time) < 1.5 || Date() >= landing.deadline {

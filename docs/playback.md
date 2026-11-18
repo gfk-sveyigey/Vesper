@@ -121,3 +121,23 @@ before concluding no document was handed over. Only file URLs from these inputs
 are accepted; no general URL or text document type is registered. When testing,
 record whether Vesper is installed directly or hosted by a container, since a host
 can change which system callbacks reach the guest app. No private host APIs are used.
+
+
+## mpv 播放内核
+
+Vesper 通过 FFmpegKit 6.1.4 的 `libmpv` product 链接 mpv，使用
+`VesperMPVPlayer` 实现 KSPlayer 的公开 `MediaPlayerProtocol`，复用现有播放会话和控制层。
+该版本 KSPlayer 没有自带 mpv 适配器；适配器是 Vesper 的代码。
+
+- 设置 → 播放设置 → 播放内核：保存新播放会话的默认内核，默认仍为 KSPlayer。
+- 播放器 → 更多设置 → 播放内核：仅切换当前会话，保留位置、倍速和播放/暂停状态。
+- 优先解码方式仍控制硬解优先/软件解码；mpv 使用 `hwdec=auto-safe` 或 `no`。
+- 视频使用 libmpv 公共 OpenGL ES render API；内嵌字幕由 mpv/libass 合成，音轨/字幕通过 mpv track ID 切换。
+- 此 mpv 输出暂不提供系统画中画或 AirPlay 视频输出。画中画按钮按能力禁用，AirPlay 仍可用于系统音频路由。
+  需要画中画时选择 KSPlayer 内核。后台音频沿用全局后台播放开关。
+- 初始化、解码、加载及错误记录使用 `[MPV]` 日志标签。
+
+真机验收：分别播放本地/相册文件；播放中和暂停时切换内核，核对位置及倍速；
+拖动进度条并快进/快退；切换音轨及 ASS 字幕、关闭字幕；横竖屏和填充模式；
+后台音频及回到前台；连续关闭/重开播放器，确认音频和渲染资源释放。
+CI 编译和打包通过不能替代上述真机验收。

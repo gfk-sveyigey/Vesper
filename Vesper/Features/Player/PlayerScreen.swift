@@ -476,8 +476,13 @@ struct PlayerScreen: View {
                     session.setCurrentDecoder(decoder)
                 }
             })
+        let engineMenu = UIMenu(title: VesperLocalization.string("播放内核") + " · " + session.currentEngine.title,
+                               image: UIImage(systemName: "play.rectangle"), children:
+            PlaybackEngine.allCases.map { engine in
+                UIAction(title: engine.title, state: engine == session.currentEngine ? .on : .off) { _ in session.setCurrentEngine(engine) }
+            })
         return UIMenu(children: [
-            UIMenu(options: .displayInline, children: [decoding]),
+            UIMenu(options: .displayInline, children: [engineMenu, decoding]),
             UIMenu(options: .displayInline, children: [
                 menuAction(VesperLocalization.string("弹幕设置"), symbol: "text.bubble") { requestPanel(.danmaku) },
                 menuAction(VesperLocalization.string("字幕设置"), symbol: "textformat.size") { requestPanel(.subtitles) },
@@ -577,6 +582,11 @@ struct PlayerScreen: View {
                 switch selected {
                 case .more:
                     SettingsPage {
+                        SettingsSection {
+                            SettingsPicker("播放内核", selection: Binding(get: { session.currentEngine }, set: { session.setCurrentEngine($0) })) {
+                                ForEach(PlaybackEngine.allCases) { engine in Text(verbatim: engine.title).tag(engine) }
+                            }
+                        }
                         SettingsSection {
                             NavigationLink("弹幕设置") { DanmakuSettingsView() }
                             NavigationLink("字幕设置") { SubtitleSettingsView() }
