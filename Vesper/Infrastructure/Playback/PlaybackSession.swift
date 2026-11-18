@@ -173,7 +173,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
                 try AVAudioSession.sharedInstance().setActive(true)
                 self.refreshPlaybackPreferences()
                 if selectedEngine == .mpv {
-                    KSOptions.firstPlayerType = VesperMPVPlayer.self
+                    KSOptions.firstPlayerType = KSMPVPlayer.self
                     KSOptions.secondPlayerType = nil
                 } else {
                     KSOptions.firstPlayerType = selectedDecoder == .software ? KSMEPlayer.self : KSAVPlayer.self
@@ -823,7 +823,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func selectSubtitle(_ id: Int32?) {
         guard let player = layer?.player else { return }
-        if let mpv = player as? VesperMPVPlayer {
+        if let mpv = player as? KSMPVPlayer {
             if let id, let track = mpv.tracks(mediaType: .subtitle).first(where: { $0.trackID == id }) { mpv.select(track: track) }
             else { mpv.disableSubtitles() }
             selectedSubtitleID = id
@@ -935,7 +935,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             return
         }
         if state == .readyToPlay {
-            if let mpv = layer.player as? VesperMPVPlayer {
+            if let mpv = layer.player as? KSMPVPlayer {
                 currentDecoder = mpv.usingHardwareDecoder ? .hardware : .software
             } else {
                 currentDecoder = layer.player is KSAVPlayer || layer.options.hardwareDecode ? .hardware : .software
@@ -970,7 +970,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         guard layer === self.layer else { return }
         // Decoder ticks already queued before a preview/final seek must not
         // overwrite the UI target. Resume normal updates once the decoder lands.
-        if let mpv = layer.player as? VesperMPVPlayer, mpv.isReadyToPlay {
+        if let mpv = layer.player as? KSMPVPlayer, mpv.isReadyToPlay {
             currentDecoder = mpv.usingHardwareDecoder ? .hardware : .software
         }
         if !isSeeking {
