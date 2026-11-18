@@ -7,7 +7,7 @@ The five Swift files originate from the official MPVPlayer target. This is a
 source backport, not a dependency on the 5.6.2 binary: that release omits the
 iPhone device slice. Vesper now uses the official KSPlayer GPL source snapshot
 `be7f60d3b94a0941c643fe8699113cfce4f08e83`, immediately preceding the 5.6.2
-binary packaging change, and FFmpegKit 6.1.4.
+binary packaging change, and FFmpegKit 9.0.2.
 MPVCommand, MPVOption and MPVProperty are unmodified upstream files.
 
 Compatibility changes in KSMPVPlayer / MPVHandle:
