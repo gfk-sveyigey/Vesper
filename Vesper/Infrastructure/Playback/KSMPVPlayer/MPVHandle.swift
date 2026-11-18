@@ -159,7 +159,7 @@ public class MPVHandle: NSObject, @unchecked Sendable {
             if let data = event.data {
                 let msg = data.load(as: mpv_event_log_message.self)
                 let message = "[\(String(cString: msg.prefix))] \(String(cString: msg.text).trimmingCharacters(in: .whitespacesAndNewlines))"
-                if msg.log_level <= MPV_LOG_LEVEL_ERROR.rawValue {
+                if msg.log_level.rawValue <= MPV_LOG_LEVEL_ERROR.rawValue {
                     recentErrors.append(message)
                     recentErrors = Array(recentErrors.suffix(6))
                 }
