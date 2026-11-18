@@ -558,7 +558,7 @@ struct SettingsIntroCard: View {
 }
 
 /// Match the standard symbol-and-text labels used by tab settings.
-private struct SettingsLabel: View {
+struct SettingsLabel: View {
     let title: LocalizedStringKey
     let symbol: String
 

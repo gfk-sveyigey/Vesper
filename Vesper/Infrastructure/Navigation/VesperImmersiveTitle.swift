@@ -210,11 +210,11 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 /// a clamped blur/opacity target would spread the fade over the entire snap
 /// distance, making the blur appear detached from the moving header.
 private struct VesperHeaderMotionEffect: AnimatableModifier {
-    var displacement: CGFloat
+    nonisolated var displacement: CGFloat
     let fadeDistance: CGFloat
     let reducesMotion: Bool
 
-    var animatableData: CGFloat {
+    nonisolated var animatableData: CGFloat {
         get { displacement }
         set { displacement = newValue }
     }
