@@ -474,7 +474,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         )
         let played = priorPlayed || currentTime / duration >= 0.9
         if !priorPlayed, played, source.kind == .emby {
-            Task { try? await EmbyRepository.shared.updateWatchState(for: item, source: source, markPlayed: true) }
+            Task { try? await EmbyRepository.shared.updatePlaybackRecord(for: item, source: source, change: .setPlayed(true)) }
         }
         let entry = PlaybackHistoryEntry(mediaID: item.id, title: item.title, source: source,
                                          watchedAt: Date(), position: currentTime, duration: duration,
@@ -546,7 +546,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         savedProgressRevision += 1
     }
 
-    func recordWatched(_ item: MediaItem, source: MediaSource) {
+    func recordPlayed(_ played: Bool, for item: MediaItem, source: MediaSource) {
         guard source.id == item.id.sourceID else { return }
         let existing = history.first(where: { $0.mediaID == item.id })
         let duration = max(existing?.duration ?? item.duration ?? savedDuration(for: item), 0)
@@ -558,11 +558,12 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             watchedAt: Date(),
             position: position,
             duration: duration,
-            isPlayed: true
+            isPlayed: played
         )
         history.removeAll { $0.mediaID == item.id }
         history.insert(entry, at: 0)
         if history.count > 1000 { history.removeLast(history.count - 1000) }
+        if currentItem?.id == item.id { currentItem?.isPlayed = played }
         persistHistory()
         savedProgressRevision += 1
     }

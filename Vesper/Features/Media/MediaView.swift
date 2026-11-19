@@ -68,6 +68,7 @@ final class MediaLayoutSettings: ObservableObject {
 
 struct MediaView: View {
     @Binding var path: NavigationPath
+    let isActiveTab: Bool
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
     @ObservedObject private var layout = MediaLayoutSettings.shared
@@ -76,6 +77,8 @@ struct MediaView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsEmbyShortcuts = false
     @State private var mediaScrollOffset: CGFloat = 0
+    @State private var isOpeningCarouselDetail = false
+    @State private var navigationBarPhase: VesperSwipeNavigationPhase = .expanded
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -88,6 +91,12 @@ struct MediaView: View {
                 }
             }
         }
+        .environment(\.vesperSwipeNavigationPhase, navigationBarPhase)
+        .background {
+            VesperSwipeNavigationBar(enabled: isActiveTab && path.isEmpty, phase: $navigationBarPhase)
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+        }
         .onChange(of: library.selectedID) { _, _ in showsEmbyShortcuts = false }
         .navigationDestination(for: EmbyMediaRoute.self) { route in
             if route.opensLibrary || route.opensFavorites {
@@ -98,7 +107,7 @@ struct MediaView: View {
             } else if let item = route.item {
                 if item.isEmbySeries {
                     if route.origin == .carousel {
-                        EmbySeriesDetailView(source: route.source, series: item)
+                        EmbySeriesDetailView(source: route.source, series: item, carouselArtwork: route.carouselArtwork)
                     } else {
                         EmbySeriesDetailView(source: route.source, series: item)
                             .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
@@ -127,18 +136,17 @@ struct MediaView: View {
         let featured = featured
         let showsFeaturedRegion = library.selectedSource?.kind == .emby && !library.canNavigateBack
         return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: showsFeaturedRegion,
-                                   showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
+                                   showsLoading: isLoadingMedia, usesMediaScrollEdges: true, usesNativeNavigationBar: true,
                                    onVerticalOffsetChange: updateEmbyShortcuts,
                                    onTopPullChange: expandEmbyShortcuts(forTopPull:)) {
             VStack(alignment: .leading, spacing: 20) {
-                Color.clear
-                    .frame(height: 0)
-                    .id("media-scroll-top")
                 if let source = library.selectedSource, showsFeaturedRegion {
                     EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork,
-                                         featuredArtwork: library.embyHome?.featuredArtwork, artworkZoom: artworkZoom,
-                                         isMediaRoot: path.isEmpty,
+                                         featuredArtwork: library.embyHome?.featuredArtwork,
+                                         isMediaRoot: path.isEmpty && !isOpeningCarouselDetail,
                                          openDetail: { openCarouselDetail($0, proxy: proxy) })
+                        .id("media-scroll-top")
+                        .allowsHitTesting(!isOpeningCarouselDetail)
                 }
                 if library.selectedSource == nil {
                     VesperCenteredEmptyContent(message: "未选择媒体来源", symbol: AppSection.media.symbol)
@@ -204,13 +212,15 @@ struct MediaView: View {
                 }
             }
         } actions: {
-            if library.canNavigateBack {
-                Button { library.navigateEmbyBack() } label: { Image(systemName: "chevron.left") }
-                    .frame(width: 44, height: 44)
-                    .glassEffect(.regular.interactive(), in: .circle)
-            }
             if !library.sources.isEmpty {
                 mediaSourceMenu
+            }
+        }
+        .toolbar {
+            if library.canNavigateBack {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("返回", systemImage: "chevron.left") { library.navigateEmbyBack() }
+                }
             }
         }
         .background(VesperTheme.background.ignoresSafeArea())
@@ -364,6 +374,8 @@ struct MediaView: View {
     }
 
     private func openCarouselDetail(_ route: EmbyMediaRoute, proxy: ScrollViewProxy) {
+        guard path.isEmpty, !isOpeningCarouselDetail else { return }
+        isOpeningCarouselDetail = true
         if mediaScrollOffset > 0.5 {
             if reduceMotion {
                 var transaction = Transaction(animation: nil)
@@ -385,6 +397,8 @@ struct MediaView: View {
     }
 
     private func appendCarouselRoute(_ route: EmbyMediaRoute) {
+        defer { isOpeningCarouselDetail = false }
+        guard path.isEmpty, library.selectedID == route.source.id else { return }
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -406,10 +420,8 @@ struct MediaView: View {
                     .frame(width: 44, height: 44)
                 sourceMenuButton
             }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .capsule)
         } else {
-            sourceMenuButton.glassEffect(.regular.interactive(), in: .circle)
+            sourceMenuButton
         }
     }
 
@@ -510,7 +522,6 @@ private struct EmbyFeaturedCarousel: View {
     let items: [MediaItem]
     let artwork: [String: Data]?
     let featuredArtwork: [MediaID: EmbyFeaturedArtwork]?
-    let artworkZoom: Namespace.ID
     let isMediaRoot: Bool
     let openDetail: (EmbyMediaRoute) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -542,16 +553,17 @@ private struct EmbyFeaturedCarousel: View {
                         let isCurrent = item.id == items[page].id
                         let isIncoming = item.id == incoming
                         let shift = reduceMotion ? 0 : CGFloat(direction) * width * travelFraction
-                        let route = EmbyMediaRoute.detail(source, item, origin: .carousel)
+                        let images = featuredArtwork?[item.id]
+                        let fallback = artwork?[item.id.localID]
+                        let route = EmbyMediaRoute.detail(source, item, origin: .carousel,
+                                                          carouselArtwork: .init(poster: images?.poster ?? fallback, logo: images?.logo))
                         Button { openDetail(route) } label: {
                             EmbyFeaturedPage(source: source, item: item, size: geometry.size,
-                                             artwork: artwork?[item.id.localID], artworkIsPrepared: artwork != nil,
-                                             featuredArtwork: featuredArtwork?[item.id],
+                                             artwork: fallback, artworkIsPrepared: artwork != nil,
+                                             featuredArtwork: images,
                                              featuredArtworkIsPrepared: featuredArtwork != nil,
-                                             showsPageControl: items.count > 1,
                                              showsInformation: isCurrent && !isTransitioning,
                                              mirroredEdgeFraction: (isCurrent || isIncoming) && isTransitioning && !reduceMotion ? mirrorFraction : 0)
-                                .matchedTransitionSource(id: route, in: artworkZoom)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(Text(verbatim: item.title))
@@ -587,7 +599,7 @@ private struct EmbyFeaturedCarousel: View {
                 .modifier(EmbyPosterStretch(geometry: geometry))
             }
         }
-        .aspectRatio(3.0 / 5.0, contentMode: .fit)
+        .aspectRatio(EmbyPosterLayout.aspectRatio, contentMode: .fit)
         .onChange(of: items.map(\.id), initial: true) { _, ids in
             resetTransition()
             if selection.map(ids.contains) != true { selection = ids.first }
@@ -719,6 +731,12 @@ private struct EmbyCarouselPan: UIGestureRecognizerRepresentable {
     }
 }
 
+enum EmbyPosterLayout {
+    static let aspectRatio: CGFloat = 3.0 / 5.0
+    static let informationBottomInset: CGFloat = 112
+    static let seriesFooterBottomInset: CGFloat = 14
+}
+
 struct EmbyPosterStretch: ViewModifier {
     let geometry: GeometryProxy
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -742,9 +760,9 @@ struct EmbyFeaturedPage: View {
     let artworkIsPrepared: Bool
     let featuredArtwork: EmbyFeaturedArtwork?
     let featuredArtworkIsPrepared: Bool
-    let showsPageControl: Bool
     let showsInformation: Bool
     var seriesFooter: EmbySeriesHeroFooter? = nil
+    var seriesFooterOpacity: Double = 1
     var mirroredEdgeFraction: CGFloat = 0
     @Environment(\.colorScheme) private var colorScheme
     @State private var loadedArtwork: EmbyFeaturedArtwork?
@@ -795,25 +813,27 @@ struct EmbyFeaturedPage: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                         .frame(height: size.height * 0.06)
-                        if let seriesFooter {
-                            seriesFooter
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .frame(height: max(52, size.height * 0.075), alignment: .top)
-                        } else {
-                            Color.clear.frame(height: max(52, size.height * 0.075))
-                        }
                     }
                     .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
                     .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.65), radius: 3, y: 1)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 50)
+                    .padding(.bottom, EmbyPosterLayout.informationBottomInset)
                     .frame(maxWidth: .infinity)
-                    .frame(height: size.height * 0.4, alignment: .bottom)
                     .opacity(showsInformation ? 1 : 0)
                     .animation(.easeInOut(duration: 0.16), value: showsInformation)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
+                    if let seriesFooter {
+                        seriesFooter
+                            .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+                            .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.65), radius: 3, y: 1)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, EmbyPosterLayout.seriesFooterBottomInset)
+                            .opacity(seriesFooterOpacity)
+                            .accessibilityHidden(seriesFooterOpacity == 0)
+                            .allowsHitTesting(false)
+                    }
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -914,6 +934,7 @@ private struct EmbyMediaRoute: Hashable {
         case shelf(String)
         case library(String)
         case favorites
+        case person(EmbyPerson)
     }
 
     let source: MediaSource
@@ -921,6 +942,7 @@ private struct EmbyMediaRoute: Hashable {
     let itemID: String
     let item: MediaItem?
     var origin: Origin? = nil
+    var carouselArtwork: EmbyFeaturedArtwork? = nil
     var opensFavorites: Bool { item == nil && origin == .favorites }
     var opensLibrary: Bool { item == nil && !opensFavorites }
 
@@ -932,8 +954,9 @@ private struct EmbyMediaRoute: Hashable {
         Self(source: source, title: title, itemID: id, item: nil)
     }
 
-    static func detail(_ source: MediaSource, _ item: MediaItem, origin: Origin) -> Self {
-        Self(source: source, title: item.title, itemID: item.id.localID, item: item, origin: origin)
+    static func detail(_ source: MediaSource, _ item: MediaItem, origin: Origin, carouselArtwork: EmbyFeaturedArtwork? = nil) -> Self {
+        Self(source: source, title: item.title, itemID: item.id.localID, item: item, origin: origin,
+             carouselArtwork: carouselArtwork)
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -945,6 +968,33 @@ private struct EmbyMediaRoute: Hashable {
         hasher.combine(itemID)
         hasher.combine(opensLibrary)
         hasher.combine(origin)
+    }
+}
+
+struct EmbyPersonWorksView: View {
+    let source: MediaSource
+    let person: EmbyPerson
+    @Namespace private var artworkZoom
+    @State private var openedWork: EmbyMediaRoute?
+
+    var body: some View {
+        EmbySeriesBrowserView(source: source, groupTitle: person.name, parentID: nil, scope: .person(person),
+                              artworkZoom: artworkZoom, openDetail: { openedWork = $0 })
+            .navigationDestination(item: $openedWork) { route in
+                workDestination(route)
+            }
+    }
+
+    // A series can open another person’s works page.
+    private func workDestination(_ route: EmbyMediaRoute) -> AnyView {
+        guard let item = route.item else { return AnyView(EmptyView()) }
+        if item.isEmbySeries {
+            return AnyView(
+                EmbySeriesDetailView(source: source, series: item)
+                    .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
+            )
+        }
+        return AnyView(EmbyItemDetailView(source: source, item: item))
     }
 }
 
@@ -971,8 +1021,8 @@ private struct EmbySeriesBrowserView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    let route = EmbyMediaRoute.detail(source, item, origin: parentID.map { .library($0) } ?? .favorites)
-                    NavigationLink(value: route) {
+                    let route = EmbyMediaRoute.detail(source, item, origin: detailOrigin)
+                    Button { openDetail(route) } label: {
                         MediaThumbnail(source: source, item: item, fixedHeight: layout.thumbnailHeight)
                             .mediaArtworkBorder()
                             .matchedTransitionSource(id: route, in: artworkZoom)
@@ -991,7 +1041,7 @@ private struct EmbySeriesBrowserView: View {
             .padding(12)
             if isLoading && didLoadFirstPage { ProgressView().padding() }
             if reachedEnd && items.isEmpty {
-                Text(scope == .favorites ? "暂无收藏媒体" : "暂无媒体").foregroundStyle(.secondary).padding()
+                Text(emptyMessage).foregroundStyle(.secondary).padding()
             }
             if let errorMessage {
                 Button("重试") { Task { await loadPage() } }
@@ -1016,8 +1066,21 @@ private struct EmbySeriesBrowserView: View {
         }
     }
 
+    private var detailOrigin: EmbyMediaRoute.Origin {
+        if case .person(let person) = scope { return .person(person) }
+        return parentID.map { .library($0) } ?? .favorites
+    }
+
+    private var emptyMessage: LocalizedStringKey {
+        switch scope {
+        case .favorites: "暂无收藏媒体"
+        case .person: "暂无作品"
+        default: "暂无媒体"
+        }
+    }
+
     private var cacheScope: String { AppCacheStore.scope(for: source) }
-    private var cacheKey: String { "browser:\(scope.rawValue):\(parentID ?? "")" }
+    private var cacheKey: String { "browser:\(scope.cacheKey):\(parentID ?? "")" }
 
     private func loadPage() async {
         guard !isLoading, !reachedEnd else { return }

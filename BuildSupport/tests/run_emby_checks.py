@@ -23,6 +23,13 @@ SERIES = {'Id': 'series', 'Name': 'Series', 'Type': 'Series', 'IsFolder': True,
           'ImageTags': {'Primary': 'cover', 'Logo': 'logo'}}
 EPISODE = {'Id': 'episode', 'Name': 'Episode', 'Type': 'Episode', 'SeriesId': 'series'}
 
+EPISODE_USER_DATA = {'PlaybackPositionTicks': 300000000, 'Played': False, 'IsFavorite': True}
+EXPECTED_EPISODE_WRITES = [
+    {'PlaybackPositionTicks': 300000000, 'Played': True, 'IsFavorite': True},
+    {'PlaybackPositionTicks': 300000000, 'Played': False, 'IsFavorite': True},
+    {'PlaybackPositionTicks': 0, 'Played': False, 'IsFavorite': True},
+]
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -71,6 +78,17 @@ class Handler(BaseHTTPRequestHandler):
             ]}); return
         if path.path == '/proxy/emby/Users/user/Items':
             query = parse_qs(path.query)
+            if 'PersonIds' in query or 'Person' in query:
+                assert 'ParentId' not in query and 'Filters' not in query
+                assert query['Recursive'] == ['true'] and query['Limit'] == ['21']
+                assert query['SortBy'] == ['DateCreated'] and query['SortOrder'] == ['Descending']
+                assert set(query['IncludeItemTypes'][0].split(',')) == {'Movie', 'Series', 'Video', 'MusicVideo', 'Trailer'}
+                if 'PersonIds' in query:
+                    assert query['PersonIds'] == ['actor'] and 'Person' not in query
+                    assert query['StartIndex'] == ['21']
+                    self.respond({'Items': [ITEM, SERIES]}); return
+                assert query['Person'] == ['Director & Writer'] and query['StartIndex'] == ['0']
+                self.respond({'Items': [SERIES]}); return
             if query.get('Filters') == ['IsFavorite']:
                 assert 'ParentId' not in query and query['Recursive'] == ['true']
                 assert query['StartIndex'] == ['21'] and query['Limit'] == ['21']
@@ -102,7 +120,8 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(ITEM); return
         if path.path == '/proxy/emby/Users/user/Items/series':
             self.respond(dict(SERIES, Overview='Series synopsis',
-                              People=[{'Id': 'actor', 'Name': 'Actor', 'Role': 'Detective', 'PrimaryImageTag': 'actor-tag'}],
+                              People=[{'Id': 'actor', 'Name': 'Actor', 'Role': 'Detective', 'PrimaryImageTag': 'actor-tag'},
+                                      {'Name': 'Director & Writer', 'Type': 'Director'}],
                               ProviderIds={'IMDb': 'tt12345', 'Douban': '54321'})); return
         if path.path == '/proxy/emby/Shows/series/Episodes':
             query = parse_qs(path.query)
@@ -121,8 +140,7 @@ class Handler(BaseHTTPRequestHandler):
         if path.path == '/proxy/emby/Items/series/Similar':
             self.respond({'Items': [SERIES, ITEM, EPISODE, ITEM]}); return
         if path.path == '/proxy/emby/Users/user/Items/episode':
-            self.respond(dict(EPISODE, UserData={'PlaybackPositionTicks': 300000000, 'Played': False,
-                                                 'IsFavorite': True})); return
+            self.respond(dict(EPISODE, UserData=EPISODE_USER_DATA)); return
         if path.path == '/proxy/emby/Events':
             self.respond({'Items': EVENTS}); return
         assert path.path == '/proxy/emby/Echo', path.path
@@ -133,11 +151,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == '/proxy/emby/Empty':
             self.send_response(204); self.end_headers(); return
-        if self.path == '/proxy/emby/Users/user/PlayedItems/episode':
-            self.send_response(204); self.end_headers(); return
         payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         if self.path == '/proxy/emby/Users/user/Items/episode/UserData':
-            assert payload == {'PlaybackPositionTicks': 0, 'Played': False, 'IsFavorite': True}
+            assert EXPECTED_EPISODE_WRITES and payload == EXPECTED_EPISODE_WRITES.pop(0)
+            EPISODE_USER_DATA.update(payload)
             self.send_response(204); self.end_headers(); return
         if self.path == '/proxy/emby/Items/movie/PlaybackInfo':
             assert payload['UserId'] == 'user'
@@ -197,5 +214,6 @@ try:
         subprocess.run([os.environ.get('SWIFTC', 'swiftc'), '-swift-version', '6', '-strict-concurrency=complete',
                         *units, str(ROOT / 'Tests/EmbyRepositoryChecks.swift'), '-o', binary], check=True)
         subprocess.run([binary, 'http://127.0.0.1:' + str(server.server_port)], check=True)
+    assert not EXPECTED_EPISODE_WRITES
 finally:
     server.shutdown()

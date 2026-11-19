@@ -35,23 +35,18 @@ struct MediaThumbnail: View {
         sizedArtwork
         .overlay(alignment: .bottomLeading) {
             if let historyEntry {
-                if source.kind == .local || source.kind == .photos {
-                    MediaPlaybackStatus(position: historyEntry.position, duration: historyEntry.duration,
-                                        played: historyEntry.isFullyWatched)
-                        .font(.caption2)
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 6)
-                        .frame(maxWidth: .infinity, minHeight: 32, alignment: .bottomLeading)
-                        .background {
-                            Rectangle().fill(.regularMaterial)
-                                .mask {
-                                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                                }
-                        }
-                } else {
-                    ThumbnailProgressBadge(position: historyEntry.position, total: historyEntry.duration,
-                                           showsPosition: true, title: mediaDisplayName(item.title))
-                }
+                MediaPlaybackStatus(position: historyEntry.position, duration: historyEntry.duration,
+                                    played: historyEntry.isFullyWatched)
+                    .font(.caption2)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .bottomLeading)
+                    .background {
+                        Rectangle().fill(.regularMaterial)
+                            .mask {
+                                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            }
+                    }
             } else if let playback {
                 ThumbnailPlaybackProgress(session: playback, source: source, item: item)
             }
@@ -400,36 +395,31 @@ struct MediaPlaybackStatus: View {
 private struct ThumbnailProgressBadge: View {
     let position: Double
     let total: Double
-    var showsPosition = false
-    var title: String? = nil
     @ScaledMetric(relativeTo: .caption2) private var progressWidth = 20.0
     private var fraction: CGFloat {
         guard total.isFinite, position.isFinite, total > 0 else { return 0 }
         return CGFloat(min(1, max(0, position / total)))
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            if let title { Text(verbatim: title).font(.caption).lineLimit(1).truncationMode(.tail) }
-            HStack(spacing: 5) {
-                if total > 0 {
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(.white.opacity(0.35))
-                            Capsule().fill(.white)
-                                .mask(alignment: .leading) {
-                                    Rectangle().frame(width: geometry.size.width * fraction)
-                                }
-                        }
+        HStack(spacing: 5) {
+            if total > 0 {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.35))
+                        Capsule().fill(.white)
+                            .mask(alignment: .leading) {
+                                Rectangle().frame(width: geometry.size.width * fraction)
+                            }
                     }
-                    .frame(width: progressWidth, height: 4)
                 }
-                Text(verbatim: showsPosition && total > 0 ? "\(mediaTimeLabel(position)) / \(mediaTimeLabel(total))" : mediaTimeLabel(total))
-                    .font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
+                .frame(width: progressWidth, height: 4)
             }
+            Text(verbatim: mediaTimeLabel(total))
+                .font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 8).padding(.bottom, 8)
-        .frame(maxWidth: .infinity, minHeight: title == nil ? 44 : 64, alignment: .bottomLeading)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .bottomLeading)
         .background {
             Rectangle().fill(.ultraThinMaterial)
                 .overlay {
@@ -518,7 +508,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     @Namespace private var detailsZoom
     @State private var updatingWatchState = false
     @State private var clearedServerProgress = false
-    @State private var markedAsPlayed = false
+    @State private var updatedServerPlayed: Bool?
     @State private var watchError: String?
 
     private var showsWatchActions: Bool {
@@ -552,13 +542,15 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 }
                 if showsWatchActions {
                     if hasServerProgress || playback.savedProgress(for: item) > 0 {
-                        Button("清除播放进度", systemImage: "clock.arrow.circlepath") { updateWatchState(markPlayed: false) }
+                        Button("清除播放进度", systemImage: "clock.arrow.circlepath") { updatePlaybackRecord(.clearProgress) }
                             .disabled(updatingWatchState || (hasServerProgress && source.emby?.userID == nil))
                     }
-                    if !effectivePlayed && !markedAsPlayed {
-                        Button("标记为已观看", systemImage: "checkmark.circle") { updateWatchState(markPlayed: true) }
-                            .disabled(updatingWatchState || source.emby?.userID == nil)
+                    let played = effectivePlayed
+                    Button(played ? "标记为未观看" : "标记为已观看",
+                           systemImage: played ? "circle" : "checkmark.circle") {
+                        updatePlaybackRecord(.setPlayed(!played))
                     }
+                    .disabled(updatingWatchState || source.emby?.userID == nil)
                 } else if !showsEmbyFacts && (playback.savedProgress(for: item) > 0
                     || playback.history.contains(where: { $0.mediaID == item.id })) {
                     Button(source.kind == .emby ? "清除本地记录" : "清除播放进度", systemImage: "clock.arrow.circlepath") {
@@ -581,7 +573,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 embyDetailsSheet(source: source, item: item, artworkZoom: detailsZoom)
             }
             .onChange(of: item.resumePosition) { _, _ in clearedServerProgress = false }
-            .onChange(of: item.isPlayed) { _, _ in markedAsPlayed = false }
+            .onChange(of: item.isPlayed) { _, _ in updatedServerPlayed = nil }
             .alert("无法更新观看记录", isPresented: Binding(
                 get: { watchError != nil }, set: { if !$0 { watchError = nil } }
             )) {
@@ -592,21 +584,23 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
             } message: { Text(verbatim: shareError ?? "") }
     }
 
-    private func updateWatchState(markPlayed: Bool) {
+    private func updatePlaybackRecord(_ change: EmbyPlaybackRecordChange) {
         guard !updatingWatchState else { return }
         updatingWatchState = true
         Task { @MainActor in
             defer { updatingWatchState = false }
             do {
-                if markPlayed || hasServerProgress {
-                    try await EmbyRepository.shared.updateWatchState(for: item, source: source, markPlayed: markPlayed)
-                }
-                if markPlayed {
-                    playback.recordWatched(item, source: source)
-                    markedAsPlayed = true
-                } else {
+                switch change {
+                case .clearProgress:
+                    if hasServerProgress {
+                        try await EmbyRepository.shared.updatePlaybackRecord(for: item, source: source, change: change)
+                    }
                     playback.clearSavedProgress(for: item)
                     clearedServerProgress = true
+                case .setPlayed(let played):
+                    try await EmbyRepository.shared.updatePlaybackRecord(for: item, source: source, change: change)
+                    playback.recordPlayed(played, for: item, source: source)
+                    updatedServerPlayed = played
                 }
             } catch {
                 watchError = error.localizedDescription
@@ -616,7 +610,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
 
     private var effectivePlayed: Bool {
         PlaybackHistoryEntry.resolvePlayed(
-            server: item.isPlayed,
+            server: updatedServerPlayed ?? item.isPlayed,
             local: playback.history.first(where: { $0.mediaID == item.id })?.isFullyWatched
         )
     }

@@ -58,7 +58,7 @@ struct EmbySeriesHeroFooter: View {
                         Text("Dolby Atmos").fontWeight(.semibold)
                     }
                 }
-                .font(.caption)
+                .font(.subheadline)
                 .lineLimit(1)
             }
         }
@@ -86,6 +86,7 @@ struct EmbySeriesDetailView: View {
     let source: MediaSource
     let series: MediaItem
     var showsCloseButton = false
+    var carouselArtwork: EmbyFeaturedArtwork? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -103,21 +104,28 @@ struct EmbySeriesDetailView: View {
     @Namespace private var recommendationZoom
     @State private var busy: Set<MediaID> = []
     @State private var openedRecommendation: MediaItem?
+    @State private var openedPerson: EmbyPerson?
     @State private var loadError: String?
     @State private var actionError: String?
     @State private var isLoading = true
     @State private var loadedSeriesID: MediaID?
+    @State private var hasRevealedDetails = false
 
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    hero(width: width)
-                    episodeSection(viewportWidth: width)
-                    similarSection
-                    creditsSection
-                    linksSection
+                    hero
+                    Group {
+                        episodeSection(viewportWidth: width)
+                        similarSection
+                        creditsSection
+                        linksSection
+                    }
+                    .opacity(detailContentOpacity)
+                    .allowsHitTesting(detailContentOpacity > 0)
+                    .accessibilityHidden(detailContentOpacity == 0)
                 }
                 .padding(.bottom, 20)
             }
@@ -157,11 +165,23 @@ struct EmbySeriesDetailView: View {
         .navigationDestination(item: $openedRecommendation) { item in
             recommendationDestination(for: item)
         }
+        .navigationDestination(item: $openedPerson) { person in
+            EmbyPersonWorksView(source: source, person: person)
+        }
         .alert("无法更新观看记录", isPresented: Binding(
             get: { actionError != nil }, set: { if !$0 { actionError = nil } }
         )) {
             Button("好", role: .cancel) { actionError = nil }
         } message: { Text(verbatim: actionError ?? "") }
+        .task {
+            guard carouselArtwork != nil, !hasRevealedDetails else { return }
+            // The initial frame uses the carousel poster, then the detail content fades in.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+                hasRevealedDetails = true
+            }
+        }
         .task(id: series.id) {
             guard loadedSeriesID != series.id else { return }
             await loadSeries()
@@ -179,18 +199,23 @@ struct EmbySeriesDetailView: View {
         return AnyView(EmbyItemDetailView(source: source, item: item))
     }
 
-    private func hero(width: CGFloat) -> some View {
+    private var detailContentOpacity: Double {
+        carouselArtwork == nil || hasRevealedDetails || reduceMotion ? 1 : 0
+    }
+
+    private var hero: some View {
         let item = metadata?.item ?? series
         return GeometryReader { geometry in
             EmbyFeaturedPage(source: source, item: item, size: geometry.size,
-                             artwork: nil, artworkIsPrepared: false, featuredArtwork: nil,
-                             featuredArtworkIsPrepared: false, showsPageControl: false, showsInformation: true,
+                             artwork: nil, artworkIsPrepared: false, featuredArtwork: carouselArtwork,
+                             featuredArtworkIsPrepared: carouselArtwork?.poster != nil, showsInformation: true,
                              seriesFooter: EmbySeriesHeroFooter(series: item, season: selectedSeason,
                                                                seasonCount: seasonNumbers.count,
-                                                               episodes: episodes.filter { $0.season == selectedSeason }))
+                                                               episodes: episodes.filter { $0.season == selectedSeason }),
+                             seriesFooterOpacity: detailContentOpacity)
                 .modifier(EmbyPosterStretch(geometry: geometry))
         }
-        .frame(width: width, height: width * 5 / 3)
+        .aspectRatio(EmbyPosterLayout.aspectRatio, contentMode: .fit)
     }
 
     @ViewBuilder
@@ -298,8 +323,8 @@ struct EmbySeriesDetailView: View {
                     EmbyEpisodeCard(source: source, episode: episode, width: cardWidth,
                                     height: layout.episodeCardHeight, position: resumePosition(episode), isBusy: busy.contains(episode.id),
                                     open: { openedEpisodeID = episode.id },
-                                    clear: { update(episode, markPlayed: false) },
-                                    mark: { update(episode, markPlayed: true) })
+                                    clear: { update(episode, change: .clearProgress) },
+                                    setPlayed: { update(episode, change: .setPlayed($0)) })
                         .id(episode.id)
                 }
             }
@@ -342,22 +367,26 @@ struct EmbySeriesDetailView: View {
             Text("演职人员").font(.system(size: 16, weight: .semibold)).padding(.horizontal, 20)
             shelf {
                 ForEach(credits) { credit in
-                    VStack(spacing: 6) {
-                        Group {
-                            if let image = credit.image {
-                                MediaThumbnail(source: source, item: image, aspectRatio: 1,
-                                               missingArtworkSymbol: "person.crop.circle.fill")
-                            } else {
-                                MediaCardBackdrop(showsMissingArtwork: true,
-                                                  missingArtworkSymbol: "person.crop.circle.fill")
+                    Button { openedPerson = credit.person } label: {
+                        VStack(spacing: 6) {
+                            Group {
+                                if let image = credit.image {
+                                    MediaThumbnail(source: source, item: image, aspectRatio: 1,
+                                                   missingArtworkSymbol: "person.crop.circle.fill")
+                                } else {
+                                    MediaCardBackdrop(showsMissingArtwork: true,
+                                                      missingArtworkSymbol: "person.crop.circle.fill")
+                                }
                             }
+                            .frame(width: 78, height: 78)
+                            .clipShape(Circle())
+                            Text(verbatim: credit.person.name).font(.subheadline).lineLimit(1)
+                            Text(verbatim: credit.role).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        .frame(width: 78, height: 78)
-                        .clipShape(Circle())
-                        Text(verbatim: credit.name).font(.subheadline).lineLimit(1)
-                        Text(verbatim: credit.role).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .frame(width: 104)
+                        .contentShape(Rectangle())
                     }
-                    .frame(width: 104)
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -428,26 +457,27 @@ struct EmbySeriesDetailView: View {
         }
     }
 
-    private func update(_ episode: EmbyEpisode, markPlayed: Bool) {
+    private func update(_ episode: EmbyEpisode, change: EmbyPlaybackRecordChange) {
         guard busy.insert(episode.id).inserted else { return }
         Task {
             defer { busy.remove(episode.id) }
             do {
-                if markPlayed || (episode.item.resumePosition ?? 0) > 0 {
-                    try await EmbyRepository.shared.updateEpisode(episode, source: source, markPlayed: markPlayed)
-                }
-                if let index = episodes.firstIndex(where: { $0.id == episode.id }) {
-                    if markPlayed {
-                        episodes[index].played = true
-                        episodes[index].item.isPlayed = true
-                    } else {
+                switch change {
+                case .clearProgress:
+                    if (episode.item.resumePosition ?? 0) > 0 {
+                        try await EmbyRepository.shared.updatePlaybackRecord(for: episode.item, source: source, change: change)
+                    }
+                    if let index = episodes.firstIndex(where: { $0.id == episode.id }) {
                         episodes[index].item.resumePosition = 0
                     }
-                }
-                if markPlayed {
-                    playback.recordWatched(episode.item, source: source)
-                } else {
                     playback.clearSavedProgress(for: episode.item)
+                case .setPlayed(let played):
+                    try await EmbyRepository.shared.updatePlaybackRecord(for: episode.item, source: source, change: change)
+                    if let index = episodes.firstIndex(where: { $0.id == episode.id }) {
+                        episodes[index].played = played
+                        episodes[index].item.isPlayed = played
+                    }
+                    playback.recordPlayed(played, for: episode.item, source: source)
                 }
             } catch { actionError = error.localizedDescription }
         }
@@ -501,7 +531,7 @@ private struct EmbyEpisodeCard: View {
     let isBusy: Bool
     let open: () -> Void
     let clear: () -> Void
-    let mark: () -> Void
+    let setPlayed: (Bool) -> Void
 
     @EnvironmentObject private var playback: PlaybackSession
     @Environment(\.colorScheme) private var colorScheme
@@ -641,10 +671,12 @@ private struct EmbyEpisodeCard: View {
             Button("清除播放进度", systemImage: "clock.arrow.circlepath", action: clear)
                 .disabled(isBusy || ((episode.item.resumePosition ?? 0) > 0 && source.emby?.userID == nil))
         }
-        if !effectivePlayed {
-            Button("标记为已观看", systemImage: "checkmark.circle", action: mark)
-                .disabled(isBusy || source.emby?.userID == nil)
+        let played = effectivePlayed
+        Button(played ? "标记为未观看" : "标记为已观看",
+               systemImage: played ? "circle" : "checkmark.circle") {
+            setPlayed(!played)
         }
+        .disabled(isBusy || source.emby?.userID == nil)
     }
 
     private var effectivePlayed: Bool {

@@ -59,9 +59,14 @@ struct EmbyEpisode: Identifiable, Sendable {
     var id: MediaID { item.id }
 }
 
+struct EmbyPerson: Hashable, Sendable {
+    let id: String?
+    let name: String
+}
+
 struct EmbyCredit: Identifiable, Sendable {
     let id: String
-    let name: String
+    let person: EmbyPerson
     let role: String
     let image: MediaItem?
 }
@@ -78,17 +83,33 @@ struct EmbySeriesMetadata: Sendable {
     let links: [EmbyExternalLink]
 }
 
-enum EmbyBrowseScope: String, Sendable {
+enum EmbyBrowseScope: Equatable, Sendable {
     case children, titles, episodes, favorites
+    case person(EmbyPerson)
+
+    var cacheKey: String {
+        switch self {
+        case .children: "children"
+        case .titles: "titles"
+        case .episodes: "episodes"
+        case .favorites: "favorites"
+        case .person(let person): person.id.map { "person:id:\($0)" } ?? "person:name:\(person.name)"
+        }
+    }
 
     var itemTypes: [String]? {
         switch self {
         case .children: nil
-        case .titles: ["Movie", "Series", "Video", "MusicVideo", "Trailer"]
+        case .titles, .person: ["Movie", "Series", "Video", "MusicVideo", "Trailer"]
         case .favorites: ["Movie", "Series", "Episode", "Video", "MusicVideo", "Trailer"]
         case .episodes: ["Episode"]
         }
     }
+}
+
+enum EmbyPlaybackRecordChange: Sendable {
+    case clearProgress
+    case setPlayed(Bool)
 }
 
 actor EmbyRepository {
@@ -175,9 +196,19 @@ actor EmbyRepository {
         let client = try await clientProvider(source)
         var query = ["StartIndex": String(startIndex), "Limit": String(limit), "Fields": "Overview,PrimaryImageAspectRatio,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData,Genres,PremiereDate",
                      "SortBy": sortBy, "SortOrder": sortOrder]
-        if let parentID { query["ParentId"] = parentID }
-        else if source.emby?.userID != nil && scope != .favorites { query["ParentId"] = "" }
-        if scope == .favorites { query["Filters"] = "IsFavorite" }
+        switch scope {
+        case .person(let person):
+            if let id = person.id {
+                query["PersonIds"] = id
+            } else {
+                guard !person.name.isEmpty else { return [] }
+                query["Person"] = person.name
+            }
+        default:
+            if let parentID { query["ParentId"] = parentID }
+            else if source.emby?.userID != nil && scope != .favorites { query["ParentId"] = "" }
+            if scope == .favorites { query["Filters"] = "IsFavorite" }
+        }
         if let itemTypes = scope.itemTypes {
             query["Recursive"] = "true"
             query["IncludeItemTypes"] = itemTypes.joined(separator: ",")
@@ -195,13 +226,15 @@ actor EmbyRepository {
         let path = source.emby?.userID.map { "Users/\($0)/Items/\(item.id.localID)" } ?? "Items/\(item.id.localID)"
         let response = try await client.get(path)
         let credits = (response["People"] as? [[String: Any]] ?? []).enumerated().compactMap { index, value -> EmbyCredit? in
-            guard let name = value["Name"] as? String else { return nil }
-            let image = (value["Id"] as? String).map { id in
+            guard let name = (value["Name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty else { return nil }
+            let id = (value["Id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let image = id.map { id in
                 MediaItem(id: MediaID(sourceID: source.id, localID: id), title: name, resource: nil,
                           imageURL: client.imageURL(itemID: id, tag: value["PrimaryImageTag"] as? String, width: 200))
             }
             let role = (value["Role"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? value["Type"] as? String ?? ""
-            return EmbyCredit(id: "\(index)", name: name, role: role, image: image)
+            return EmbyCredit(id: "\(index)", person: EmbyPerson(id: id, name: name), role: role, image: image)
         }
         let providers = response["ProviderIds"] as? [String: String] ?? [:]
         let traktID = providers.first(where: { $0.key.caseInsensitiveCompare("Trakt") == .orderedSame })?.value
@@ -295,22 +328,19 @@ actor EmbyRepository {
         }
     }
 
-    func updateEpisode(_ episode: EmbyEpisode, source: MediaSource, markPlayed: Bool) async throws {
-        try await updateWatchState(for: episode.item, source: source, markPlayed: markPlayed)
-    }
-
-    func updateWatchState(for item: MediaItem, source: MediaSource, markPlayed: Bool) async throws {
+    func updatePlaybackRecord(for item: MediaItem, source: MediaSource, change: EmbyPlaybackRecordChange) async throws {
         guard let userID = source.emby?.userID else { throw EmbyError.missingAccount }
         let client = try await clientProvider(source)
-        if markPlayed {
-            _ = try await client.send("Users/\(userID)/PlayedItems/\(item.id.localID)", method: "POST")
-        } else {
-            let path = "Users/\(userID)/Items/\(item.id.localID)/UserData"
-            let stored = try await client.get("Users/\(userID)/Items/\(item.id.localID)")
-            guard var data = stored["UserData"] as? [String: Any] else { throw EmbyError.invalidResponse }
+        let path = "Users/\(userID)/Items/\(item.id.localID)"
+        let stored = try await client.get(path)
+        guard var data = stored["UserData"] as? [String: Any] else { throw EmbyError.invalidResponse }
+        switch change {
+        case .clearProgress:
             data["PlaybackPositionTicks"] = 0
-            _ = try await client.send(path, method: "POST", body: EmbyJSON(data))
+        case .setPlayed(let played):
+            data["Played"] = played
         }
+        _ = try await client.send("\(path)/UserData", method: "POST", body: EmbyJSON(data))
     }
 
     func details(for item: MediaItem, source: MediaSource) async throws -> EmbyItemDetails {

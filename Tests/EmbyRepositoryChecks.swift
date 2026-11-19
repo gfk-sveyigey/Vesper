@@ -37,6 +37,18 @@ struct EmbyRepositoryChecks {
         let metadata = try await repository.seriesMetadata(for: series, source: source)
         precondition(metadata.item.embyPresentation?.overview == "Series synopsis")
         precondition(metadata.credits.first?.role == "Detective" && metadata.credits.first?.image?.id.localID == "actor")
+        let actor = metadata.credits[0].person
+        let director = metadata.credits[1].person
+        precondition(actor.id == "actor" && director.id == nil && metadata.credits[1].image == nil)
+        let actorScope = EmbyBrowseScope.person(actor)
+        let directorScope = EmbyBrowseScope.person(director)
+        precondition(actorScope.cacheKey != directorScope.cacheKey && actorScope.cacheKey != EmbyBrowseScope.favorites.cacheKey)
+        let actorWorks = try await repository.items(for: source, parentID: nil, startIndex: 21, limit: 21,
+                                                    sortBy: "DateCreated", sortOrder: "Descending", scope: actorScope)
+        precondition(actorWorks.map(\.id.localID) == ["movie", "series"])
+        let directorWorks = try await repository.items(for: source, parentID: nil, startIndex: 0, limit: 21,
+                                                       sortBy: "DateCreated", sortOrder: "Descending", scope: directorScope)
+        precondition(directorWorks.map(\.id.localID) == ["series"])
         precondition(Set(metadata.links.map(\.name)) == ["IMDb", "豆瓣"])
         let seriesEpisodes = try await repository.seriesEpisodes(for: series, source: source)
         precondition(seriesEpisodes.map(\.season) == [1, 2] && seriesEpisodes.map(\.played) == [false, true])
@@ -53,8 +65,9 @@ struct EmbyRepositoryChecks {
         precondition(missingEpisodeThumbnail == nil)
         let similar = try await repository.similarTitles(for: series, source: source)
         precondition(similar.map(\.id.localID) == ["movie"])
-        try await repository.updateEpisode(episode, source: source, markPlayed: false)
-        try await repository.updateEpisode(episode, source: source, markPlayed: true)
+        try await repository.updatePlaybackRecord(for: episode.item, source: source, change: .setPlayed(true))
+        try await repository.updatePlaybackRecord(for: episode.item, source: source, change: .setPlayed(false))
+        try await repository.updatePlaybackRecord(for: episode.item, source: source, change: .clearProgress)
         let featured = EmbyMediaGroup.featured(in: [
             .init(id: EmbyMediaGroup.librariesID, title: "Libraries", items: libraries),
             .init(id: "first", title: "First", items: Array(latest.dropFirst())),
