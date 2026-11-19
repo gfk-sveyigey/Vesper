@@ -48,6 +48,7 @@ struct EmbyPresentation: Codable, Hashable, Sendable {
     var overview: String? = nil
     var communityRating: Double? = nil
     var studios: [String]? = nil
+    var seasonCount: Int? = nil
 }
 
 struct SourceCapabilities: OptionSet, Sendable {
