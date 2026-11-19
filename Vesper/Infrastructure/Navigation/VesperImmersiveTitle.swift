@@ -120,17 +120,26 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             if newPhase == .idle { isSystemScrolling = false }
         }
-        .preference(key: VesperRootHeaderKey.self, value: VesperRootHeaderPresentation(
-            header: AnyView(header),
-            showsStatusBarBlur: showsStatusBarBlur
-        ))
+        .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+        .scrollEdgeEffectHidden(!showsMediaTopEdge, for: .top)
+        .scrollEdgeEffectHidden(usesMediaScrollEdges, for: .bottom)
+        .overlay(alignment: .top) {
+            // Media's header shares the scroll viewport's top edge without
+            // becoming part of the scrolling content or changing its insets.
+            if usesMediaScrollEdges {
+                header
+            }
+        }
         .ignoresSafeArea(.container, edges: .top)
+        .preference(key: VesperRootHeaderKey.self, value: usesMediaScrollEdges ? nil : VesperRootHeaderPresentation(
+            header: AnyView(header),
+            showsStatusBarBlur: !contentFitsViewport && isCollapsed
+        ))
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarTitleDisplayMode(.inline)
-        // Media roots already draw their title and actions in the custom header.
-        // Hide the empty system bar so it cannot respond to the top scroll edge.
-        // Keep the NavigationStack itself so destinations still get native navigation.
+        // Keep the empty system bar out of the media root experiment.
+        // Pushed pages retain their own system navigation bar settings.
         .toolbarVisibility(usesMediaScrollEdges ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -141,18 +150,11 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             .sharedBackgroundVisibility(.hidden)
         }
-        .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
-        .scrollEdgeEffectHidden(!showsNativeTopEdge, for: .top)
-        .scrollEdgeEffectHidden(usesMediaScrollEdges, for: .bottom)
     }
 
-    private var showsNativeTopEdge: Bool {
+    private var showsMediaTopEdge: Bool {
         usesMediaScrollEdges && !contentFitsViewport && scrollOffset > 0.5
             && (isCollapsed || headerOffset > 0.5)
-    }
-
-    private var showsStatusBarBlur: Bool {
-        !usesMediaScrollEdges && !contentFitsViewport && isCollapsed
     }
 
     private var snapThreshold: CGFloat { headerHeight * 0.1125 }
