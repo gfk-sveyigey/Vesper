@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 
 struct LocalFilesView<SourceMenu: View>: View {
     let source: MediaSource
-    let scrollToTopRequest: Int
     var directory = ""
     @ViewBuilder let sourceMenu: () -> SourceMenu
     @EnvironmentObject private var library: SourceLibrary
@@ -65,11 +64,6 @@ struct LocalFilesView<SourceMenu: View>: View {
                     }
             }
         }
-        .onChange(of: scrollToTopRequest) { _, _ in
-            withAnimation(.easeOut(duration: 0.32)) {
-                rootScrollPosition.scrollTo(edge: .top)
-            }
-        }
         .task(id: source.id) { await reload() }
         .refreshable { await reload() }
         .onChange(of: library.content) { _, content in
@@ -122,8 +116,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                     Group {
                         if entry.isDirectory {
                             NavigationLink {
-                                LocalFilesView(source: source, scrollToTopRequest: scrollToTopRequest,
-                                               directory: entry.path, sourceMenu: sourceMenu)
+                                LocalFilesView(source: source, directory: entry.path, sourceMenu: sourceMenu)
                             } label: { row(entry) }
                             .contextMenu { fileActions(entry) }
                         } else {

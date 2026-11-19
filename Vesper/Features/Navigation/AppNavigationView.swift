@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 private enum NavigationTab: Hashable {
     case section(AppSection)
@@ -19,7 +18,6 @@ struct AppNavigationView: View {
     @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
     @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
     @State private var selection: NavigationTab
-    @State private var mediaTabRetapRevision = 0
     @StateObject private var library = SourceLibrary()
     @StateObject private var playback = PlaybackSession()
     @State private var mediaPath = NavigationPath()
@@ -188,13 +186,6 @@ struct AppNavigationView: View {
         .environmentObject(library)
         .environmentObject(playback)
         .background(VesperTheme.background.ignoresSafeArea())
-        .background {
-            TabReselectObserver(isMediaSelected: selection == .section(.media)) {
-                mediaPath = NavigationPath()
-                mediaTabRetapRevision &+= 1
-            }
-            .frame(width: 0, height: 0)
-        }
     }
 
     private var hasPlayableContent: Bool { playback.currentItem != nil }
@@ -257,7 +248,7 @@ struct AppNavigationView: View {
         switch section {
         case .media:
             NavigationStack(path: $mediaPath) {
-                MediaView(path: $mediaPath, scrollToTopRequest: mediaTabRetapRevision)
+                MediaView(path: $mediaPath)
             }
                 .modifier(VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty))
         case .sources:
@@ -271,105 +262,6 @@ struct AppNavigationView: View {
                 SettingsView()
             }
             .modifier(VesperNavigationHeaderLayer(isRoot: settingsPath.isEmpty))
-        }
-    }
-}
-
-private struct TabReselectObserver: UIViewControllerRepresentable {
-    let isMediaSelected: Bool
-    let onMediaReselect: () -> Void
-
-    func makeUIViewController(context: Context) -> ObserverController {
-        let controller = ObserverController()
-        controller.view.isUserInteractionEnabled = false
-        updateUIViewController(controller, context: context)
-        return controller
-    }
-
-    func updateUIViewController(_ controller: ObserverController, context: Context) {
-        controller.isMediaSelected = isMediaSelected
-        controller.onMediaReselect = onMediaReselect
-        controller.installTabBarTapObserver()
-    }
-
-    final class ObserverController: UIViewController, UIGestureRecognizerDelegate {
-        var isMediaSelected = false
-        var onMediaReselect: () -> Void = {}
-        private weak var observedTabBar: UITabBar?
-        private var tabBarTapRecognizer: UITapGestureRecognizer?
-        private var beganOnMediaTab = false
-        private weak var selectedItemAtTouchStart: UITabBarItem?
-
-        override func didMove(toParent parent: UIViewController?) {
-            super.didMove(toParent: parent)
-            installTabBarTapObserver()
-        }
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            installTabBarTapObserver()
-        }
-
-        func installTabBarTapObserver() {
-            guard let root = viewIfLoaded?.window?.rootViewController,
-                  let tabController = findTabController(in: root) else { return }
-            guard observedTabBar !== tabController.tabBar else { return }
-            if let tabBarTapRecognizer {
-                tabBarTapRecognizer.view?.removeGestureRecognizer(tabBarTapRecognizer)
-            }
-            let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTabBarTap(_:)))
-            recognizer.cancelsTouchesInView = false
-            recognizer.delaysTouchesBegan = false
-            recognizer.delegate = self
-            tabController.tabBar.addGestureRecognizer(recognizer)
-            observedTabBar = tabController.tabBar
-            tabBarTapRecognizer = recognizer
-        }
-
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                              shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
-
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                               shouldReceive touch: UITouch) -> Bool {
-            guard let tabBar = observedTabBar else { return false }
-            let selectedItem = tabBar.selectedItem
-            beganOnMediaTab = selectedItem?.title == AppSection.media.title
-            selectedItemAtTouchStart = selectedItem
-            return true
-        }
-
-        @objc private func handleTabBarTap(_ recognizer: UITapGestureRecognizer) {
-            guard let tabBar = observedTabBar else { return }
-            switch recognizer.state {
-            case .ended:
-                let shouldCheckReselect = beganOnMediaTab
-                let selectedItem = selectedItemAtTouchStart
-                beganOnMediaTab = false
-                selectedItemAtTouchStart = nil
-                guard shouldCheckReselect else { return }
-                DispatchQueue.main.async { [weak self, weak tabBar, weak selectedItem] in
-                    guard let self, let tabBar, let selectedItem,
-                          tabBar.selectedItem === selectedItem,
-                          self.isMediaSelected else { return }
-                    self.onMediaReselect()
-                }
-            case .cancelled, .failed:
-                beganOnMediaTab = false
-                selectedItemAtTouchStart = nil
-            default:
-                break
-            }
-        }
-
-        private func findTabController(in controller: UIViewController) -> UITabBarController? {
-            if let tabController = controller as? UITabBarController { return tabController }
-            for child in controller.children {
-                if let result = findTabController(in: child) { return result }
-            }
-            if let presented = controller.presentedViewController {
-                return findTabController(in: presented)
-            }
-            return nil
         }
     }
 }

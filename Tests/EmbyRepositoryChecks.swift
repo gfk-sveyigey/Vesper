@@ -29,17 +29,25 @@ struct EmbyRepositoryChecks {
         let series = featuredMedia.last!
         precondition(series.embyPresentation?.genres == ["Drama", "Mystery"])
         precondition(series.embyPresentation?.status == "Continuing" && series.embyPresentation?.rating == "TV-14")
+        precondition(series.embyPresentation?.seasonCount == 2 && series.embyPresentation?.communityRating == 8.4)
         precondition(series.embyPresentation?.premiereDate?.timeIntervalSince1970 == 1_709_251_200)
         let posterCandidates = await repository.featuredPosterCandidates(for: series, source: source)
         precondition(posterCandidates.map(\.lastPathComponent) == ["textless.jpg"])
         let logo = await repository.featuredLogoData(for: series, source: source)
         precondition(logo != nil)
+        let noLogoItem = MediaItem(id: MediaID(sourceID: source.id, localID: "no-logo"),
+                                   title: "No Logo", resource: nil, embyItemID: "no-logo", embyItemType: "Series")
+        let missingLogo = await repository.featuredLogoData(for: noLogoItem, source: source)
+        precondition(missingLogo == nil)
         let metadata = try await repository.detailMetadata(for: series, source: source)
         precondition(metadata.item.embyPresentation?.overview == "Series synopsis")
         let seriesFields = Dictionary(uniqueKeysWithValues: metadata.seriesInformation.flatMap(\.fields).map { ($0.id, $0.value) })
         precondition(seriesFields["OriginalTitle"] == "Original Series")
-        precondition(seriesFields["AirDays"] == "周一" && seriesFields["AirTime"] == "20:00")
+        precondition(seriesFields["AirDays"] == "周一" && seriesFields["SeasonCount"] == "2")
         precondition(seriesFields["Studios"] == "Example Network")
+        precondition(Set(["SortName", "RunTimeTicks", "ChildCount", "RecursiveItemCount", "Id", "Type",
+                         "Path", "PremiereDate", "DateCreated", "LockData", "ProviderIds", "Played"])
+            .isDisjoint(with: seriesFields.keys))
         precondition(metadata.credits.first?.role == "Detective" && metadata.credits.first?.image?.id.localID == "actor")
         let actor = metadata.credits[0].person
         let director = metadata.credits[1].person

@@ -101,7 +101,6 @@ final class MediaLayoutSettings: ObservableObject {
 
 struct MediaView: View {
     @Binding var path: NavigationPath
-    let scrollToTopRequest: Int
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
     @ObservedObject private var layout = MediaLayoutSettings.shared
@@ -113,12 +112,13 @@ struct MediaView: View {
     @State private var mediaScrollOffset: CGFloat = 0
     @State private var mediaScrollPhase: ScrollPhase = .idle
     @State private var pendingCarouselRoute: EmbyMediaRoute?
+    @State private var hidesCarouselInformation = false
     @State private var carouselCrossfade = CarouselDetailCrossfade()
 
     var body: some View {
         Group {
             if let source = library.selectedSource, source.kind == .local {
-                LocalFilesView(source: source, scrollToTopRequest: scrollToTopRequest) { mediaSourceMenu }
+                LocalFilesView(source: source) { mediaSourceMenu }
                     .id(source.id)
             } else {
                 mediaContent
@@ -131,23 +131,21 @@ struct MediaView: View {
         .onChange(of: library.selectedID) { _, _ in
             showsEmbyShortcuts = false
             pendingCarouselRoute = nil
-        }
-        .onChange(of: scrollToTopRequest) { _, _ in
-            pendingCarouselRoute = nil
-            showsEmbyShortcuts = false
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.32)) {
-                mediaScrollPosition.scrollTo(edge: .top)
-            }
+            hidesCarouselInformation = false
         }
         .onChange(of: path.isEmpty) { _, isEmpty in
-            if !isEmpty { pendingCarouselRoute = nil }
+            if !isEmpty {
+                pendingCarouselRoute = nil
+            } else {
+                hidesCarouselInformation = false
+            }
         }
         .onDisappear { pendingCarouselRoute = nil }
         .task(id: pendingCarouselRoute) {
             guard pendingCarouselRoute != nil else { return }
             // Release the pending tap if the scroll is interrupted without reaching the top.
             do {
-                try await Task.sleep(for: .seconds(1))
+                try await Task.sleep(for: .seconds(6))
                 pendingCarouselRoute = nil
             } catch {
                 return
@@ -162,12 +160,13 @@ struct MediaView: View {
             } else if let item = route.item {
                 if route.origin == .carousel {
                     let detail = EmbyMediaDetailView(source: route.source, series: item,
-                                                      carouselArtwork: route.carouselArtwork)
+                                                      carouselArtwork: route.carouselArtwork,
+                                                      startsWithCarouselInformationHidden: true,
+                                                      onCarouselDetailReady: { carouselCrossfade.revealDetail() })
                         .background {
                             CarouselDetailCrossfade.ReturnObserver(transition: carouselCrossfade,
                                                                    reduceMotion: reduceMotion)
                         }
-                        .onAppear { carouselCrossfade.revealDetail() }
                     if #available(iOS 27, *) {
                         detail.navigationTransition(.crossFade)
                     } else {
@@ -210,6 +209,7 @@ struct MediaView: View {
                     EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork,
                                          featuredArtwork: library.embyHome?.featuredArtwork,
                                          isMediaRoot: path.isEmpty && pendingCarouselRoute == nil,
+                                         hidesInformation: hidesCarouselInformation,
                                          openDetail: openCarouselDetail)
                 }
                 if library.selectedSource == nil {
@@ -386,18 +386,29 @@ struct MediaView: View {
             }
         } else {
             let route = EmbyMediaRoute.detail(source, item, origin: .shelf(group.id))
-            NavigationLink(value: route) {
-                MediaThumbnail(source: source, item: item, playback: playback, aspectRatio: size.width / size.height,
-                               preloadedData: data, artworkIsPrepared: artwork != nil)
-                    .frame(width: size.width, height: size.height)
-                    .mediaArtworkBorder()
+            if item.isEmbySeries {
+                EmbySeriesPosterCard(source: source, item: item, playback: playback,
+                                     width: size.width, posterHeight: size.height,
+                                     preloadedData: data, artworkIsPrepared: artwork != nil,
+                                     open: { path.append(route) })
+                    .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
+                                                 preloadedData: data, artworkIsPrepared: artwork != nil,
+                                                 showsEmbyFacts: true, openEmbyDetails: { path.append(route) }) { EmptyView() })
                     .matchedTransitionSource(id: route, in: artworkZoom)
+            } else {
+                NavigationLink(value: route) {
+                    MediaThumbnail(source: source, item: item, playback: playback, aspectRatio: size.width / size.height,
+                                   preloadedData: data, artworkIsPrepared: artwork != nil)
+                        .frame(width: size.width, height: size.height)
+                        .mediaArtworkBorder()
+                        .matchedTransitionSource(id: route, in: artworkZoom)
+                }
+                .buttonStyle(.plain)
+                .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
+                                              preloadedData: data, artworkIsPrepared: artwork != nil,
+                                              showsEmbyFacts: true, openEmbyDetails: { path.append(route) }) { EmptyView() })
+                .accessibilityLabel(Text(verbatim: item.title))
             }
-            .buttonStyle(.plain)
-            .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
-                                          preloadedData: data, artworkIsPrepared: artwork != nil,
-                                          showsEmbyFacts: true, openEmbyDetails: { path.append(route) }) { EmptyView() })
-            .accessibilityLabel(Text(verbatim: item.title))
         }
     }
 
@@ -447,12 +458,11 @@ struct MediaView: View {
 
     private func openCarouselDetail(_ route: EmbyMediaRoute) {
         guard path.isEmpty, pendingCarouselRoute == nil else { return }
+        pendingCarouselRoute = route
         if isMediaScrollAtRestAtTop {
-            showCarouselDestination(route)
+            showPendingCarouselDestinationIfAtTop()
             return
         }
-
-        pendingCarouselRoute = route
         if reduceMotion {
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
@@ -469,7 +479,13 @@ struct MediaView: View {
     private func showPendingCarouselDestinationIfAtTop() {
         guard isMediaScrollAtRestAtTop, let route = pendingCarouselRoute else { return }
         pendingCarouselRoute = nil
-        showCarouselDestination(route)
+        hidesCarouselInformation = true
+        Task { @MainActor in
+            await Task.yield()
+            if !reduceMotion { try? await Task.sleep(for: .milliseconds(180)) }
+            guard path.isEmpty, library.selectedID == route.source.id else { return }
+            showCarouselDestination(route)
+        }
     }
 
     private func showCarouselDestination(_ route: EmbyMediaRoute) {
@@ -763,6 +779,7 @@ private struct EmbyFeaturedCarousel: View {
     let artwork: [String: Data]?
     let featuredArtwork: [MediaID: EmbyFeaturedArtwork]?
     let isMediaRoot: Bool
+    let hidesInformation: Bool
     let openDetail: (EmbyMediaRoute) -> Void
     @Environment(\.vesperRootHeaderHeight) private var headerHeight
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -801,7 +818,7 @@ private struct EmbyFeaturedCarousel: View {
                                              artwork: fallback, artworkIsPrepared: artwork != nil,
                                              featuredArtwork: images,
                                              featuredArtworkIsPrepared: images != nil,
-                                             showsInformation: isCurrent && !isTransitioning,
+                                             showsInformation: isCurrent && !isTransitioning && !hidesInformation,
                                              mirroredEdgeFraction: (isCurrent || isIncoming) && isTransitioning && !reduceMotion ? mirrorFraction : 0)
                         }
                         .buttonStyle(.plain)
@@ -1060,7 +1077,10 @@ struct EmbyFeaturedPage: View {
                     VStack(spacing: 6) {
                         Group {
                             if let logo = images?.logo, let image = UIImage(data: logo) {
-                                Image(uiImage: image).resizable().scaledToFit()
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .accessibilityLabel(Text(verbatim: item.title))
                             } else {
                                 Text(verbatim: item.title)
                                     .font(.largeTitle.weight(.semibold))
@@ -1087,7 +1107,6 @@ struct EmbyFeaturedPage: View {
                     .frame(maxWidth: .infinity)
                     .opacity(showsInformation ? 1 : 0)
                     .animation(.easeInOut(duration: 0.16), value: showsInformation)
-                    .allowsHitTesting(false)
                     .accessibilityHidden(true)
                     if let seriesFooter {
                         seriesFooter
@@ -1097,7 +1116,7 @@ struct EmbyFeaturedPage: View {
                             .padding(.bottom, EmbyPosterLayout.seriesFooterBottomInset)
                             .opacity(seriesFooterOpacity)
                             .accessibilityHidden(seriesFooterOpacity == 0)
-                            .allowsHitTesting(false)
+                            .allowsHitTesting(seriesFooterOpacity > 0)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -1167,9 +1186,9 @@ struct EmbyFeaturedPage: View {
 
     private var secondLine: String {
         let metadata = item.embyPresentation
-        let month = metadata?.premiereDate?.formatted(
-            Date.FormatStyle(timeZone: TimeZone(secondsFromGMT: 0) ?? .current).year().month()
-        )
+        let year = item.subtitle ?? metadata?.premiereDate.map {
+            String(Calendar(identifier: .gregorian).component(.year, from: $0))
+        }
         let status: String?
         switch metadata?.status {
         case "Continuing": status = String(localized: "连载中")
@@ -1177,8 +1196,129 @@ struct EmbyFeaturedPage: View {
         case "Upcoming": status = String(localized: "即将播出")
         default: status = metadata?.status
         }
-        return [month, status, metadata?.rating].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let score = metadata?.communityRating.map { String(format: "%.1f", $0) }
+        return [year, status, score].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+}
+
+struct EmbySeriesPosterCard: View {
+    let source: MediaSource
+    let item: MediaItem
+    @ObservedObject var playback: PlaybackSession
+    let width: CGFloat
+    let posterHeight: CGFloat
+    let preloadedData: Data?
+    let artworkIsPrepared: Bool
+    let open: () -> Void
+
+    @State private var episodes: [EmbyEpisode] = []
+    private var played: Bool { playback.effectivePlayed(for: item) }
+    private var firstEpisode: EmbyEpisode? { episodes.first }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: open) {
+                MediaThumbnail(source: source, item: item, aspectRatio: width / posterHeight,
+                               fixedHeight: posterHeight, preloadedData: preloadedData,
+                               artworkIsPrepared: artworkIsPrepared)
+                    .frame(width: width, height: posterHeight)
+                    .mediaArtworkBorder(cornerRadius: 8)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(verbatim: item.title))
+
+            Text(verbatim: item.title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(2, reservesSpace: true)
+            Text(verbatim: categoryLine)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button {
+                    guard let firstEpisode else { return }
+                    playback.play(firstEpisode.item, in: source, queue: episodes.map(\.item))
+                } label: {
+                    Label(startLabel, systemImage: "play.fill")
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                .buttonStyle(.plain)
+                .disabled(firstEpisode == nil)
+                .accessibilityLabel(Text(verbatim: startLabel))
+
+                Spacer(minLength: 0)
+                Button {
+                    playback.setPlayed(!played, for: item, source: source)
+                } label: {
+                    Image(systemName: played ? "checkmark" : "plus")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .symbolEffect(.drawOn, value: played)
+                .accessibilityLabel(played ? "标记为未观看" : "标记为已观看")
+            }
+
+            Text(verbatim: item.embyPresentation?.overview ?? "")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2, reservesSpace: true)
+                .fixedSize(horizontal: false, vertical: true)
+
+            factsLine
+        }
+        .frame(width: width, alignment: .leading)
+        .contentShape(Rectangle())
+        .task(id: item.id) {
+            episodes = (try? await EmbyRepository.shared.seriesEpisodes(for: item, source: source, limit: 1)) ?? []
+        }
+    }
+
+    private var categoryLine: String {
+        ([String(localized: "剧集")] + (item.embyPresentation?.genres ?? []).prefix(3))
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: " · ")
+    }
+
+    private var startLabel: String {
+        guard let episode = firstEpisode else { return String(localized: "开始播放") }
+        let number = String(format: "%02d", episode.number ?? 0)
+        if (item.embyPresentation?.seasonCount ?? Set(episodes.map(\.season)).count) <= 1 {
+            return String(localized: "开始播放 E\(number)")
+        }
+        return String(localized: "开始播放 S\(String(format: "%02d", episode.season))E\(number)")
+    }
+
+    @ViewBuilder
+    private var factsLine: some View {
+        let presentation = item.embyPresentation
+        HStack(spacing: 5) {
+            if let year = item.subtitle ?? presentation?.premiereDate.map({ String(Calendar(identifier: .gregorian).component(.year, from: $0)) }) {
+                Text(verbatim: year)
+            }
+            if let status = presentation?.status {
+                Text(verbatim: status == "Continuing" ? "连载中" : status == "Ended" ? "已完结" : status)
+            }
+            if let rating = presentation?.communityRating {
+                Label(String(format: "%.1f", rating), systemImage: "star.fill")
+            }
+            if let classification = presentation?.rating, !classification.isEmpty {
+                Label(classification, systemImage: "rectangle.badge.checkmark")
+            }
+            if let studios = presentation?.studios, !studios.isEmpty {
+                Label(studios.joined(separator: "、"), systemImage: "building.2")
+            }
+        }
+        .font(.system(size: 9, weight: .medium))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
     }
 }
 

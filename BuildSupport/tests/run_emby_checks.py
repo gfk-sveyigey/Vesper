@@ -30,7 +30,7 @@ SERIES = {'Id': 'series', 'Name': 'Series', 'Type': 'Series', 'IsFolder': True,
           'Genres': ['Drama', 'Mystery'], 'Status': 'Continuing', 'OfficialRating': 'TV-14',
           'AirDays': ['Monday'], 'AirTime': '20:00', 'OriginalTitle': 'Original Series',
           'Studios': [{'Name': 'Example Network'}], 'Tags': ['investigation'],
-          'ProductionLocations': ['Japan'],
+          'ProductionLocations': ['Japan'], 'SeasonCount': 2, 'CommunityRating': 8.4,
           'ImageTags': {'Primary': 'cover', 'Logo': 'logo'}}
 EPISODE = {'Id': 'episode', 'Name': 'Episode', 'Type': 'Episode', 'SeriesId': 'series'}
 
@@ -57,6 +57,7 @@ class Handler(BaseHTTPRequestHandler):
                 'movie': [{'ImageType': 'Primary', 'ImageIndex': 0, 'Width': 600, 'Height': 900}],
                 'series': [{'ImageType': 'Logo', 'ImageIndex': 0, 'Width': 800, 'Height': 200},
                            {'ImageType': 'Primary', 'ImageIndex': 0, 'Width': 600, 'Height': 900}],
+                'no-logo': [{'ImageType': 'Primary', 'ImageIndex': 0, 'Width': 600, 'Height': 900}],
                 'episode': [{'ImageType': 'Thumb', 'ImageIndex': 0, 'Width': 1600, 'Height': 900}],
                 'next-season': []
             }
@@ -139,7 +140,7 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(ITEM); return
         if path.path == '/proxy/emby/Users/user/Items/series':
             fields = parse_qs(path.query).get('Fields', [''])[0]
-            assert 'AirDays' in fields and 'Studios' in fields and 'LockedFields' in fields
+            assert 'AirDays' in fields and 'Studios' in fields and 'SeasonCount' in fields
             self.respond(dict(SERIES, Overview='Series synopsis',
                               People=[{'Id': 'actor', 'Name': 'Actor', 'Role': 'Detective', 'PrimaryImageTag': 'actor-tag'},
                                       {'Name': 'Director & Writer', 'Type': 'Director'}],

@@ -249,7 +249,7 @@ actor EmbyRepository {
             "IncludeItemTypes": titleTypes.joined(separator: ","),
             "SortBy": "DateCreated", "SortOrder": "Descending", "StartIndex": "0", "Limit": String(limit),
             "EnableImages": "true",
-            "Fields": "DateCreated,ProductionYear,RunTimeTicks,UserData,Genres,PremiereDate,Status,OfficialRating"
+            "Fields": "DateCreated,ProductionYear,RunTimeTicks,UserData,Genres,PremiereDate,Status,OfficialRating,CommunityRating,Studios,SeasonCount"
         ]
         if let parentID { query["ParentId"] = parentID }
         let response = try await client.get(path, query: query)
@@ -280,7 +280,7 @@ actor EmbyRepository {
                limit: Int = 100, sortBy: String = "SortName", sortOrder: String = "Ascending",
                scope: EmbyBrowseScope = .children) async throws -> [MediaItem] {
         let client = try await clientProvider(source)
-        var query = ["StartIndex": String(startIndex), "Limit": String(limit), "Fields": "Overview,PrimaryImageAspectRatio,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData,Genres,PremiereDate",
+        var query = ["StartIndex": String(startIndex), "Limit": String(limit), "Fields": "Overview,PrimaryImageAspectRatio,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData,Genres,PremiereDate,Status,OfficialRating,CommunityRating,Studios,SeasonCount",
                      "SortBy": sortBy, "SortOrder": sortOrder]
         switch scope {
         case .person(let person):
@@ -398,10 +398,10 @@ actor EmbyRepository {
             return text(value)
         }
         let definitions: [(String, String, [(String, String)])] = [
-            ("basic", "基本资料", [("Name", "名称"), ("OriginalTitle", "原名"), ("SortName", "排序名称"), ("Overview", "简介"), ("Taglines", "宣传语"), ("ProductionYear", "年份"), ("OfficialRating", "内容分级"), ("CustomRating", "自定义分级"), ("CommunityRating", "社区评分"), ("CriticRating", "影评评分")]),
-            ("airing", "播出信息", [("Status", "播出状态"), ("PremiereDate", "首播时间"), ("EndDate", "完结时间"), ("AirDays", "播出日期"), ("AirTime", "播出时间"), ("RunTimeTicks", "条目时长"), ("ChildCount", "直接子项数"), ("RecursiveItemCount", "递归子项数")]),
+            ("basic", "基本资料", [("Name", "名称"), ("OriginalTitle", "原名"), ("Overview", "简介"), ("Taglines", "宣传语"), ("ProductionYear", "年份"), ("OfficialRating", "内容分级"), ("CustomRating", "自定义分级"), ("CommunityRating", "社区评分"), ("CriticRating", "影评评分")]),
+            ("airing", "播出信息", [("Status", "播出状态"), ("EndDate", "完结时间"), ("AirDays", "播出日期"), ("SeasonCount", "季数")]),
             ("production", "制作与分类", [("Genres", "类型"), ("Studios", "制作公司／电视台"), ("ProductionLocations", "制作地区"), ("Tags", "标签"), ("PreferredMetadataLanguage", "元数据语言"), ("PreferredMetadataCountryCode", "元数据地区")]),
-            ("library", "媒体库资料", [("Id", "Emby 条目 ID"), ("Type", "条目类型"), ("Path", "媒体库路径"), ("DateCreated", "入库时间"), ("DateModified", "修改时间"), ("LocationType", "存储类型"), ("LockData", "锁定元数据"), ("LockedFields", "已锁定字段")])
+            ("library", "媒体库资料", [("DateModified", "修改时间"), ("LocationType", "存储类型"), ("PrimaryImageAspectRatio", "海报宽高比")])
         ]
         var result = definitions.compactMap { id, title, definitions -> EmbySeriesInformationGroup? in
             let fields = definitions.compactMap { key, label -> EmbySeriesInformationField? in
@@ -410,28 +410,14 @@ actor EmbyRepository {
             }
             return fields.isEmpty ? nil : .init(id: id, title: title, fields: fields)
         }
-        if let providers = response["ProviderIds"] as? [String: String] {
-            let fields = providers.keys.sorted().compactMap { key -> EmbySeriesInformationField? in
-                guard let value = text(providers[key]) else { return nil }
-                return .init(id: key, label: key, value: value)
-            }
-            if !fields.isEmpty { result.append(.init(id: "providers", title: "外部数据库 ID", fields: fields)) }
-        }
-        if let data = response["UserData"] as? [String: Any] {
-            let definitions = [("Played", "已观看"), ("IsFavorite", "已收藏"), ("PlayCount", "播放次数"), ("LastPlayedDate", "上次播放"), ("UnplayedItemCount", "未观看条目数"), ("PlayedPercentage", "观看百分比"), ("PlaybackPositionTicks", "播放位置"), ("Rating", "个人评分")]
-            let fields = definitions.compactMap { key, label -> EmbySeriesInformationField? in
-                guard var value = formatted(key, value: data[key]) else { return nil }
-                if key == "PlayedPercentage" { value += "%" }
-                return .init(id: key, label: label, value: value)
-            }
-            if !fields.isEmpty { result.append(.init(id: "user", title: "服务器观看记录", fields: fields)) }
-        }
         return result
     }
 
-    func seriesEpisodes(for series: MediaItem, source: MediaSource) async throws -> [EmbyEpisode] {
+    func seriesEpisodes(for series: MediaItem, source: MediaSource, limit: Int? = nil) async throws -> [EmbyEpisode] {
         let client = try await clientProvider(source)
-        var query = ["Fields": "Overview,MediaStreams,MediaSources,RunTimeTicks", "Limit": "100",
+        let pageLimit = min(100, max(1, limit ?? 100))
+        var query = ["Fields": "Overview,MediaStreams,MediaSources,RunTimeTicks", "Limit": String(pageLimit),
+                     "SortBy": "ParentIndexNumber,IndexNumber", "SortOrder": "Ascending",
                      "EnableUserData": "true", "EnableTotalRecordCount": "true"]
         if let userID = source.emby?.userID { query["UserId"] = userID }
         var episodes: [EmbyEpisode] = []
@@ -468,7 +454,9 @@ actor EmbyRepository {
                                             played: (row["UserData"] as? [String: Any])?["Played"] as? Bool,
                                             is4K: video.contains { ($0["Width"] as? Int ?? 0) >= 3800 },
                                             dolbyVision: dolbyVision, dolbyAtmos: dolbyAtmos))
+                if let limit, episodes.count >= limit { break }
             }
+            if let limit, episodes.count >= limit { break }
             offset += rows.count
             if !madeProgress { break }
             if let total = response["TotalRecordCount"] as? Int {
@@ -484,7 +472,7 @@ actor EmbyRepository {
 
     func similarTitles(for item: MediaItem, source: MediaSource) async throws -> [MediaItem] {
         let client = try await clientProvider(source)
-        var query = ["Limit": "20", "Fields": "Genres,PremiereDate,Overview"]
+        var query = ["Limit": "20", "Fields": "Genres,PremiereDate,Overview,Status,OfficialRating,CommunityRating,Studios"]
         if let userID = source.emby?.userID { query["UserId"] = userID }
         let response = try await client.get("Items/\(item.id.localID)/Similar", query: query)
         let rows = response["Items"] as? [[String: Any]] ?? []
@@ -521,7 +509,7 @@ actor EmbyRepository {
             return try await client.get("Users/\(userID)/Items/\(id)")
         }
 
-        let fields = "Overview,Genres,People,ProviderIds,ExternalUrls,MediaSources,MediaStreams,OriginalTitle,SortName,Taglines,Studios,ProductionLocations,Tags,DateCreated,DateModified,Path,PremiereDate,EndDate,AirTime,AirDays,ChildCount,RecursiveItemCount,CustomRating,PreferredMetadataLanguage,PreferredMetadataCountryCode,LockedFields"
+        let fields = "Overview,Genres,People,ProviderIds,ExternalUrls,MediaSources,MediaStreams,OriginalTitle,Taglines,Studios,ProductionLocations,Tags,DateModified,Path,EndDate,AirDays,SeasonCount,CustomRating,CommunityRating,CriticRating,PreferredMetadataLanguage,PreferredMetadataCountryCode,PrimaryImageAspectRatio"
         let response = try await client.get("Items", query: ["Ids": id, "Limit": "1", "Fields": fields])
         guard let rows = response["Items"] as? [[String: Any]],
               let row = rows.first(where: { $0["Id"] as? String == id }) else {
@@ -780,7 +768,10 @@ actor EmbyRepository {
                                      status: value["Status"] as? String,
                                      rating: value["OfficialRating"] as? String,
                                      logoURL: logoURL,
-                                     overview: value["Overview"] as? String
+                                     overview: value["Overview"] as? String,
+                                     communityRating: (value["CommunityRating"] as? NSNumber)?.doubleValue,
+                                     studios: ((value["Studios"] as? [[String: Any]]) ?? []).compactMap { $0["Name"] as? String },
+                                     seasonCount: (value["SeasonCount"] as? NSNumber)?.intValue
                                  ),
                                  isPlayed: played,
                                  embyPlayedFetchedAt: played == nil ? nil : mappedAt)
@@ -815,7 +806,10 @@ actor EmbyRepository {
     func featuredLogoData(for item: MediaItem, source: MediaSource) async -> Data? {
         guard let client = try? await clientProvider(source),
               !Task.isCancelled else { return nil }
-        for image in await selectedImages(for: item, source: source, client: client, preferredTypes: ["Logo"])
+        let logoTypes: Set<String> = ["Logo", "LogoLight", "LogoLightColor"]
+        for image in await selectedImages(for: item, source: source, client: client,
+                                          preferredTypes: ["Logo", "LogoLight", "LogoLightColor"],
+                                          allowedTypes: logoTypes)
             where client.sameOrigin(image) {
             if let data = await fetchThumbnail(image, client: client) { return data }
         }
@@ -852,7 +846,8 @@ actor EmbyRepository {
     }
 
     private func selectedImages(for item: MediaItem, source: MediaSource, client: EmbyAPIClient,
-                                preferredTypes: [String], targetAspectRatio: Double = 1) async -> [URL] {
+                                preferredTypes: [String], targetAspectRatio: Double = 1,
+                                allowedTypes: Set<String>? = nil) async -> [URL] {
         let cacheKey = "\(AppCacheStore.scope(for: source))|\(item.id.localID)"
         let images: [EmbyItemImage]
         if let cached = itemImages[cacheKey] {
@@ -866,6 +861,7 @@ actor EmbyRepository {
             images = rows.compactMap { row in
                 guard let type = row["ImageType"] as? String,
                       supportedTypes.contains(type),
+                      allowedTypes == nil || allowedTypes!.contains(type),
                       let index = row["ImageIndex"] as? Int,
                       let width = row["Width"] as? Int, width > 0,
                       let height = row["Height"] as? Int, height > 0 else { return nil }
