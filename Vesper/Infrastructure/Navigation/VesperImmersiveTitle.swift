@@ -87,6 +87,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 content
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 20)
+                    .environment(\.vesperRootHeaderHeight, headerHeight)
                     .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
             }
             .frame(minHeight: viewportHeight, alignment: .top)
@@ -528,11 +529,20 @@ extension VesperRootScrollView where Actions == EmptyView {
     }
 }
 
+private struct VesperRootHeaderHeightKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
 private struct VesperWindowTopInsetKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
 
 extension EnvironmentValues {
+    var vesperRootHeaderHeight: CGFloat {
+        get { self[VesperRootHeaderHeightKey.self] }
+        set { self[VesperRootHeaderHeightKey.self] = newValue }
+    }
+
     var vesperWindowTopInset: CGFloat {
         get { self[VesperWindowTopInsetKey.self] }
         set { self[VesperWindowTopInsetKey.self] = newValue }

@@ -156,6 +156,10 @@ struct MediaView: View {
                     if route.origin == .carousel {
                         let detail = EmbySeriesDetailView(source: route.source, series: item,
                                                           carouselArtwork: route.carouselArtwork)
+                            .background {
+                                CarouselDetailCrossfade.ReturnObserver(transition: carouselCrossfade,
+                                                                       reduceMotion: reduceMotion)
+                            }
                             .onAppear { carouselCrossfade.revealDetail() }
                         if #available(iOS 27, *) {
                             detail.navigationTransition(.crossFade)
@@ -311,7 +315,7 @@ struct MediaView: View {
                             }
                             .scrollIndicators(.hidden)
                             .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
-                            .scrollTargetBehavior(.viewAligned(anchor: .leading))
+                            .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
                             .padding(.vertical, CGFloat(layout[.scrollPadding]))
                         }
                     }
@@ -588,43 +592,93 @@ struct MediaView: View {
     }
 }
 
-/// Holds the outgoing media frame above the navigation stack for the push.
+/// Keeps both page frames stationary while UIKit drives the navigation transition.
 @MainActor
 private final class CarouselDetailCrossfade {
     private weak var anchor: UIView?
-    private weak var snapshot: UIView?
+    private weak var mediaWindow: UIWindow?
+    private var mediaWindowBounds = CGRect.zero
+    private var mediaFrame = CGRect.zero
+    private var mediaSnapshot: UIView?
+    private weak var pushCover: UIView?
+    private weak var returnCover: UIView?
 
     func coverMediaPage() -> Bool {
-        snapshot?.removeFromSuperview()
-        snapshot = nil
+        pushCover?.removeFromSuperview()
+        mediaSnapshot = nil
         guard let anchor, let window = anchor.window else { return false }
         let frame = anchor.convert(anchor.bounds, to: window).intersection(window.bounds)
-        guard !frame.isEmpty,
-              let cover = window.resizableSnapshotView(from: frame, afterScreenUpdates: false,
-                                                       withCapInsets: .zero) else { return false }
-        cover.frame = frame
-        cover.isUserInteractionEnabled = false
-        cover.accessibilityElementsHidden = true
-        window.addSubview(cover)
-        snapshot = cover
+        guard let snapshot = snapshot(in: window, frame: frame) else { return false }
+
+        mediaWindow = window
+        mediaWindowBounds = window.bounds
+        mediaFrame = frame
+        mediaSnapshot = snapshot
+        let cover = makeCover(in: window, frame: frame)
+        snapshot.frame = cover.bounds
+        cover.addSubview(snapshot)
+        pushCover = cover
 
         // Drop the cover even if the navigation destination never appears.
         Task { [weak self, weak cover] in
             try? await Task.sleep(for: .seconds(1))
-            guard let cover, self?.snapshot === cover else { return }
+            guard let cover, self?.pushCover === cover else { return }
             self?.revealDetail()
         }
         return true
     }
 
     func revealDetail() {
-        guard let cover = snapshot else { return }
-        snapshot = nil
+        guard let cover = pushCover, cover.alpha == 1 else { return }
         UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut]) {
             cover.alpha = 0
         } completion: { _ in
             cover.removeFromSuperview()
         }
+    }
+
+    private func crossfadeReturn(using coordinator: any UIViewControllerTransitionCoordinator,
+                                 in window: UIWindow) {
+        guard returnCover == nil, let mediaSnapshot,
+              mediaWindow === window, mediaWindowBounds == window.bounds else { return }
+
+        // Capture the last rendered detail frame before UIKit moves either page.
+        let frame = mediaFrame
+        guard let detail = snapshot(in: window, frame: frame) else { return }
+        pushCover?.removeFromSuperview()
+        let cover = makeCover(in: window, frame: frame)
+        mediaSnapshot.frame = cover.bounds
+        cover.addSubview(mediaSnapshot)
+        detail.frame = cover.bounds
+        cover.addSubview(detail)
+        returnCover = cover
+
+        // The same coordinator scrubs the fade during a swipe and reverses it on cancellation.
+        let registered = coordinator.animateAlongsideTransition(in: cover) { _ in
+            detail.alpha = 0
+        } completion: { [weak self, weak cover] context in
+            cover?.removeFromSuperview()
+            guard let self, let cover, self.returnCover === cover else { return }
+            self.returnCover = nil
+            if !context.isCancelled { self.mediaSnapshot = nil }
+        }
+        if !registered {
+            cover.removeFromSuperview()
+            returnCover = nil
+        }
+    }
+
+    private func snapshot(in window: UIWindow, frame: CGRect) -> UIView? {
+        guard !frame.isEmpty else { return nil }
+        return window.resizableSnapshotView(from: frame, afterScreenUpdates: false, withCapInsets: .zero)
+    }
+
+    private func makeCover(in window: UIWindow, frame: CGRect) -> UIView {
+        let cover = UIView(frame: frame)
+        cover.isUserInteractionEnabled = false
+        cover.accessibilityElementsHidden = true
+        window.addSubview(cover)
+        return cover
     }
 
     struct Anchor: UIViewRepresentable {
@@ -638,6 +692,56 @@ private final class CarouselDetailCrossfade {
         }
 
         func updateUIView(_ view: UIView, context: Context) {}
+    }
+
+    struct ReturnObserver: UIViewControllerRepresentable {
+        let transition: CarouselDetailCrossfade
+        let reduceMotion: Bool
+
+        func makeUIViewController(context: Context) -> ReturnController {
+            let controller = ReturnController()
+            controller.view.isUserInteractionEnabled = false
+            updateUIViewController(controller, context: context)
+            return controller
+        }
+
+        func updateUIViewController(_ controller: ReturnController, context: Context) {
+            controller.transition = transition
+            controller.reduceMotion = reduceMotion
+        }
+    }
+
+    final class ReturnController: UIViewController {
+        weak var transition: CarouselDetailCrossfade?
+        var reduceMotion = false
+        private weak var navigation: UINavigationController?
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            navigation = navigationController
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            guard !reduceMotion, let window = view.window,
+                  let navigation = navigationController ?? self.navigation,
+                  let coordinator = transitionCoordinator ?? navigation.transitionCoordinator,
+                  coordinator.isAnimated,
+                  let from = coordinator.viewController(forKey: .from),
+                  let to = coordinator.viewController(forKey: .to),
+                  to === navigation.viewControllers.first,
+                  isHosted(by: from) else { return }
+            transition?.crossfadeReturn(using: coordinator, in: window)
+        }
+
+        private func isHosted(by controller: UIViewController) -> Bool {
+            var ancestor = parent
+            while let current = ancestor {
+                if current === controller { return true }
+                ancestor = current.parent
+            }
+            return false
+        }
     }
 }
 
@@ -657,7 +761,7 @@ private struct EmbyFeaturedCarousel: View {
     let featuredArtwork: [MediaID: EmbyFeaturedArtwork]?
     let isMediaRoot: Bool
     let openDetail: (EmbyMediaRoute) -> Void
-    @ObservedObject private var layout = MediaLayoutSettings.shared
+    @Environment(\.vesperRootHeaderHeight) private var headerHeight
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.scenePhase) private var scenePhase
@@ -672,13 +776,11 @@ private struct EmbyFeaturedCarousel: View {
     private let travelFraction: CGFloat = 0.25
 
     var body: some View {
-        GeometryReader { geometry in
+        let hasPosters = !items.isEmpty
+
+        let pages = GeometryReader { geometry in
             let width = geometry.size.width
-            if items.isEmpty {
-                MediaCardBackdrop(showsMissingArtwork: true)
-                    .frame(width: width, height: geometry.size.height)
-                    .modifier(EmbyPosterStretch(geometry: geometry))
-            } else {
+            if hasPosters {
                 let page = currentIndex
                 let isTransitioning = isDragging || transitionID != nil
                 ZStack {
@@ -697,8 +799,7 @@ private struct EmbyFeaturedCarousel: View {
                                              featuredArtwork: images,
                                              featuredArtworkIsPrepared: featuredArtwork != nil,
                                              showsInformation: isCurrent && !isTransitioning,
-                                             mirroredEdgeFraction: (isCurrent || isIncoming) && isTransitioning && !reduceMotion ? mirrorFraction : 0,
-                                             carouselBlur: layout.carouselBlur)
+                                             mirroredEdgeFraction: (isCurrent || isIncoming) && isTransitioning && !reduceMotion ? mirrorFraction : 0)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(Text(verbatim: item.title))
@@ -732,9 +833,14 @@ private struct EmbyFeaturedCarousel: View {
                     }
                 }
                 .modifier(EmbyPosterStretch(geometry: geometry))
+                .transition(.opacity)
             }
         }
-        .aspectRatio(EmbyPosterLayout.aspectRatio, contentMode: .fit)
+
+        return EmbyCarouselRevealLayout(headerHeight: headerHeight, progress: hasPosters ? 1 : 0) {
+            pages
+        }
+        .animation(reduceMotion || !hasPosters ? nil : .easeOut(duration: 0.32), value: hasPosters)
         .onChange(of: items.map(\.id), initial: true) { _, ids in
             resetTransition()
             if selection.map(ids.contains) != true { selection = ids.first }
@@ -823,6 +929,30 @@ private struct EmbyFeaturedCarousel: View {
     }
 }
 
+/// The compact carousel reserves exactly the root header's height until artwork is ready.
+private struct EmbyCarouselRevealLayout: Layout {
+    let headerHeight: CGFloat
+    nonisolated var progress: CGFloat
+
+    nonisolated var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let proposedWidth = proposal.replacingUnspecifiedDimensions().width
+        let width = proposedWidth.isFinite ? proposedWidth : 0
+        let posterHeight = width / EmbyPosterLayout.aspectRatio
+        let height = headerHeight + (posterHeight - headerHeight) * progress
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: CGPoint(x: bounds.midX, y: bounds.minY),
+                              anchor: .top, proposal: ProposedViewSize(bounds.size))
+    }
+}
+
 private struct EmbyCarouselPan: UIGestureRecognizerRepresentable {
     let enabled: Bool
     let onPan: (UIGestureRecognizer.State, CGFloat, CGFloat) -> Void
@@ -905,7 +1035,7 @@ struct EmbyFeaturedPage: View {
     var seriesFooter: EmbySeriesHeroFooter? = nil
     var seriesFooterOpacity: Double = 1
     var mirroredEdgeFraction: CGFloat = 0
-    var carouselBlur: CarouselPosterBlur? = nil
+    @ObservedObject private var layout = MediaLayoutSettings.shared
     @Environment(\.colorScheme) private var colorScheme
     @State private var loadedArtwork: EmbyFeaturedArtwork?
     @State private var loadedArtworkID: MediaID?
@@ -984,12 +1114,12 @@ struct EmbyFeaturedPage: View {
     }
 
     private var bottomBlur: some View {
-        let solidHeight = size.height * (carouselBlur?.heightFraction ?? 0.2)
-        let fadeHeight = min(carouselBlur?.fadeHeight ?? size.height * 0.2,
-                             max(0, size.height - solidHeight))
+        let blur = layout.carouselBlur
+        let solidHeight = size.height * blur.heightFraction
+        let fadeHeight = min(blur.fadeHeight, max(0, size.height - solidHeight))
         let totalHeight = solidHeight + fadeHeight
         let fadeEnd = totalHeight > 0 ? fadeHeight / totalHeight : 0
-        let strength = carouselBlur?.strength ?? 0.55
+        let strength = blur.strength
         let tint = colorScheme == .dark ? Color.black : Color.white
         let tintOpacity = (colorScheme == .dark ? 0.18 : 0.14) * strength / 0.55
 
@@ -1009,15 +1139,13 @@ struct EmbyFeaturedPage: View {
     }
 
     private func blurMaskStops(fadeEnd: CGFloat) -> [Gradient.Stop] {
-        var stops: [Gradient.Stop] = [.init(color: .clear, location: 0)]
-        if carouselBlur != nil {
-            stops += [
-                .init(color: .black.opacity(0.15625), location: fadeEnd * 0.25),
-                .init(color: .black.opacity(0.5), location: fadeEnd * 0.5),
-                .init(color: .black.opacity(0.84375), location: fadeEnd * 0.75)
-            ]
-        }
-        stops.append(.init(color: .black, location: fadeEnd))
+        var stops: [Gradient.Stop] = [
+            .init(color: .clear, location: 0),
+            .init(color: .black.opacity(0.15625), location: fadeEnd * 0.25),
+            .init(color: .black.opacity(0.5), location: fadeEnd * 0.5),
+            .init(color: .black.opacity(0.84375), location: fadeEnd * 0.75),
+            .init(color: .black, location: fadeEnd)
+        ]
         if fadeEnd < 1 { stops.append(.init(color: .black, location: 1)) }
         return stops
     }

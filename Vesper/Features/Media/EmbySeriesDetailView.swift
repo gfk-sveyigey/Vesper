@@ -240,7 +240,7 @@ struct EmbySeriesDetailView: View {
             .scrollTargetLayout()
         }
         .contentMargins(.horizontal, margin, for: .scrollContent)
-        .scrollTargetBehavior(.viewAligned(anchor: .leading))
+        .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
         .scrollIndicators(.hidden)
         .accessibilityLabel("正在加载分集")
     }
@@ -316,7 +316,7 @@ struct EmbySeriesDetailView: View {
             .scrollTargetLayout()
         }
         .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
-        .scrollTargetBehavior(.viewAligned(anchor: .leading))
+        .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
         .scrollPosition(id: $leadingEpisode, anchor: .leading)
         .scrollIndicators(.hidden)
         .onChange(of: leadingEpisode) { _, id in
@@ -406,7 +406,7 @@ struct EmbySeriesDetailView: View {
                 .scrollTargetLayout()
         }
         .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
-        .scrollTargetBehavior(.viewAligned(anchor: .leading))
+        .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
         .scrollIndicators(.hidden)
     }
 

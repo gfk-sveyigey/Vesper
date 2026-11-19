@@ -51,7 +51,7 @@ struct HistoryView: View {
                             }
                             .scrollIndicators(.hidden)
                             .contentMargins(.horizontal, 20, for: .scrollContent)
-                            .scrollTargetBehavior(.viewAligned(anchor: .leading))
+                            .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
                         }
                     }
                 }
