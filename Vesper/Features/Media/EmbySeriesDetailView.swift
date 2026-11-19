@@ -503,6 +503,7 @@ private struct EmbyEpisodeCard: View {
     let clear: () -> Void
     let mark: () -> Void
 
+    @EnvironmentObject private var playback: PlaybackSession
     @Environment(\.colorScheme) private var colorScheme
     @State private var loadedArtwork: EpisodeArtwork?
 
