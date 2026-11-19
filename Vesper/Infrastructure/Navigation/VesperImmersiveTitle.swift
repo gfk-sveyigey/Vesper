@@ -353,7 +353,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         let start: Date
         let initial: CGFloat
         let target: CGFloat
-        private static let duration: TimeInterval = 0.22
+        private static var duration: TimeInterval { 0.22 }
 
         var end: Date { start.addingTimeInterval(Self.duration) }
 
