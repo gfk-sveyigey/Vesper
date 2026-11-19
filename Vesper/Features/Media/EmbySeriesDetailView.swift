@@ -124,19 +124,21 @@ struct EmbySeriesDetailView: View {
                 .padding(.bottom, 20)
             }
             .scrollBounceBehavior(.always, axes: .vertical)
-            .scrollEdgeEffectStyle(.soft, for: .top)
-            .scrollEdgeEffectHidden(!hasScrolled, for: .top)
+            .scrollEdgeEffectHidden(true, for: .top)
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top > 0.5
             } action: { _, hasScrolled in
                 self.hasScrolled = hasScrolled
             }
         }
+        .overlay(alignment: .top) {
+            VesperMediaStatusBarBlur(isVisible: hasScrolled)
+        }
         .ignoresSafeArea(.container, edges: .top)
         .background(VesperTheme.background.ignoresSafeArea())
         .navigationTitle(series.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        .toolbarVisibility(.visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {

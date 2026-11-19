@@ -776,6 +776,9 @@ private extension MediaLayoutSettings.Metric {
         case .headerForegroundBlur: "Header 模糊效果最大强度"
         case .headerAnimationMinimumDistance: "Header 触发动画最小移动距离"
         case .headerTitleSize: "Header 大标题字号"
+        case .carouselBlurHeight: "底部模糊主体高度"
+        case .carouselBlurFadeHeight: "上沿渐隐高度"
+        case .carouselBlurStrength: "毛玻璃效果强度"
         }
     }
 }
@@ -820,6 +823,14 @@ private struct DebugSettingsView: View {
                     layout.reset(Self.headerMetrics)
                 }
             }
+            SettingsSection("轮播图底部模糊") {
+                ForEach(Self.carouselBlurMetrics, id: \.self) { metric in
+                    layoutStepper(metric)
+                }
+                Button("恢复默认值", systemImage: "arrow.counterclockwise") {
+                    layout.reset(Self.carouselBlurMetrics)
+                }
+            }
         }
     }
 
@@ -828,14 +839,20 @@ private struct DebugSettingsView: View {
         .headerAnimationMinimumDistance, .headerTitleSize
     ]
 
-    private static let interfaceMetrics = MediaLayoutSettings.Metric.allCases.filter { !headerMetrics.contains($0) }
+    private static let carouselBlurMetrics: [MediaLayoutSettings.Metric] = [
+        .carouselBlurHeight, .carouselBlurFadeHeight, .carouselBlurStrength
+    ]
+
+    private static let interfaceMetrics = MediaLayoutSettings.Metric.allCases.filter {
+        !headerMetrics.contains($0) && !carouselBlurMetrics.contains($0)
+    }
 
     private func layoutStepper(_ metric: MediaLayoutSettings.Metric) -> some View {
         let value = layout[metric]
         let displayValue: Text
         if metric == .thumbnailHeight && value == 0 {
             displayValue = Text("自动")
-        } else if metric.isBlurStrength {
+        } else if metric.usesPercent {
             displayValue = Text(Double(value) / 100, format: .percent)
         } else {
             displayValue = Text("\(value) pt")

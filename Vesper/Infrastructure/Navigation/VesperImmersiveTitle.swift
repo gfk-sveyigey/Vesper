@@ -38,7 +38,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var interactionStartedCollapsed = false
 
     init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
-         usesMediaScrollEdges: Bool = false, scrollPosition: Binding<ScrollPosition>? = nil,
+         usesMediaScrollEdges: Bool = false,
+         scrollPosition: Binding<ScrollPosition>? = nil,
          onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
          onVerticalScrollPhaseChange: @escaping (ScrollPhase, CGFloat) -> Void = { _, _ in },
          onTopPullChange: @escaping (CGFloat) -> Void = { _ in },
@@ -237,11 +238,10 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarTitleDisplayMode(.inline)
-        // Keep the empty system bar out of the media root experiment.
-        // Pushed pages retain their own system navigation bar settings.
-        .toolbarVisibility(usesMediaScrollEdges ? .hidden : .visible, for: .navigationBar)
+        .toolbarVisibility(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
+                // Root tabs show their title in the custom header.
                 Color.clear
                     .frame(width: 1, height: 1)
                     .allowsHitTesting(false)
@@ -264,7 +264,6 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .opacity(1 - Double(position))
                     .background {
                         mediaBackdropBlur(
-                            .headerBackdropBlur,
                             isVisible: showsBackdrop,
                             hideDelay: !showsBackdrop && position == 0 ? 0.18 : 0
                         )
@@ -275,22 +274,17 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .allowsHitTesting(!isCollapsed && mediaHeaderSnap == nil)
                     .accessibilityHidden(isCollapsed)
 
-                if topInset > 0 {
-                    mediaBackdropBlur(.statusBarEdgeBlur, isVisible: isCollapsed, fadesAtBottom: true)
-                        .frame(height: topInset)
-                        .clipped()
-                }
+                VesperMediaStatusBarBlur(isVisible: isCollapsed)
             }
             .clipped()
         }
     }
 
-    private func mediaBackdropBlur(_ metric: MediaLayoutSettings.Metric, isVisible: Bool,
-                                   fadesAtBottom: Bool = false, hideDelay: TimeInterval = 0) -> some View {
-        VesperFadingBackdropBlur(style: fadesAtBottom ? .regular : .systemMaterial,
-                                 strength: Double(layout[metric]) / 100,
+    private func mediaBackdropBlur(isVisible: Bool, hideDelay: TimeInterval) -> some View {
+        VesperFadingBackdropBlur(style: .systemMaterial,
+                                 strength: Double(layout[.headerBackdropBlur]) / 100,
                                  visibility: isVisible ? 1 : 0,
-                                 fadesAtBottom: fadesAtBottom)
+                                 fadesAtBottom: false)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.16).delay(hideDelay), value: isVisible)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -392,9 +386,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             let elapsed = CGFloat(date.timeIntervalSince(start) / duration)
             let fraction = min(1, max(0, elapsed))
             if fraction == 1 { return target }
-            let progress = target == 0
-                ? fraction * fraction * (3 - 2 * fraction)
-                : 1 - pow(1 - fraction, 3)
+            let progress = 1 - pow(1 - fraction, 3)
             return initial + (target - initial) * progress
         }
     }
@@ -582,6 +574,28 @@ struct VesperNavigationHeaderLayer: ViewModifier {
                 }
                 .ignoresSafeArea(.container, edges: .top)
             }
+        }
+    }
+}
+
+struct VesperMediaStatusBarBlur: View {
+    let isVisible: Bool
+
+    @Environment(\.vesperWindowTopInset) private var topInset
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var layout = MediaLayoutSettings.shared
+
+    var body: some View {
+        if topInset > 0 {
+            VesperFadingBackdropBlur(style: .regular,
+                                     strength: Double(layout[.statusBarEdgeBlur]) / 100,
+                                     visibility: isVisible ? 1 : 0,
+                                     fadesAtBottom: true)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isVisible)
+                .frame(height: topInset)
+                .clipped()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 }

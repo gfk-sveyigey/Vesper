@@ -11,8 +11,13 @@ final class MediaLayoutSettings: ObservableObject {
 
         case statusBarEdgeBlur, headerBackdropBlur, headerForegroundBlur, headerAnimationMinimumDistance, headerTitleSize
 
-        var isBlurStrength: Bool {
-            self == .statusBarEdgeBlur || self == .headerBackdropBlur
+        case carouselBlurHeight, carouselBlurFadeHeight, carouselBlurStrength
+
+        var usesPercent: Bool {
+            switch self {
+            case .statusBarEdgeBlur, .headerBackdropBlur, .carouselBlurHeight, .carouselBlurStrength: true
+            default: false
+            }
         }
 
         var defaultValue: Int {
@@ -30,6 +35,9 @@ final class MediaLayoutSettings: ObservableObject {
             case .headerForegroundBlur: 8
             case .headerAnimationMinimumDistance: 5
             case .headerTitleSize: 34
+            case .carouselBlurHeight: 40
+            case .carouselBlurFadeHeight: 24
+            case .carouselBlurStrength: 55
             }
         }
 
@@ -38,7 +46,7 @@ final class MediaLayoutSettings: ObservableObject {
             case .thumbnailHeight: 0...600
             case .itemWidth, .itemHeight: 24...480
             case .episodeCardWidth, .episodeCardHeight: 120...1200
-            case .statusBarEdgeBlur, .headerBackdropBlur: 0...100
+            case .statusBarEdgeBlur, .headerBackdropBlur, .carouselBlurHeight, .carouselBlurStrength: 0...100
             case .headerForegroundBlur: 0...40
             case .headerAnimationMinimumDistance: 1...60
             case .headerTitleSize: 18...44
@@ -74,6 +82,12 @@ final class MediaLayoutSettings: ObservableObject {
 
     var episodeCardWidth: CGFloat { CGFloat(self[.episodeCardWidth]) }
     var episodeCardHeight: CGFloat { CGFloat(self[.episodeCardHeight]) }
+
+    var carouselBlur: CarouselPosterBlur {
+        CarouselPosterBlur(heightFraction: CGFloat(self[.carouselBlurHeight]) / 100,
+                           fadeHeight: CGFloat(self[.carouselBlurFadeHeight]),
+                           strength: Double(self[.carouselBlurStrength]) / 100)
+    }
 
     func reset(_ metrics: [Metric]) {
         var updated = values
@@ -643,6 +657,7 @@ private struct EmbyFeaturedCarousel: View {
     let featuredArtwork: [MediaID: EmbyFeaturedArtwork]?
     let isMediaRoot: Bool
     let openDetail: (EmbyMediaRoute) -> Void
+    @ObservedObject private var layout = MediaLayoutSettings.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.scenePhase) private var scenePhase
@@ -682,7 +697,8 @@ private struct EmbyFeaturedCarousel: View {
                                              featuredArtwork: images,
                                              featuredArtworkIsPrepared: featuredArtwork != nil,
                                              showsInformation: isCurrent && !isTransitioning,
-                                             mirroredEdgeFraction: (isCurrent || isIncoming) && isTransitioning && !reduceMotion ? mirrorFraction : 0)
+                                             mirroredEdgeFraction: (isCurrent || isIncoming) && isTransitioning && !reduceMotion ? mirrorFraction : 0,
+                                             carouselBlur: layout.carouselBlur)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(Text(verbatim: item.title))
@@ -871,6 +887,12 @@ struct EmbyPosterStretch: ViewModifier {
     }
 }
 
+struct CarouselPosterBlur {
+    let heightFraction: CGFloat
+    let fadeHeight: CGFloat
+    let strength: Double
+}
+
 struct EmbyFeaturedPage: View {
     let source: MediaSource
     let item: MediaItem
@@ -883,6 +905,7 @@ struct EmbyFeaturedPage: View {
     var seriesFooter: EmbySeriesHeroFooter? = nil
     var seriesFooterOpacity: Double = 1
     var mirroredEdgeFraction: CGFloat = 0
+    var carouselBlur: CarouselPosterBlur? = nil
     @Environment(\.colorScheme) private var colorScheme
     @State private var loadedArtwork: EmbyFeaturedArtwork?
     @State private var loadedArtworkID: MediaID?
@@ -899,17 +922,7 @@ struct EmbyFeaturedPage: View {
             .frame(width: size.width, height: size.height)
             .overlay(alignment: .bottom) {
                 ZStack(alignment: .bottom) {
-                    Rectangle()
-                        .fill(.regularMaterial)
-                        .opacity(0.55)
-                        .overlay(colorScheme == .dark ? Color.black.opacity(0.18) : Color.white.opacity(0.14))
-                        .mask {
-                            LinearGradient(stops: [.init(color: .clear, location: 0),
-                                                   .init(color: .black, location: 0.5),
-                                                   .init(color: .black, location: 1)],
-                                           startPoint: .top, endPoint: .bottom)
-                        }
-                        .frame(height: size.height * 0.4)
+                    bottomBlur
 
                     VStack(spacing: 6) {
                         Group {
@@ -968,6 +981,45 @@ struct EmbyFeaturedPage: View {
                 loadedArtwork = images
                 loadedArtworkID = item.id
             }
+    }
+
+    private var bottomBlur: some View {
+        let solidHeight = size.height * (carouselBlur?.heightFraction ?? 0.2)
+        let fadeHeight = min(carouselBlur?.fadeHeight ?? size.height * 0.2,
+                             max(0, size.height - solidHeight))
+        let totalHeight = solidHeight + fadeHeight
+        let fadeEnd = totalHeight > 0 ? fadeHeight / totalHeight : 0
+        let strength = carouselBlur?.strength ?? 0.55
+        let tint = colorScheme == .dark ? Color.black : Color.white
+        let tintOpacity = (colorScheme == .dark ? 0.18 : 0.14) * strength / 0.55
+
+        return Rectangle()
+            .fill(.regularMaterial)
+            .opacity(strength)
+            .overlay(tint.opacity(tintOpacity))
+            .mask {
+                if fadeEnd > 0 {
+                    LinearGradient(stops: blurMaskStops(fadeEnd: fadeEnd), startPoint: .top, endPoint: .bottom)
+                } else {
+                    Rectangle()
+                }
+            }
+            .frame(height: totalHeight)
+            .allowsHitTesting(false)
+    }
+
+    private func blurMaskStops(fadeEnd: CGFloat) -> [Gradient.Stop] {
+        var stops: [Gradient.Stop] = [.init(color: .clear, location: 0)]
+        if carouselBlur != nil {
+            stops += [
+                .init(color: .black.opacity(0.15625), location: fadeEnd * 0.25),
+                .init(color: .black.opacity(0.5), location: fadeEnd * 0.5),
+                .init(color: .black.opacity(0.84375), location: fadeEnd * 0.75)
+            ]
+        }
+        stops.append(.init(color: .black, location: fadeEnd))
+        if fadeEnd < 1 { stops.append(.init(color: .black, location: 1)) }
+        return stops
     }
 
     private var firstLine: String {
