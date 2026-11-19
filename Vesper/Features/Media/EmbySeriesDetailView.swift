@@ -45,9 +45,36 @@ struct EmbySeriesHeroFooter: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let selectedEpisode {
+                HStack(spacing: 10) {
+                    Button(action: playSelectedEpisode) {
+                        Label(selectedEpisodeLabel(selectedEpisode), systemImage: "play.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+
+                    Button(action: toggleSelectedEpisodePlayed) {
+                        Image(systemName: selectedEpisodeIsPlayed ? "checkmark" : "plus")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+                    .accessibilityLabel(selectedEpisodeIsPlayed ? "标记为未观看" : "标记为已观看")
+                }
+                .frame(maxWidth: .infinity)
+            }
+
             Text(verbatim: series.embyPresentation?.overview ?? "")
                 .font(.subheadline)
                 .lineLimit(2, reservesSpace: true)
+
             if !facts.isEmpty || !episodes.isEmpty {
                 HStack(spacing: 7) {
                     Text(verbatim: facts.joined(separator: " · "))
@@ -66,22 +93,6 @@ struct EmbySeriesHeroFooter: View {
                 }
                 .font(.subheadline)
                 .lineLimit(1)
-            }
-            if let selectedEpisode {
-                HStack(spacing: 16) {
-                    Button(action: playSelectedEpisode) {
-                        Label(selectedEpisodeLabel(selectedEpisode), systemImage: "play.fill")
-                    }
-                    .buttonStyle(.plain)
-                    Button(action: toggleSelectedEpisodePlayed) {
-                        Image(systemName: selectedEpisodeIsPlayed ? "checkmark" : "plus")
-                            .frame(width: 36, height: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(selectedEpisodeIsPlayed ? "标记为未观看" : "标记为已观看")
-                }
-                .font(.subheadline.weight(.semibold))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -222,6 +233,7 @@ struct EmbyMediaDetailView: View {
     @State private var leadingEpisode: MediaID?
     @State private var selectedEpisodeID: MediaID?
     @State private var pendingInitialEpisodeID: MediaID?
+    @State private var episodeShelfAtEnd = false
     @State private var selectedSeason: Int?
     @State private var seasonMovesForward = true
     @State private var openedEpisodeID: MediaID?
@@ -797,16 +809,31 @@ struct EmbyMediaDetailView: View {
         .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
         .scrollPosition(id: $leadingEpisode, anchor: .leading)
         .scrollIndicators(.hidden)
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentSize.width > geometry.containerSize.width + 1
+                && geometry.contentOffset.x + geometry.containerSize.width >= geometry.contentSize.width - 2
+        } action: { _, isAtEnd in
+            episodeShelfAtEnd = isAtEnd
+        }
         .onScrollPhaseChange { _, phase in
             guard phase == .idle else { return }
-            commitSelectedEpisode(leadingEpisode)
+            if let target = pendingInitialEpisodeID {
+                guard leadingEpisode == target else { return }
+                finishInitialEpisodeSelection(target)
+            } else {
+                commitSelectedEpisode(episodeShelfAtEnd ? episodes.last?.id : leadingEpisode)
+            }
         }
         .task(id: episodes.map(\.id)) {
             guard let target = pendingInitialEpisodeID else { return }
             await Task.yield()
+            await Task.yield()
             guard !Task.isCancelled else { return }
             leadingEpisode = target
-            pendingInitialEpisodeID = nil
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, pendingInitialEpisodeID == target,
+                  leadingEpisode == target else { return }
+            finishInitialEpisodeSelection(target)
         }
     }
 
@@ -997,7 +1024,7 @@ struct EmbyMediaDetailView: View {
             seasonNumbers = Array(Set(fetched.map(\.season))).sorted()
             let target = fetched.first(where: shouldResume) ?? fetched.last
             selectedSeason = target?.season ?? seasonNumbers.first
-            selectedEpisodeID = target?.id
+            selectedEpisodeID = nil
             pendingInitialEpisodeID = target?.id
         } catch {
             if !Task.isCancelled { loadError = error.localizedDescription }
@@ -1016,6 +1043,13 @@ struct EmbyMediaDetailView: View {
         guard let selected = episodes.first(where: { $0.id == id }) ?? episodes.last else { return }
         selectedEpisodeID = selected.id
         if selectedSeason != selected.season { selectedSeason = selected.season }
+    }
+
+    private func finishInitialEpisodeSelection(_ id: MediaID) {
+        guard let selected = episodes.first(where: { $0.id == id }) else { return }
+        selectedEpisodeID = selected.id
+        selectedSeason = selected.season
+        pendingInitialEpisodeID = nil
     }
 
     private func playSelectedEpisode() {

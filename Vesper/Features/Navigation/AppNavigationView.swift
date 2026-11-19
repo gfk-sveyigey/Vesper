@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 private enum NavigationTab: Hashable {
     case section(AppSection)
@@ -18,6 +19,7 @@ struct AppNavigationView: View {
     @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
     @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
     @State private var selection: NavigationTab
+    @State private var mediaTabRetapRevision = 0
     @StateObject private var library = SourceLibrary()
     @StateObject private var playback = PlaybackSession()
     @State private var mediaPath = NavigationPath()
@@ -186,6 +188,12 @@ struct AppNavigationView: View {
         .environmentObject(library)
         .environmentObject(playback)
         .background(VesperTheme.background.ignoresSafeArea())
+        .background {
+            TabReselectObserver(isMediaSelected: selection == .section(.media)) {
+                mediaTabRetapRevision &+= 1
+            }
+            .frame(width: 0, height: 0)
+        }
     }
 
     private var hasPlayableContent: Bool { playback.currentItem != nil }
@@ -248,7 +256,7 @@ struct AppNavigationView: View {
         switch section {
         case .media:
             NavigationStack(path: $mediaPath) {
-                MediaView(path: $mediaPath)
+                MediaView(path: $mediaPath, scrollToTopRequest: mediaTabRetapRevision)
             }
                 .modifier(VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty))
         case .sources:
@@ -262,6 +270,99 @@ struct AppNavigationView: View {
                 SettingsView()
             }
             .modifier(VesperNavigationHeaderLayer(isRoot: settingsPath.isEmpty))
+        }
+    }
+}
+
+private struct TabReselectObserver: UIViewControllerRepresentable {
+    let isMediaSelected: Bool
+    let onMediaReselect: () -> Void
+
+    func makeUIViewController(context: Context) -> ObserverController {
+        let controller = ObserverController()
+        controller.view.isUserInteractionEnabled = false
+        controller.isMediaSelected = isMediaSelected
+        controller.onMediaReselect = onMediaReselect
+        return controller
+    }
+
+    func updateUIViewController(_ controller: ObserverController, context: Context) {
+        controller.isMediaSelected = isMediaSelected
+        controller.onMediaReselect = onMediaReselect
+        controller.installTabBarTapObserver()
+    }
+
+    final class ObserverController: UIViewController, UIGestureRecognizerDelegate {
+        var isMediaSelected = false
+        var onMediaReselect: () -> Void = {}
+        private weak var observedTabBar: UITabBar?
+        private var tapRecognizer: UITapGestureRecognizer?
+        private weak var selectedItemAtTouchStart: UITabBarItem?
+        private var beganOnSelectedMediaTab = false
+
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            installTabBarTapObserver()
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            installTabBarTapObserver()
+        }
+
+        func installTabBarTapObserver() {
+            guard let root = viewIfLoaded?.window?.rootViewController,
+                  let controller = findTabController(in: root), observedTabBar !== controller.tabBar else { return }
+            if let tapRecognizer { tapRecognizer.view?.removeGestureRecognizer(tapRecognizer) }
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTabBarTap(_:)))
+            recognizer.cancelsTouchesInView = false
+            recognizer.delaysTouchesBegan = false
+            recognizer.delegate = self
+            controller.tabBar.addGestureRecognizer(recognizer)
+            observedTabBar = controller.tabBar
+            tapRecognizer = recognizer
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldReceive touch: UITouch) -> Bool {
+            guard let tabBar = observedTabBar else { return false }
+            selectedItemAtTouchStart = tabBar.selectedItem
+            beganOnSelectedMediaTab = isMediaSelected
+            return true
+        }
+
+        @objc private func handleTabBarTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended else {
+                if recognizer.state == .cancelled || recognizer.state == .failed {
+                    selectedItemAtTouchStart = nil
+                    beganOnSelectedMediaTab = false
+                }
+                return
+            }
+            let item = selectedItemAtTouchStart
+            let shouldCheckReselect = beganOnSelectedMediaTab
+            selectedItemAtTouchStart = nil
+            beganOnSelectedMediaTab = false
+            guard shouldCheckReselect else { return }
+            DispatchQueue.main.async { [weak self, weak item] in
+                guard let self, let item, self.observedTabBar?.selectedItem === item,
+                      self.isMediaSelected else { return }
+                self.onMediaReselect()
+            }
+        }
+
+        private func findTabController(in controller: UIViewController) -> UITabBarController? {
+            if let tabController = controller as? UITabBarController { return tabController }
+            for child in controller.children {
+                if let result = findTabController(in: child) { return result }
+            }
+            if let presented = controller.presentedViewController {
+                return findTabController(in: presented)
+            }
+            return nil
         }
     }
 }

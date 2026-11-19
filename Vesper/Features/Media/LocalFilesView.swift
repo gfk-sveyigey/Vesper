@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct LocalFilesView<SourceMenu: View>: View {
     let source: MediaSource
+    var scrollToTopRequest = 0
     var directory = ""
     @ViewBuilder let sourceMenu: () -> SourceMenu
     @EnvironmentObject private var library: SourceLibrary
@@ -68,6 +69,12 @@ struct LocalFilesView<SourceMenu: View>: View {
         .refreshable { await reload() }
         .onChange(of: library.content) { _, content in
             if case .loaded = content { Task { await reload() } }
+        }
+        .onChange(of: scrollToTopRequest) { _, _ in
+            guard directory.isEmpty else { return }
+            withAnimation(.easeOut(duration: 0.32)) {
+                rootScrollPosition.scrollTo(edge: .top)
+            }
         }
         .alert(renameEntry == nil ? "新建文件夹" : "重命名", isPresented: $isNaming) {
             TextField("名称", text: $name)

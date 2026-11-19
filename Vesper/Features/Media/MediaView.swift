@@ -101,6 +101,7 @@ final class MediaLayoutSettings: ObservableObject {
 
 struct MediaView: View {
     @Binding var path: NavigationPath
+    let scrollToTopRequest: Int
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
     @ObservedObject private var layout = MediaLayoutSettings.shared
@@ -111,6 +112,7 @@ struct MediaView: View {
     @State private var mediaScrollPosition = ScrollPosition(edge: .top)
     @State private var mediaScrollOffset: CGFloat = 0
     @State private var mediaScrollPhase: ScrollPhase = .idle
+    @State private var mediaTabReselectTask: Task<Void, Never>?
     @State private var pendingCarouselRoute: EmbyMediaRoute?
     @State private var hidesCarouselInformation = false
     @State private var carouselCrossfade = CarouselDetailCrossfade()
@@ -118,7 +120,7 @@ struct MediaView: View {
     var body: some View {
         Group {
             if let source = library.selectedSource, source.kind == .local {
-                LocalFilesView(source: source) { mediaSourceMenu }
+                LocalFilesView(source: source, scrollToTopRequest: scrollToTopRequest) { mediaSourceMenu }
                     .id(source.id)
             } else {
                 mediaContent
@@ -140,7 +142,32 @@ struct MediaView: View {
                 hidesCarouselInformation = false
             }
         }
-        .onDisappear { pendingCarouselRoute = nil }
+        .onChange(of: scrollToTopRequest) { _, _ in
+            pendingCarouselRoute = nil
+            showsEmbyShortcuts = false
+            mediaTabReselectTask?.cancel()
+            mediaTabReselectTask = Task { @MainActor in
+                defer { mediaTabReselectTask = nil }
+                for _ in 0..<12 {
+                    guard !Task.isCancelled else { return }
+                    if path.isEmpty { break }
+                    do {
+                        try await Task.sleep(for: .milliseconds(35))
+                    } catch {
+                        return
+                    }
+                }
+                guard !Task.isCancelled, path.isEmpty else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.32)) {
+                    mediaScrollPosition.scrollTo(edge: .top)
+                }
+            }
+        }
+        .onDisappear {
+            pendingCarouselRoute = nil
+            mediaTabReselectTask?.cancel()
+            mediaTabReselectTask = nil
+        }
         .task(id: pendingCarouselRoute) {
             guard pendingCarouselRoute != nil else { return }
             // Release the pending tap if the scroll is interrupted without reaching the top.
@@ -1018,7 +1045,7 @@ private struct EmbyCarouselPan: UIGestureRecognizerRepresentable {
 
 enum EmbyPosterLayout {
     static let aspectRatio: CGFloat = 3.0 / 5.0
-    static let informationBottomInset: CGFloat = 112
+    static let informationBottomInset: CGFloat = 132
     static let seriesFooterBottomInset: CGFloat = 14
 }
 
@@ -1104,6 +1131,7 @@ struct EmbyFeaturedPage: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 20)
                     .padding(.bottom, EmbyPosterLayout.informationBottomInset)
+                    .offset(y: -24)
                     .frame(maxWidth: .infinity)
                     .opacity(showsInformation ? 1 : 0)
                     .animation(.easeInOut(duration: 0.16), value: showsInformation)
@@ -1238,6 +1266,7 @@ struct EmbySeriesPosterCard: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 8) {
+                Spacer(minLength: 0)
                 Button {
                     guard let firstEpisode else { return }
                     playback.play(firstEpisode.item, in: source, queue: episodes.map(\.item))
@@ -1247,22 +1276,26 @@ struct EmbySeriesPosterCard: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
                 .disabled(firstEpisode == nil)
                 .accessibilityLabel(Text(verbatim: startLabel))
 
-                Spacer(minLength: 0)
                 Button {
                     playback.setPlayed(!played, for: item, source: source)
                 } label: {
                     Image(systemName: played ? "checkmark" : "plus")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
                 .symbolEffect(.drawOn, isActive: played)
                 .accessibilityLabel(played ? "标记为未观看" : "标记为已观看")
+                Spacer(minLength: 0)
             }
 
             Text(verbatim: item.embyPresentation?.overview ?? "")
