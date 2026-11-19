@@ -593,8 +593,8 @@ private struct EmbyFeaturedCarousel: View {
     @State private var isDragging = false
     @State private var transitionID: UUID?
 
-    private let mirrorFraction: CGFloat = 0.18
-    private let travelFraction: CGFloat = 0.12
+    private let mirrorFraction: CGFloat = 0.25
+    private let travelFraction: CGFloat = 0.25
 
     var body: some View {
         GeometryReader { geometry in

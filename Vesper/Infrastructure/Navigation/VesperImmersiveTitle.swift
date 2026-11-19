@@ -20,8 +20,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var mediaHeaderPosition: CGFloat = 0
     @State private var mediaHeaderRest: CGFloat = 0
-    @GestureState private var mediaDragActive = false
-    @State private var mediaHeaderDrag: MediaHeaderDrag?
+    @State private var mediaHeaderScroll: MediaHeaderScroll?
+    @State private var mediaScrollTrackingOffset: CGFloat?
     @State private var mediaHeaderSnap: MediaHeaderSnap?
     @ScaledMetric(relativeTo: .largeTitle) private var titleLineHeight: CGFloat = 41
     @State private var scrollOffset: CGFloat = 0
@@ -94,32 +94,13 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .scrollClipDisabled()
         .scrollBounceBehavior(.always, axes: .vertical)
         .simultaneousGesture(
-            DragGesture(minimumDistance: min(4, mediaHeaderMinimumDistance))
-                .updating($mediaDragActive) { _, active, _ in
-                    if usesMediaScrollEdges { active = true }
-                }
+            DragGesture(minimumDistance: 4)
                 .onChanged { value in
-                    let translation = value.translation
-                    if usesMediaScrollEdges, !showsLoading {
-                        trackMediaHeaderDrag(translation)
+                    if isInteracting, scrollOffset <= 1, value.translation.height > 0 {
+                        onTopPullChange(value.translation.height)
                     }
-                    if isInteracting, scrollOffset <= 1, translation.height > 0 {
-                        onTopPullChange(translation.height)
-                    }
-                }
-                .onEnded { value in
-                    guard mediaHeaderDrag != nil else { return }
-                    trackMediaHeaderDrag(value.translation)
-                    finishMediaHeaderDrag()
                 }
         )
-        .onChange(of: mediaDragActive) { _, active in
-            // A system-cancelled gesture has no onEnded callback.
-            if !active, mediaHeaderDrag != nil {
-                mediaHeaderDrag = nil
-                snapMediaHeader(to: mediaHeaderRest)
-            }
-        }
         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
             ScrollMetrics(
                 offset: geometry.contentOffset.y + geometry.contentInsets.top,
@@ -131,24 +112,53 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             contentFitsViewport = metrics.contentHeight <= metrics.viewportHeight + 1
             scrollOffset = max(0, metrics.offset)
             if usesMediaScrollEdges {
-                restoreMediaHeaderAfterScrollToTop(offset: metrics.offset)
+                if mediaHeaderScroll != nil {
+                    updateMediaHeaderScroll(at: metrics.offset)
+                } else {
+                    restoreMediaHeaderAfterScrollToTop(offset: metrics.offset)
+                }
             } else {
                 updateHeader(at: scrollOffset)
             }
             onVerticalOffsetChange(metrics.offset)
         }
         .onScrollPhaseChange { oldPhase, newPhase, context in
+            let offset = context.geometry.contentOffset.y + context.geometry.contentInsets.top
             if usesMediaScrollEdges {
-                isInteracting = newPhase == .interacting
-                if newPhase == .idle {
-                    restoreMediaHeaderAfterScrollToTop(
-                        offset: context.geometry.contentOffset.y + context.geometry.contentInsets.top
-                    )
-                }
+                updateMediaHeaderPhase(to: newPhase, offset: offset)
             } else {
                 updateLegacyHeaderPhase(from: oldPhase, to: newPhase)
             }
-            onVerticalScrollPhaseChange(newPhase, context.geometry.contentOffset.y + context.geometry.contentInsets.top)
+            onVerticalScrollPhaseChange(newPhase, offset)
+        }
+    }
+
+    private func updateMediaHeaderPhase(to phase: ScrollPhase, offset: CGFloat) {
+        isInteracting = phase == .interacting
+        switch phase {
+        case .tracking:
+            finishMediaHeaderScroll(at: offset)
+            mediaScrollTrackingOffset = offset
+        case .interacting, .animating:
+            if mediaHeaderScroll == nil || phase == .animating {
+                let position = mediaHeaderSnap?.position(at: .now) ?? mediaHeaderPosition
+                mediaHeaderPosition = position
+                mediaHeaderSnap = nil
+                let start = phase == .interacting ? mediaScrollTrackingOffset ?? offset : offset
+                mediaHeaderScroll = MediaHeaderScroll(startOffset: max(0, start),
+                                                     initialPosition: position, rest: mediaHeaderRest)
+            }
+            mediaScrollTrackingOffset = nil
+            updateMediaHeaderScroll(at: offset)
+        case .decelerating:
+            updateMediaHeaderScroll(at: offset)
+        case .idle:
+            finishMediaHeaderScroll(at: offset)
+            mediaScrollTrackingOffset = nil
+            restoreMediaHeaderAfterScrollToTop(offset: offset)
+        @unknown default:
+            finishMediaHeaderScroll(at: offset)
+            mediaScrollTrackingOffset = nil
         }
     }
 
@@ -234,15 +244,11 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         }
     }
 
-    private var mediaHeaderMinimumDistance: CGFloat {
-        usesMediaScrollEdges ? CGFloat(layout[.headerAnimationMinimumDistance]) : 4
-    }
-
     private var mediaHeader: some View {
         TimelineView(.animation(paused: mediaHeaderSnap == nil)) { timeline in
             let position = mediaHeaderSnap?.position(at: timeline.date) ?? mediaHeaderPosition
             let isCollapsed = position >= 1
-            let showsBackdrop = !isCollapsed && (position > 0 || scrollOffset > 0.5)
+            let showsBackdrop = !isCollapsed && (position > 0 || scrollOffset > 0)
 
             ZStack(alignment: .top) {
                 headerContent
@@ -279,41 +285,25 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private func restoreMediaHeaderAfterScrollToTop(offset: CGFloat) {
-        guard mediaHeaderDrag == nil, !isInteracting, abs(offset) <= 0.5,
+        guard !isInteracting, abs(offset) <= 0.5,
               let position = scrollPosition?.wrappedValue,
               !position.isPositionedByUser, position.edge == .top else { return }
         settleMediaHeader(at: 0)
     }
 
-    private func trackMediaHeaderDrag(_ translation: CGSize) {
-        if mediaHeaderDrag == nil {
-            guard abs(translation.height) > abs(translation.width) else { return }
-            let now = Date.now
-            let position = mediaHeaderSnap?.position(at: now) ?? mediaHeaderPosition
-            if position == 0 || position == 1 {
-                mediaHeaderRest = position
-            }
-            mediaHeaderPosition = position
-            mediaHeaderSnap = nil
-            // Recognition can arrive after several points of movement. Keep
-            // that distance for the release threshold, and start tracking here.
-            mediaHeaderDrag = MediaHeaderDrag(origin: mediaHeaderRest, translation: translation.height)
-        }
-        guard var drag = mediaHeaderDrag else { return }
-
-        mediaHeaderPosition = drag.move(to: translation.height, from: mediaHeaderPosition,
-                                            travel: headerContentHeight)
-        mediaHeaderDrag = drag
-        if mediaHeaderPosition == 0 || mediaHeaderPosition == 1 {
-            mediaHeaderRest = mediaHeaderPosition
-        }
+    private func updateMediaHeaderScroll(at offset: CGFloat) {
+        guard var scroll = mediaHeaderScroll else { return }
+        mediaHeaderPosition = scroll.position(at: offset, height: headerContentHeight)
+        mediaHeaderScroll = scroll
     }
 
-    private func finishMediaHeaderDrag() {
-        guard let drag = mediaHeaderDrag else { return }
-        mediaHeaderDrag = nil
-        snapMediaHeader(to: drag.destination(from: mediaHeaderPosition,
-                                             minimumDistance: mediaHeaderMinimumDistance))
+    private func finishMediaHeaderScroll(at offset: CGFloat) {
+        guard mediaHeaderScroll != nil else { return }
+        updateMediaHeaderScroll(at: offset)
+        guard let scroll = mediaHeaderScroll else { return }
+        mediaHeaderScroll = nil
+        snapMediaHeader(to: scroll.destination(at: offset, height: headerContentHeight,
+                                                minimumDistance: CGFloat(layout[.headerAnimationMinimumDistance])))
     }
 
     private func snapMediaHeader(to target: CGFloat) {
@@ -330,29 +320,50 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         mediaHeaderSnap = nil
     }
 
-    private struct MediaHeaderDrag {
-        let origin: CGFloat
-        private var translation: CGFloat
-        private var target: CGFloat
+    private struct MediaHeaderScroll {
+        let startOffset: CGFloat
+        private var initialPosition: CGFloat
+        private var rest: CGFloat
+        private var pulledPastTop = false
 
-        init(origin: CGFloat, translation: CGFloat) {
-            self.origin = origin
-            self.translation = translation
-            target = translation < 0 ? 1 : 0
+        init(startOffset: CGFloat, initialPosition: CGFloat, rest: CGFloat) {
+            self.startOffset = startOffset
+            self.initialPosition = initialPosition
+            self.rest = rest
         }
 
-        mutating func move(to translation: CGFloat, from position: CGFloat, travel: CGFloat) -> CGFloat {
-            let movement = self.translation - translation
-            self.translation = translation
-            if movement != 0 {
-                target = movement > 0 ? 1 : 0
+        mutating func position(at offset: CGFloat, height: CGFloat) -> CGFloat {
+            // Keep the header open while the scroll view rebounds from a top pull.
+            if offset < 0 { pulledPastTop = true }
+            if pulledPastTop { return 0 }
+
+            let height = max(height, 1)
+            let endOffset = max(0, offset)
+            if endOffset > startOffset, startOffset >= height {
+                initialPosition = 1
+                rest = 1
+                return 1
             }
-            return min(1, max(0, position + movement / max(travel, 1)))
+
+            // Only the part of the scroll inside the header-height band moves the header.
+            let movement = min(height, endOffset) - min(height, startOffset)
+            return min(1, max(0, initialPosition + movement / height))
         }
 
-        func destination(from position: CGFloat, minimumDistance: CGFloat) -> CGFloat {
-            if (position == 0 || position == 1), position != origin { return position }
-            return abs(translation) < minimumDistance ? origin : target
+        func destination(at offset: CGFloat, height: CGFloat, minimumDistance: CGFloat) -> CGFloat {
+            if pulledPastTop { return 0 }
+
+            let endOffset = max(0, offset)
+            let distance = endOffset - startOffset
+            if distance > 0 {
+                if initialPosition == 1 || endOffset >= height { return 1 }
+                return distance < minimumDistance ? 0 : 1
+            }
+            if distance < 0, endOffset < height {
+                if initialPosition == 0 { return 0 }
+                return -distance < minimumDistance ? 1 : 0
+            }
+            return rest
         }
     }
 
