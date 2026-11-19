@@ -491,6 +491,7 @@ private struct EmbyFeaturedCarousel: View {
             if items.isEmpty {
                 MediaCardBackdrop(showsMissingArtwork: true)
                     .frame(width: width, height: geometry.size.height)
+                    .modifier(EmbyPosterStretch(geometry: geometry))
             } else {
                 let page = currentIndex
                 let isTransitioning = isDragging || transitionID != nil
@@ -542,8 +543,8 @@ private struct EmbyFeaturedCarousel: View {
                         .allowsHitTesting(!isTransitioning)
                     }
                 }
+                .modifier(EmbyPosterStretch(geometry: geometry))
             }
-            .modifier(EmbyPosterStretch(geometry: geometry))
         }
         .aspectRatio(3.0 / 5.0, contentMode: .fit)
         .onChange(of: items.map(\.id), initial: true) { _, ids in
