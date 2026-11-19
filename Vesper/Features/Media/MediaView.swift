@@ -75,9 +75,13 @@ final class MediaLayoutSettings: ObservableObject {
     var episodeCardWidth: CGFloat { CGFloat(self[.episodeCardWidth]) }
     var episodeCardHeight: CGFloat { CGFloat(self[.episodeCardHeight]) }
 
-    func reset() {
-        values = [:]
-        UserDefaults.standard.removeObject(forKey: Self.storageKey)
+    func reset(_ metrics: [Metric]) {
+        var updated = values
+        for metric in metrics {
+            updated.removeValue(forKey: metric.rawValue)
+        }
+        values = updated
+        UserDefaults.standard.set(updated, forKey: Self.storageKey)
     }
 }
 
@@ -94,8 +98,6 @@ struct MediaView: View {
     @State private var mediaScrollOffset: CGFloat = 0
     @State private var mediaScrollPhase: ScrollPhase = .idle
     @State private var pendingCarouselRoute: EmbyMediaRoute?
-    @State private var isOpeningCarouselDetail = false
-    @State private var carouselSeries: EmbyMediaRoute?
 
     var body: some View {
         Group {
@@ -104,22 +106,6 @@ struct MediaView: View {
                     .id(source.id)
             } else {
                 mediaContent
-            }
-        }
-        .allowsHitTesting(carouselSeries == nil && !isOpeningCarouselDetail)
-        .accessibilityHidden(carouselSeries != nil)
-        .overlay {
-            if let route = carouselSeries, let item = route.item {
-                NavigationStack {
-                    EmbySeriesDetailView(source: route.source, series: item,
-                                         carouselArtwork: route.carouselArtwork,
-                                         returnToCarousel: closeCarouselSeries)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .compositingGroup()
-                .accessibilityAction(.escape) { closeCarouselSeries() }
-                .transition(.opacity)
-                .zIndex(1)
             }
         }
         .onChange(of: library.selectedID) { _, _ in
@@ -148,8 +134,18 @@ struct MediaView: View {
                                       artworkZoom: artworkZoom, openDetail: { path.append($0) })
             } else if let item = route.item {
                 if item.isEmbySeries {
-                    EmbySeriesDetailView(source: route.source, series: item)
-                        .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
+                    if route.origin == .carousel {
+                        let detail = EmbySeriesDetailView(source: route.source, series: item,
+                                                          carouselArtwork: route.carouselArtwork)
+                        if #available(iOS 27, *) {
+                            detail.navigationTransition(.crossFade)
+                        } else {
+                            detail
+                        }
+                    } else {
+                        EmbySeriesDetailView(source: route.source, series: item)
+                            .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
+                    }
                 } else {
                     EmbyItemDetailView(source: route.source, item: item)
                 }
@@ -183,8 +179,7 @@ struct MediaView: View {
                 if let source = library.selectedSource, showsFeaturedRegion {
                     EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork,
                                          featuredArtwork: library.embyHome?.featuredArtwork,
-                                         isMediaRoot: path.isEmpty && carouselSeries == nil
-                                             && pendingCarouselRoute == nil && !isOpeningCarouselDetail,
+                                         isMediaRoot: path.isEmpty && pendingCarouselRoute == nil,
                                          openDetail: openCarouselDetail)
                 }
                 if library.selectedSource == nil {
@@ -397,19 +392,14 @@ struct MediaView: View {
     private func updateMediaScrollOffset(_ offset: CGFloat) {
         mediaScrollOffset = offset
         showPendingCarouselDestinationIfAtTop()
-        guard embyHomeSource != nil else { return }
-        let expanded = showsEmbyShortcuts && offset <= 1
-        guard expanded != showsEmbyShortcuts else { return }
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
-            showsEmbyShortcuts = expanded
+        if showsEmbyShortcuts, offset > 1, embyHomeSource != nil {
+            showsEmbyShortcuts = false
         }
     }
 
     private func expandEmbyShortcuts(forTopPull pull: CGFloat) {
         guard pull >= 18, embyHomeSource != nil, !showsEmbyShortcuts else { return }
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
-            showsEmbyShortcuts = true
-        }
+        showsEmbyShortcuts = true
     }
 
     private func updateMediaScrollPhase(_ phase: ScrollPhase, offset: CGFloat) {
@@ -426,8 +416,7 @@ struct MediaView: View {
     }
 
     private func openCarouselDetail(_ route: EmbyMediaRoute) {
-        guard path.isEmpty, carouselSeries == nil, pendingCarouselRoute == nil,
-              !isOpeningCarouselDetail else { return }
+        guard path.isEmpty, pendingCarouselRoute == nil else { return }
         if isMediaScrollAtRestAtTop {
             showCarouselDestination(route)
             return
@@ -455,10 +444,8 @@ struct MediaView: View {
 
     private func showCarouselDestination(_ route: EmbyMediaRoute) {
         guard path.isEmpty, library.selectedID == route.source.id else { return }
-        if route.item?.isEmbySeries == true {
-            withAnimation(carouselTransition) {
-                carouselSeries = route
-            }
+        if route.item?.isEmbySeries == true, !reduceMotion {
+            path.append(route)
             return
         }
         var transaction = Transaction(animation: nil)
@@ -468,39 +455,33 @@ struct MediaView: View {
         }
     }
 
-    private var carouselTransition: Animation? {
-        reduceMotion ? nil : .easeInOut(duration: 0.25)
-    }
-
-    private func closeCarouselSeries() {
-        guard carouselSeries != nil else { return }
-        isOpeningCarouselDetail = true
-        withAnimation(carouselTransition, completionCriteria: .removed) {
-            carouselSeries = nil
-        } completion: {
-            isOpeningCarouselDetail = false
-        }
-    }
-
-    @ViewBuilder
     private var mediaSourceMenu: some View {
-        if let source = embyHomeSource, showsEmbyShortcuts {
-            HStack(spacing: 0) {
-                refreshButton
-                    .labelStyle(.iconOnly)
-                    .font(.system(size: 20, weight: .medium))
-                    .frame(width: 44, height: 44)
-                favoritesButton(source)
-                    .labelStyle(.iconOnly)
-                    .font(.system(size: 20, weight: .medium))
-                    .frame(width: 44, height: 44)
-                sourceMenuButton
+        let source = embyHomeSource
+        let isExpanded = source != nil && showsEmbyShortcuts
+
+        HStack(spacing: 0) {
+            if let source {
+                HStack(spacing: 0) {
+                    refreshButton
+                        .frame(width: 44, height: 44)
+                    favoritesButton(source)
+                        .frame(width: 44, height: 44)
+                }
+                .labelStyle(.iconOnly)
+                .font(.system(size: 20, weight: .medium))
+                .buttonStyle(.plain)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: isExpanded ? 88 : 0, alignment: .trailing)
+                .clipped()
+                .opacity(isExpanded ? 1 : 0)
+                .allowsHitTesting(isExpanded)
+                .accessibilityHidden(!isExpanded)
             }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .capsule)
-        } else {
-            sourceMenuButton.glassEffect(.regular.interactive(), in: .circle)
+            sourceMenuButton
         }
+        // A single native glass capsule becomes a circle at its collapsed width.
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isExpanded)
     }
 
     private var refreshButton: some View {

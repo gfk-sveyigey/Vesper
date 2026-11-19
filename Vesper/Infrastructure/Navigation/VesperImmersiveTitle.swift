@@ -250,12 +250,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .blur(radius: CGFloat(layout[.headerForegroundBlur]) * position)
                     .opacity(1 - Double(position))
                     .background {
-                        if showsBackdrop {
-                            VesperBackdropBlur(style: .regular,
-                                               strength: Double(layout[.headerBackdropBlur]) / 100)
-                                .allowsHitTesting(false)
-                                .accessibilityHidden(true)
-                        }
+                        mediaBackdropBlur(.headerBackdropBlur, isVisible: showsBackdrop)
                     }
                     // Clip both blur layers in the header's local bounds before moving it.
                     .clipped()
@@ -263,18 +258,24 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .allowsHitTesting(!isCollapsed && mediaHeaderSnap == nil)
                     .accessibilityHidden(isCollapsed)
 
-                if isCollapsed, topInset > 0 {
-                    VesperBackdropBlur(style: .regular,
-                                       strength: Double(layout[.statusBarEdgeBlur]) / 100,
-                                       fadesAtBottom: true)
+                if topInset > 0 {
+                    mediaBackdropBlur(.statusBarEdgeBlur, isVisible: isCollapsed, fadesAtBottom: true)
                         .frame(height: topInset)
                         .clipped()
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
                 }
             }
             .clipped()
         }
+    }
+
+    private func mediaBackdropBlur(_ metric: MediaLayoutSettings.Metric, isVisible: Bool,
+                                   fadesAtBottom: Bool = false) -> some View {
+        VesperFadingBackdropBlur(strength: Double(layout[metric]) / 100,
+                                 visibility: isVisible ? 1 : 0,
+                                 fadesAtBottom: fadesAtBottom)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isVisible)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     private func restoreMediaHeaderAfterScrollToTop(offset: CGFloat) {
@@ -294,7 +295,9 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             mediaHeaderPosition = position
             mediaHeaderSnap = nil
-            mediaHeaderDrag = MediaHeaderDrag(origin: mediaHeaderRest)
+            // Recognition can arrive after several points of movement. Keep
+            // that distance for the release threshold, and start tracking here.
+            mediaHeaderDrag = MediaHeaderDrag(origin: mediaHeaderRest, translation: translation.height)
         }
         guard var drag = mediaHeaderDrag else { return }
 
@@ -329,10 +332,14 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 
     private struct MediaHeaderDrag {
         let origin: CGFloat
-        private var translation: CGFloat = 0
-        private var target: CGFloat = 0
+        private var translation: CGFloat
+        private var target: CGFloat
 
-        init(origin: CGFloat) { self.origin = origin }
+        init(origin: CGFloat, translation: CGFloat) {
+            self.origin = origin
+            self.translation = translation
+            target = translation < 0 ? 1 : 0
+        }
 
         mutating func move(to translation: CGFloat, from position: CGFloat, travel: CGFloat) -> CGFloat {
             let movement = self.translation - translation
@@ -344,7 +351,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         }
 
         func destination(from position: CGFloat, minimumDistance: CGFloat) -> CGFloat {
-            if position == 0 || position == 1 { return position }
+            if (position == 0 || position == 1), position != origin { return position }
             return abs(translation) < minimumDistance ? origin : target
         }
     }
@@ -353,15 +360,18 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         let start: Date
         let initial: CGFloat
         let target: CGFloat
-        private static var duration: TimeInterval { 0.22 }
+        private var duration: TimeInterval { target == 0 ? 0.36 : 0.22 }
 
-        var end: Date { start.addingTimeInterval(Self.duration) }
+        var end: Date { start.addingTimeInterval(duration) }
 
         func position(at date: Date) -> CGFloat {
-            let elapsed = CGFloat(date.timeIntervalSince(start) / Self.duration)
-            if elapsed >= 1 { return target }
-            let remaining = 1 - max(0, elapsed)
-            return target + (initial - target) * remaining * remaining * remaining
+            let elapsed = CGFloat(date.timeIntervalSince(start) / duration)
+            let fraction = min(1, max(0, elapsed))
+            if fraction == 1 { return target }
+            let progress = target == 0
+                ? fraction * fraction * (3 - 2 * fraction)
+                : 1 - pow(1 - fraction, 3)
+            return initial + (target - initial) * progress
         }
     }
 
@@ -536,6 +546,22 @@ struct VesperNavigationHeaderLayer: ViewModifier {
                 .ignoresSafeArea(.container, edges: .top)
             }
         }
+    }
+}
+
+/// Keep the backdrop mounted and interpolate the UIKit blur strength as visibility changes.
+private struct VesperFadingBackdropBlur: View, Animatable {
+    let strength: Double
+    nonisolated var visibility: Double
+    let fadesAtBottom: Bool
+
+    nonisolated var animatableData: Double {
+        get { visibility }
+        set { visibility = newValue }
+    }
+
+    var body: some View {
+        VesperBackdropBlur(style: .regular, strength: strength * visibility, fadesAtBottom: fadesAtBottom)
     }
 }
 

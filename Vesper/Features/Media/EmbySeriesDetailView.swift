@@ -87,7 +87,6 @@ struct EmbySeriesDetailView: View {
     let series: MediaItem
     var showsCloseButton = false
     var carouselArtwork: EmbyFeaturedArtwork? = nil
-    var returnToCarousel: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -146,12 +145,7 @@ struct EmbySeriesDetailView: View {
                     .accessibilityHidden(true)
             }
             .sharedBackgroundVisibility(.hidden)
-            if let returnToCarousel {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("返回", systemImage: "chevron.backward", action: returnToCarousel)
-                        .labelStyle(.iconOnly)
-                }
-            } else if showsCloseButton {
+            if showsCloseButton {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("关闭", systemImage: "xmark") { dismiss() }
                 }
