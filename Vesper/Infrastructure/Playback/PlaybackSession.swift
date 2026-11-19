@@ -17,6 +17,18 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     @Published private(set) var currentEngine = PlaybackPreferences.preferredEngine
     @Published private(set) var currentDecoder = PlaybackPreferences.preferredDecoder
     @Published private(set) var history: [PlaybackHistoryEntry] = []
+    private struct PlayedEdit {
+        let id: UUID
+        let played: Bool
+        var syncedAt: Date?
+    }
+    private struct EmbyRecordWrite {
+        let id: UUID
+        let task: Task<Void, Error>
+    }
+    @Published private var playedEdits: [MediaID: PlayedEdit] = [:]
+    private var recordWrites: [MediaID: EmbyRecordWrite] = [:]
+    private var manuallyUnplayedCurrentItem: MediaID?
     private var lastHistorySave = Date.distantPast
     @Published private(set) var currentItem: MediaItem?
     @Published private(set) var isPlaying = false
@@ -160,6 +172,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         recordPlaybackHistory()
         tearDownPlayer()
         lastHistorySave = .distantPast
+        if !carriesSelection { manuallyUnplayedCurrentItem = nil }
         progressRestored = position != nil
         currentEngine = engine ?? PlaybackPreferences.preferredEngine
         currentDecoder = decoder ?? PlaybackPreferences.preferredDecoder
@@ -468,22 +481,20 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private func recordPlaybackHistory() {
         guard let item = currentItem, let source, source.id == item.id.sourceID, externalFile == nil,
               suppressedProgressID != item.id, currentTime > 0.5, duration > 0 else { return }
-        let priorPlayed = PlaybackHistoryEntry.resolvePlayed(
-            server: item.isPlayed,
-            local: history.first(where: { $0.mediaID == item.id })?.isFullyWatched
-        )
-        let played = priorPlayed || currentTime / duration >= 0.9
-        if !priorPlayed, played, source.kind == .emby {
-            Task { try? await EmbyRepository.shared.updatePlaybackRecord(for: item, source: source, change: .setPlayed(true)) }
-        }
+        let keepHidden = manuallyUnplayedCurrentItem == item.id
+        let priorPlayed = effectivePlayed(for: item)
+        let played = !keepHidden && (priorPlayed || currentTime / duration >= 0.9)
         let entry = PlaybackHistoryEntry(mediaID: item.id, title: item.title, source: source,
                                          watchedAt: Date(), position: currentTime, duration: duration,
-                                         isPlayed: played)
+                                         isPlayed: played, hiddenFromHistory: keepHidden)
         history.removeAll { $0.mediaID == item.id }
         history.insert(entry, at: 0)
         if history.count > 1000 { history.removeLast(history.count - 1000) }
         persistHistory()
         lastHistorySave = Date()
+        if !priorPlayed, played, source.kind == .emby {
+            submitPlayed(played, for: item, source: source)
+        }
     }
 
     private var progressKey: String? {
@@ -540,13 +551,75 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             history[index] = PlaybackHistoryEntry(mediaID: existing.mediaID, title: existing.title,
                                                    source: existing.source, watchedAt: existing.watchedAt,
                                                    position: 0, duration: existing.duration,
-                                                   isPlayed: existing.isFullyWatched)
+                                                   isPlayed: existing.isFullyWatched,
+                                                   hiddenFromHistory: existing.hiddenFromHistory)
         }
         persistHistory()
         savedProgressRevision += 1
     }
 
-    func recordPlayed(_ played: Bool, for item: MediaItem, source: MediaSource) {
+    func effectivePlayed(for item: MediaItem) -> Bool {
+        let server = item.isPlayed
+        if let edit = playedEdits[item.id] {
+            if let syncedAt = edit.syncedAt, let fetchedAt = item.embyPlayedFetchedAt,
+               fetchedAt > syncedAt, let server {
+                return server
+            }
+            return edit.played
+        }
+        return PlaybackHistoryEntry.resolvePlayed(
+            server: server,
+            local: history.first(where: { $0.mediaID == item.id })?.isFullyWatched
+        )
+    }
+
+    func setPlayed(_ played: Bool, for item: MediaItem, source: MediaSource,
+                   onFailure: ((String) -> Void)? = nil) {
+        guard source.id == item.id.sourceID else { return }
+        recordPlayed(played, for: item, source: source)
+        submitPlayed(played, for: item, source: source, onFailure: onFailure)
+    }
+
+    private func submitPlayed(_ played: Bool, for item: MediaItem, source: MediaSource,
+                              onFailure: ((String) -> Void)? = nil) {
+        guard source.kind == .emby, source.emby?.userID != nil else { return }
+        let editID = UUID()
+        playedEdits[item.id] = PlayedEdit(id: editID, played: played)
+        let write = enqueueEmbyRecordWrite(.setPlayed(played), for: item, source: source)
+        Task {
+            do {
+                try await write.value
+                guard playedEdits[item.id]?.id == editID else { return }
+                playedEdits[item.id]?.syncedAt = Date()
+            } catch {
+                log("Emby 观看标记同步失败：\(error.localizedDescription)")
+                if playedEdits[item.id]?.id == editID {
+                    onFailure?(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    // UserData writes read the current server record before editing it, so serialize
+    // both kinds of writes for one item without blocking its next UI action.
+    func enqueueEmbyRecordWrite(_ change: EmbyPlaybackRecordChange, for item: MediaItem,
+                                source: MediaSource) -> Task<Void, Error> {
+        let previous = recordWrites[item.id]?.task
+        let writeID = UUID()
+        let task = Task { [weak self] in
+            if let previous { _ = await previous.result }
+            defer {
+                if let self, self.recordWrites[item.id]?.id == writeID {
+                    self.recordWrites.removeValue(forKey: item.id)
+                }
+            }
+            try await EmbyRepository.shared.updatePlaybackRecord(for: item, source: source, change: change)
+        }
+        recordWrites[item.id] = EmbyRecordWrite(id: writeID, task: task)
+        return task
+    }
+
+    private func recordPlayed(_ played: Bool, for item: MediaItem, source: MediaSource) {
         guard source.id == item.id.sourceID else { return }
         let existing = history.first(where: { $0.mediaID == item.id })
         let duration = max(existing?.duration ?? item.duration ?? savedDuration(for: item), 0)
@@ -558,12 +631,16 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             watchedAt: Date(),
             position: position,
             duration: duration,
-            isPlayed: played
+            isPlayed: played,
+            hiddenFromHistory: !played
         )
         history.removeAll { $0.mediaID == item.id }
         history.insert(entry, at: 0)
         if history.count > 1000 { history.removeLast(history.count - 1000) }
-        if currentItem?.id == item.id { currentItem?.isPlayed = played }
+        if currentItem?.id == item.id {
+            currentItem?.isPlayed = played
+            manuallyUnplayedCurrentItem = played ? nil : item.id
+        }
         persistHistory()
         savedProgressRevision += 1
     }
@@ -1054,6 +1131,7 @@ struct PlaybackHistoryEntry: Identifiable, Codable {
     let duration: Double
     var isPlayed: Bool? = nil
     var isCompleted: Bool? = nil
+    var hiddenFromHistory: Bool? = nil
     var id: MediaID { mediaID }
     var isFullyWatched: Bool { isPlayed ?? isCompleted ?? false }
     static func resolvePlayed(trakt: Bool? = nil, server: Bool?, local: Bool?) -> Bool {

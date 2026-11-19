@@ -323,8 +323,10 @@ struct EmbySeriesDetailView: View {
                     EmbyEpisodeCard(source: source, episode: episode, width: cardWidth,
                                     height: layout.episodeCardHeight, position: resumePosition(episode), isBusy: busy.contains(episode.id),
                                     open: { openedEpisodeID = episode.id },
-                                    clear: { update(episode, change: .clearProgress) },
-                                    setPlayed: { update(episode, change: .setPlayed($0)) })
+                                    clear: { clearProgress(for: episode) },
+                                    setPlayed: { played in
+                                        playback.setPlayed(played, for: episode.item, source: source) { actionError = $0 }
+                                    })
                         .id(episode.id)
                 }
             }
@@ -457,28 +459,18 @@ struct EmbySeriesDetailView: View {
         }
     }
 
-    private func update(_ episode: EmbyEpisode, change: EmbyPlaybackRecordChange) {
+    private func clearProgress(for episode: EmbyEpisode) {
         guard busy.insert(episode.id).inserted else { return }
         Task {
             defer { busy.remove(episode.id) }
             do {
-                switch change {
-                case .clearProgress:
-                    if (episode.item.resumePosition ?? 0) > 0 {
-                        try await EmbyRepository.shared.updatePlaybackRecord(for: episode.item, source: source, change: change)
-                    }
-                    if let index = episodes.firstIndex(where: { $0.id == episode.id }) {
-                        episodes[index].item.resumePosition = 0
-                    }
-                    playback.clearSavedProgress(for: episode.item)
-                case .setPlayed(let played):
-                    try await EmbyRepository.shared.updatePlaybackRecord(for: episode.item, source: source, change: change)
-                    if let index = episodes.firstIndex(where: { $0.id == episode.id }) {
-                        episodes[index].played = played
-                        episodes[index].item.isPlayed = played
-                    }
-                    playback.recordPlayed(played, for: episode.item, source: source)
+                if (episode.item.resumePosition ?? 0) > 0 {
+                    try await playback.enqueueEmbyRecordWrite(.clearProgress, for: episode.item, source: source).value
                 }
+                if let index = episodes.firstIndex(where: { $0.id == episode.id }) {
+                    episodes[index].item.resumePosition = 0
+                }
+                playback.clearSavedProgress(for: episode.item)
             } catch { actionError = error.localizedDescription }
         }
     }
@@ -676,13 +668,10 @@ private struct EmbyEpisodeCard: View {
                systemImage: played ? "circle" : "checkmark.circle") {
             setPlayed(!played)
         }
-        .disabled(isBusy || source.emby?.userID == nil)
+        .disabled(source.emby?.userID == nil)
     }
 
     private var effectivePlayed: Bool {
-        PlaybackHistoryEntry.resolvePlayed(
-            server: episode.item.isPlayed ?? episode.played,
-            local: playback.history.first(where: { $0.mediaID == episode.id })?.isFullyWatched
-        )
+        playback.effectivePlayed(for: episode.item)
     }
 }

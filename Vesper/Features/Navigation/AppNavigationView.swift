@@ -248,7 +248,7 @@ struct AppNavigationView: View {
         switch section {
         case .media:
             NavigationStack(path: $mediaPath) {
-                MediaView(path: $mediaPath, isActiveTab: selection == .section(.media))
+                MediaView(path: $mediaPath)
             }
         case .sources:
             NavigationStack(path: $sourcesPath) { SourcesView() }

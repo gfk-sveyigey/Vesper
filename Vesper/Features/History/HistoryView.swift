@@ -6,7 +6,7 @@ struct HistoryView: View {
     @AppStorage("navigation.icons") private var icons = "{}"
 
     private var groups: [HistorySourceGroup] {
-        Dictionary(grouping: playback.history, by: { $0.source.id }).values.map { entries in
+        Dictionary(grouping: playback.history.filter { $0.hiddenFromHistory != true }, by: { $0.source.id }).values.map { entries in
             HistorySourceGroup(source: entries[0].source, entries: entries.sorted { $0.watchedAt > $1.watchedAt })
         }.sorted { left, right in
             if left.id == library.selectedID { return true }
@@ -16,8 +16,9 @@ struct HistoryView: View {
     }
 
     var body: some View {
+        let groups = groups
         VesperRootScrollView(title: "记录") {
-            if playback.history.isEmpty {
+            if groups.isEmpty {
                 VesperCenteredEmptyContent(message: "无记录", symbol: AppSection.history.symbol)
             } else {
                 VStack(alignment: .leading, spacing: 24) {

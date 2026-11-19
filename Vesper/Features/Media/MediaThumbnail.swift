@@ -508,7 +508,6 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     @Namespace private var detailsZoom
     @State private var updatingWatchState = false
     @State private var clearedServerProgress = false
-    @State private var updatedServerPlayed: Bool?
     @State private var watchError: String?
 
     private var showsWatchActions: Bool {
@@ -542,20 +541,22 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 }
                 if showsWatchActions {
                     if hasServerProgress || playback.savedProgress(for: item) > 0 {
-                        Button("清除播放进度", systemImage: "clock.arrow.circlepath") { updatePlaybackRecord(.clearProgress) }
+                        Button("清除播放进度", systemImage: "clock.arrow.circlepath") { clearProgress() }
                             .disabled(updatingWatchState || (hasServerProgress && source.emby?.userID == nil))
                     }
-                    let played = effectivePlayed
-                    Button(played ? "标记为未观看" : "标记为已观看",
-                           systemImage: played ? "circle" : "checkmark.circle") {
-                        updatePlaybackRecord(.setPlayed(!played))
-                    }
-                    .disabled(updatingWatchState || source.emby?.userID == nil)
                 } else if !showsEmbyFacts && (playback.savedProgress(for: item) > 0
                     || playback.history.contains(where: { $0.mediaID == item.id })) {
                     Button(source.kind == .emby ? "清除本地记录" : "清除播放进度", systemImage: "clock.arrow.circlepath") {
                         playback.clearSavedProgress(for: item)
                     }
+                }
+                if showsWatchActions || (source.kind == .emby && historyEntry != nil) {
+                    let played = playback.effectivePlayed(for: item)
+                    Button(played ? "标记为未观看" : "标记为已观看",
+                           systemImage: played ? "circle" : "checkmark.circle") {
+                        playback.setPlayed(!played, for: item, source: source) { watchError = $0 }
+                    }
+                    .disabled(source.emby?.userID == nil)
                 }
                 actions()
             } preview: {
@@ -573,7 +574,6 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 embyDetailsSheet(source: source, item: item, artworkZoom: detailsZoom)
             }
             .onChange(of: item.resumePosition) { _, _ in clearedServerProgress = false }
-            .onChange(of: item.isPlayed) { _, _ in updatedServerPlayed = nil }
             .alert("无法更新观看记录", isPresented: Binding(
                 get: { watchError != nil }, set: { if !$0 { watchError = nil } }
             )) {
@@ -584,35 +584,21 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
             } message: { Text(verbatim: shareError ?? "") }
     }
 
-    private func updatePlaybackRecord(_ change: EmbyPlaybackRecordChange) {
+    private func clearProgress() {
         guard !updatingWatchState else { return }
         updatingWatchState = true
         Task { @MainActor in
             defer { updatingWatchState = false }
             do {
-                switch change {
-                case .clearProgress:
-                    if hasServerProgress {
-                        try await EmbyRepository.shared.updatePlaybackRecord(for: item, source: source, change: change)
-                    }
-                    playback.clearSavedProgress(for: item)
-                    clearedServerProgress = true
-                case .setPlayed(let played):
-                    try await EmbyRepository.shared.updatePlaybackRecord(for: item, source: source, change: change)
-                    playback.recordPlayed(played, for: item, source: source)
-                    updatedServerPlayed = played
+                if hasServerProgress {
+                    try await playback.enqueueEmbyRecordWrite(.clearProgress, for: item, source: source).value
                 }
+                playback.clearSavedProgress(for: item)
+                clearedServerProgress = true
             } catch {
                 watchError = error.localizedDescription
             }
         }
-    }
-
-    private var effectivePlayed: Bool {
-        PlaybackHistoryEntry.resolvePlayed(
-            server: updatedServerPlayed ?? item.isPlayed,
-            local: playback.history.first(where: { $0.mediaID == item.id })?.isFullyWatched
-        )
     }
 
     private func share() {

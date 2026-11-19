@@ -68,7 +68,6 @@ final class MediaLayoutSettings: ObservableObject {
 
 struct MediaView: View {
     @Binding var path: NavigationPath
-    let isActiveTab: Bool
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
     @ObservedObject private var layout = MediaLayoutSettings.shared
@@ -78,7 +77,6 @@ struct MediaView: View {
     @State private var showsEmbyShortcuts = false
     @State private var mediaScrollOffset: CGFloat = 0
     @State private var isOpeningCarouselDetail = false
-    @State private var navigationBarPhase: VesperSwipeNavigationPhase = .expanded
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -90,12 +88,6 @@ struct MediaView: View {
                     mediaContent(proxy: proxy)
                 }
             }
-        }
-        .environment(\.vesperSwipeNavigationPhase, navigationBarPhase)
-        .background {
-            VesperSwipeNavigationBar(enabled: isActiveTab && path.isEmpty, phase: $navigationBarPhase)
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
         }
         .onChange(of: library.selectedID) { _, _ in showsEmbyShortcuts = false }
         .navigationDestination(for: EmbyMediaRoute.self) { route in

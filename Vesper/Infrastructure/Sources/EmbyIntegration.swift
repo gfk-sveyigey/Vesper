@@ -487,7 +487,8 @@ actor EmbyRepository {
     }
 
     private func map(_ values: [[String: Any]], source: MediaSource, client: EmbyAPIClient) -> [MediaItem] {
-        values.compactMap { value in
+        let mappedAt = Date()
+        return values.compactMap { value in
             guard let id = value["Id"] as? String else { return nil }
             let type = value["Type"] as? String ?? ""
             guard let name = value["Name"] as? String ?? (type == "Episode" ? "" : nil) else { return nil }
@@ -506,6 +507,7 @@ actor EmbyRepository {
             } else {
                 logoURL = nil
             }
+            let played = (value["UserData"] as? [String: Any])?["Played"] as? Bool
             let item = MediaItem(id: MediaID(sourceID: source.id, localID: id), title: name,
                                  resource: nil,
                                  subtitle: (value["ProductionYear"] as? NSNumber).map { String($0.intValue) },
@@ -526,7 +528,8 @@ actor EmbyRepository {
                                      logoURL: logoURL,
                                      overview: value["Overview"] as? String
                                  ),
-                                 isPlayed: (value["UserData"] as? [String: Any])?["Played"] as? Bool)
+                                 isPlayed: played,
+                                 embyPlayedFetchedAt: played == nil ? nil : mappedAt)
             return item
         }
     }

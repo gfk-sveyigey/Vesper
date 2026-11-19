@@ -14,9 +14,11 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let onTopPullChange: (CGFloat) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var topInset
-    @Environment(\.vesperSwipeNavigationPhase) private var swipeNavigationPhase
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
     @ScaledMetric(relativeTo: .largeTitle) private var titleLineHeight: CGFloat = 41
+    @State private var isNativeBarHidden = false
+    @State private var isNativeBarMoving = false
+    @State private var nativeBarGestureOrigin: CGFloat = 0
     @State private var scrollOffset: CGFloat = 0
     @State private var isInteracting = false
     @State private var headerOffset: CGFloat = 0
@@ -93,11 +95,19 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             contentFitsViewport = metrics.contentHeight <= metrics.viewportHeight + 1
             onVerticalOffsetChange(metrics.offset)
             scrollOffset = max(0, metrics.offset)
-            if !usesNativeNavigationBar { updateHeader(at: scrollOffset) }
+            if usesNativeNavigationBar {
+                updateNativeBar(using: metrics.offset)
+            } else {
+                updateHeader(at: scrollOffset)
+            }
         }
         .onScrollPhaseChange { oldPhase, newPhase in
             if usesNativeNavigationBar {
                 isInteracting = newPhase == .interacting
+                if isInteracting { nativeBarGestureOrigin = scrollOffset }
+                if newPhase == .idle && (scrollOffset <= 0.5 || contentFitsViewport) {
+                    setNativeBarHidden(false)
+                }
                 return
             }
             if newPhase == .animating {
@@ -158,10 +168,10 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: showsLoading)
         }
         .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarTitleDisplayMode(.inline)
-        .toolbarVisibility(usesMediaScrollEdges && !usesNativeNavigationBar ? .hidden : .visible, for: .navigationBar)
-        .modifier(VesperSwipeNavigationBackground(enabled: usesNativeNavigationBar, phase: swipeNavigationPhase))
+        .toolbarTitleDisplayMode(usesNativeNavigationBar ? .inlineLarge : .inline)
+        .toolbarVisibility((usesNativeNavigationBar ? isNativeBarHidden : usesMediaScrollEdges) ? .hidden : .visible,
+                           for: .navigationBar)
+        .modifier(VesperSwipeNavigationBackground(enabled: usesNativeNavigationBar, showsMaterial: isNativeBarMoving))
         .toolbar {
             if usesNativeNavigationBar {
                 ToolbarItem(placement: .topBarTrailing) { actions }
@@ -178,9 +188,42 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private var showsMediaTopEdge: Bool {
-        if usesNativeNavigationBar { return swipeNavigationPhase == .hidden }
+        if usesNativeNavigationBar { return isNativeBarHidden && !isNativeBarMoving }
         return usesMediaScrollEdges && !contentFitsViewport && scrollOffset > 0.5
             && (isCollapsed || headerOffset > 0.5)
+    }
+
+    private func updateNativeBar(using offset: CGFloat) {
+        if contentFitsViewport {
+            setNativeBarHidden(false)
+            return
+        }
+        guard isInteracting, !isNativeBarMoving else { return }
+        let displacement = offset - nativeBarGestureOrigin
+        if isNativeBarHidden {
+            nativeBarGestureOrigin = max(nativeBarGestureOrigin, offset)
+            if displacement <= -12 || offset <= 0.5 { setNativeBarHidden(false) }
+        } else {
+            nativeBarGestureOrigin = min(nativeBarGestureOrigin, max(0, offset))
+            if displacement >= 12 { setNativeBarHidden(true) }
+        }
+    }
+
+    private func setNativeBarHidden(_ hidden: Bool) {
+        guard hidden != isNativeBarHidden else { return }
+        if reduceMotion {
+            isNativeBarHidden = hidden
+            isNativeBarMoving = false
+        } else {
+            isNativeBarMoving = true
+            withAnimation(.easeInOut(duration: 0.24), completionCriteria: .removed) {
+                isNativeBarHidden = hidden
+            } completion: {
+                guard isNativeBarHidden == hidden else { return }
+                nativeBarGestureOrigin = scrollOffset
+                isNativeBarMoving = false
+            }
+        }
     }
 
     private var snapThreshold: CGFloat { headerHeight * 0.1125 }
@@ -346,184 +389,17 @@ struct VesperNavigationHeaderLayer: ViewModifier {
     }
 }
 
-enum VesperSwipeNavigationPhase: Equatable, Sendable {
-    case expanded, moving, hidden
-}
-
-private struct VesperSwipeNavigationPhaseKey: EnvironmentKey {
-    static let defaultValue: VesperSwipeNavigationPhase = .expanded
-}
-
-extension EnvironmentValues {
-    var vesperSwipeNavigationPhase: VesperSwipeNavigationPhase {
-        get { self[VesperSwipeNavigationPhaseKey.self] }
-        set { self[VesperSwipeNavigationPhaseKey.self] = newValue }
-    }
-}
-
 private struct VesperSwipeNavigationBackground: ViewModifier {
     let enabled: Bool
-    let phase: VesperSwipeNavigationPhase
+    let showsMaterial: Bool
 
     func body(content: Content) -> some View {
         if enabled {
             content
                 .toolbarBackground(.regularMaterial, for: .navigationBar)
-                .toolbarBackgroundVisibility(phase == .moving ? .visible : .hidden, for: .navigationBar)
+                .toolbarBackgroundVisibility(showsMaterial ? .visible : .hidden, for: .navigationBar)
         } else {
             content
-        }
-    }
-}
-
-/// Enable UIKit's native swipe-to-hide only while the owning media root is visible.
-struct VesperSwipeNavigationBar: UIViewControllerRepresentable {
-    let enabled: Bool
-    @Binding var phase: VesperSwipeNavigationPhase
-
-    func makeUIViewController(context: Context) -> Controller { Controller() }
-
-    func updateUIViewController(_ controller: Controller, context: Context) {
-        controller.reportPhase = { phase = $0 }
-        controller.setEnabled(enabled)
-    }
-
-    static func dismantleUIViewController(_ controller: Controller, coordinator: Void) {
-        controller.setEnabled(false)
-        controller.reportPhase = nil
-    }
-
-    final class Controller: UIViewController {
-        private var enabled = false
-        private var isVisible = false
-        private weak var configuredNavigationController: UINavigationController?
-        private var previousSwipeSetting = false
-        private var displayLink: CADisplayLink?
-        private var observeUntil: CFTimeInterval = 0
-        private var lastPhase: VesperSwipeNavigationPhase = .expanded
-        private var phaseRevision = 0
-        var reportPhase: ((VesperSwipeNavigationPhase) -> Void)?
-
-        override func loadView() {
-            let view = UIView()
-            view.isUserInteractionEnabled = false
-            view.accessibilityElementsHidden = true
-            self.view = view
-        }
-
-        override func viewWillAppear(_ animated: Bool) {
-            super.viewWillAppear(animated)
-            isVisible = true
-            updateNavigationController()
-        }
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            isVisible = true
-            updateNavigationController()
-        }
-
-        override func viewWillDisappear(_ animated: Bool) {
-            super.viewWillDisappear(animated)
-            isVisible = false
-            updateNavigationController()
-        }
-
-        override func viewDidLayoutSubviews() {
-            super.viewDidLayoutSubviews()
-            observeTransition()
-        }
-
-        func setEnabled(_ enabled: Bool) {
-            self.enabled = enabled
-            updateNavigationController()
-        }
-
-        private func updateNavigationController() {
-            let activeController = enabled && isVisible ? navigationController : nil
-            guard configuredNavigationController !== activeController else { return }
-            if let previous = configuredNavigationController {
-                previous.barHideOnSwipeGestureRecognizer.removeTarget(self, action: #selector(swipeChanged))
-                previous.hidesBarsOnSwipe = previousSwipeSetting
-                if !previousSwipeSetting && previous.isNavigationBarHidden {
-                    previous.setNavigationBarHidden(false, animated: false)
-                }
-            }
-            stopObserving()
-            configuredNavigationController = activeController
-            if let activeController {
-                previousSwipeSetting = activeController.hidesBarsOnSwipe
-                activeController.hidesBarsOnSwipe = true
-                activeController.barHideOnSwipeGestureRecognizer.addTarget(self, action: #selector(swipeChanged))
-                observeTransition()
-            } else {
-                publish(.expanded)
-            }
-        }
-
-        @objc private func swipeChanged() {
-            observeTransition()
-        }
-
-        private func observeTransition() {
-            guard configuredNavigationController != nil else { return }
-            // Track the UIKit presentation frame through its settle animation, not just the pan.
-            observeUntil = CACurrentMediaTime() + 0.6
-            guard displayLink == nil else { return }
-            let link = CADisplayLink(target: self, selector: #selector(sampleNavigationBar))
-            displayLink = link
-            link.add(to: .main, forMode: .common)
-        }
-
-        @objc private func sampleNavigationBar() {
-            guard let nav = configuredNavigationController else {
-                stopObserving()
-                return
-            }
-            defer {
-                if CACurrentMediaTime() >= observeUntil { stopObserving() }
-            }
-            let bar = nav.navigationBar
-            guard let window = nav.viewIfLoaded?.window, bar.bounds.height > 0 else { return }
-            if bar.isHidden || bar.window == nil {
-                publish(.hidden)
-                return
-            }
-            let frame: CGRect
-            let opacity: Float
-            if let barLayer = bar.layer.presentation(), let windowLayer = window.layer.presentation() {
-                frame = barLayer.convert(barLayer.bounds, to: windowLayer)
-                opacity = barLayer.opacity
-            } else {
-                frame = bar.convert(bar.bounds, to: window)
-                opacity = bar.layer.opacity
-            }
-            let expandedTop = max(window.bounds.minY + window.safeAreaInsets.top,
-                                  nav.view.convert(nav.view.bounds, to: window).minY)
-            let tolerance = 1 / max(1, window.traitCollection.displayScale)
-            if frame.maxY <= expandedTop + tolerance || opacity < 0.01 {
-                publish(.hidden)
-            } else if frame.minY < expandedTop - tolerance || opacity < 0.99 {
-                publish(.moving)
-            } else {
-                publish(.expanded)
-            }
-        }
-
-        private func stopObserving() {
-            displayLink?.invalidate()
-            displayLink = nil
-        }
-
-        private func publish(_ phase: VesperSwipeNavigationPhase) {
-            guard phase != lastPhase else { return }
-            lastPhase = phase
-            phaseRevision += 1
-            let revision = phaseRevision
-            Task { @MainActor [weak self] in
-                guard let self, phaseRevision == revision else { return }
-                reportPhase?(phase)
-            }
         }
     }
 }
