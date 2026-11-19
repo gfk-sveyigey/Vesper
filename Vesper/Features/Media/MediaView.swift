@@ -459,7 +459,7 @@ struct MediaView: View {
         let source = embyHomeSource
         let isExpanded = source != nil && showsEmbyShortcuts
 
-        HStack(spacing: 0) {
+        return HStack(spacing: 0) {
             if let source {
                 HStack(spacing: 0) {
                     refreshButton
