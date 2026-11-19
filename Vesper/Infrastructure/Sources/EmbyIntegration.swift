@@ -730,7 +730,7 @@ actor EmbyRepository {
 
     private func map(_ values: [[String: Any]], source: MediaSource, client: EmbyAPIClient) -> [MediaItem] {
         let mappedAt = Date()
-        return values.compactMap { value in
+        return values.compactMap { value -> MediaItem? in
             guard let id = value["Id"] as? String else { return nil }
             let type = value["Type"] as? String ?? ""
             guard let name = value["Name"] as? String ?? (type == "Episode" ? "" : nil) else { return nil }
