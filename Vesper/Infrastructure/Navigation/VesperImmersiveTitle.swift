@@ -204,16 +204,22 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     var body: some View {
-        positionedScrollView
-        .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
-        .scrollEdgeEffectHidden(true, for: .top)
-        .scrollEdgeEffectHidden(usesMediaScrollEdges, for: .bottom)
-        .overlay(alignment: .top) {
-            if usesMediaScrollEdges {
-                mediaHeader
+        ZStack(alignment: .top) {
+            positionedScrollView
+                .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+                .scrollEdgeEffectHidden(true, for: .top)
+                .scrollEdgeEffectHidden(usesMediaScrollEdges, for: .bottom)
+                .ignoresSafeArea(.container, edges: .top)
+
+            if showsLoading {
+                VesperPageLoadingOverlay()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
+                    .zIndex(1)
             }
+
         }
-        .ignoresSafeArea(.container, edges: .top)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: showsLoading)
         .task(id: mediaHeaderSnap) {
             guard let snap = mediaHeaderSnap else { return }
             do {
@@ -222,20 +228,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             guard mediaHeaderSnap == snap else { return }
             settleMediaHeader(at: snap.target)
         }
-        .preference(key: VesperRootHeaderKey.self, value: usesMediaScrollEdges ? nil : VesperRootHeaderPresentation(
-            header: AnyView(header),
-            showsStatusBarBlur: !contentFitsViewport && isCollapsed
-        ))
-        .overlay(alignment: .top) {
-            Group {
-                if showsLoading {
-                    VesperPageLoadingOverlay()
-                        .ignoresSafeArea(.container, edges: [.top, .bottom])
-                        .transition(.opacity)
-                }
-            }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: showsLoading)
-        }
+        .preference(key: VesperRootHeaderKey.self, value: rootHeaderPresentation)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarTitleDisplayMode(.inline)
@@ -250,6 +243,16 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             .sharedBackgroundVisibility(.hidden)
         }
+    }
+
+    private var rootHeaderPresentation: VesperRootHeaderPresentation? {
+        if usesMediaScrollEdges {
+            return VesperRootHeaderPresentation(header: AnyView(mediaHeader), showsStatusBarBlur: false)
+        }
+        return VesperRootHeaderPresentation(
+            header: AnyView(header),
+            showsStatusBarBlur: !contentFitsViewport && isCollapsed
+        )
     }
 
     private var mediaHeader: some View {

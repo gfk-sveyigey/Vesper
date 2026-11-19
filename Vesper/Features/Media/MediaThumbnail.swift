@@ -191,6 +191,17 @@ struct EmbyFeaturedArtwork: Sendable {
     var logo: Data?
 }
 
+private struct CarouselArtworkPartResult: Sendable {
+    enum Part: Sendable {
+        case poster
+        case logo
+    }
+
+    let id: MediaID
+    let part: Part
+    let data: Data?
+}
+
 @MainActor
 final class MediaThumbnailLoader {
     static let shared = MediaThumbnailLoader()
@@ -201,25 +212,48 @@ final class MediaThumbnailLoader {
         durationCache.countLimit = 256
     }
 
-    func prepareCarouselArtwork(_ items: [MediaItem], source: MediaSource) async -> [MediaID: EmbyFeaturedArtwork] {
-        await withTaskGroup(of: (MediaID, EmbyFeaturedArtwork?).self) { group in
+    func prepareCarouselArtwork(
+        _ items: [MediaItem],
+        source: MediaSource,
+        onArtworkReady: (@MainActor (MediaID, EmbyFeaturedArtwork) -> Void)? = nil
+    ) async -> [MediaID: EmbyFeaturedArtwork] {
+        await withTaskGroup(of: CarouselArtworkPartResult.self) { group in
             for item in items {
                 group.addTask {
-                    (item.id, await self.carouselArtwork(for: item, source: source))
+                    CarouselArtworkPartResult(
+                        id: item.id,
+                        part: .logo,
+                        data: await self.featuredLogo(for: item, source: source)
+                    )
+                }
+                group.addTask {
+                    var poster = await self.textlessPoster(for: item, source: source)
+                    if poster == nil, !Task.isCancelled {
+                        poster = await self.load(item, source: source)
+                    }
+                    return CarouselArtworkPartResult(id: item.id, part: .poster, data: poster)
                 }
             }
             var result: [MediaID: EmbyFeaturedArtwork] = [:]
-            for await (id, artwork) in group { result[id] = artwork }
+            var logos: [MediaID: Data] = [:]
+            for await update in group {
+                switch update.part {
+                case .poster:
+                    guard let poster = update.data else { continue }
+                    let artwork = EmbyFeaturedArtwork(poster: poster, logo: logos[update.id])
+                    result[update.id] = artwork
+                    onArtworkReady?(update.id, artwork)
+                case .logo:
+                    guard let logo = update.data else { continue }
+                    logos[update.id] = logo
+                    guard var artwork = result[update.id] else { continue }
+                    artwork.logo = logo
+                    result[update.id] = artwork
+                    onArtworkReady?(update.id, artwork)
+                }
+            }
             return result
         }
-    }
-
-    private func carouselArtwork(for item: MediaItem, source: MediaSource) async -> EmbyFeaturedArtwork? {
-        var artwork = await featuredArtwork(for: item, source: source)
-        if artwork.poster == nil, !Task.isCancelled {
-            artwork.poster = await load(item, source: source)
-        }
-        return artwork.poster == nil ? nil : artwork
     }
 
     func featuredArtwork(for item: MediaItem, source: MediaSource) async -> EmbyFeaturedArtwork {

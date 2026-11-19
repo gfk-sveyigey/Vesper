@@ -462,7 +462,14 @@ final class SourceLibrary: ObservableObject {
     private func prepareCarousel(
         _ items: [MediaItem], source: MediaSource, token: UUID, publish: Bool
     ) async -> [MediaID: EmbyFeaturedArtwork] {
-        let artwork = await MediaThumbnailLoader.shared.prepareCarouselArtwork(items, source: source)
+        let artwork = await MediaThumbnailLoader.shared.prepareCarouselArtwork(items, source: source) { [weak self] id, image in
+            guard publish, let self, !Task.isCancelled, generation == token, var home = embyHome else { return }
+            var prepared = home.featuredArtwork ?? [:]
+            prepared[id] = image
+            home.featuredArtwork = prepared
+            home.featured = items.filter { prepared[$0.id] != nil }
+            embyHome = home
+        }
         if publish, !Task.isCancelled, generation == token, var home = embyHome {
             home.featured = items.filter { artwork[$0.id] != nil }
             home.featuredArtwork = artwork

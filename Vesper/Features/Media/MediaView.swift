@@ -803,7 +803,7 @@ private struct EmbyFeaturedCarousel: View {
                             EmbyFeaturedPage(source: source, item: item, size: geometry.size,
                                              artwork: fallback, artworkIsPrepared: artwork != nil,
                                              featuredArtwork: images,
-                                             featuredArtworkIsPrepared: featuredArtwork != nil,
+                                             featuredArtworkIsPrepared: images != nil,
                                              showsInformation: isCurrent && !isTransitioning,
                                              mirroredEdgeFraction: (isCurrent || isIncoming) && isTransitioning && !reduceMotion ? mirrorFraction : 0)
                         }
@@ -848,11 +848,12 @@ private struct EmbyFeaturedCarousel: View {
         }
         .animation(reduceMotion || !hasPosters ? nil : .easeOut(duration: 0.32), value: hasPosters)
         .onChange(of: items.map(\.id), initial: true) { _, ids in
+            guard selection.map(ids.contains) != true else { return }
             resetTransition()
-            if selection.map(ids.contains) != true { selection = ids.first }
+            selection = ids.first
         }
         .onDisappear { resetTransition() }
-        .task(id: RotationState(items: items.map(\.id), selection: selection, enabled: canRotate)) {
+        .task(id: RotationState(selection: selection, enabled: canRotate)) {
             guard canRotate else { return }
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
             guard !Task.isCancelled, canRotate else { return }
@@ -929,7 +930,6 @@ private struct EmbyFeaturedCarousel: View {
     }
 
     private struct RotationState: Equatable {
-        let items: [MediaID]
         let selection: MediaID?
         let enabled: Bool
     }
