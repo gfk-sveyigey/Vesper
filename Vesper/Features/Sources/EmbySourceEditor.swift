@@ -155,7 +155,7 @@ struct EmbySourceEditor: View {
     private var sourceIcon: some View {
         Group {
             if let iconData, let image = UIImage(data: iconData) { Image(uiImage: image).resizable().scaledToFill() }
-            else { Image("EmbyLogo").resizable().scaledToFit().padding(4).background(Color.white) }
+            else { Image("EmbyLogo").resizable().scaledToFit().padding(4) }
         }
         .frame(width: 64, height: 64)
         .clipShape(RoundedRectangle(cornerRadius: 10))

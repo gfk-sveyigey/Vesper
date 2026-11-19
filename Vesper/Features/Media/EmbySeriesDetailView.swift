@@ -132,9 +132,6 @@ struct EmbySeriesDetailView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .background(VesperTheme.background.ignoresSafeArea())
-        .overlay {
-            if isLoading && episodes.isEmpty { VesperPageLoadingOverlay() }
-        }
         .navigationTitle(series.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
@@ -325,7 +322,12 @@ struct EmbySeriesDetailView: View {
                             if let image = credit.image {
                                 MediaThumbnail(source: source, item: image, aspectRatio: 1)
                             } else {
-                                MediaCardBackdrop(showsMissingArtwork: true)
+                                VesperTheme.mediaCardBackground
+                                    .overlay {
+                                        Image(systemName: "person.crop.circle.fill")
+                                            .font(.system(size: 36))
+                                            .foregroundStyle(.secondary)
+                                    }
                             }
                         }
                         .frame(width: 78, height: 78)

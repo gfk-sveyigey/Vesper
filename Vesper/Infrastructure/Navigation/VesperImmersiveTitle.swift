@@ -10,6 +10,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let showsLoading: Bool
     private let usesMediaScrollEdges: Bool
     private let onVerticalOffsetChange: (CGFloat) -> Void
+    private let onTopPullChange: (CGFloat) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var topInset
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
@@ -29,12 +30,14 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 
     init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
          usesMediaScrollEdges: Bool = false, onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
+         onTopPullChange: @escaping (CGFloat) -> Void = { _ in },
          @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
         self.extendsContentUnderHeader = extendsContentUnderHeader
         self.showsLoading = showsLoading
         self.usesMediaScrollEdges = usesMediaScrollEdges
         self.onVerticalOffsetChange = onVerticalOffsetChange
+        self.onTopPullChange = onTopPullChange
         self.content = content()
         self.actions = actions()
     }
@@ -66,14 +69,15 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             .frame(minHeight: viewportHeight, alignment: .top)
         }
         .scrollDisabled(showsLoading)
-        .overlay {
-            if showsLoading {
-                VesperPageLoadingOverlay()
-                    .padding(.top, max(topInset + (usesMediaScrollEdges ? 44 : 0), headerHeight - headerOffset))
-            }
-        }
         .scrollClipDisabled()
         .scrollBounceBehavior(.always, axes: .vertical)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 4)
+                .onChanged { value in
+                    guard scrollOffset <= 1, value.translation.height > 0 else { return }
+                    onTopPullChange(value.translation.height)
+                }
+        )
         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
             ScrollMetrics(
                 offset: geometry.contentOffset.y + geometry.contentInsets.top,
@@ -135,6 +139,20 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             header: AnyView(header),
             showsStatusBarBlur: !contentFitsViewport && isCollapsed
         ))
+        .overlay(alignment: .top) {
+            Group {
+                if showsLoading {
+                    GeometryReader { geometry in
+                        VesperPageLoadingOverlay()
+                            .padding(.top, max(topInset + (usesMediaScrollEdges ? 44 : 0), headerHeight - headerOffset))
+                            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+                    }
+                    .ignoresSafeArea(.container, edges: .bottom)
+                    .transition(.opacity)
+                }
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: showsLoading)
+        }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarTitleDisplayMode(.inline)

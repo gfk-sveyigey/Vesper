@@ -23,7 +23,7 @@ struct SourcesView: View {
                                         if let data = source.emby?.iconData, let image = UIImage(data: data) {
                                             Image(uiImage: image).resizable().scaledToFill()
                                         } else {
-                                            Image("EmbyLogo").resizable().scaledToFit().padding(2).background(.white)
+                                            Image("EmbyLogo").resizable().scaledToFit().padding(2)
                                         }
                                     }
                                     .frame(width: 36, height: 36).clipShape(RoundedRectangle(cornerRadius: 7))
