@@ -128,7 +128,7 @@ struct MediaView: View {
         let featured = featured
         let showsFeaturedRegion = library.selectedSource?.kind == .emby && !library.canNavigateBack
         return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: showsFeaturedRegion,
-                                   showsLoading: isLoadingMedia, usesMediaScrollEdges: true, usesNativeNavigationBar: true,
+                                   showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
                                    onVerticalOffsetChange: updateEmbyShortcuts,
                                    onTopPullChange: expandEmbyShortcuts(forTopPull:)) {
             VStack(alignment: .leading, spacing: 20) {
@@ -204,15 +204,14 @@ struct MediaView: View {
                 }
             }
         } actions: {
+            if library.canNavigateBack {
+                Button("返回", systemImage: "chevron.left") { library.navigateEmbyBack() }
+                    .labelStyle(.iconOnly)
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
             if !library.sources.isEmpty {
                 mediaSourceMenu
-            }
-        }
-        .toolbar {
-            if library.canNavigateBack {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("返回", systemImage: "chevron.left") { library.navigateEmbyBack() }
-                }
             }
         }
         .background(VesperTheme.background.ignoresSafeArea())
@@ -412,8 +411,10 @@ struct MediaView: View {
                     .frame(width: 44, height: 44)
                 sourceMenuButton
             }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .capsule)
         } else {
-            sourceMenuButton
+            sourceMenuButton.glassEffect(.regular.interactive(), in: .circle)
         }
     }
 

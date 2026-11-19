@@ -25,19 +25,25 @@ struct LocalFilesView<SourceMenu: View>: View {
     var body: some View {
         Group {
             if directory.isEmpty {
-                VesperRootScrollView(title: "媒体", showsLoading: loading && entries.isEmpty,
-                                     usesMediaScrollEdges: true, usesNativeNavigationBar: true) {
-                    files
-                } actions: {
+                VesperRootScrollView(title: "媒体", showsLoading: loading && entries.isEmpty, usesMediaScrollEdges: true) { files } actions: {
                     HStack(spacing: 12) {
-                        Button("选择视频", systemImage: "document.badge.plus") {
-                            incomingVideos.selectVideo()
-                        }
-                        .labelStyle(.iconOnly)
-                        .disabled(busy)
-                        Button("新建文件夹", systemImage: "folder.badge.plus", action: createFolder)
+                        HStack(spacing: 0) {
+                            Button("选择视频", systemImage: "document.badge.plus") {
+                                incomingVideos.selectVideo()
+                            }
                             .labelStyle(.iconOnly)
+                            .font(.system(size: 17, weight: .medium))
+                            .frame(width: 44, height: 44)
+                            .buttonStyle(.plain)
                             .disabled(busy)
+                            Button("新建文件夹", systemImage: "folder.badge.plus", action: createFolder)
+                                .labelStyle(.iconOnly)
+                                .font(.system(size: 17, weight: .medium))
+                                .frame(width: 44, height: 44)
+                                .buttonStyle(.plain)
+                                .disabled(busy)
+                        }
+                        .glassEffect(.regular.interactive(), in: .capsule)
                         sourceMenu()
                     }
                 }

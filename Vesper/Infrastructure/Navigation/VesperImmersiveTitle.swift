@@ -9,16 +9,12 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let extendsContentUnderHeader: Bool
     private let showsLoading: Bool
     private let usesMediaScrollEdges: Bool
-    private let usesNativeNavigationBar: Bool
     private let onVerticalOffsetChange: (CGFloat) -> Void
     private let onTopPullChange: (CGFloat) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var topInset
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
     @ScaledMetric(relativeTo: .largeTitle) private var titleLineHeight: CGFloat = 41
-    @State private var isNativeBarHidden = false
-    @State private var isNativeBarMoving = false
-    @State private var nativeBarGestureOrigin: CGFloat = 0
     @State private var scrollOffset: CGFloat = 0
     @State private var isInteracting = false
     @State private var headerOffset: CGFloat = 0
@@ -33,15 +29,13 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var interactionStartedCollapsed = false
 
     init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
-         usesMediaScrollEdges: Bool = false, usesNativeNavigationBar: Bool = false,
-         onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
+         usesMediaScrollEdges: Bool = false, onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
          onTopPullChange: @escaping (CGFloat) -> Void = { _ in },
          @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
         self.extendsContentUnderHeader = extendsContentUnderHeader
         self.showsLoading = showsLoading
         self.usesMediaScrollEdges = usesMediaScrollEdges
-        self.usesNativeNavigationBar = usesNativeNavigationBar
         self.onVerticalOffsetChange = onVerticalOffsetChange
         self.onTopPullChange = onTopPullChange
         self.content = content()
@@ -53,7 +47,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private var headerHeight: CGFloat {
-        usesNativeNavigationBar ? 0 : headerContentHeight + topInset
+        headerContentHeight + topInset
     }
 
     private var contentReachesTitleOffset: CGFloat {
@@ -63,7 +57,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                if !usesNativeNavigationBar && !extendsContentUnderHeader {
+                if !extendsContentUnderHeader {
                     Color.clear.frame(height: headerHeight)
                         .accessibilityHidden(true)
                 }
@@ -95,21 +89,9 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             contentFitsViewport = metrics.contentHeight <= metrics.viewportHeight + 1
             onVerticalOffsetChange(metrics.offset)
             scrollOffset = max(0, metrics.offset)
-            if usesNativeNavigationBar {
-                updateNativeBar(using: metrics.offset)
-            } else {
-                updateHeader(at: scrollOffset)
-            }
+            updateHeader(at: scrollOffset)
         }
         .onScrollPhaseChange { oldPhase, newPhase in
-            if usesNativeNavigationBar {
-                isInteracting = newPhase == .interacting
-                if isInteracting { nativeBarGestureOrigin = scrollOffset }
-                if newPhase == .idle && (scrollOffset <= 0.5 || contentFitsViewport) {
-                    setNativeBarHidden(false)
-                }
-                return
-            }
             if newPhase == .animating {
                 isSystemScrolling = true
                 isInteracting = false
@@ -148,12 +130,12 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .overlay(alignment: .top) {
             // Media's header shares the scroll viewport's top edge without
             // becoming part of the scrolling content or changing its insets.
-            if usesMediaScrollEdges && !usesNativeNavigationBar {
+            if usesMediaScrollEdges {
                 header
             }
         }
-        .ignoresSafeArea(.container, edges: !usesNativeNavigationBar || extendsContentUnderHeader ? .top : [])
-        .preference(key: VesperRootHeaderKey.self, value: (usesMediaScrollEdges || usesNativeNavigationBar) ? nil : VesperRootHeaderPresentation(
+        .ignoresSafeArea(.container, edges: .top)
+        .preference(key: VesperRootHeaderKey.self, value: usesMediaScrollEdges ? nil : VesperRootHeaderPresentation(
             header: AnyView(header),
             showsStatusBarBlur: !contentFitsViewport && isCollapsed
         ))
@@ -168,62 +150,25 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: showsLoading)
         }
         .navigationTitle(title)
-        .toolbarTitleDisplayMode(usesNativeNavigationBar ? .inlineLarge : .inline)
-        .toolbarVisibility((usesNativeNavigationBar ? isNativeBarHidden : usesMediaScrollEdges) ? .hidden : .visible,
-                           for: .navigationBar)
-        .modifier(VesperSwipeNavigationBackground(enabled: usesNativeNavigationBar, showsMaterial: isNativeBarMoving))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarTitleDisplayMode(.inline)
+        // Keep the empty system bar out of the media root experiment.
+        // Pushed pages retain their own system navigation bar settings.
+        .toolbarVisibility(usesMediaScrollEdges ? .hidden : .visible, for: .navigationBar)
         .toolbar {
-            if usesNativeNavigationBar {
-                ToolbarItem(placement: .topBarTrailing) { actions }
-            } else {
-                ToolbarItem(placement: .principal) {
-                    Color.clear
-                        .frame(width: 1, height: 1)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-                .sharedBackgroundVisibility(.hidden)
+            ToolbarItem(placement: .principal) {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
+            .sharedBackgroundVisibility(.hidden)
         }
     }
 
     private var showsMediaTopEdge: Bool {
-        if usesNativeNavigationBar { return isNativeBarHidden && !isNativeBarMoving }
-        return usesMediaScrollEdges && !contentFitsViewport && scrollOffset > 0.5
+        usesMediaScrollEdges && !contentFitsViewport && scrollOffset > 0.5
             && (isCollapsed || headerOffset > 0.5)
-    }
-
-    private func updateNativeBar(using offset: CGFloat) {
-        if contentFitsViewport {
-            setNativeBarHidden(false)
-            return
-        }
-        guard isInteracting, !isNativeBarMoving else { return }
-        let displacement = offset - nativeBarGestureOrigin
-        if isNativeBarHidden {
-            nativeBarGestureOrigin = max(nativeBarGestureOrigin, offset)
-            if displacement <= -12 || offset <= 0.5 { setNativeBarHidden(false) }
-        } else {
-            nativeBarGestureOrigin = min(nativeBarGestureOrigin, max(0, offset))
-            if displacement >= 12 { setNativeBarHidden(true) }
-        }
-    }
-
-    private func setNativeBarHidden(_ hidden: Bool) {
-        guard hidden != isNativeBarHidden else { return }
-        if reduceMotion {
-            isNativeBarHidden = hidden
-            isNativeBarMoving = false
-        } else {
-            isNativeBarMoving = true
-            withAnimation(.easeInOut(duration: 0.24), completionCriteria: .removed) {
-                isNativeBarHidden = hidden
-            } completion: {
-                guard isNativeBarHidden == hidden else { return }
-                nativeBarGestureOrigin = scrollOffset
-                isNativeBarMoving = false
-            }
-        }
     }
 
     private var snapThreshold: CGFloat { headerHeight * 0.1125 }
@@ -385,21 +330,6 @@ struct VesperNavigationHeaderLayer: ViewModifier {
                 }
                 .ignoresSafeArea(.container, edges: .top)
             }
-        }
-    }
-}
-
-private struct VesperSwipeNavigationBackground: ViewModifier {
-    let enabled: Bool
-    let showsMaterial: Bool
-
-    func body(content: Content) -> some View {
-        if enabled {
-            content
-                .toolbarBackground(.regularMaterial, for: .navigationBar)
-                .toolbarBackgroundVisibility(showsMaterial ? .visible : .hidden, for: .navigationBar)
-        } else {
-            content
         }
     }
 }

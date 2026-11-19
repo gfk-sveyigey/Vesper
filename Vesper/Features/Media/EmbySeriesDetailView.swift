@@ -212,7 +212,7 @@ struct EmbySeriesDetailView: View {
                              seriesFooter: EmbySeriesHeroFooter(series: item, season: selectedSeason,
                                                                seasonCount: seasonNumbers.count,
                                                                episodes: episodes.filter { $0.season == selectedSeason }),
-                             seriesFooterOpacity: detailContentOpacity)
+                             seriesFooterOpacity: loadedSeriesID == series.id ? detailContentOpacity : 0)
                 .modifier(EmbyPosterStretch(geometry: geometry))
         }
         .aspectRatio(EmbyPosterLayout.aspectRatio, contentMode: .fit)

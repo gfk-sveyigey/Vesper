@@ -247,9 +247,8 @@ struct AppNavigationView: View {
     private func sectionPage(_ section: AppSection) -> some View {
         switch section {
         case .media:
-            NavigationStack(path: $mediaPath) {
-                MediaView(path: $mediaPath)
-            }
+            NavigationStack(path: $mediaPath) { MediaView(path: $mediaPath) }
+                .modifier(VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty))
         case .sources:
             NavigationStack(path: $sourcesPath) { SourcesView() }
                 .modifier(VesperNavigationHeaderLayer(isRoot: sourcesPath.isEmpty))
