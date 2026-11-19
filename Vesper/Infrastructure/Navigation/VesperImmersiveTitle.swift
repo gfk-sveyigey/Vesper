@@ -128,7 +128,10 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        // Media roots already draw their title and actions in the custom header.
+        // Hide the empty system bar so it cannot respond to the top scroll edge.
+        // Keep the NavigationStack itself so destinations still get native navigation.
+        .toolbarVisibility(usesMediaScrollEdges ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Color.clear
@@ -138,17 +141,18 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             .sharedBackgroundVisibility(.hidden)
         }
-        .scrollEdgeEffectStyle(.soft, for: .bottom)
-        .scrollEdgeEffectHidden(true, for: .top)
+        .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+        .scrollEdgeEffectHidden(!showsNativeTopEdge, for: .top)
         .scrollEdgeEffectHidden(usesMediaScrollEdges, for: .bottom)
     }
 
+    private var showsNativeTopEdge: Bool {
+        usesMediaScrollEdges && !contentFitsViewport && scrollOffset > 0.5
+            && (isCollapsed || headerOffset > 0.5)
+    }
+
     private var showsStatusBarBlur: Bool {
-        guard !contentFitsViewport else { return false }
-        if usesMediaScrollEdges {
-            return scrollOffset > 0.5 && (isCollapsed || headerOffset > 0.5)
-        }
-        return isCollapsed
+        !usesMediaScrollEdges && !contentFitsViewport && isCollapsed
     }
 
     private var snapThreshold: CGFloat { headerHeight * 0.1125 }
