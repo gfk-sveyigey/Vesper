@@ -12,7 +12,15 @@ ROOT = Path(__file__).resolve().parents[2]
 
 EVENTS = []
 MEDIA = {'Id': 'v2', 'Name': 'Version 2', 'RunTimeTicks': 6000000000, 'Container': 'mkv',
-         'MediaStreams': [{'Type': 'Subtitle', 'IsExternal': True, 'Index': 2, 'Codec': 'srt', 'DisplayTitle': '中文'}]}
+         'Path': '/library/Movie/movie-v2.mkv', 'Size': 7340032000, 'Bitrate': 48000000,
+         'SupportsDirectPlay': True, 'SupportsDirectStream': True, 'SupportsTranscoding': True,
+         'MediaStreams': [{'Type': 'Subtitle', 'IsExternal': True, 'Index': 2, 'Codec': 'srt',
+                           'DisplayTitle': '中文', 'Language': 'chi', 'IsHearingImpaired': True,
+                           'IsForced': False, 'DeliveryMethod': 'External', 'Path': '/subs/movie.zh.srt'},
+                          {'Type': 'Audio', 'Index': 1, 'Codec': 'eac3', 'Profile': 'Atmos',
+                           'Language': 'eng', 'DisplayTitle': 'English - EAC3 - 5.1', 'Channels': 6,
+                           'ChannelLayout': '5.1', 'SampleRate': 48000, 'BitDepth': 24, 'BitRate': 768000,
+                           'IsDefault': True}]}
 ITEM = {'Id': 'movie', 'Name': 'Movie', 'Type': 'Movie', 'RunTimeTicks': 6000000000,
         'UserData': {'PlaybackPositionTicks': 300000000}, 'Overview': 'A movie',
         'SeriesId': 'series', 'SeriesPrimaryImageTag': 'series-tag',
@@ -20,6 +28,9 @@ ITEM = {'Id': 'movie', 'Name': 'Movie', 'Type': 'Movie', 'RunTimeTicks': 6000000
 SERIES = {'Id': 'series', 'Name': 'Series', 'Type': 'Series', 'IsFolder': True,
           'DateCreated': '2026-11-18T01:58:30Z', 'PremiereDate': '2024-03-01',
           'Genres': ['Drama', 'Mystery'], 'Status': 'Continuing', 'OfficialRating': 'TV-14',
+          'AirDays': ['Monday'], 'AirTime': '20:00', 'OriginalTitle': 'Original Series',
+          'Studios': [{'Name': 'Example Network'}], 'Tags': ['investigation'],
+          'ProductionLocations': ['Japan'],
           'ImageTags': {'Primary': 'cover', 'Logo': 'logo'}}
 EPISODE = {'Id': 'episode', 'Name': 'Episode', 'Type': 'Episode', 'SeriesId': 'series'}
 
@@ -40,25 +51,33 @@ class Handler(BaseHTTPRequestHandler):
             self.respond({'Id': 'test-server'}); return
         if path.path.startswith('/proxy/emby/Status/'):
             self.send_response(int(path.path.rsplit('/', 1)[1])); self.end_headers(); return
-        if path.path == '/proxy/emby/Items/movie/Images/Primary':
+        if path.path.endswith('/Images'):
+            item_id = path.path.split('/')[-2]
+            images = {
+                'movie': [{'ImageType': 'Primary', 'ImageIndex': 0, 'Width': 600, 'Height': 900}],
+                'series': [{'ImageType': 'Logo', 'ImageIndex': 0, 'Width': 800, 'Height': 200},
+                           {'ImageType': 'Primary', 'ImageIndex': 0, 'Width': 600, 'Height': 900}],
+                'episode': [{'ImageType': 'Thumb', 'ImageIndex': 0, 'Width': 1600, 'Height': 900}],
+                'next-season': []
+            }
+            self.respond(images.get(item_id, [])); return
+        if path.path == '/proxy/emby/Items/movie/Images/Primary/0':
             assert self.headers.get('User-Agent') == 'CustomVesper/2.0'
             assert self.headers.get('Accept') == 'image/*,*/*;q=0.8'
             assert self.headers.get('Authorization', '').startswith('Emby UserId="user"')
             assert self.headers.get('X-Emby-Token') == 'secret'
-            self.send_response(404); self.end_headers(); return
-        if path.path == '/proxy/emby/Items/episode/Images/Thumb':
-            assert parse_qs(path.query)['tag'] == ['episode-thumb']
+            self.respond({'image': 'movie-primary'}); return
+        if path.path == '/proxy/emby/Items/episode/Images/Thumb/0':
             self.respond({'image': 'episode-thumb'}); return
-        if path.path == '/proxy/emby/Items/episode/Images/Primary':
+        if path.path == '/proxy/emby/Items/episode/Images/Primary/0':
             self.respond({'image': 'episode-primary'}); return
-        if path.path in ('/proxy/emby/Items/next-season/Images/Thumb',
-                         '/proxy/emby/Items/next-season/Images/Primary'):
+        if path.path in ('/proxy/emby/Items/next-season/Images/Thumb/0',
+                         '/proxy/emby/Items/next-season/Images/Primary/0'):
             self.send_response(404); self.end_headers(); return
-        if path.path == '/proxy/emby/Items/series/Images/Primary':
+        if path.path == '/proxy/emby/Items/series/Images/Primary/0':
             self.respond({'image': 'series'}); return
-        if path.path == '/proxy/emby/Items/series/Images/Logo':
+        if path.path == '/proxy/emby/Items/series/Images/Logo/0':
             assert self.headers.get('X-Emby-Token') == 'secret'
-            assert parse_qs(path.query)['tag'] == ['logo']
             self.respond({'image': 'logo'}); return
         if path.path == '/proxy/emby/Items/series/RemoteImages':
             query = parse_qs(path.query)
@@ -119,6 +138,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.path == '/proxy/emby/Users/user/Items/movie':
             self.respond(ITEM); return
         if path.path == '/proxy/emby/Users/user/Items/series':
+            fields = parse_qs(path.query).get('Fields', [''])[0]
+            assert 'AirDays' in fields and 'Studios' in fields and 'LockedFields' in fields
             self.respond(dict(SERIES, Overview='Series synopsis',
                               People=[{'Id': 'actor', 'Name': 'Actor', 'Role': 'Detective', 'PrimaryImageTag': 'actor-tag'},
                                       {'Name': 'Director & Writer', 'Type': 'Director'}],

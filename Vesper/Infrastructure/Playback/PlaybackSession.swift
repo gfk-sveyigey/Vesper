@@ -123,13 +123,25 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     var canControl: Bool { core.driver != nil && !core.isTransitioning && errorMessage == nil }
     var canSeek: Bool { canControl && duration > 0 && core.snapshot.seekable }
 
-    func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem]) {
+    func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem],
+              audio: EmbyMediaStreamDetails? = nil, subtitle: EmbyMediaStreamDetails? = nil,
+              streams: [EmbyMediaStreamDetails] = []) {
         recordPlaybackHistory()
         externalFile = nil
         self.queue = queue
         self.source = source
         isPresented = true
-        load(item, source: source)
+        load(item, source: source, initialAudio: trackPreference(audio, streams: streams),
+             initialSubtitle: trackPreference(subtitle, streams: streams))
+    }
+
+    private func trackPreference(_ stream: EmbyMediaStreamDetails?, streams: [EmbyMediaStreamDetails]) -> EngineTrack? {
+        guard let stream else { return nil }
+        let siblings = streams.filter { $0.type == stream.type }
+        let ordinal = siblings.firstIndex(where: { $0.id == stream.id }) ?? 0
+        // This is a preference hint, never an engine-local track ID.
+        return EngineTrack(id: "emby-preference:\(ordinal)", name: stream.title ?? stream.displayTitle ?? "",
+                           language: stream.language, codec: stream.codec)
     }
 
     func playExternal(_ file: IncomingVideo) {
@@ -160,14 +172,15 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     private func load(_ item: MediaItem, source: MediaSource?, engine: PlaybackEngine? = nil, decoder: PlaybackDecoder? = nil,
-                      position: Double? = nil, resume: Bool = true, rate: Float? = nil) {
+                      position: Double? = nil, resume: Bool = true, rate: Float? = nil,
+                      initialAudio: EngineTrack? = nil, initialSubtitle: EngineTrack? = nil) {
         request?.cancel()
         generation = UUID()
         let token = generation
         let previousState = core.snapshot
         let carriesSelection = currentItem?.id == item.id && position != nil
-        let previousAudio = carriesSelection ? previousState.audio.first(where: { $0.selected }) : nil
-        let previousSubtitle = carriesSelection ? previousState.subtitles.first(where: { $0.selected }) : nil
+        let previousAudio = carriesSelection ? previousState.audio.first(where: { $0.selected }) : initialAudio
+        let previousSubtitle = carriesSelection ? previousState.subtitles.first(where: { $0.selected }) : initialSubtitle
         saveProgress()
         recordPlaybackHistory()
         tearDownPlayer()

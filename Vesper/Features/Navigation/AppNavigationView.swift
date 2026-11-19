@@ -1,5 +1,4 @@
 import SwiftUI
-import ObjectiveC
 import UIKit
 
 private enum NavigationTab: Hashable {
@@ -290,45 +289,76 @@ private struct TabReselectObserver: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: ObserverController, context: Context) {
         controller.isMediaSelected = isMediaSelected
         controller.onMediaReselect = onMediaReselect
-        controller.installDelegateProxyIfNeeded()
+        controller.installTabBarTapObserver()
     }
 
-    final class ObserverController: UIViewController {
+    final class ObserverController: UIViewController, UIGestureRecognizerDelegate {
         var isMediaSelected = false
         var onMediaReselect: () -> Void = {}
+        private weak var observedTabBar: UITabBar?
+        private var tabBarTapRecognizer: UITapGestureRecognizer?
+        private var beganOnMediaTab = false
+        private weak var selectedItemAtTouchStart: UITabBarItem?
 
         override func didMove(toParent parent: UIViewController?) {
             super.didMove(toParent: parent)
-            installDelegateProxyIfNeeded()
+            installTabBarTapObserver()
         }
 
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
-            installDelegateProxyIfNeeded()
+            installTabBarTapObserver()
         }
 
-        func installDelegateProxyIfNeeded() {
+        func installTabBarTapObserver() {
             guard let root = viewIfLoaded?.window?.rootViewController,
                   let tabController = findTabController(in: root) else { return }
-
-            let proxy: TabReselectDelegateProxy
-            if let existing = objc_getAssociatedObject(tabController, &tabReselectProxyAssociationKey)
-                as? TabReselectDelegateProxy {
-                proxy = existing
-                if let delegate = tabController.delegate, delegate !== proxy {
-                    proxy.forwardedDelegate = delegate
-                    proxy.synchronizeSelection(tabController.selectedViewController)
-                }
-            } else {
-                proxy = TabReselectDelegateProxy()
-                proxy.forwardedDelegate = tabController.delegate
-                proxy.synchronizeSelection(tabController.selectedViewController)
-                objc_setAssociatedObject(tabController, &tabReselectProxyAssociationKey,
-                                         proxy, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            guard observedTabBar !== tabController.tabBar else { return }
+            if let tabBarTapRecognizer {
+                tabBarTapRecognizer.view?.removeGestureRecognizer(tabBarTapRecognizer)
             }
-            proxy.isMediaSelected = { [weak self] in self?.isMediaSelected == true }
-            proxy.onMediaReselect = { [weak self] in self?.onMediaReselect() }
-            tabController.delegate = proxy
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTabBarTap(_:)))
+            recognizer.cancelsTouchesInView = false
+            recognizer.delaysTouchesBegan = false
+            recognizer.delegate = self
+            tabController.tabBar.addGestureRecognizer(recognizer)
+            observedTabBar = tabController.tabBar
+            tabBarTapRecognizer = recognizer
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                              shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldReceive touch: UITouch) -> Bool {
+            guard let tabBar = observedTabBar else { return false }
+            let selectedItem = tabBar.selectedItem
+            beganOnMediaTab = selectedItem?.title == AppSection.media.title
+            selectedItemAtTouchStart = selectedItem
+            return true
+        }
+
+        @objc private func handleTabBarTap(_ recognizer: UITapGestureRecognizer) {
+            guard let tabBar = observedTabBar else { return }
+            switch recognizer.state {
+            case .ended:
+                let shouldCheckReselect = beganOnMediaTab
+                let selectedItem = selectedItemAtTouchStart
+                beganOnMediaTab = false
+                selectedItemAtTouchStart = nil
+                guard shouldCheckReselect else { return }
+                DispatchQueue.main.async { [weak self, weak tabBar, weak selectedItem] in
+                    guard let self, let tabBar, let selectedItem,
+                          tabBar.selectedItem === selectedItem,
+                          self.isMediaSelected else { return }
+                    self.onMediaReselect()
+                }
+            case .cancelled, .failed:
+                beganOnMediaTab = false
+                selectedItemAtTouchStart = nil
+            default:
+                break
+            }
         }
 
         private func findTabController(in controller: UIViewController) -> UITabBarController? {
@@ -341,58 +371,6 @@ private struct TabReselectObserver: UIViewControllerRepresentable {
             }
             return nil
         }
-    }
-}
-
-@MainActor
-private var tabReselectProxyAssociationKey: UInt8 = 0
-
-@MainActor
-private final class TabReselectDelegateProxy: NSObject, UITabBarControllerDelegate {
-    weak var forwardedDelegate: (any UITabBarControllerDelegate)?
-    var isMediaSelected: () -> Bool = { false }
-    var onMediaReselect: () -> Void = {}
-    private weak var lastSelectedController: UIViewController?
-    private weak var handledReselectController: UIViewController?
-
-    func synchronizeSelection(_ viewController: UIViewController?) {
-        lastSelectedController = viewController
-    }
-
-    func tabBarController(_ tabBarController: UITabBarController,
-                          shouldSelect viewController: UIViewController) -> Bool {
-        let shouldSelect = forwardedDelegate?.tabBarController?(tabBarController, shouldSelect: viewController) ?? true
-        if shouldSelect {
-            let isReselect = tabBarController.selectedViewController === viewController
-                || lastSelectedController === viewController
-            if isReselect && isMediaSelected() {
-                handledReselectController = viewController
-                onMediaReselect()
-            }
-        }
-        return shouldSelect
-    }
-
-    func tabBarController(_ tabBarController: UITabBarController,
-                          didSelect viewController: UIViewController) {
-        forwardedDelegate?.tabBarController?(tabBarController, didSelect: viewController)
-        if handledReselectController !== viewController,
-           lastSelectedController === viewController,
-           isMediaSelected() {
-            onMediaReselect()
-        }
-        handledReselectController = nil
-        lastSelectedController = viewController
-    }
-
-    override func responds(to selector: Selector!) -> Bool {
-        super.responds(to: selector) || forwardedDelegate?.responds(to: selector) == true
-    }
-
-    override func forwardingTarget(for selector: Selector!) -> Any? {
-        forwardedDelegate?.responds(to: selector) == true
-            ? forwardedDelegate
-            : super.forwardingTarget(for: selector)
     }
 }
 

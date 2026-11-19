@@ -180,6 +180,18 @@ struct TranscodedPlaybackResource: Sendable {
     }
     private func match(_ old: EngineTrack?, in tracks: [EngineTrack]) -> EngineTrack? {
         guard let old else { return nil }
+        if old.id.hasPrefix("emby-preference:"),
+           let ordinal = Int(old.id.dropFirst("emby-preference:".count)) {
+            // Emby indices include video and other stream types. Use the ordinal
+            // within this track type only when its metadata also agrees.
+            if tracks.indices.contains(ordinal) {
+                let candidate = tracks[ordinal]
+                if (old.language == nil || candidate.language == old.language)
+                    && (old.codec == nil || candidate.codec?.lowercased() == old.codec?.lowercased()) {
+                    return candidate
+                }
+            }
+        }
         // IDs are engine-local. Match semantics, never an unrelated reused ID.
         return tracks.first { $0.language == old.language && $0.codec == old.codec && $0.name == old.name }
             ?? tracks.first { old.language != nil && $0.language == old.language && $0.codec == old.codec }

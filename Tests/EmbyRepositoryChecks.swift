@@ -32,10 +32,14 @@ struct EmbyRepositoryChecks {
         precondition(series.embyPresentation?.premiereDate?.timeIntervalSince1970 == 1_709_251_200)
         let posterCandidates = await repository.featuredPosterCandidates(for: series, source: source)
         precondition(posterCandidates.map(\.lastPathComponent) == ["textless.jpg"])
-        let logo = await repository.featuredLogoData(for: series.embyPresentation!.logoURL!, source: source)
+        let logo = await repository.featuredLogoData(for: series, source: source)
         precondition(logo != nil)
         let metadata = try await repository.detailMetadata(for: series, source: source)
         precondition(metadata.item.embyPresentation?.overview == "Series synopsis")
+        let seriesFields = Dictionary(uniqueKeysWithValues: metadata.seriesInformation.flatMap(\.fields).map { ($0.id, $0.value) })
+        precondition(seriesFields["OriginalTitle"] == "Original Series")
+        precondition(seriesFields["AirDays"] == "周一" && seriesFields["AirTime"] == "20:00")
+        precondition(seriesFields["Studios"] == "Example Network")
         precondition(metadata.credits.first?.role == "Detective" && metadata.credits.first?.image?.id.localID == "actor")
         let actor = metadata.credits[0].person
         let director = metadata.credits[1].person
@@ -94,6 +98,13 @@ struct EmbyRepositoryChecks {
         precondition(item.resumePosition == 30 && item.duration == 600)
         let details = try await repository.details(for: item, source: source)
         precondition(details.versions.count == 2 && details.video.synopsis == "A movie")
+        let selectedVersion = details.mediaVersions.first { $0.id == "v2" }!
+        precondition(selectedVersion.fileName == "movie-v2.mkv" && selectedVersion.container == "mkv")
+        precondition(selectedVersion.size == 7_340_032_000 && selectedVersion.supportsDirectPlay == true)
+        let audio = selectedVersion.streams.first { $0.type == "Audio" }!
+        precondition(audio.codec == "eac3" && audio.channels == 6 && audio.sampleRate == 48_000 && audio.isDefault)
+        let subtitle = selectedVersion.streams.first { $0.type == "Subtitle" }!
+        precondition(subtitle.isHearingImpaired && subtitle.isExternal && subtitle.deliveryMethod == "External")
         item.embyMediaSourceID = "v2"
         let resource = try await repository.playbackResource(item: item, source: source, position: 30)
         precondition(resource.mediaSourceID == "v2" && resource.resumePosition == 30)

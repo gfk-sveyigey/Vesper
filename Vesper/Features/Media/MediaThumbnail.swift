@@ -264,11 +264,10 @@ final class MediaThumbnailLoader {
     }
 
     private func featuredLogo(for item: MediaItem, source: MediaSource) async -> Data? {
-        guard let url = item.embyPresentation?.logoURL else { return nil }
-        let key = "featured-logo|\(AppCacheStore.scope(for: source))|\(url.absoluteString)"
+        let key = "featured-logo|\(AppCacheStore.scope(for: source))|\(item.id.localID)"
         let (cached, generation) = await AppCacheStore.shared.image(key: key)
         if let cached, UIImage(data: cached) != nil { return cached }
-        guard let data = await EmbyRepository.shared.featuredLogoData(for: url, source: source),
+        guard let data = await EmbyRepository.shared.featuredLogoData(for: item, source: source),
               UIImage(data: data) != nil, !Task.isCancelled else { return nil }
         await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
         return data
@@ -307,7 +306,8 @@ final class MediaThumbnailLoader {
             guard !cacheOnly, !Task.isCancelled else { return nil }
             let task = Task { () -> Data? in
                 defer { pendingEmbyImages[requestKey] = nil }
-                guard let data = await EmbyRepository.shared.thumbnailData(for: item, source: source),
+                guard let data = await EmbyRepository.shared.thumbnailData(for: item, source: source,
+                                                                           aspectRatio: Double(aspectRatio)),
                       UIImage(data: data) != nil else { return nil }
                 await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
                 return data

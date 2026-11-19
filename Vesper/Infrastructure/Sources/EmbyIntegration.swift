@@ -27,6 +27,66 @@ struct EmbyTranscodeResult: Sendable {
 struct EmbyItemDetails: Sendable {
     let video: PlaybackVideoDetails
     let versions: [MediaItem]
+    let mediaVersions: [EmbyMediaVersionDetails]
+}
+
+struct EmbyMediaStreamDetails: Hashable, Sendable, Identifiable {
+    let id: Int
+    let type: String
+    let displayTitle: String?
+    let title: String?
+    let language: String?
+    let displayLanguage: String?
+    let codec: String?
+    let profile: String?
+    let channels: Int?
+    let channelLayout: String?
+    let sampleRate: Int?
+    let bitDepth: Int?
+    let bitRate: Int?
+    let width: Int?
+    let height: Int?
+    let aspectRatio: String?
+    let videoRange: String?
+    let videoRangeType: String?
+    let colorTransfer: String?
+    let colorPrimaries: String?
+    let colorSpace: String?
+    let averageFrameRate: Double?
+    let realFrameRate: Double?
+    let isDefault: Bool
+    let isForced: Bool
+    let isHearingImpaired: Bool
+    let isExternal: Bool
+    let isInterlaced: Bool
+    let isTextSubtitleStream: Bool
+    let supportsExternalStream: Bool
+    let deliveryMethod: String?
+    let subtitleLocationType: String?
+    let mimeType: String?
+    let path: String?
+    let comment: String?
+}
+
+struct EmbyMediaVersionDetails: Hashable, Sendable, Identifiable {
+    let id: String
+    let name: String
+    let fileName: String?
+    let container: String?
+    let size: Int64?
+    let bitRate: Int?
+    let duration: Double?
+    let supportsDirectPlay: Bool?
+    let supportsDirectStream: Bool?
+    let supportsTranscoding: Bool?
+    let protocolName: String?
+    let mediaType: String?
+    let mimeType: String?
+    let isRemote: Bool?
+    let hasMixedProtocols: Bool?
+    let defaultAudioStreamIndex: Int?
+    let defaultSubtitleStreamIndex: Int?
+    let streams: [EmbyMediaStreamDetails]
 }
 
 enum EmbyBrowsingSettings {
@@ -82,9 +142,30 @@ struct EmbyDetailMetadata: Sendable {
     let credits: [EmbyCredit]
     let links: [EmbyExternalLink]
     let video: PlaybackVideoDetails
+    let mediaVersions: [EmbyMediaVersionDetails]
     let series: MediaItem?
     let seasonNumber: Int?
     let episodeNumber: Int?
+    let seriesInformation: [EmbySeriesInformationGroup]
+}
+
+struct EmbySeriesInformationField: Sendable, Identifiable {
+    let id: String
+    let label: String
+    let value: String
+}
+
+struct EmbySeriesInformationGroup: Sendable, Identifiable {
+    let id: String
+    let title: String
+    let fields: [EmbySeriesInformationField]
+}
+
+private struct EmbyItemImage: Sendable {
+    let type: String
+    let index: Int
+    let width: Int
+    let height: Int
 }
 
 enum EmbyBrowseScope: Equatable, Sendable {
@@ -119,6 +200,7 @@ enum EmbyPlaybackRecordChange: Sendable {
 actor EmbyRepository {
     static let shared = EmbyRepository()
     private let clientProvider: @MainActor @Sendable (MediaSource) throws -> EmbyAPIClient
+    private var itemImages: [String: [EmbyItemImage]] = [:]
 
     init(clientProvider: @escaping @MainActor @Sendable (MediaSource) throws -> EmbyAPIClient = {
         try EmbyAccountStore.shared.client(for: $0)
@@ -275,10 +357,76 @@ actor EmbyRepository {
         } else {
             parentSeries = nil
         }
+        let mediaDetails = itemDetails(response, item: resolved, source: source)
         return EmbyDetailMetadata(item: resolved, credits: credits, links: links.filter { seen.insert($0.url).inserted },
-                                  video: itemDetails(response, item: resolved, source: source).video,
+                                  video: mediaDetails.video, mediaVersions: mediaDetails.mediaVersions,
                                   series: parentSeries, seasonNumber: response["ParentIndexNumber"] as? Int,
-                                  episodeNumber: response["IndexNumber"] as? Int)
+                                  episodeNumber: response["IndexNumber"] as? Int,
+                                  seriesInformation: seriesInformation(response))
+    }
+
+    private func seriesInformation(_ response: EmbyJSON) -> [EmbySeriesInformationGroup] {
+        guard response["Type"] as? String == "Series" else { return [] }
+        func text(_ value: Any?) -> String? {
+            guard let value, !(value is NSNull) else { return nil }
+            if let string = value as? String {
+                return string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : string
+            }
+            if let values = value as? [String] { return values.isEmpty ? nil : values.joined(separator: "、") }
+            if let number = value as? NSNumber { return number.stringValue }
+            return nil
+        }
+        func formatted(_ key: String, value: Any?) -> String? {
+            if ["DateCreated", "DateModified", "PremiereDate", "EndDate", "LastPlayedDate"].contains(key),
+               let raw = value as? String {
+                return raw.replacingOccurrences(of: "T", with: " ")
+            }
+            if key == "RunTimeTicks" || key == "PlaybackPositionTicks", let ticks = value as? NSNumber {
+                let seconds = ticks.doubleValue / 10_000_000
+                guard seconds.isFinite, seconds >= 0 else { return nil }
+                return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated))
+            }
+            if ["Played", "IsFavorite", "LockData"].contains(key), let flag = value as? Bool { return flag ? "是" : "否" }
+            if key == "Status", let status = value as? String {
+                return ["Continuing": "连载中", "Ended": "已完结"][status] ?? status
+            }
+            if key == "AirDays", let days = value as? [String] {
+                let names = ["Sunday": "周日", "Monday": "周一", "Tuesday": "周二", "Wednesday": "周三", "Thursday": "周四", "Friday": "周五", "Saturday": "周六"]
+                return days.isEmpty ? nil : days.map { names[$0] ?? $0 }.joined(separator: "、")
+            }
+            if key == "Studios", let values = value as? [[String: Any]] { return text(values.compactMap { $0["Name"] as? String }) }
+            return text(value)
+        }
+        let definitions: [(String, String, [(String, String)])] = [
+            ("basic", "基本资料", [("Name", "名称"), ("OriginalTitle", "原名"), ("SortName", "排序名称"), ("Overview", "简介"), ("Taglines", "宣传语"), ("ProductionYear", "年份"), ("OfficialRating", "内容分级"), ("CustomRating", "自定义分级"), ("CommunityRating", "社区评分"), ("CriticRating", "影评评分")]),
+            ("airing", "播出信息", [("Status", "播出状态"), ("PremiereDate", "首播时间"), ("EndDate", "完结时间"), ("AirDays", "播出日期"), ("AirTime", "播出时间"), ("RunTimeTicks", "条目时长"), ("ChildCount", "直接子项数"), ("RecursiveItemCount", "递归子项数")]),
+            ("production", "制作与分类", [("Genres", "类型"), ("Studios", "制作公司／电视台"), ("ProductionLocations", "制作地区"), ("Tags", "标签"), ("PreferredMetadataLanguage", "元数据语言"), ("PreferredMetadataCountryCode", "元数据地区")]),
+            ("library", "媒体库资料", [("Id", "Emby 条目 ID"), ("Type", "条目类型"), ("Path", "媒体库路径"), ("DateCreated", "入库时间"), ("DateModified", "修改时间"), ("LocationType", "存储类型"), ("LockData", "锁定元数据"), ("LockedFields", "已锁定字段")])
+        ]
+        var result = definitions.compactMap { id, title, definitions -> EmbySeriesInformationGroup? in
+            let fields = definitions.compactMap { key, label -> EmbySeriesInformationField? in
+                guard let value = formatted(key, value: response[key]) else { return nil }
+                return .init(id: key, label: label, value: value)
+            }
+            return fields.isEmpty ? nil : .init(id: id, title: title, fields: fields)
+        }
+        if let providers = response["ProviderIds"] as? [String: String] {
+            let fields = providers.keys.sorted().compactMap { key -> EmbySeriesInformationField? in
+                guard let value = text(providers[key]) else { return nil }
+                return .init(id: key, label: key, value: value)
+            }
+            if !fields.isEmpty { result.append(.init(id: "providers", title: "外部数据库 ID", fields: fields)) }
+        }
+        if let data = response["UserData"] as? [String: Any] {
+            let definitions = [("Played", "已观看"), ("IsFavorite", "已收藏"), ("PlayCount", "播放次数"), ("LastPlayedDate", "上次播放"), ("UnplayedItemCount", "未观看条目数"), ("PlayedPercentage", "观看百分比"), ("PlaybackPositionTicks", "播放位置"), ("Rating", "个人评分")]
+            let fields = definitions.compactMap { key, label -> EmbySeriesInformationField? in
+                guard var value = formatted(key, value: data[key]) else { return nil }
+                if key == "PlayedPercentage" { value += "%" }
+                return .init(id: key, label: label, value: value)
+            }
+            if !fields.isEmpty { result.append(.init(id: "user", title: "服务器观看记录", fields: fields)) }
+        }
+        return result
     }
 
     func seriesEpisodes(for series: MediaItem, source: MediaSource) async throws -> [EmbyEpisode] {
@@ -373,7 +521,7 @@ actor EmbyRepository {
             return try await client.get("Users/\(userID)/Items/\(id)")
         }
 
-        let fields = "Overview,Genres,People,ProviderIds,ExternalUrls,MediaSources,MediaStreams"
+        let fields = "Overview,Genres,People,ProviderIds,ExternalUrls,MediaSources,MediaStreams,OriginalTitle,SortName,Taglines,Studios,ProductionLocations,Tags,DateCreated,DateModified,Path,PremiereDate,EndDate,AirTime,AirDays,ChildCount,RecursiveItemCount,CustomRating,PreferredMetadataLanguage,PreferredMetadataCountryCode,LockedFields"
         let response = try await client.get("Items", query: ["Ids": id, "Limit": "1", "Fields": fields])
         guard let rows = response["Items"] as? [[String: Any]],
               let row = rows.first(where: { $0["Id"] as? String == id }) else {
@@ -385,6 +533,76 @@ actor EmbyRepository {
     private func itemDetails(_ response: EmbyJSON, item: MediaItem, source: MediaSource) -> EmbyItemDetails {
         let sources = response["MediaSources"] as? [[String: Any]] ?? []
         let media = sources.first(where: { $0["Id"] as? String == item.embyMediaSourceID }) ?? sources.first ?? [:]
+        let mediaRows = sources.isEmpty ? [response.values] : sources
+        let mediaVersions = mediaRows.enumerated().compactMap { offset, version -> EmbyMediaVersionDetails? in
+            guard let id = version["Id"] as? String ?? (offset == 0 ? item.embyMediaSourceID : nil) else { return nil }
+            let path = version["Path"] as? String
+            let streams = version["MediaStreams"] as? [[String: Any]] ?? (offset == 0 ? response["MediaStreams"] as? [[String: Any]] ?? [] : [])
+            let defaultAudioIndex = version["DefaultAudioStreamIndex"] as? Int
+            let defaultSubtitleIndex = version["DefaultSubtitleStreamIndex"] as? Int
+            let parsedStreams = streams.enumerated().compactMap { index, stream -> EmbyMediaStreamDetails? in
+                guard let type = stream["Type"] as? String,
+                      ["Video", "Audio", "Subtitle"].contains(type) else { return nil }
+                let streamIndex = stream["Index"] as? Int ?? index
+                let sourceDefaultIndex = type == "Audio" ? defaultAudioIndex
+                    : type == "Subtitle" ? defaultSubtitleIndex : nil
+                return EmbyMediaStreamDetails(
+                    id: streamIndex, type: type,
+                    displayTitle: stream["DisplayTitle"] as? String,
+                    title: stream["Title"] as? String,
+                    language: stream["Language"] as? String,
+                    displayLanguage: stream["DisplayLanguage"] as? String,
+                    codec: stream["Codec"] as? String,
+                    profile: stream["Profile"] as? String,
+                    channels: stream["Channels"] as? Int,
+                    channelLayout: stream["ChannelLayout"] as? String,
+                    sampleRate: stream["SampleRate"] as? Int,
+                    bitDepth: stream["BitDepth"] as? Int,
+                    bitRate: stream["BitRate"] as? Int,
+                    width: stream["Width"] as? Int,
+                    height: stream["Height"] as? Int,
+                    aspectRatio: stream["AspectRatio"] as? String,
+                    videoRange: stream["VideoRange"] as? String,
+                    videoRangeType: stream["VideoRangeType"] as? String,
+                    colorTransfer: stream["ColorTransfer"] as? String,
+                    colorPrimaries: stream["ColorPrimaries"] as? String,
+                    colorSpace: stream["ColorSpace"] as? String,
+                    averageFrameRate: (stream["AverageFrameRate"] as? NSNumber)?.doubleValue,
+                    realFrameRate: (stream["RealFrameRate"] as? NSNumber)?.doubleValue,
+                    isDefault: stream["IsDefault"] as? Bool ?? (sourceDefaultIndex == streamIndex),
+                    isForced: stream["IsForced"] as? Bool ?? false,
+                    isHearingImpaired: stream["IsHearingImpaired"] as? Bool ?? false,
+                    isExternal: stream["IsExternal"] as? Bool ?? false,
+                    isInterlaced: stream["IsInterlaced"] as? Bool ?? false,
+                    isTextSubtitleStream: stream["IsTextSubtitleStream"] as? Bool ?? false,
+                    supportsExternalStream: stream["SupportsExternalStream"] as? Bool ?? false,
+                    deliveryMethod: stream["DeliveryMethod"] as? String,
+                    subtitleLocationType: stream["SubtitleLocationType"] as? String,
+                    mimeType: stream["MimeType"] as? String,
+                    path: stream["Path"] as? String,
+                    comment: stream["Comment"] as? String
+                )
+            }
+            return EmbyMediaVersionDetails(
+                id: id, name: version["Name"] as? String ?? id,
+                fileName: path.map { URL(fileURLWithPath: $0).lastPathComponent },
+                container: version["Container"] as? String,
+                size: (version["Size"] as? NSNumber)?.int64Value,
+                bitRate: version["Bitrate"] as? Int,
+                duration: (version["RunTimeTicks"] as? NSNumber).map { $0.doubleValue / 10_000_000 },
+                supportsDirectPlay: version["SupportsDirectPlay"] as? Bool,
+                supportsDirectStream: version["SupportsDirectStream"] as? Bool,
+                supportsTranscoding: version["SupportsTranscoding"] as? Bool,
+                protocolName: version["Protocol"] as? String,
+                mediaType: version["Type"] as? String,
+                mimeType: version["MimeType"] as? String,
+                isRemote: version["IsRemote"] as? Bool,
+                hasMixedProtocols: version["HasMixedProtocols"] as? Bool,
+                defaultAudioStreamIndex: defaultAudioIndex,
+                defaultSubtitleStreamIndex: defaultSubtitleIndex,
+                streams: parsedStreams
+            )
+        }
         var fields: [PlaybackDetailField] = []
         if let container = media["Container"] as? String { fields.append(.init(label: "容器格式", value: container)) }
         if let bitrate = media["Bitrate"] as? NSNumber {
@@ -422,7 +640,7 @@ actor EmbyRepository {
         let video = PlaybackVideoDetails(fileName: item.title, dimensions: dimensions,
                                          byteCount: media["Size"] as? Int, synopsis: response["Overview"] as? String,
                                          sourceName: source.name, technical: fields)
-        return EmbyItemDetails(video: video, versions: versions)
+        return EmbyItemDetails(video: video, versions: versions, mediaVersions: mediaVersions)
     }
 
     func playbackResource(item: MediaItem, source: MediaSource, position: Double) async throws -> EmbyPlaybackResource {
@@ -594,9 +812,14 @@ actor EmbyRepository {
         }.prefix(3))
     }
 
-    func featuredLogoData(for url: URL, source: MediaSource) async -> Data? {
-        guard let client = try? await clientProvider(source), client.sameOrigin(url) else { return nil }
-        return await fetchThumbnail(url, client: client)
+    func featuredLogoData(for item: MediaItem, source: MediaSource) async -> Data? {
+        guard let client = try? await clientProvider(source),
+              !Task.isCancelled else { return nil }
+        for image in await selectedImages(for: item, source: source, client: client, preferredTypes: ["Logo"])
+            where client.sameOrigin(image) {
+            if let data = await fetchThumbnail(image, client: client) { return data }
+        }
+        return nil
     }
 
     private func externalSubtitles(media: [String: Any], itemID: String, client: EmbyAPIClient) -> [EngineExternalSubtitle] {
@@ -614,15 +837,57 @@ actor EmbyRepository {
         }
     }
 
-    func thumbnailData(for item: MediaItem, source: MediaSource) async -> Data? {
+    func thumbnailData(for item: MediaItem, source: MediaSource, aspectRatio: Double = 2.0 / 3.0) async -> Data? {
         guard let client = try? await clientProvider(source) else { return nil }
-        let primary = item.imageURL ?? client.imageURL(itemID: item.id.localID, tag: nil)
-        let candidates = item.embyItemType == "Episode" ? [item.previewImageURL, primary] : [primary, item.fallbackImageURL]
-        for url in candidates.compactMap({ $0 }) where client.sameOrigin(url) {
+        let preferredTypes = aspectRatio >= 1
+            ? ["Thumb", "Screenshot", "Backdrop", "Primary", "Thumbnail"]
+            : ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
+        for image in await selectedImages(for: item, source: source, client: client,
+                                          preferredTypes: preferredTypes, targetAspectRatio: aspectRatio)
+            where client.sameOrigin(image) {
             guard !Task.isCancelled else { return nil }
-            if let data = await fetchThumbnail(url, client: client) { return data }
+            if let data = await fetchThumbnail(image, client: client) { return data }
         }
         return nil
+    }
+
+    private func selectedImages(for item: MediaItem, source: MediaSource, client: EmbyAPIClient,
+                                preferredTypes: [String], targetAspectRatio: Double = 1) async -> [URL] {
+        let cacheKey = "\(AppCacheStore.scope(for: source))|\(item.id.localID)"
+        let images: [EmbyItemImage]
+        if let cached = itemImages[cacheKey] {
+            images = cached
+        } else {
+            guard let response = try? await client.get("Items/\(item.id.localID)/Images"),
+                  let rows = response["Items"] as? [[String: Any]] else { return [] }
+            let supportedTypes: Set<String> = ["Primary", "Art", "Backdrop", "Banner", "Logo", "Thumb",
+                                               "Disc", "Box", "Screenshot", "Menu", "Chapter", "BoxRear",
+                                               "Thumbnail", "LogoLight", "LogoLightColor"]
+            images = rows.compactMap { row in
+                guard let type = row["ImageType"] as? String,
+                      supportedTypes.contains(type),
+                      let index = row["ImageIndex"] as? Int,
+                      let width = row["Width"] as? Int, width > 0,
+                      let height = row["Height"] as? Int, height > 0 else { return nil }
+                return EmbyItemImage(type: type, index: index, width: width, height: height)
+            }
+            itemImages[cacheKey] = images
+        }
+
+        let ranked = images.sorted { lhs, rhs in
+            let leftType = preferredTypes.firstIndex(of: lhs.type) ?? preferredTypes.count
+            let rightType = preferredTypes.firstIndex(of: rhs.type) ?? preferredTypes.count
+            if leftType != rightType { return leftType < rightType }
+            let leftRatio = Double(lhs.width) / Double(lhs.height)
+            let rightRatio = Double(rhs.width) / Double(rhs.height)
+            let leftScore = abs(log(leftRatio / max(0.1, targetAspectRatio)))
+            let rightScore = abs(log(rightRatio / max(0.1, targetAspectRatio)))
+            if leftScore != rightScore { return leftScore < rightScore }
+            return lhs.index < rhs.index
+        }
+        return ranked.compactMap { image in
+            client.imageURL(itemID: item.id.localID, tag: nil, type: image.type, index: image.index)
+        }
     }
 
     private func fetchThumbnail(_ imageURL: URL, client: EmbyAPIClient) async -> Data? {

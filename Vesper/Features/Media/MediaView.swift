@@ -161,7 +161,7 @@ struct MediaView: View {
                                       artworkZoom: artworkZoom, openDetail: { path.append($0) })
             } else if let item = route.item {
                 if route.origin == .carousel {
-                    let detail = EmbySeriesDetailView(source: route.source, series: item,
+                    let detail = EmbyMediaDetailView(source: route.source, series: item,
                                                       carouselArtwork: route.carouselArtwork)
                         .background {
                             CarouselDetailCrossfade.ReturnObserver(transition: carouselCrossfade,
@@ -174,10 +174,10 @@ struct MediaView: View {
                         detail
                     }
                 } else if item.isEmbySeries {
-                    EmbySeriesDetailView(source: route.source, series: item)
+                    EmbyMediaDetailView(source: route.source, series: item)
                         .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
                 } else {
-                    EmbyItemDetailView(source: route.source, item: item)
+                    EmbyMediaDetailView(source: route.source, series: item)
                 }
             }
         }
@@ -1292,11 +1292,11 @@ struct EmbyPersonWorksView: View {
         guard let item = route.item else { return AnyView(EmptyView()) }
         if item.isEmbySeries {
             return AnyView(
-                EmbySeriesDetailView(source: source, series: item)
+                EmbyMediaDetailView(source: source, series: item)
                     .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
             )
         }
-        return AnyView(EmbyItemDetailView(source: source, item: item))
+        return AnyView(EmbyMediaDetailView(source: source, series: item))
     }
 }
 
