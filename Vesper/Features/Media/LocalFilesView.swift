@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct LocalFilesView<SourceMenu: View>: View {
     let source: MediaSource
+    let scrollToTopRequest: Int
     var directory = ""
     @ViewBuilder let sourceMenu: () -> SourceMenu
     @EnvironmentObject private var library: SourceLibrary
@@ -21,11 +22,13 @@ struct LocalFilesView<SourceMenu: View>: View {
     @State private var renameEntry: LocalFileEntry?
     @State private var deleteEntry: LocalFileEntry?
     @State private var movingEntry: LocalFileEntry?
+    @State private var rootScrollPosition = ScrollPosition(edge: .top)
 
     var body: some View {
         Group {
             if directory.isEmpty {
-                VesperRootScrollView(title: "媒体", showsLoading: loading && entries.isEmpty, usesMediaScrollEdges: true) { files } actions: {
+                VesperRootScrollView(title: "媒体", showsLoading: loading && entries.isEmpty,
+                                     usesMediaScrollEdges: true, scrollPosition: $rootScrollPosition) { files } actions: {
                     HStack(spacing: 12) {
                         HStack(spacing: 0) {
                             Button("选择视频", systemImage: "document.badge.plus") {
@@ -60,6 +63,11 @@ struct LocalFilesView<SourceMenu: View>: View {
                                 .disabled(busy)
                         }
                     }
+            }
+        }
+        .onChange(of: scrollToTopRequest) { _, _ in
+            withAnimation(.easeOut(duration: 0.32)) {
+                rootScrollPosition.scrollTo(edge: .top)
             }
         }
         .task(id: source.id) { await reload() }
@@ -114,7 +122,8 @@ struct LocalFilesView<SourceMenu: View>: View {
                     Group {
                         if entry.isDirectory {
                             NavigationLink {
-                                LocalFilesView(source: source, directory: entry.path, sourceMenu: sourceMenu)
+                                LocalFilesView(source: source, scrollToTopRequest: scrollToTopRequest,
+                                               directory: entry.path, sourceMenu: sourceMenu)
                             } label: { row(entry) }
                             .contextMenu { fileActions(entry) }
                         } else {

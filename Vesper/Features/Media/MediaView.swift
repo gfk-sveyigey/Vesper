@@ -101,6 +101,7 @@ final class MediaLayoutSettings: ObservableObject {
 
 struct MediaView: View {
     @Binding var path: NavigationPath
+    let scrollToTopRequest: Int
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
     @ObservedObject private var layout = MediaLayoutSettings.shared
@@ -117,7 +118,7 @@ struct MediaView: View {
     var body: some View {
         Group {
             if let source = library.selectedSource, source.kind == .local {
-                LocalFilesView(source: source) { mediaSourceMenu }
+                LocalFilesView(source: source, scrollToTopRequest: scrollToTopRequest) { mediaSourceMenu }
                     .id(source.id)
             } else {
                 mediaContent
@@ -130,6 +131,13 @@ struct MediaView: View {
         .onChange(of: library.selectedID) { _, _ in
             showsEmbyShortcuts = false
             pendingCarouselRoute = nil
+        }
+        .onChange(of: scrollToTopRequest) { _, _ in
+            pendingCarouselRoute = nil
+            showsEmbyShortcuts = false
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.32)) {
+                mediaScrollPosition.scrollTo(edge: .top)
+            }
         }
         .onChange(of: path.isEmpty) { _, isEmpty in
             if !isEmpty { pendingCarouselRoute = nil }
@@ -598,7 +606,6 @@ private final class CarouselDetailCrossfade {
     private weak var anchor: UIView?
     private weak var mediaWindow: UIWindow?
     private var mediaWindowBounds = CGRect.zero
-    private var mediaFrame = CGRect.zero
     private var mediaSnapshot: UIView?
     private weak var pushCover: UIView?
     private weak var returnCover: UIView?
@@ -607,12 +614,11 @@ private final class CarouselDetailCrossfade {
         pushCover?.removeFromSuperview()
         mediaSnapshot = nil
         guard let anchor, let window = anchor.window else { return false }
-        let frame = anchor.convert(anchor.bounds, to: window).intersection(window.bounds)
+        let frame = window.bounds
         guard let snapshot = snapshot(in: window, frame: frame) else { return false }
 
         mediaWindow = window
         mediaWindowBounds = window.bounds
-        mediaFrame = frame
         mediaSnapshot = snapshot
         let cover = makeCover(in: window, frame: frame)
         snapshot.frame = cover.bounds
@@ -643,7 +649,7 @@ private final class CarouselDetailCrossfade {
               mediaWindow === window, mediaWindowBounds == window.bounds else { return }
 
         // Capture the last rendered detail frame before UIKit moves either page.
-        let frame = mediaFrame
+        let frame = window.bounds
         guard let detail = snapshot(in: window, frame: frame) else { return }
         pushCover?.removeFromSuperview()
         let cover = makeCover(in: window, frame: frame)

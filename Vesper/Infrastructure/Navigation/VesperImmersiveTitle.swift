@@ -272,7 +272,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     // Clip both blur layers in the header's local bounds before moving it.
                     .clipped()
                     .offset(y: -headerContentHeight * position)
-                    .allowsHitTesting(!isCollapsed && mediaHeaderSnap == nil)
+                    // Keep visible controls live during the settling animation.
+                    .allowsHitTesting(!isCollapsed)
                     .accessibilityHidden(isCollapsed)
 
                 VesperMediaStatusBarBlur(isVisible: isCollapsed)

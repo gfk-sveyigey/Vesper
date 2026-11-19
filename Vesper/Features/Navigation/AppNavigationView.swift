@@ -1,4 +1,6 @@
 import SwiftUI
+import ObjectiveC
+import UIKit
 
 private enum NavigationTab: Hashable {
     case section(AppSection)
@@ -18,6 +20,7 @@ struct AppNavigationView: View {
     @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
     @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
     @State private var selection: NavigationTab
+    @State private var mediaTabRetapRevision = 0
     @StateObject private var library = SourceLibrary()
     @StateObject private var playback = PlaybackSession()
     @State private var mediaPath = NavigationPath()
@@ -186,6 +189,13 @@ struct AppNavigationView: View {
         .environmentObject(library)
         .environmentObject(playback)
         .background(VesperTheme.background.ignoresSafeArea())
+        .background {
+            TabReselectObserver(isMediaSelected: selection == .section(.media)) {
+                mediaPath = NavigationPath()
+                mediaTabRetapRevision &+= 1
+            }
+            .frame(width: 0, height: 0)
+        }
     }
 
     private var hasPlayableContent: Bool { playback.currentItem != nil }
@@ -247,7 +257,9 @@ struct AppNavigationView: View {
     private func sectionPage(_ section: AppSection) -> some View {
         switch section {
         case .media:
-            NavigationStack(path: $mediaPath) { MediaView(path: $mediaPath) }
+            NavigationStack(path: $mediaPath) {
+                MediaView(path: $mediaPath, scrollToTopRequest: mediaTabRetapRevision)
+            }
                 .modifier(VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty))
         case .sources:
             NavigationStack(path: $sourcesPath) { SourcesView() }
@@ -261,6 +273,126 @@ struct AppNavigationView: View {
             }
             .modifier(VesperNavigationHeaderLayer(isRoot: settingsPath.isEmpty))
         }
+    }
+}
+
+private struct TabReselectObserver: UIViewControllerRepresentable {
+    let isMediaSelected: Bool
+    let onMediaReselect: () -> Void
+
+    func makeUIViewController(context: Context) -> ObserverController {
+        let controller = ObserverController()
+        controller.view.isUserInteractionEnabled = false
+        updateUIViewController(controller, context: context)
+        return controller
+    }
+
+    func updateUIViewController(_ controller: ObserverController, context: Context) {
+        controller.isMediaSelected = isMediaSelected
+        controller.onMediaReselect = onMediaReselect
+        controller.installDelegateProxyIfNeeded()
+    }
+
+    final class ObserverController: UIViewController {
+        var isMediaSelected = false
+        var onMediaReselect: () -> Void = {}
+
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            installDelegateProxyIfNeeded()
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            installDelegateProxyIfNeeded()
+        }
+
+        func installDelegateProxyIfNeeded() {
+            guard let root = viewIfLoaded?.window?.rootViewController,
+                  let tabController = findTabController(in: root) else { return }
+
+            let proxy: TabReselectDelegateProxy
+            if let existing = objc_getAssociatedObject(tabController, &tabReselectProxyAssociationKey)
+                as? TabReselectDelegateProxy {
+                proxy = existing
+                if let delegate = tabController.delegate, delegate !== proxy {
+                    proxy.forwardedDelegate = delegate
+                    proxy.synchronizeSelection(tabController.selectedViewController)
+                }
+            } else {
+                proxy = TabReselectDelegateProxy()
+                proxy.forwardedDelegate = tabController.delegate
+                proxy.synchronizeSelection(tabController.selectedViewController)
+                objc_setAssociatedObject(tabController, &tabReselectProxyAssociationKey,
+                                         proxy, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            }
+            proxy.isMediaSelected = { [weak self] in self?.isMediaSelected == true }
+            proxy.onMediaReselect = { [weak self] in self?.onMediaReselect() }
+            tabController.delegate = proxy
+        }
+
+        private func findTabController(in controller: UIViewController) -> UITabBarController? {
+            if let tabController = controller as? UITabBarController { return tabController }
+            for child in controller.children {
+                if let result = findTabController(in: child) { return result }
+            }
+            if let presented = controller.presentedViewController {
+                return findTabController(in: presented)
+            }
+            return nil
+        }
+    }
+}
+
+@MainActor
+private var tabReselectProxyAssociationKey: UInt8 = 0
+
+@MainActor
+private final class TabReselectDelegateProxy: NSObject, UITabBarControllerDelegate {
+    weak var forwardedDelegate: (any UITabBarControllerDelegate)?
+    var isMediaSelected: () -> Bool = { false }
+    var onMediaReselect: () -> Void = {}
+    private weak var lastSelectedController: UIViewController?
+    private weak var handledReselectController: UIViewController?
+
+    func synchronizeSelection(_ viewController: UIViewController?) {
+        lastSelectedController = viewController
+    }
+
+    func tabBarController(_ tabBarController: UITabBarController,
+                          shouldSelect viewController: UIViewController) -> Bool {
+        let shouldSelect = forwardedDelegate?.tabBarController?(tabBarController, shouldSelect: viewController) ?? true
+        if shouldSelect {
+            let isReselect = tabBarController.selectedViewController === viewController
+                || lastSelectedController === viewController
+            if isReselect && isMediaSelected() {
+                handledReselectController = viewController
+                onMediaReselect()
+            }
+        }
+        return shouldSelect
+    }
+
+    func tabBarController(_ tabBarController: UITabBarController,
+                          didSelect viewController: UIViewController) {
+        forwardedDelegate?.tabBarController?(tabBarController, didSelect: viewController)
+        if handledReselectController !== viewController,
+           lastSelectedController === viewController,
+           isMediaSelected() {
+            onMediaReselect()
+        }
+        handledReselectController = nil
+        lastSelectedController = viewController
+    }
+
+    override func responds(to selector: Selector!) -> Bool {
+        super.responds(to: selector) || forwardedDelegate?.responds(to: selector) == true
+    }
+
+    override func forwardingTarget(for selector: Selector!) -> Any? {
+        forwardedDelegate?.responds(to: selector) == true
+            ? forwardedDelegate
+            : super.forwardingTarget(for: selector)
     }
 }
 
