@@ -1261,7 +1261,7 @@ struct EmbySeriesPosterCard: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .symbolEffect(.drawOn, value: played)
+                .symbolEffect(.drawOn, isActive: played)
                 .accessibilityLabel(played ? "标记为未观看" : "标记为已观看")
             }
 
