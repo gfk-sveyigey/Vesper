@@ -468,8 +468,17 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private func recordPlaybackHistory() {
         guard let item = currentItem, let source, source.id == item.id.sourceID, externalFile == nil,
               suppressedProgressID != item.id, currentTime > 0.5, duration > 0 else { return }
+        let priorPlayed = PlaybackHistoryEntry.resolvePlayed(
+            server: item.isPlayed,
+            local: history.first(where: { $0.mediaID == item.id })?.isFullyWatched
+        )
+        let played = priorPlayed || currentTime / duration >= 0.9
+        if !priorPlayed, played, source.kind == .emby {
+            Task { try? await EmbyRepository.shared.updateWatchState(for: item, source: source, markPlayed: true) }
+        }
         let entry = PlaybackHistoryEntry(mediaID: item.id, title: item.title, source: source,
-                                         watchedAt: Date(), position: currentTime, duration: duration)
+                                         watchedAt: Date(), position: currentTime, duration: duration,
+                                         isPlayed: played)
         history.removeAll { $0.mediaID == item.id }
         history.insert(entry, at: 0)
         if history.count > 1000 { history.removeLast(history.count - 1000) }
@@ -526,27 +535,34 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         UserDefaults.standard.set(values, forKey: progressStorageKey)
         UserDefaults.standard.set(durations, forKey: durationStorageKey)
         if currentItem?.id == item.id { suppressedProgressID = item.id }
-        history.removeAll { $0.mediaID == item.id }
+        if let index = history.firstIndex(where: { $0.mediaID == item.id }) {
+            let existing = history[index]
+            history[index] = PlaybackHistoryEntry(mediaID: existing.mediaID, title: existing.title,
+                                                   source: existing.source, watchedAt: existing.watchedAt,
+                                                   position: 0, duration: existing.duration,
+                                                   isPlayed: existing.isFullyWatched)
+        }
         persistHistory()
         savedProgressRevision += 1
     }
 
     func recordWatched(_ item: MediaItem, source: MediaSource) {
         guard source.id == item.id.sourceID else { return }
-        let duration = max(item.duration ?? savedDuration(for: item), 0)
+        let existing = history.first(where: { $0.mediaID == item.id })
+        let duration = max(existing?.duration ?? item.duration ?? savedDuration(for: item), 0)
+        let position = existing?.position ?? savedProgress(for: item)
         let entry = PlaybackHistoryEntry(
             mediaID: item.id,
             title: item.title,
             source: source,
             watchedAt: Date(),
-            position: duration,
+            position: position,
             duration: duration,
-            isCompleted: true
+            isPlayed: true
         )
         history.removeAll { $0.mediaID == item.id }
         history.insert(entry, at: 0)
         if history.count > 1000 { history.removeLast(history.count - 1000) }
-        if currentItem?.id == item.id { suppressedProgressID = item.id }
         persistHistory()
         savedProgressRevision += 1
     }
@@ -1035,10 +1051,12 @@ struct PlaybackHistoryEntry: Identifiable, Codable {
     let watchedAt: Date
     let position: Double
     let duration: Double
+    var isPlayed: Bool? = nil
     var isCompleted: Bool? = nil
     var id: MediaID { mediaID }
-    var isFullyWatched: Bool {
-        isCompleted ?? (duration > 0 && position >= duration)
+    var isFullyWatched: Bool { isPlayed ?? isCompleted ?? false }
+    static func resolvePlayed(trakt: Bool? = nil, server: Bool?, local: Bool?) -> Bool {
+        trakt ?? server ?? local ?? false
     }
     var item: MediaItem {
         MediaItem(id: mediaID, title: title, resource: nil,

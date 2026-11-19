@@ -15,7 +15,7 @@ struct EmbyRepositoryChecks {
         let roots = try await repository.rootItems(for: source)
         precondition(roots.count == 3 && roots[0].isContainer)
         let libraries = try await repository.mediaLibraries(for: source)
-        precondition(libraries.map(\.id.localID) == ["library"] && libraries[0].isContainer)
+        precondition(libraries.map(\.id.localID) == ["library", "sets", "lists"] && libraries.allSatisfy(\.isContainer))
         let favorites = try await repository.items(for: source, parentID: nil, startIndex: 21,
                                                    limit: 21, scope: .favorites)
         precondition(favorites.map(\.id.localID) == ["movie", "series", "episode"])
@@ -60,7 +60,9 @@ struct EmbyRepositoryChecks {
             .init(id: "first", title: "First", items: Array(latest.dropFirst())),
             .init(id: "second", title: "Second", items: Array(latest.prefix(2)))
         ])
-        precondition(featured.map(\.id) == [latest[0].id, latest.last!.id] + latest.dropFirst().prefix(8).map(\.id))
+        let featuredCandidates = Set(latest.map(\.id))
+        precondition(featured.count == 10 && Set(featured.map(\.id)).count == 10)
+        precondition(featured.allSatisfy { featuredCandidates.contains($0.id) })
         let cachedItems = try JSONDecoder().decode([MediaItem].self, from: JSONEncoder().encode(latest))
         precondition(cachedItems == latest)
         let titles = try await repository.items(for: source, parentID: "library", startIndex: 21,

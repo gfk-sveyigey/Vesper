@@ -555,7 +555,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                         Button("清除播放进度", systemImage: "clock.arrow.circlepath") { updateWatchState(markPlayed: false) }
                             .disabled(updatingWatchState || (hasServerProgress && source.emby?.userID == nil))
                     }
-                    if item.isPlayed != true && !markedAsPlayed {
+                    if !effectivePlayed && !markedAsPlayed {
                         Button("标记为已观看", systemImage: "checkmark.circle") { updateWatchState(markPlayed: true) }
                             .disabled(updatingWatchState || source.emby?.userID == nil)
                     }
@@ -601,16 +601,24 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 if markPlayed || hasServerProgress {
                     try await EmbyRepository.shared.updateWatchState(for: item, source: source, markPlayed: markPlayed)
                 }
-                playback.clearSavedProgress(for: item)
-                clearedServerProgress = true
                 if markPlayed {
                     playback.recordWatched(item, source: source)
                     markedAsPlayed = true
+                } else {
+                    playback.clearSavedProgress(for: item)
+                    clearedServerProgress = true
                 }
             } catch {
                 watchError = error.localizedDescription
             }
         }
+    }
+
+    private var effectivePlayed: Bool {
+        PlaybackHistoryEntry.resolvePlayed(
+            server: item.isPlayed,
+            local: playback.history.first(where: { $0.mediaID == item.id })?.isFullyWatched
+        )
     }
 
     private func share() {

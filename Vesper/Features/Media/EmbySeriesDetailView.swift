@@ -202,6 +202,10 @@ struct EmbySeriesDetailView: View {
             let cardWidth = min(layout.episodeCardWidth, max(1, viewportWidth - margin * 2))
             episodeShelf(cardWidth: cardWidth)
         } else if isLoading {
+            Text("")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
+                .padding(.horizontal, 20)
             episodeLoadingPlaceholders(viewportWidth: viewportWidth)
         } else if let loadError {
             VStack(alignment: .leading, spacing: 8) {
@@ -225,8 +229,10 @@ struct EmbySeriesDetailView: View {
                         .mediaArtworkBorder()
                 }
             }
+            .scrollTargetLayout()
         }
         .contentMargins(.horizontal, margin, for: .scrollContent)
+        .scrollTargetBehavior(.viewAligned(anchor: .leading))
         .scrollIndicators(.hidden)
         .accessibilityLabel("正在加载分集")
     }
@@ -431,15 +437,17 @@ struct EmbySeriesDetailView: View {
                     try await EmbyRepository.shared.updateEpisode(episode, source: source, markPlayed: markPlayed)
                 }
                 if let index = episodes.firstIndex(where: { $0.id == episode.id }) {
-                    episodes[index].item.resumePosition = 0
                     if markPlayed {
                         episodes[index].played = true
                         episodes[index].item.isPlayed = true
+                    } else {
+                        episodes[index].item.resumePosition = 0
                     }
                 }
-                playback.clearSavedProgress(for: episode.item)
                 if markPlayed {
                     playback.recordWatched(episode.item, source: source)
+                } else {
+                    playback.clearSavedProgress(for: episode.item)
                 }
             } catch { actionError = error.localizedDescription }
         }
@@ -611,7 +619,7 @@ private struct EmbyEpisodeCard: View {
 
     private var playbackRow: some View {
         HStack(spacing: 7) {
-            MediaPlaybackStatus(position: position, duration: episode.item.duration, played: episode.played)
+            MediaPlaybackStatus(position: position, duration: episode.item.duration, played: effectivePlayed)
             Spacer()
             Menu { actions } label: {
                 Image(systemName: "ellipsis")
@@ -632,9 +640,16 @@ private struct EmbyEpisodeCard: View {
             Button("清除播放进度", systemImage: "clock.arrow.circlepath", action: clear)
                 .disabled(isBusy || ((episode.item.resumePosition ?? 0) > 0 && source.emby?.userID == nil))
         }
-        if !episode.played {
+        if !effectivePlayed {
             Button("标记为已观看", systemImage: "checkmark.circle", action: mark)
                 .disabled(isBusy || source.emby?.userID == nil)
         }
+    }
+
+    private var effectivePlayed: Bool {
+        PlaybackHistoryEntry.resolvePlayed(
+            server: episode.item.isPlayed ?? episode.played,
+            local: playback.history.first(where: { $0.mediaID == episode.id })?.isFullyWatched
+        )
     }
 }

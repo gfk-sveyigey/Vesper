@@ -374,12 +374,9 @@ final class SourceLibrary: ObservableObject {
             let cache = AppCacheStore.shared
             let cacheGeneration = await cache.libraryGeneration
             do {
-                async let librariesRequest = repository.mediaLibraries(for: source)
-                async let featuredRequest = try? repository.featuredMedia(for: source)
-                let libraries = try await librariesRequest
-                let fetchedFeatured = await featuredRequest
+                let libraries = try await repository.mediaLibraries(for: source)
                 let cachedFeatured = await cache.items(scope: scope, key: "featured:titles")
-                let featured = fetchedFeatured ?? previous?.featured ?? cachedFeatured ?? []
+                let featured = previous?.featured ?? cachedFeatured ?? []
                 try Task.checkCancellation()
                 guard generation == token else { return }
 
@@ -394,12 +391,6 @@ final class SourceLibrary: ObservableObject {
                     isLoadingEmbyHome = false
                 }
                 await cache.save(libraries, scope: scope, key: "libraries:media-only", generation: cacheGeneration)
-                if let fetchedFeatured {
-                    await cache.save(fetchedFeatured, scope: scope, key: "featured:titles", generation: cacheGeneration)
-                }
-
-                async let carouselPreparation = prepareCarousel(featured, source: source, token: token, publish: !fullRendering)
-
                 await withTaskGroup(of: (Int, EmbyMediaGroup).self) { tasks in
                     for (index, library) in libraries.enumerated() {
                         tasks.addTask {
@@ -427,6 +418,10 @@ final class SourceLibrary: ObservableObject {
                     }
                 }
 
+                let sampledFeatured = EmbyMediaGroup.featured(in: groups)
+                await cache.save(sampledFeatured, scope: scope, key: "featured:titles", generation: cacheGeneration)
+                async let carouselPreparation = prepareCarousel(sampledFeatured, source: source, token: token, publish: !fullRendering)
+
                 if fullRendering {
                     try Task.checkCancellation()
                     var seen = Set<MediaID>()
@@ -436,7 +431,7 @@ final class SourceLibrary: ObservableObject {
                     try Task.checkCancellation()
                     guard generation == token else { return }
                     embyHome = EmbyHome(scope: scope, groups: groups,
-                                        featured: featured.filter { featuredArtwork[$0.id] != nil },
+                                        featured: sampledFeatured.filter { featuredArtwork[$0.id] != nil },
                                         artwork: artwork, featuredArtwork: featuredArtwork)
                     content = .loaded([])
                 } else {

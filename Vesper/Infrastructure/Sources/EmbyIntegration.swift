@@ -41,14 +41,10 @@ struct EmbyMediaGroup: Identifiable, Sendable {
     var isLoading = false
     var errorMessage: String? = nil
 
-    static func featured(in groups: [Self]) -> [MediaItem] {
-        let sorted = groups.filter { $0.id != librariesID }.flatMap(\.items).sorted {
-            let left = $0.dateCreated ?? .distantPast
-            let right = $1.dateCreated ?? .distantPast
-            return left == right ? $0.id.localID < $1.id.localID : left > right
-        }
+    static func featured(in groups: [Self], count: Int = 10) -> [MediaItem] {
+        let candidates = groups.filter { $0.id != librariesID }.flatMap(\.items)
         var seen = Set<MediaID>()
-        return Array(sorted.filter { seen.insert($0.id).inserted }.prefix(10))
+        return Array(candidates.filter { seen.insert($0.id).inserted }.shuffled().prefix(count))
     }
 }
 
@@ -56,7 +52,7 @@ struct EmbyEpisode: Identifiable, Sendable {
     var item: MediaItem
     let season: Int
     let number: Int?
-    var played: Bool
+    var played: Bool?
     let is4K: Bool
     let dolbyVision: Bool
     let dolbyAtmos: Bool
@@ -126,13 +122,7 @@ actor EmbyRepository {
         }
         guard let values = response["Items"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
         var seen = Set<MediaID>()
-        let libraries = values.filter { value in
-            let collectionType = (value["CollectionType"] as? String)?.lowercased()
-            let itemType = (value["Type"] as? String)?.lowercased()
-            return !["boxset", "boxsets", "collection", "collections", "playlist", "playlists"].contains(collectionType ?? "")
-                && !["boxset", "playlist"].contains(itemType ?? "")
-        }
-        return map(libraries, source: source, client: client).filter { $0.isContainer && seen.insert($0.id).inserted }
+        return map(values, source: source, client: client).filter { $0.isContainer && seen.insert($0.id).inserted }
     }
 
     func latestMedia(for source: MediaSource, libraryID: String) async throws -> [MediaItem] {
@@ -276,7 +266,7 @@ actor EmbyRepository {
                 }
                 episodes.append(EmbyEpisode(item: item, season: row["ParentIndexNumber"] as? Int ?? 0,
                                             number: row["IndexNumber"] as? Int,
-                                            played: (row["UserData"] as? [String: Any])?["Played"] as? Bool ?? false,
+                                            played: (row["UserData"] as? [String: Any])?["Played"] as? Bool,
                                             is4K: video.contains { ($0["Width"] as? Int ?? 0) >= 3800 },
                                             dolbyVision: dolbyVision, dolbyAtmos: dolbyAtmos))
             }

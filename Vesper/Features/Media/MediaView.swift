@@ -75,14 +75,17 @@ struct MediaView: View {
     @Namespace private var artworkZoom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsEmbyShortcuts = false
+    @State private var mediaScrollOffset: CGFloat = 0
 
     var body: some View {
-        Group {
-            if let source = library.selectedSource, source.kind == .local {
-                LocalFilesView(source: source) { mediaSourceMenu }
-                    .id(source.id)
-            } else {
-                mediaContent
+        ScrollViewReader { proxy in
+            Group {
+                if let source = library.selectedSource, source.kind == .local {
+                    LocalFilesView(source: source) { mediaSourceMenu }
+                        .id(source.id)
+                } else {
+                    mediaContent(proxy: proxy)
+                }
             }
         }
         .onChange(of: library.selectedID) { _, _ in showsEmbyShortcuts = false }
@@ -120,7 +123,7 @@ struct MediaView: View {
         return false
     }
 
-    private var mediaContent: some View {
+    private func mediaContent(proxy: ScrollViewProxy) -> some View {
         let featured = featured
         let showsFeaturedRegion = library.selectedSource?.kind == .emby && !library.canNavigateBack
         return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: showsFeaturedRegion,
@@ -128,10 +131,14 @@ struct MediaView: View {
                                    onVerticalOffsetChange: updateEmbyShortcuts,
                                    onTopPullChange: expandEmbyShortcuts(forTopPull:)) {
             VStack(alignment: .leading, spacing: 20) {
+                Color.clear
+                    .frame(height: 0)
+                    .id("media-scroll-top")
                 if let source = library.selectedSource, showsFeaturedRegion {
                     EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork,
                                          featuredArtwork: library.embyHome?.featuredArtwork, artworkZoom: artworkZoom,
-                                         isMediaRoot: path.isEmpty)
+                                         isMediaRoot: path.isEmpty,
+                                         openDetail: { openCarouselDetail($0, proxy: proxy) })
                 }
                 if library.selectedSource == nil {
                     VesperCenteredEmptyContent(message: "未选择媒体来源", symbol: AppSection.media.symbol)
@@ -216,43 +223,33 @@ struct MediaView: View {
     private var embyMediaGroups: some View {
         if let source = library.selectedSource, let home = library.embyHome,
            home.scope == AppCacheStore.scope(for: source) {
-            if home.groups.isEmpty {
+            let visibleGroups = home.groups.filter {
+                $0.isLoading || !$0.items.isEmpty
+            }
+            if visibleGroups.isEmpty {
                 VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
             } else {
                 VStack(alignment: .leading, spacing: CGFloat(layout[.groupSpacing])) {
-                    ForEach(home.groups) { group in
+                    ForEach(visibleGroups) { group in
                         VStack(alignment: .leading, spacing: 0) {
                             groupTitle(group, source: source)
-                            if !group.isLoading && group.items.isEmpty {
-                                Group {
-                                    if let errorMessage = group.errorMessage {
-                                        Text(verbatim: errorMessage)
+                            ScrollView(.horizontal) {
+                                LazyHStack(spacing: CGFloat(layout[.itemSpacing])) {
+                                    if group.isLoading {
+                                        ForEach(0..<5, id: \.self) { _ in groupPlaceholder(group) }
                                     } else {
-                                        Text("暂无媒体")
-                                    }
-                                }
-                                .font(.subheadline).foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 20).padding(.vertical, 16)
-                            } else {
-                                ScrollView(.horizontal) {
-                                    LazyHStack(spacing: CGFloat(layout[.itemSpacing])) {
-                                        if group.isLoading {
-                                            ForEach(0..<5, id: \.self) { _ in groupPlaceholder(group) }
-                                        } else {
-                                            ForEach(group.items) { item in
-                                                groupCard(item, in: group, source: source, artwork: home.artwork)
-                                            }
+                                        ForEach(group.items) { item in
+                                            groupCard(item, in: group, source: source, artwork: home.artwork)
                                         }
                                     }
-                                    .scrollTargetLayout()
-                                    .padding(.vertical, CGFloat(layout[.itemVerticalPadding]))
                                 }
-                                .scrollIndicators(.hidden)
-                                .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
-                                .scrollTargetBehavior(.viewAligned(anchor: .leading))
-                                .padding(.vertical, CGFloat(layout[.scrollPadding]))
+                                .scrollTargetLayout()
+                                .padding(.vertical, CGFloat(layout[.itemVerticalPadding]))
                             }
+                            .scrollIndicators(.hidden)
+                            .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
+                            .scrollTargetBehavior(.viewAligned(anchor: .leading))
+                            .padding(.vertical, CGFloat(layout[.scrollPadding]))
                         }
                     }
                 }
@@ -350,6 +347,7 @@ struct MediaView: View {
     }
 
     private func updateEmbyShortcuts(offset: CGFloat) {
+        mediaScrollOffset = offset
         guard embyHomeSource != nil else { return }
         let expanded = showsEmbyShortcuts && offset <= 1
         guard expanded != showsEmbyShortcuts else { return }
@@ -362,6 +360,35 @@ struct MediaView: View {
         guard pull >= 18, embyHomeSource != nil, !showsEmbyShortcuts else { return }
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
             showsEmbyShortcuts = true
+        }
+    }
+
+    private func openCarouselDetail(_ route: EmbyMediaRoute, proxy: ScrollViewProxy) {
+        if mediaScrollOffset > 0.5 {
+            if reduceMotion {
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    proxy.scrollTo("media-scroll-top", anchor: .top)
+                }
+                appendCarouselRoute(route)
+            } else {
+                withAnimation(.easeOut(duration: 0.28), completionCriteria: .logicallyComplete) {
+                    proxy.scrollTo("media-scroll-top", anchor: .top)
+                } completion: {
+                    appendCarouselRoute(route)
+                }
+            }
+        } else {
+            appendCarouselRoute(route)
+        }
+    }
+
+    private func appendCarouselRoute(_ route: EmbyMediaRoute) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            path.append(route)
         }
     }
 
@@ -485,6 +512,7 @@ private struct EmbyFeaturedCarousel: View {
     let featuredArtwork: [MediaID: EmbyFeaturedArtwork]?
     let artworkZoom: Namespace.ID
     let isMediaRoot: Bool
+    let openDetail: (EmbyMediaRoute) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.scenePhase) private var scenePhase
@@ -515,7 +543,7 @@ private struct EmbyFeaturedCarousel: View {
                         let isIncoming = item.id == incoming
                         let shift = reduceMotion ? 0 : CGFloat(direction) * width * travelFraction
                         let route = EmbyMediaRoute.detail(source, item, origin: .carousel)
-                        NavigationLink(value: route) {
+                        Button { openDetail(route) } label: {
                             EmbyFeaturedPage(source: source, item: item, size: geometry.size,
                                              artwork: artwork?[item.id.localID], artworkIsPrepared: artwork != nil,
                                              featuredArtwork: featuredArtwork?[item.id],
@@ -746,7 +774,7 @@ struct EmbyFeaturedPage: View {
                         }
                         .frame(height: size.height * 0.4)
 
-                    VStack(spacing: 10) {
+                    VStack(spacing: 6) {
                         Group {
                             if let logo = images?.logo, let image = UIImage(data: logo) {
                                 Image(uiImage: image).resizable().scaledToFit()
@@ -758,7 +786,7 @@ struct EmbyFeaturedPage: View {
                             }
                         }
                         .frame(maxWidth: size.width * 0.68)
-                        .frame(height: size.height * 0.15)
+                        .frame(height: size.height * 0.14)
                         VStack(spacing: 4) {
                             Text(verbatim: firstLine)
                             if !secondLine.isEmpty { Text(verbatim: secondLine) }
@@ -766,23 +794,22 @@ struct EmbyFeaturedPage: View {
                         .font(.subheadline)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
+                        .frame(height: size.height * 0.06)
+                        if let seriesFooter {
+                            seriesFooter
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(height: max(52, size.height * 0.075), alignment: .top)
+                        } else {
+                            Color.clear.frame(height: max(52, size.height * 0.075))
+                        }
                     }
                     .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
                     .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.65), radius: 3, y: 1)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 60)
+                    .padding(.bottom, 50)
                     .frame(maxWidth: .infinity)
                     .frame(height: size.height * 0.4, alignment: .bottom)
-                    .overlay(alignment: .top) {
-                        if let seriesFooter {
-                            seriesFooter
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .frame(height: size.height * 0.12, alignment: .top)
-                                .padding(.horizontal, 20)
-                                .padding(.top, 8)
-                        }
-                    }
                     .opacity(showsInformation ? 1 : 0)
                     .animation(.easeInOut(duration: 0.16), value: showsInformation)
                     .allowsHitTesting(false)

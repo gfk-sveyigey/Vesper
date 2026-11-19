@@ -45,11 +45,12 @@ struct HistoryView: View {
                                         .accessibilityLabel(Text(verbatim: entry.title))
                                     }
                                 }
-                                .padding(.horizontal, 20)
+                                .scrollTargetLayout()
                                 .padding(.vertical, 12)
                             }
                             .scrollIndicators(.hidden)
-                            .contentMargins(.horizontal, 0, for: .scrollContent)
+                            .contentMargins(.horizontal, 20, for: .scrollContent)
+                            .scrollTargetBehavior(.viewAligned(anchor: .leading))
                         }
                     }
                 }
