@@ -9,6 +9,12 @@ final class MediaLayoutSettings: ObservableObject {
         case thumbnailHeight, groupSpacing, titlePadding, scrollPadding
         case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding, episodeCardWidth, episodeCardHeight
 
+        case statusBarEdgeBlur, headerBackdropBlur, headerForegroundBlur, headerAnimationMinimumDistance, headerTitleSize
+
+        var isBlurStrength: Bool {
+            self == .statusBarEdgeBlur || self == .headerBackdropBlur
+        }
+
         var defaultValue: Int {
             switch self {
             case .thumbnailHeight, .titlePadding, .scrollPadding: 0
@@ -19,6 +25,11 @@ final class MediaLayoutSettings: ObservableObject {
             case .endPadding: 20
             case .episodeCardWidth: 246
             case .episodeCardHeight: 230
+            case .statusBarEdgeBlur: 100
+            case .headerBackdropBlur: 65
+            case .headerForegroundBlur: 8
+            case .headerAnimationMinimumDistance: 5
+            case .headerTitleSize: 34
             }
         }
 
@@ -27,6 +38,10 @@ final class MediaLayoutSettings: ObservableObject {
             case .thumbnailHeight: 0...600
             case .itemWidth, .itemHeight: 24...480
             case .episodeCardWidth, .episodeCardHeight: 120...1200
+            case .statusBarEdgeBlur, .headerBackdropBlur: 0...100
+            case .headerForegroundBlur: 0...40
+            case .headerAnimationMinimumDistance: 1...60
+            case .headerTitleSize: 18...44
             default: 0...120
             }
         }
@@ -75,21 +90,56 @@ struct MediaView: View {
     @Namespace private var artworkZoom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsEmbyShortcuts = false
+    @State private var mediaScrollPosition = ScrollPosition(edge: .top)
     @State private var mediaScrollOffset: CGFloat = 0
+    @State private var mediaScrollPhase: ScrollPhase = .idle
+    @State private var pendingCarouselRoute: EmbyMediaRoute?
     @State private var isOpeningCarouselDetail = false
+    @State private var carouselSeries: EmbyMediaRoute?
 
     var body: some View {
-        ScrollViewReader { proxy in
-            Group {
-                if let source = library.selectedSource, source.kind == .local {
-                    LocalFilesView(source: source) { mediaSourceMenu }
-                        .id(source.id)
-                } else {
-                    mediaContent(proxy: proxy)
-                }
+        Group {
+            if let source = library.selectedSource, source.kind == .local {
+                LocalFilesView(source: source) { mediaSourceMenu }
+                    .id(source.id)
+            } else {
+                mediaContent
             }
         }
-        .onChange(of: library.selectedID) { _, _ in showsEmbyShortcuts = false }
+        .allowsHitTesting(carouselSeries == nil && !isOpeningCarouselDetail)
+        .accessibilityHidden(carouselSeries != nil)
+        .overlay {
+            if let route = carouselSeries, let item = route.item {
+                NavigationStack {
+                    EmbySeriesDetailView(source: route.source, series: item,
+                                         carouselArtwork: route.carouselArtwork,
+                                         returnToCarousel: closeCarouselSeries)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .compositingGroup()
+                .accessibilityAction(.escape) { closeCarouselSeries() }
+                .transition(.opacity)
+                .zIndex(1)
+            }
+        }
+        .onChange(of: library.selectedID) { _, _ in
+            showsEmbyShortcuts = false
+            pendingCarouselRoute = nil
+        }
+        .onChange(of: path.isEmpty) { _, isEmpty in
+            if !isEmpty { pendingCarouselRoute = nil }
+        }
+        .onDisappear { pendingCarouselRoute = nil }
+        .task(id: pendingCarouselRoute) {
+            guard pendingCarouselRoute != nil else { return }
+            // Release the pending tap if the scroll is interrupted without reaching the top.
+            do {
+                try await Task.sleep(for: .seconds(1))
+                pendingCarouselRoute = nil
+            } catch {
+                return
+            }
+        }
         .navigationDestination(for: EmbyMediaRoute.self) { route in
             if route.opensLibrary || route.opensFavorites {
                 EmbySeriesBrowserView(source: route.source, groupTitle: route.title,
@@ -98,12 +148,8 @@ struct MediaView: View {
                                       artworkZoom: artworkZoom, openDetail: { path.append($0) })
             } else if let item = route.item {
                 if item.isEmbySeries {
-                    if route.origin == .carousel {
-                        EmbySeriesDetailView(source: route.source, series: item, carouselArtwork: route.carouselArtwork)
-                    } else {
-                        EmbySeriesDetailView(source: route.source, series: item)
-                            .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
-                    }
+                    EmbySeriesDetailView(source: route.source, series: item)
+                        .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
                 } else {
                     EmbyItemDetailView(source: route.source, item: item)
                 }
@@ -124,21 +170,22 @@ struct MediaView: View {
         return false
     }
 
-    private func mediaContent(proxy: ScrollViewProxy) -> some View {
+    private var mediaContent: some View {
         let featured = featured
         let showsFeaturedRegion = library.selectedSource?.kind == .emby && !library.canNavigateBack
         return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: showsFeaturedRegion,
                                    showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
-                                   onVerticalOffsetChange: updateEmbyShortcuts,
+                                   scrollPosition: $mediaScrollPosition,
+                                   onVerticalOffsetChange: updateMediaScrollOffset,
+                                   onVerticalScrollPhaseChange: updateMediaScrollPhase,
                                    onTopPullChange: expandEmbyShortcuts(forTopPull:)) {
             VStack(alignment: .leading, spacing: 20) {
                 if let source = library.selectedSource, showsFeaturedRegion {
                     EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork,
                                          featuredArtwork: library.embyHome?.featuredArtwork,
-                                         isMediaRoot: path.isEmpty && !isOpeningCarouselDetail,
-                                         openDetail: { openCarouselDetail($0, proxy: proxy) })
-                        .id("media-scroll-top")
-                        .allowsHitTesting(!isOpeningCarouselDetail)
+                                         isMediaRoot: path.isEmpty && carouselSeries == nil
+                                             && pendingCarouselRoute == nil && !isOpeningCarouselDetail,
+                                         openDetail: openCarouselDetail)
                 }
                 if library.selectedSource == nil {
                     VesperCenteredEmptyContent(message: "未选择媒体来源", symbol: AppSection.media.symbol)
@@ -347,8 +394,9 @@ struct MediaView: View {
         return source
     }
 
-    private func updateEmbyShortcuts(offset: CGFloat) {
+    private func updateMediaScrollOffset(_ offset: CGFloat) {
         mediaScrollOffset = offset
+        showPendingCarouselDestinationIfAtTop()
         guard embyHomeSource != nil else { return }
         let expanded = showsEmbyShortcuts && offset <= 1
         guard expanded != showsEmbyShortcuts else { return }
@@ -364,36 +412,73 @@ struct MediaView: View {
         }
     }
 
-    private func openCarouselDetail(_ route: EmbyMediaRoute, proxy: ScrollViewProxy) {
-        guard path.isEmpty, !isOpeningCarouselDetail else { return }
-        isOpeningCarouselDetail = true
-        if mediaScrollOffset > 0.5 {
-            if reduceMotion {
-                var transaction = Transaction(animation: nil)
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    proxy.scrollTo("media-scroll-top", anchor: .top)
-                }
-                appendCarouselRoute(route)
-            } else {
-                withAnimation(.easeOut(duration: 0.28), completionCriteria: .logicallyComplete) {
-                    proxy.scrollTo("media-scroll-top", anchor: .top)
-                } completion: {
-                    appendCarouselRoute(route)
-                }
+    private func updateMediaScrollPhase(_ phase: ScrollPhase, offset: CGFloat) {
+        mediaScrollPhase = phase
+        mediaScrollOffset = offset
+        if phase == .interacting {
+            pendingCarouselRoute = nil
+        }
+        showPendingCarouselDestinationIfAtTop()
+    }
+
+    private var isMediaScrollAtRestAtTop: Bool {
+        mediaScrollPhase == .idle && abs(mediaScrollOffset) <= 0.5
+    }
+
+    private func openCarouselDetail(_ route: EmbyMediaRoute) {
+        guard path.isEmpty, carouselSeries == nil, pendingCarouselRoute == nil,
+              !isOpeningCarouselDetail else { return }
+        if isMediaScrollAtRestAtTop {
+            showCarouselDestination(route)
+            return
+        }
+
+        pendingCarouselRoute = route
+        if reduceMotion {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                mediaScrollPosition.scrollTo(edge: .top)
             }
         } else {
-            appendCarouselRoute(route)
+            withAnimation(.easeOut(duration: 0.28)) {
+                mediaScrollPosition.scrollTo(edge: .top)
+            }
         }
     }
 
-    private func appendCarouselRoute(_ route: EmbyMediaRoute) {
-        defer { isOpeningCarouselDetail = false }
+    private func showPendingCarouselDestinationIfAtTop() {
+        guard isMediaScrollAtRestAtTop, let route = pendingCarouselRoute else { return }
+        pendingCarouselRoute = nil
+        showCarouselDestination(route)
+    }
+
+    private func showCarouselDestination(_ route: EmbyMediaRoute) {
         guard path.isEmpty, library.selectedID == route.source.id else { return }
+        if route.item?.isEmbySeries == true {
+            withAnimation(carouselTransition) {
+                carouselSeries = route
+            }
+            return
+        }
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             path.append(route)
+        }
+    }
+
+    private var carouselTransition: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.25)
+    }
+
+    private func closeCarouselSeries() {
+        guard carouselSeries != nil else { return }
+        isOpeningCarouselDetail = true
+        withAnimation(carouselTransition, completionCriteria: .removed) {
+            carouselSeries = nil
+        } completion: {
+            isOpeningCarouselDetail = false
         }
     }
 

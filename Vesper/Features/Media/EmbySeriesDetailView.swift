@@ -87,6 +87,7 @@ struct EmbySeriesDetailView: View {
     let series: MediaItem
     var showsCloseButton = false
     var carouselArtwork: EmbyFeaturedArtwork? = nil
+    var returnToCarousel: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -109,7 +110,6 @@ struct EmbySeriesDetailView: View {
     @State private var actionError: String?
     @State private var isLoading = true
     @State private var loadedSeriesID: MediaID?
-    @State private var hasRevealedDetails = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -117,15 +117,10 @@ struct EmbySeriesDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     hero
-                    Group {
-                        episodeSection(viewportWidth: width)
-                        similarSection
-                        creditsSection
-                        linksSection
-                    }
-                    .opacity(detailContentOpacity)
-                    .allowsHitTesting(detailContentOpacity > 0)
-                    .accessibilityHidden(detailContentOpacity == 0)
+                    episodeSection(viewportWidth: width)
+                    similarSection
+                    creditsSection
+                    linksSection
                 }
                 .padding(.bottom, 20)
             }
@@ -151,7 +146,12 @@ struct EmbySeriesDetailView: View {
                     .accessibilityHidden(true)
             }
             .sharedBackgroundVisibility(.hidden)
-            if showsCloseButton {
+            if let returnToCarousel {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("返回", systemImage: "chevron.backward", action: returnToCarousel)
+                        .labelStyle(.iconOnly)
+                }
+            } else if showsCloseButton {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("关闭", systemImage: "xmark") { dismiss() }
                 }
@@ -173,15 +173,6 @@ struct EmbySeriesDetailView: View {
         )) {
             Button("好", role: .cancel) { actionError = nil }
         } message: { Text(verbatim: actionError ?? "") }
-        .task {
-            guard carouselArtwork != nil, !hasRevealedDetails else { return }
-            // The initial frame uses the carousel poster, then the detail content fades in.
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
-                hasRevealedDetails = true
-            }
-        }
         .task(id: series.id) {
             guard loadedSeriesID != series.id else { return }
             await loadSeries()
@@ -199,10 +190,6 @@ struct EmbySeriesDetailView: View {
         return AnyView(EmbyItemDetailView(source: source, item: item))
     }
 
-    private var detailContentOpacity: Double {
-        carouselArtwork == nil || hasRevealedDetails || reduceMotion ? 1 : 0
-    }
-
     private var hero: some View {
         let item = metadata?.item ?? series
         return GeometryReader { geometry in
@@ -212,7 +199,7 @@ struct EmbySeriesDetailView: View {
                              seriesFooter: EmbySeriesHeroFooter(series: item, season: selectedSeason,
                                                                seasonCount: seasonNumbers.count,
                                                                episodes: episodes.filter { $0.season == selectedSeason }),
-                             seriesFooterOpacity: loadedSeriesID == series.id ? detailContentOpacity : 0)
+                             seriesFooterOpacity: loadedSeriesID == series.id ? 1 : 0)
                 .modifier(EmbyPosterStretch(geometry: geometry))
         }
         .aspectRatio(EmbyPosterLayout.aspectRatio, contentMode: .fit)

@@ -9,11 +9,20 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let extendsContentUnderHeader: Bool
     private let showsLoading: Bool
     private let usesMediaScrollEdges: Bool
+    private let scrollPosition: Binding<ScrollPosition>?
+    private let onVerticalScrollPhaseChange: (ScrollPhase, CGFloat) -> Void
     private let onVerticalOffsetChange: (CGFloat) -> Void
     private let onTopPullChange: (CGFloat) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.vesperWindowTopInset) private var topInset
     @ScaledMetric(relativeTo: .largeTitle) private var headerContentHeight: CGFloat = 60
+    @ScaledMetric(relativeTo: .largeTitle) private var mediaTitleScale: CGFloat = 1
+    @ObservedObject private var layout = MediaLayoutSettings.shared
+    @State private var mediaHeaderPosition: CGFloat = 0
+    @State private var mediaHeaderRest: CGFloat = 0
+    @GestureState private var mediaDragActive = false
+    @State private var mediaHeaderDrag: MediaHeaderDrag?
+    @State private var mediaHeaderSnap: MediaHeaderSnap?
     @ScaledMetric(relativeTo: .largeTitle) private var titleLineHeight: CGFloat = 41
     @State private var scrollOffset: CGFloat = 0
     @State private var isInteracting = false
@@ -29,13 +38,17 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var interactionStartedCollapsed = false
 
     init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
-         usesMediaScrollEdges: Bool = false, onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
+         usesMediaScrollEdges: Bool = false, scrollPosition: Binding<ScrollPosition>? = nil,
+         onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
+         onVerticalScrollPhaseChange: @escaping (ScrollPhase, CGFloat) -> Void = { _, _ in },
          onTopPullChange: @escaping (CGFloat) -> Void = { _ in },
          @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
         self.extendsContentUnderHeader = extendsContentUnderHeader
         self.showsLoading = showsLoading
         self.usesMediaScrollEdges = usesMediaScrollEdges
+        self.scrollPosition = scrollPosition
+        self.onVerticalScrollPhaseChange = onVerticalScrollPhaseChange
         self.onVerticalOffsetChange = onVerticalOffsetChange
         self.onTopPullChange = onTopPullChange
         self.content = content()
@@ -54,7 +67,16 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         headerContentHeight - max(0, (headerContentHeight - titleLineHeight) / 2)
     }
 
-    var body: some View {
+    @ViewBuilder
+    private var positionedScrollView: some View {
+        if let scrollPosition {
+            verticalScrollView.scrollPosition(scrollPosition)
+        } else {
+            verticalScrollView
+        }
+    }
+
+    private var verticalScrollView: some View {
         ScrollView {
             VStack(spacing: 0) {
                 if !extendsContentUnderHeader {
@@ -72,12 +94,32 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .scrollClipDisabled()
         .scrollBounceBehavior(.always, axes: .vertical)
         .simultaneousGesture(
-            DragGesture(minimumDistance: 4)
+            DragGesture(minimumDistance: min(4, mediaHeaderMinimumDistance))
+                .updating($mediaDragActive) { _, active, _ in
+                    if usesMediaScrollEdges { active = true }
+                }
                 .onChanged { value in
-                    guard isInteracting, scrollOffset <= 1, value.translation.height > 0 else { return }
-                    onTopPullChange(value.translation.height)
+                    let translation = value.translation
+                    if usesMediaScrollEdges, !showsLoading {
+                        trackMediaHeaderDrag(translation)
+                    }
+                    if isInteracting, scrollOffset <= 1, translation.height > 0 {
+                        onTopPullChange(translation.height)
+                    }
+                }
+                .onEnded { value in
+                    guard mediaHeaderDrag != nil else { return }
+                    trackMediaHeaderDrag(value.translation)
+                    finishMediaHeaderDrag()
                 }
         )
+        .onChange(of: mediaDragActive) { _, active in
+            // A system-cancelled gesture has no onEnded callback.
+            if !active, mediaHeaderDrag != nil {
+                mediaHeaderDrag = nil
+                snapMediaHeader(to: mediaHeaderRest)
+            }
+        }
         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
             ScrollMetrics(
                 offset: geometry.contentOffset.y + geometry.contentInsets.top,
@@ -87,54 +129,80 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         } action: { _, metrics in
             viewportHeight = metrics.viewportHeight
             contentFitsViewport = metrics.contentHeight <= metrics.viewportHeight + 1
-            onVerticalOffsetChange(metrics.offset)
             scrollOffset = max(0, metrics.offset)
-            updateHeader(at: scrollOffset)
-        }
-        .onScrollPhaseChange { oldPhase, newPhase in
-            if newPhase == .animating {
-                isSystemScrolling = true
-                isInteracting = false
-                // Programmatic return must cross the same position gate as
-                // dragging. Do not reveal a distant header at animation start.
-            } else if newPhase == .interacting {
-                // A new drag can interrupt either snap direction.
-                animationGeneration += 1
-                isSnapping = false
-                isInteracting = true
-                isSystemScrolling = false
-                interactionStartOffset = scrollOffset
-                interactionStartHeaderOffset = headerOffset
-                interactionStartedCollapsed = isCollapsed
+            if usesMediaScrollEdges {
+                restoreMediaHeaderAfterScrollToTop(offset: metrics.offset)
+            } else {
+                updateHeader(at: scrollOffset)
             }
+            onVerticalOffsetChange(metrics.offset)
+        }
+        .onScrollPhaseChange { oldPhase, newPhase, context in
+            if usesMediaScrollEdges {
+                isInteracting = newPhase == .interacting
+                if newPhase == .idle {
+                    restoreMediaHeaderAfterScrollToTop(
+                        offset: context.geometry.contentOffset.y + context.geometry.contentInsets.top
+                    )
+                }
+            } else {
+                updateLegacyHeaderPhase(from: oldPhase, to: newPhase)
+            }
+            onVerticalScrollPhaseChange(newPhase, context.geometry.contentOffset.y + context.geometry.contentInsets.top)
+        }
+    }
 
-            if oldPhase == .interacting, newPhase != .interacting {
-                isInteracting = false
-                if contentFitsViewport || scrollOffset <= 0.5 {
-                    expandHeader()
-                } else if !isSystemScrolling {
-                    if interactionStartedCollapsed {
-                        // No distance/velocity shortcut can bypass the top gate.
-                        settleHeader(collapsed: true)
-                    } else {
-                        settleHeader(collapsed: headerOffset >= snapThreshold
-                            || scrollOffset > contentReachesTitleOffset)
-                    }
+    private func updateLegacyHeaderPhase(from oldPhase: ScrollPhase, to newPhase: ScrollPhase) {
+        if newPhase == .animating {
+            isSystemScrolling = true
+            isInteracting = false
+        } else if newPhase == .interacting {
+            // A new drag can interrupt either snap direction.
+            animationGeneration += 1
+            isSnapping = false
+            isInteracting = true
+            isSystemScrolling = false
+            interactionStartOffset = scrollOffset
+            interactionStartHeaderOffset = headerOffset
+            interactionStartedCollapsed = isCollapsed
+        }
+
+        if oldPhase == .interacting, newPhase != .interacting {
+            isInteracting = false
+            if contentFitsViewport || scrollOffset <= 0.5 {
+                expandHeader()
+            } else if !isSystemScrolling {
+                if interactionStartedCollapsed {
+                    // No distance/velocity shortcut can bypass the top gate.
+                    settleHeader(collapsed: true)
+                } else {
+                    settleHeader(collapsed: headerOffset >= snapThreshold
+                        || scrollOffset > contentReachesTitleOffset)
                 }
             }
-            if newPhase == .idle { isSystemScrolling = false }
         }
+        if newPhase == .idle { isSystemScrolling = false }
+    }
+
+    var body: some View {
+        positionedScrollView
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
-        .scrollEdgeEffectHidden(!showsMediaTopEdge, for: .top)
+        .scrollEdgeEffectHidden(true, for: .top)
         .scrollEdgeEffectHidden(usesMediaScrollEdges, for: .bottom)
         .overlay(alignment: .top) {
-            // Media's header shares the scroll viewport's top edge without
-            // becoming part of the scrolling content or changing its insets.
             if usesMediaScrollEdges {
-                header
+                mediaHeader
             }
         }
         .ignoresSafeArea(.container, edges: .top)
+        .task(id: mediaHeaderSnap) {
+            guard let snap = mediaHeaderSnap else { return }
+            do {
+                try await Task.sleep(for: .seconds(max(0, snap.end.timeIntervalSinceNow)))
+            } catch { return }
+            guard mediaHeaderSnap == snap else { return }
+            settleMediaHeader(at: snap.target)
+        }
         .preference(key: VesperRootHeaderKey.self, value: usesMediaScrollEdges ? nil : VesperRootHeaderPresentation(
             header: AnyView(header),
             showsStatusBarBlur: !contentFitsViewport && isCollapsed
@@ -166,9 +234,135 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         }
     }
 
-    private var showsMediaTopEdge: Bool {
-        usesMediaScrollEdges && !contentFitsViewport && scrollOffset > 0.5
-            && (isCollapsed || headerOffset > 0.5)
+    private var mediaHeaderMinimumDistance: CGFloat {
+        usesMediaScrollEdges ? CGFloat(layout[.headerAnimationMinimumDistance]) : 4
+    }
+
+    private var mediaHeader: some View {
+        TimelineView(.animation(paused: mediaHeaderSnap == nil)) { timeline in
+            let position = mediaHeaderSnap?.position(at: timeline.date) ?? mediaHeaderPosition
+            let isCollapsed = position >= 1
+            let showsBackdrop = !isCollapsed && (position > 0 || scrollOffset > 0.5)
+
+            ZStack(alignment: .top) {
+                headerContent
+                    .compositingGroup()
+                    .blur(radius: CGFloat(layout[.headerForegroundBlur]) * position)
+                    .opacity(1 - Double(position))
+                    .background {
+                        if showsBackdrop {
+                            VesperBackdropBlur(style: .regular,
+                                               strength: Double(layout[.headerBackdropBlur]) / 100)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    // Clip both blur layers in the header's local bounds before moving it.
+                    .clipped()
+                    .offset(y: -headerContentHeight * position)
+                    .allowsHitTesting(!isCollapsed && mediaHeaderSnap == nil)
+                    .accessibilityHidden(isCollapsed)
+
+                if isCollapsed, topInset > 0 {
+                    VesperBackdropBlur(style: .regular,
+                                       strength: Double(layout[.statusBarEdgeBlur]) / 100,
+                                       fadesAtBottom: true)
+                        .frame(height: topInset)
+                        .clipped()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .clipped()
+        }
+    }
+
+    private func restoreMediaHeaderAfterScrollToTop(offset: CGFloat) {
+        guard mediaHeaderDrag == nil, !isInteracting, abs(offset) <= 0.5,
+              let position = scrollPosition?.wrappedValue,
+              !position.isPositionedByUser, position.edge == .top else { return }
+        settleMediaHeader(at: 0)
+    }
+
+    private func trackMediaHeaderDrag(_ translation: CGSize) {
+        if mediaHeaderDrag == nil {
+            guard abs(translation.height) > abs(translation.width) else { return }
+            let now = Date.now
+            let position = mediaHeaderSnap?.position(at: now) ?? mediaHeaderPosition
+            if position == 0 || position == 1 {
+                mediaHeaderRest = position
+            }
+            mediaHeaderPosition = position
+            mediaHeaderSnap = nil
+            mediaHeaderDrag = MediaHeaderDrag(origin: mediaHeaderRest)
+        }
+        guard var drag = mediaHeaderDrag else { return }
+
+        mediaHeaderPosition = drag.move(to: translation.height, from: mediaHeaderPosition,
+                                            travel: headerContentHeight)
+        mediaHeaderDrag = drag
+        if mediaHeaderPosition == 0 || mediaHeaderPosition == 1 {
+            mediaHeaderRest = mediaHeaderPosition
+        }
+    }
+
+    private func finishMediaHeaderDrag() {
+        guard let drag = mediaHeaderDrag else { return }
+        mediaHeaderDrag = nil
+        snapMediaHeader(to: drag.destination(from: mediaHeaderPosition,
+                                             minimumDistance: mediaHeaderMinimumDistance))
+    }
+
+    private func snapMediaHeader(to target: CGFloat) {
+        guard !reduceMotion, mediaHeaderPosition != target else {
+            settleMediaHeader(at: target)
+            return
+        }
+        mediaHeaderSnap = MediaHeaderSnap(start: .now, initial: mediaHeaderPosition, target: target)
+    }
+
+    private func settleMediaHeader(at position: CGFloat) {
+        mediaHeaderPosition = position
+        mediaHeaderRest = position
+        mediaHeaderSnap = nil
+    }
+
+    private struct MediaHeaderDrag {
+        let origin: CGFloat
+        private var translation: CGFloat = 0
+        private var target: CGFloat = 0
+
+        init(origin: CGFloat) { self.origin = origin }
+
+        mutating func move(to translation: CGFloat, from position: CGFloat, travel: CGFloat) -> CGFloat {
+            let movement = self.translation - translation
+            self.translation = translation
+            if movement != 0 {
+                target = movement > 0 ? 1 : 0
+            }
+            return min(1, max(0, position + movement / max(travel, 1)))
+        }
+
+        func destination(from position: CGFloat, minimumDistance: CGFloat) -> CGFloat {
+            if position == 0 || position == 1 { return position }
+            return abs(translation) < minimumDistance ? origin : target
+        }
+    }
+
+    private struct MediaHeaderSnap: Equatable {
+        let start: Date
+        let initial: CGFloat
+        let target: CGFloat
+        private static let duration: TimeInterval = 0.22
+
+        var end: Date { start.addingTimeInterval(Self.duration) }
+
+        func position(at date: Date) -> CGFloat {
+            let elapsed = CGFloat(date.timeIntervalSince(start) / Self.duration)
+            if elapsed >= 1 { return target }
+            let remaining = 1 - max(0, elapsed)
+            return target + (initial - target) * remaining * remaining * remaining
+        }
     }
 
     private var snapThreshold: CGFloat { headerHeight * 0.1125 }
@@ -179,10 +373,17 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         min(1, max(0, headerOffset / max(headerContentHeight, 1)))
     }
 
-    private var header: some View {
+    private var headerTitleFont: Font {
+        if usesMediaScrollEdges {
+            return .system(size: CGFloat(layout[.headerTitleSize]) * mediaTitleScale, weight: .bold)
+        }
+        return .largeTitle.bold()
+    }
+
+    private var headerContent: some View {
         HStack(spacing: 16) {
             Text(title)
-                .font(.largeTitle.bold())
+                .font(headerTitleFont)
                 .foregroundStyle(Color("VesperPrimaryText"))
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
@@ -192,6 +393,10 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .frame(height: headerContentHeight)
         .padding(.top, topInset)
         .frame(maxWidth: .infinity)
+    }
+
+    private var header: some View {
+        headerContent
         .modifier(VesperHeaderMotionEffect(
             displacement: headerOffset,
             fadeDistance: headerContentHeight,
@@ -321,7 +526,7 @@ struct VesperNavigationHeaderLayer: ViewModifier {
                     presentation.header
                     // A graded backdrop blur, with no material card/fill.
                     // Its lower edge fades to clear inside the status bar.
-                    VesperStatusBarEdgeBlur()
+                    VesperBackdropBlur(style: .regular, strength: 1, fadesAtBottom: true)
                         .frame(height: max(0, topInset))
                         .clipped()
                         .opacity(presentation.showsStatusBarBlur ? 1 : 0)
@@ -334,34 +539,82 @@ struct VesperNavigationHeaderLayer: ViewModifier {
     }
 }
 
-/// UIKit backdrop blur masked from full strength to clear at the lower edge.
-/// The mask changes blur coverage; it does not use private variable-blur APIs.
-private struct VesperStatusBarEdgeBlur: UIViewRepresentable {
-    func makeUIView(context: Context) -> EdgeBlurView { EdgeBlurView() }
-    func updateUIView(_ view: EdgeBlurView, context: Context) {}
+/// A paused UIKit effect transition provides a public blur-strength control.
+private struct VesperBackdropBlur: UIViewRepresentable {
+    let style: UIBlurEffect.Style
+    let strength: Double
+    var fadesAtBottom = false
 
-    final class EdgeBlurView: UIVisualEffectView {
-        private let edgeMask = CAGradientLayer()
+    func makeUIView(context: Context) -> BackdropView {
+        BackdropView(style: style, fadesAtBottom: fadesAtBottom)
+    }
 
-        init() {
-            super.init(effect: UIBlurEffect(style: .regular))
+    func updateUIView(_ view: BackdropView, context: Context) {
+        view.setStrength(strength)
+    }
+
+    final class BackdropView: UIVisualEffectView {
+        private let blur: UIBlurEffect
+        private let edgeMask: GradientMask?
+        private var animator: UIViewPropertyAnimator?
+        private var strength: Double?
+
+        init(style: UIBlurEffect.Style, fadesAtBottom: Bool) {
+            blur = UIBlurEffect(style: style)
+            edgeMask = fadesAtBottom ? GradientMask() : nil
+            super.init(effect: nil)
             isUserInteractionEnabled = false
-            edgeMask.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
-            edgeMask.locations = [0, 0.55, 1]
-            edgeMask.startPoint = CGPoint(x: 0.5, y: 0)
-            edgeMask.endPoint = CGPoint(x: 0.5, y: 1)
-            layer.mask = edgeMask
+            clipsToBounds = true
+            mask = edgeMask
         }
 
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+        func setStrength(_ value: Double) {
+            let value = min(1, max(0, value))
+            guard strength != value else { return }
+            strength = value
+            if value == 0 || value == 1 {
+                animator?.stopAnimation(true)
+                animator = nil
+                effect = value == 0 ? nil : blur
+                return
+            }
+            if animator == nil {
+                effect = nil
+                let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak self] in
+                    guard let self else { return }
+                    self.effect = self.blur
+                }
+                animator.pausesOnCompletion = true
+                animator.startAnimation()
+                animator.pauseAnimation()
+                self.animator = animator
+            }
+            animator?.fractionComplete = value
+        }
+
         override func layoutSubviews() {
             super.layoutSubviews()
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
+            guard let edgeMask, edgeMask.frame != bounds else { return }
             edgeMask.frame = bounds
-            CATransaction.commit()
+            mask = edgeMask
         }
+    }
+
+    private final class GradientMask: UIView {
+        override class var layerClass: AnyClass { CAGradientLayer.self }
+
+        init() {
+            super.init(frame: .zero)
+            let gradient = layer as! CAGradientLayer
+            gradient.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
+            gradient.locations = [0, 0.55, 1]
+            gradient.startPoint = CGPoint(x: 0.5, y: 0)
+            gradient.endPoint = CGPoint(x: 0.5, y: 1)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     }
 }
 

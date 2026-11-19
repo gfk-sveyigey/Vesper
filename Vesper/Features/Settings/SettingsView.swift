@@ -771,6 +771,11 @@ private extension MediaLayoutSettings.Metric {
         case .endPadding: "媒体库滚动区域左右内缩"
         case .episodeCardWidth: "剧集卡片宽度"
         case .episodeCardHeight: "剧集卡片高度"
+        case .statusBarEdgeBlur: "状态栏边缘模糊最大强度"
+        case .headerBackdropBlur: "Header 毛玻璃效果强度"
+        case .headerForegroundBlur: "Header 模糊效果最大强度"
+        case .headerAnimationMinimumDistance: "Header 触发动画最小移动距离"
+        case .headerTitleSize: "Header 大标题字号"
         }
     }
 }
@@ -800,19 +805,34 @@ private struct DebugSettingsView: View {
                 Text("客户端名称和版本会同时用于 User-Agent 及 Emby Authorization 请求头。留空或关闭时使用 Vesper 默认值。")
             }
             SettingsSection("界面设计") {
-                ForEach(MediaLayoutSettings.Metric.allCases, id: \.self) { metric in
+                ForEach(MediaLayoutSettings.Metric.allCases.filter { !Self.headerMetrics.contains($0) }, id: \.self) { metric in
                     layoutStepper(metric)
                 }
                 Button("恢复默认值", systemImage: "arrow.counterclockwise") { layout.reset() }
             }
+            SettingsSection("媒体页导航栏") {
+                ForEach(Self.headerMetrics, id: \.self) { metric in
+                    layoutStepper(metric)
+                }
+            }
         }
     }
 
+    private static let headerMetrics: [MediaLayoutSettings.Metric] = [
+        .statusBarEdgeBlur, .headerBackdropBlur, .headerForegroundBlur,
+        .headerAnimationMinimumDistance, .headerTitleSize
+    ]
+
     private func layoutStepper(_ metric: MediaLayoutSettings.Metric) -> some View {
         let value = layout[metric]
-        let displayValue = metric == .thumbnailHeight && value == 0
-            ? Text("自动")
-            : Text("\(value) pt")
+        let displayValue: Text
+        if metric == .thumbnailHeight && value == 0 {
+            displayValue = Text("自动")
+        } else if metric.isBlurStrength {
+            displayValue = Text(Double(value) / 100, format: .percent)
+        } else {
+            displayValue = Text("\(value) pt")
+        }
         return Stepper(value: Binding(get: { layout[metric] }, set: { layout[metric] = $0 }),
                        in: metric.range) {
             VStack(alignment: .leading, spacing: 3) {
