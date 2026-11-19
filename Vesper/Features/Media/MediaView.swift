@@ -98,6 +98,7 @@ struct MediaView: View {
     @State private var mediaScrollOffset: CGFloat = 0
     @State private var mediaScrollPhase: ScrollPhase = .idle
     @State private var pendingCarouselRoute: EmbyMediaRoute?
+    @State private var carouselCrossfade = CarouselDetailCrossfade()
 
     var body: some View {
         Group {
@@ -107,6 +108,10 @@ struct MediaView: View {
             } else {
                 mediaContent
             }
+        }
+        .background {
+            CarouselDetailCrossfade.Anchor(transition: carouselCrossfade)
+                .ignoresSafeArea(.container, edges: .top)
         }
         .onChange(of: library.selectedID) { _, _ in
             showsEmbyShortcuts = false
@@ -137,6 +142,7 @@ struct MediaView: View {
                     if route.origin == .carousel {
                         let detail = EmbySeriesDetailView(source: route.source, series: item,
                                                           carouselArtwork: route.carouselArtwork)
+                            .onAppear { carouselCrossfade.revealDetail() }
                         if #available(iOS 27, *) {
                             detail.navigationTransition(.crossFade)
                         } else {
@@ -444,7 +450,8 @@ struct MediaView: View {
 
     private func showCarouselDestination(_ route: EmbyMediaRoute) {
         guard path.isEmpty, library.selectedID == route.source.id else { return }
-        if route.item?.isEmbySeries == true, !reduceMotion {
+        if route.item?.isEmbySeries == true, !reduceMotion,
+           !carouselCrossfade.coverMediaPage() {
             path.append(route)
             return
         }
@@ -564,6 +571,59 @@ struct MediaView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("选择媒体来源")
+    }
+}
+
+/// Holds the outgoing media frame above the navigation stack for the push.
+@MainActor
+private final class CarouselDetailCrossfade {
+    private weak var anchor: UIView?
+    private weak var snapshot: UIView?
+
+    func coverMediaPage() -> Bool {
+        snapshot?.removeFromSuperview()
+        snapshot = nil
+        guard let anchor, let window = anchor.window else { return false }
+        let frame = anchor.convert(anchor.bounds, to: window).intersection(window.bounds)
+        guard !frame.isEmpty,
+              let cover = window.resizableSnapshotView(from: frame, afterScreenUpdates: false,
+                                                       withCapInsets: .zero) else { return false }
+        cover.frame = frame
+        cover.isUserInteractionEnabled = false
+        cover.accessibilityElementsHidden = true
+        window.addSubview(cover)
+        snapshot = cover
+
+        // Drop the cover even if the navigation destination never appears.
+        Task { [weak self, weak cover] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let cover, self?.snapshot === cover else { return }
+            self?.revealDetail()
+        }
+        return true
+    }
+
+    func revealDetail() {
+        guard let cover = snapshot else { return }
+        snapshot = nil
+        UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut]) {
+            cover.alpha = 0
+        } completion: { _ in
+            cover.removeFromSuperview()
+        }
+    }
+
+    struct Anchor: UIViewRepresentable {
+        let transition: CarouselDetailCrossfade
+
+        func makeUIView(context: Context) -> UIView {
+            let view = UIView()
+            view.isUserInteractionEnabled = false
+            transition.anchor = view
+            return view
+        }
+
+        func updateUIView(_ view: UIView, context: Context) {}
     }
 }
 

@@ -102,18 +102,20 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 }
         )
         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
-            ScrollMetrics(
-                offset: geometry.contentOffset.y + geometry.contentInsets.top,
-                viewportHeight: max(0, geometry.containerSize.height - geometry.contentInsets.bottom),
-                contentHeight: geometry.contentSize.height
-            )
+            ScrollMetrics(geometry: geometry, includesTopInset: usesMediaScrollEdges)
         } action: { _, metrics in
             viewportHeight = metrics.viewportHeight
             contentFitsViewport = metrics.contentHeight <= metrics.viewportHeight + 1
             scrollOffset = max(0, metrics.offset)
             if usesMediaScrollEdges {
-                if mediaHeaderScroll != nil {
-                    updateMediaHeaderScroll(at: metrics.offset)
+                if contentFitsViewport {
+                    mediaHeaderScroll = nil
+                    mediaScrollTrackingOffset = nil
+                    if mediaHeaderPosition != 0 || mediaHeaderSnap != nil {
+                        settleMediaHeader(at: 0)
+                    }
+                } else if mediaHeaderScroll != nil {
+                    updateMediaHeaderScroll(at: metrics.headerOffset)
                 } else {
                     restoreMediaHeaderAfterScrollToTop(offset: metrics.offset)
                 }
@@ -125,7 +127,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .onScrollPhaseChange { oldPhase, newPhase, context in
             let offset = context.geometry.contentOffset.y + context.geometry.contentInsets.top
             if usesMediaScrollEdges {
-                updateMediaHeaderPhase(to: newPhase, offset: offset)
+                let metrics = ScrollMetrics(geometry: context.geometry, includesTopInset: true)
+                updateMediaHeaderPhase(to: newPhase, offset: metrics.headerOffset)
             } else {
                 updateLegacyHeaderPhase(from: oldPhase, to: newPhase)
             }
@@ -135,6 +138,10 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 
     private func updateMediaHeaderPhase(to phase: ScrollPhase, offset: CGFloat) {
         isInteracting = phase == .interacting
+        guard !contentFitsViewport else {
+            mediaScrollTrackingOffset = nil
+            return
+        }
         switch phase {
         case .tracking:
             finishMediaHeaderScroll(at: offset)
@@ -248,7 +255,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         TimelineView(.animation(paused: mediaHeaderSnap == nil)) { timeline in
             let position = mediaHeaderSnap?.position(at: timeline.date) ?? mediaHeaderPosition
             let isCollapsed = position >= 1
-            let showsBackdrop = !isCollapsed && (position > 0 || scrollOffset > 0)
+            let showsBackdrop = !contentFitsViewport && !isCollapsed && (position > 0 || scrollOffset > 0)
 
             ZStack(alignment: .top) {
                 headerContent
@@ -256,7 +263,11 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .blur(radius: CGFloat(layout[.headerForegroundBlur]) * position)
                     .opacity(1 - Double(position))
                     .background {
-                        mediaBackdropBlur(.headerBackdropBlur, isVisible: showsBackdrop)
+                        mediaBackdropBlur(
+                            .headerBackdropBlur,
+                            isVisible: showsBackdrop,
+                            hideDelay: !showsBackdrop && position == 0 ? 0.18 : 0
+                        )
                     }
                     // Clip both blur layers in the header's local bounds before moving it.
                     .clipped()
@@ -275,11 +286,12 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private func mediaBackdropBlur(_ metric: MediaLayoutSettings.Metric, isVisible: Bool,
-                                   fadesAtBottom: Bool = false) -> some View {
-        VesperFadingBackdropBlur(strength: Double(layout[metric]) / 100,
+                                   fadesAtBottom: Bool = false, hideDelay: TimeInterval = 0) -> some View {
+        VesperFadingBackdropBlur(style: fadesAtBottom ? .regular : .systemMaterial,
+                                 strength: Double(layout[metric]) / 100,
                                  visibility: isVisible ? 1 : 0,
                                  fadesAtBottom: fadesAtBottom)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isVisible)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.16).delay(hideDelay), value: isVisible)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
@@ -322,8 +334,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 
     private struct MediaHeaderScroll {
         let startOffset: CGFloat
-        private var initialPosition: CGFloat
-        private var rest: CGFloat
+        private let initialPosition: CGFloat
+        private let rest: CGFloat
         private var pulledPastTop = false
 
         init(startOffset: CGFloat, initialPosition: CGFloat, rest: CGFloat) {
@@ -339,14 +351,14 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 
             let height = max(height, 1)
             let endOffset = max(0, offset)
-            if endOffset > startOffset, startOffset >= height {
-                initialPosition = 1
-                rest = 1
-                return 1
+            // An upward scroll starting deeper in the page can still drive collapse.
+            // Downward movement at that depth waits until it enters the header-height band.
+            let movement: CGFloat
+            if startOffset >= height, endOffset > startOffset {
+                movement = endOffset - startOffset
+            } else {
+                movement = min(height, endOffset) - min(height, startOffset)
             }
-
-            // Only the part of the scroll inside the header-height band moves the header.
-            let movement = min(height, endOffset) - min(height, startOffset)
             return min(1, max(0, initialPosition + movement / height))
         }
 
@@ -354,6 +366,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             if pulledPastTop { return 0 }
 
             let endOffset = max(0, offset)
+            // Use the scroll view's offset delta, including deceleration.
             let distance = endOffset - startOffset
             if distance > 0 {
                 if initialPosition == 1 || endOffset >= height { return 1 }
@@ -474,6 +487,19 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         let offset: CGFloat
         let viewportHeight: CGFloat
         let contentHeight: CGFloat
+
+        init(geometry: ScrollGeometry, includesTopInset: Bool) {
+            let topInset = geometry.contentInsets.top
+            offset = geometry.contentOffset.y + topInset
+            viewportHeight = max(0, geometry.containerSize.height - geometry.contentInsets.bottom
+                                 - (includesTopInset ? topInset : 0))
+            contentHeight = geometry.contentSize.height
+        }
+
+        var headerOffset: CGFloat {
+            // Preserve top pull-to-expand, but exclude bottom overscroll from the distance.
+            min(offset, max(0, contentHeight - viewportHeight))
+        }
     }
 
 }
@@ -562,6 +588,7 @@ struct VesperNavigationHeaderLayer: ViewModifier {
 
 /// Keep the backdrop mounted and interpolate the UIKit blur strength as visibility changes.
 private struct VesperFadingBackdropBlur: View, Animatable {
+    let style: UIBlurEffect.Style
     let strength: Double
     nonisolated var visibility: Double
     let fadesAtBottom: Bool
@@ -572,7 +599,7 @@ private struct VesperFadingBackdropBlur: View, Animatable {
     }
 
     var body: some View {
-        VesperBackdropBlur(style: .regular, strength: strength * visibility, fadesAtBottom: fadesAtBottom)
+        VesperBackdropBlur(style: style, strength: strength * visibility, fadesAtBottom: fadesAtBottom)
     }
 }
 
