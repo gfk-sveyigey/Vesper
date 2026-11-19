@@ -160,24 +160,22 @@ struct MediaView: View {
                                       scope: route.opensFavorites ? .favorites : .titles,
                                       artworkZoom: artworkZoom, openDetail: { path.append($0) })
             } else if let item = route.item {
-                if item.isEmbySeries {
-                    if route.origin == .carousel {
-                        let detail = EmbySeriesDetailView(source: route.source, series: item,
-                                                          carouselArtwork: route.carouselArtwork)
-                            .background {
-                                CarouselDetailCrossfade.ReturnObserver(transition: carouselCrossfade,
-                                                                       reduceMotion: reduceMotion)
-                            }
-                            .onAppear { carouselCrossfade.revealDetail() }
-                        if #available(iOS 27, *) {
-                            detail.navigationTransition(.crossFade)
-                        } else {
-                            detail
+                if route.origin == .carousel {
+                    let detail = EmbySeriesDetailView(source: route.source, series: item,
+                                                      carouselArtwork: route.carouselArtwork)
+                        .background {
+                            CarouselDetailCrossfade.ReturnObserver(transition: carouselCrossfade,
+                                                                   reduceMotion: reduceMotion)
                         }
+                        .onAppear { carouselCrossfade.revealDetail() }
+                    if #available(iOS 27, *) {
+                        detail.navigationTransition(.crossFade)
                     } else {
-                        EmbySeriesDetailView(source: route.source, series: item)
-                            .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
+                        detail
                     }
+                } else if item.isEmbySeries {
+                    EmbySeriesDetailView(source: route.source, series: item)
+                        .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
                 } else {
                     EmbyItemDetailView(source: route.source, item: item)
                 }
@@ -476,8 +474,7 @@ struct MediaView: View {
 
     private func showCarouselDestination(_ route: EmbyMediaRoute) {
         guard path.isEmpty, library.selectedID == route.source.id else { return }
-        if route.item?.isEmbySeries == true, !reduceMotion,
-           !carouselCrossfade.coverMediaPage() {
+        if !reduceMotion, !carouselCrossfade.coverMediaPage() {
             path.append(route)
             return
         }

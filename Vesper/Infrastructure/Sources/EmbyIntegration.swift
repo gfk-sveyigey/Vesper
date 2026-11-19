@@ -77,10 +77,14 @@ struct EmbyExternalLink: Identifiable, Sendable {
     var id: URL { url }
 }
 
-struct EmbySeriesMetadata: Sendable {
+struct EmbyDetailMetadata: Sendable {
     let item: MediaItem
     let credits: [EmbyCredit]
     let links: [EmbyExternalLink]
+    let video: PlaybackVideoDetails
+    let series: MediaItem?
+    let seasonNumber: Int?
+    let episodeNumber: Int?
 }
 
 enum EmbyBrowseScope: Equatable, Sendable {
@@ -221,10 +225,9 @@ actor EmbyRepository {
         return items.filter { itemTypes.contains($0.embyItemType ?? "") }
     }
 
-    func seriesMetadata(for item: MediaItem, source: MediaSource) async throws -> EmbySeriesMetadata {
+    func detailMetadata(for item: MediaItem, source: MediaSource) async throws -> EmbyDetailMetadata {
         let client = try await clientProvider(source)
-        let path = source.emby?.userID.map { "Users/\($0)/Items/\(item.id.localID)" } ?? "Items/\(item.id.localID)"
-        let response = try await client.get(path)
+        let response = try await fetchDetailItem(item, source: source, client: client)
         let credits = (response["People"] as? [[String: Any]] ?? []).enumerated().compactMap { index, value -> EmbyCredit? in
             guard let name = (value["Name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !name.isEmpty else { return nil }
@@ -240,27 +243,42 @@ actor EmbyRepository {
         let traktID = providers.first(where: { $0.key.caseInsensitiveCompare("Trakt") == .orderedSame })?.value
         var links = (response["ExternalUrls"] as? [[String: Any]] ?? []).compactMap { value -> EmbyExternalLink? in
             guard let name = value["Name"] as? String, let raw = value["Url"] as? String,
-                  !(name.localizedCaseInsensitiveContains("trakt") && traktID != nil),
+                  !(name.localizedCaseInsensitiveContains("trakt") && traktID != nil && item.embyItemType != "Episode"),
                   let url = URL(string: raw), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
                   url.host != nil, url.user == nil, url.password == nil else { return nil }
             return EmbyExternalLink(name: name, url: url)
         }
-        if let traktID, traktID.utf8.allSatisfy({ (48...57).contains($0) }),
+        if item.embyItemType != "Episode", let traktID, !traktID.isEmpty, traktID.utf8.allSatisfy({ (48...57).contains($0) }),
            let url = URL(string: "https://trakt.tv/\(item.isEmbySeries ? "shows" : "movies")/\(traktID)") {
             links.append(EmbyExternalLink(name: "Trakt", url: url))
         }
         for (provider, name, base) in [("Imdb", "IMDb", "https://www.imdb.com/title/"),
-                                       ("Tmdb", "TMDb", "https://www.themoviedb.org/tv/"),
+                                       ("Tmdb", "TMDb", item.isEmbySeries ? "https://www.themoviedb.org/tv/" : "https://www.themoviedb.org/movie/"),
                                        ("Douban", "豆瓣", "https://movie.douban.com/subject/")] {
-            guard let id = providers.first(where: { $0.key.caseInsensitiveCompare(provider) == .orderedSame })?.value,
+            guard !(provider == "Tmdb" && item.embyItemType == "Episode"),
+                  let id = providers.first(where: { $0.key.caseInsensitiveCompare(provider) == .orderedSame })?.value,
                   !id.isEmpty, id.utf8.allSatisfy({ (48...57).contains($0) || (97...122).contains($0) }),
                   !links.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }),
                   let url = URL(string: base + id) else { continue }
             links.append(EmbyExternalLink(name: name, url: url))
         }
         var seen = Set<URL>()
-        return EmbySeriesMetadata(item: map([response.values], source: source, client: client).first ?? item,
-                                  credits: credits, links: links.filter { seen.insert($0.url).inserted })
+        var resolved = map([response.values], source: source, client: client).first ?? item
+        resolved.embyMediaSourceID = item.embyMediaSourceID ?? resolved.embyMediaSourceID
+        let parentSeries: MediaItem?
+        if resolved.embyItemType == "Episode",
+           let id = response["SeriesId"] as? String, !id.isEmpty, id != item.id.localID,
+           let name = response["SeriesName"] as? String, !name.isEmpty {
+            parentSeries = MediaItem(id: MediaID(sourceID: source.id, localID: id), title: name,
+                                     resource: nil, isContainer: true, embyItemID: id, embyItemType: "Series",
+                                     imageURL: client.imageURL(itemID: id, tag: response["SeriesPrimaryImageTag"] as? String))
+        } else {
+            parentSeries = nil
+        }
+        return EmbyDetailMetadata(item: resolved, credits: credits, links: links.filter { seen.insert($0.url).inserted },
+                                  video: itemDetails(response, item: resolved, source: source).video,
+                                  series: parentSeries, seasonNumber: response["ParentIndexNumber"] as? Int,
+                                  episodeNumber: response["IndexNumber"] as? Int)
     }
 
     func seriesEpisodes(for series: MediaItem, source: MediaSource) async throws -> [EmbyEpisode] {
@@ -345,8 +363,26 @@ actor EmbyRepository {
 
     func details(for item: MediaItem, source: MediaSource) async throws -> EmbyItemDetails {
         let client = try await clientProvider(source)
-        let path = source.emby?.userID.map { "Users/\($0)/Items/\(item.id.localID)" } ?? "Items/\(item.id.localID)"
-        let response = try await client.get(path)
+        let response = try await fetchDetailItem(item, source: source, client: client)
+        return itemDetails(response, item: item, source: source)
+    }
+
+    private func fetchDetailItem(_ item: MediaItem, source: MediaSource, client: EmbyAPIClient) async throws -> EmbyJSON {
+        let id = item.id.localID
+        if let userID = source.emby?.userID {
+            return try await client.get("Users/\(userID)/Items/\(id)")
+        }
+
+        let fields = "Overview,Genres,People,ProviderIds,ExternalUrls,MediaSources,MediaStreams"
+        let response = try await client.get("Items", query: ["Ids": id, "Limit": "1", "Fields": fields])
+        guard let rows = response["Items"] as? [[String: Any]],
+              let row = rows.first(where: { $0["Id"] as? String == id }) else {
+            throw EmbyError.invalidResponse
+        }
+        return EmbyJSON(row)
+    }
+
+    private func itemDetails(_ response: EmbyJSON, item: MediaItem, source: MediaSource) -> EmbyItemDetails {
         let sources = response["MediaSources"] as? [[String: Any]] ?? []
         let media = sources.first(where: { $0["Id"] as? String == item.embyMediaSourceID }) ?? sources.first ?? [:]
         var fields: [PlaybackDetailField] = []
@@ -354,7 +390,7 @@ actor EmbyRepository {
         if let bitrate = media["Bitrate"] as? NSNumber {
             fields.append(.init(label: "总码率", value: String(format: "%.2f Mbit/s", bitrate.doubleValue / 1_000_000)))
         }
-        let streams = media["MediaStreams"] as? [[String: Any]] ?? []
+        let streams = media["MediaStreams"] as? [[String: Any]] ?? response["MediaStreams"] as? [[String: Any]] ?? []
         var dimensions: String?
         for stream in streams {
             let type = stream["Type"] as? String ?? ""

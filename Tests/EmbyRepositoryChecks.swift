@@ -34,7 +34,7 @@ struct EmbyRepositoryChecks {
         precondition(posterCandidates.map(\.lastPathComponent) == ["textless.jpg"])
         let logo = await repository.featuredLogoData(for: series.embyPresentation!.logoURL!, source: source)
         precondition(logo != nil)
-        let metadata = try await repository.seriesMetadata(for: series, source: source)
+        let metadata = try await repository.detailMetadata(for: series, source: source)
         precondition(metadata.item.embyPresentation?.overview == "Series synopsis")
         precondition(metadata.credits.first?.role == "Detective" && metadata.credits.first?.image?.id.localID == "actor")
         let actor = metadata.credits[0].person
