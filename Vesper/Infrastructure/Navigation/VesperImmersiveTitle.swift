@@ -74,7 +74,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .simultaneousGesture(
             DragGesture(minimumDistance: 4)
                 .onChanged { value in
-                    guard scrollOffset <= 1, value.translation.height > 0 else { return }
+                    guard isInteracting, scrollOffset <= 1, value.translation.height > 0 else { return }
                     onTopPullChange(value.translation.height)
                 }
         )
@@ -142,13 +142,9 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         .overlay(alignment: .top) {
             Group {
                 if showsLoading {
-                    GeometryReader { geometry in
-                        VesperPageLoadingOverlay()
-                            .padding(.top, max(topInset + (usesMediaScrollEdges ? 44 : 0), headerHeight - headerOffset))
-                            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
-                    }
-                    .ignoresSafeArea(.container, edges: .bottom)
-                    .transition(.opacity)
+                    VesperPageLoadingOverlay()
+                        .ignoresSafeArea(.container, edges: [.top, .bottom])
+                        .transition(.opacity)
                 }
             }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: showsLoading)

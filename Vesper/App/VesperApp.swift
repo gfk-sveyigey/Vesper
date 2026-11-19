@@ -25,6 +25,7 @@ struct VesperApp: App {
     var body: some Scene {
         WindowGroup {
             AppNavigationView()
+                .scrollIndicators(.hidden)
                 .environmentObject(incomingVideos)
                 .onOpenURL { FileDeliveryRouter.receive($0, origin: "swiftui.open") }
                 .onChange(of: scenePhase, initial: true) { _, phase in

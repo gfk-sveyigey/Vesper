@@ -531,6 +531,26 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         savedProgressRevision += 1
     }
 
+    func recordWatched(_ item: MediaItem, source: MediaSource) {
+        guard source.id == item.id.sourceID else { return }
+        let duration = max(item.duration ?? savedDuration(for: item), 0)
+        let entry = PlaybackHistoryEntry(
+            mediaID: item.id,
+            title: item.title,
+            source: source,
+            watchedAt: Date(),
+            position: duration,
+            duration: duration,
+            isCompleted: true
+        )
+        history.removeAll { $0.mediaID == item.id }
+        history.insert(entry, at: 0)
+        if history.count > 1000 { history.removeLast(history.count - 1000) }
+        if currentItem?.id == item.id { suppressedProgressID = item.id }
+        persistHistory()
+        savedProgressRevision += 1
+    }
+
     /// Called after a successful file deletion; directory deletion also removes
     /// descendant entries. Suppress the active item so a later stop cannot save it again.
     func removePlaybackData(sourceID: UUID, path: String, includingDescendants: Bool) {
@@ -1015,10 +1035,15 @@ struct PlaybackHistoryEntry: Identifiable, Codable {
     let watchedAt: Date
     let position: Double
     let duration: Double
+    var isCompleted: Bool? = nil
     var id: MediaID { mediaID }
+    var isFullyWatched: Bool {
+        isCompleted ?? (duration > 0 && position >= duration)
+    }
     var item: MediaItem {
         MediaItem(id: mediaID, title: title, resource: nil,
-                  embyItemID: source.kind == .emby ? mediaID.localID : nil, duration: duration)
+                  embyItemID: source.kind == .emby ? mediaID.localID : nil, duration: duration,
+                  isPlayed: isFullyWatched)
     }
 }
 

@@ -94,8 +94,12 @@ struct MediaView: View {
                                       artworkZoom: artworkZoom, openDetail: { path.append($0) })
             } else if let item = route.item {
                 if item.isEmbySeries {
-                    EmbySeriesDetailView(source: route.source, series: item)
-                        .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
+                    if route.origin == .carousel {
+                        EmbySeriesDetailView(source: route.source, series: item)
+                    } else {
+                        EmbySeriesDetailView(source: route.source, series: item)
+                            .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
+                    }
                 } else {
                     EmbyItemDetailView(source: route.source, item: item)
                 }
@@ -122,7 +126,7 @@ struct MediaView: View {
         return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: showsFeaturedRegion,
                                    showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
                                    onVerticalOffsetChange: updateEmbyShortcuts,
-                                   onTopPullChange: { updateEmbyShortcuts(offset: -$0) }) {
+                                   onTopPullChange: expandEmbyShortcuts(forTopPull:)) {
             VStack(alignment: .leading, spacing: 20) {
                 if let source = library.selectedSource, showsFeaturedRegion {
                     EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork,
@@ -347,10 +351,17 @@ struct MediaView: View {
 
     private func updateEmbyShortcuts(offset: CGFloat) {
         guard embyHomeSource != nil else { return }
-        let expanded = offset <= -18 || (showsEmbyShortcuts && offset <= 1)
+        let expanded = showsEmbyShortcuts && offset <= 1
         guard expanded != showsEmbyShortcuts else { return }
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
             showsEmbyShortcuts = expanded
+        }
+    }
+
+    private func expandEmbyShortcuts(forTopPull pull: CGFloat) {
+        guard pull >= 18, embyHomeSource != nil, !showsEmbyShortcuts else { return }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
+            showsEmbyShortcuts = true
         }
     }
 
@@ -360,9 +371,11 @@ struct MediaView: View {
             HStack(spacing: 0) {
                 refreshButton
                     .labelStyle(.iconOnly)
+                    .font(.system(size: 20, weight: .medium))
                     .frame(width: 44, height: 44)
                 favoritesButton(source)
                     .labelStyle(.iconOnly)
+                    .font(.system(size: 20, weight: .medium))
                     .frame(width: 44, height: 44)
                 sourceMenuButton
             }
@@ -707,9 +720,12 @@ struct EmbyFeaturedPage: View {
     var mirroredEdgeFraction: CGFloat = 0
     @Environment(\.colorScheme) private var colorScheme
     @State private var loadedArtwork: EmbyFeaturedArtwork?
+    @State private var loadedArtworkID: MediaID?
 
     var body: some View {
-        let images = featuredArtworkIsPrepared ? featuredArtwork : loadedArtwork
+        let images = featuredArtworkIsPrepared
+            ? featuredArtwork
+            : loadedArtworkID == item.id ? loadedArtwork : nil
         MediaThumbnail(source: source, item: item, cornerRadius: 0, fixedHeight: size.height,
                        preloadedData: images?.poster ?? artwork,
                        artworkIsPrepared: images?.poster != nil || artworkIsPrepared,
@@ -731,14 +747,18 @@ struct EmbyFeaturedPage: View {
                         .frame(height: size.height * 0.4)
 
                     VStack(spacing: 10) {
-                        if let logo = images?.logo, let image = UIImage(data: logo) {
-                            Image(uiImage: image).resizable().scaledToFit()
-                                .frame(maxWidth: size.width * 0.68, maxHeight: size.height * 0.15)
-                        } else {
-                            Text(verbatim: item.title)
-                                .font(.largeTitle.weight(.semibold))
-                                .lineLimit(2)
+                        Group {
+                            if let logo = images?.logo, let image = UIImage(data: logo) {
+                                Image(uiImage: image).resizable().scaledToFit()
+                            } else {
+                                Text(verbatim: item.title)
+                                    .font(.largeTitle.weight(.semibold))
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.75)
+                            }
                         }
+                        .frame(maxWidth: size.width * 0.68)
+                        .frame(height: size.height * 0.15)
                         VStack(spacing: 4) {
                             Text(verbatim: firstLine)
                             if !secondLine.isEmpty { Text(verbatim: secondLine) }
@@ -746,17 +766,23 @@ struct EmbyFeaturedPage: View {
                         .font(.subheadline)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
-                        if let seriesFooter {
-                            seriesFooter.padding(.top, 10)
-                        }
                     }
                     .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
                     .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.65), radius: 3, y: 1)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 20)
-                    .padding(.bottom, showsPageControl ? 60 : 18)
+                    .padding(.bottom, 60)
                     .frame(maxWidth: .infinity)
-                    .frame(minHeight: size.height * 0.4, alignment: .bottom)
+                    .frame(height: size.height * 0.4, alignment: .bottom)
+                    .overlay(alignment: .top) {
+                        if let seriesFooter {
+                            seriesFooter
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(height: size.height * 0.12, alignment: .top)
+                                .padding(.horizontal, 20)
+                                .padding(.top, 8)
+                        }
+                    }
                     .opacity(showsInformation ? 1 : 0)
                     .animation(.easeInOut(duration: 0.16), value: showsInformation)
                     .allowsHitTesting(false)
@@ -765,11 +791,16 @@ struct EmbyFeaturedPage: View {
                 .frame(maxWidth: .infinity)
             }
             .contentShape(Rectangle())
-            .task(id: item) {
+            .task(id: item.id) {
                 guard !featuredArtworkIsPrepared else { return }
-                loadedArtwork = nil
+                if loadedArtworkID != item.id {
+                    loadedArtwork = nil
+                    loadedArtworkID = nil
+                }
                 let images = await MediaThumbnailLoader.shared.featuredArtwork(for: item, source: source)
-                if !Task.isCancelled { loadedArtwork = images }
+                guard !Task.isCancelled else { return }
+                loadedArtwork = images
+                loadedArtworkID = item.id
             }
     }
 

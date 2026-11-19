@@ -15,6 +15,7 @@ struct MediaThumbnail: View {
     var cornerRadius: CGFloat = 12
     var fixedHeight: CGFloat? = nil
     var preloadedData: Data? = nil
+    var missingArtworkSymbol: String? = nil
     var artworkIsPrepared = false
     var mirroredEdgeFraction: CGFloat = 0
     var showsMissingArtwork = true
@@ -36,7 +37,7 @@ struct MediaThumbnail: View {
             if let historyEntry {
                 if source.kind == .local || source.kind == .photos {
                     MediaPlaybackStatus(position: historyEntry.position, duration: historyEntry.duration,
-                                        played: historyEntry.duration > 0 && historyEntry.position >= historyEntry.duration)
+                                        played: historyEntry.isFullyWatched)
                         .font(.caption2)
                         .padding(.horizontal, 8)
                         .padding(.bottom, 6)
@@ -101,7 +102,8 @@ struct MediaThumbnail: View {
             let finishedLoading = artworkIsPrepared || loadedArtwork?.key == loadKey
             ZStack {
                 if usesMediaCardBackdrop {
-                    MediaCardBackdrop(showsMissingArtwork: showsMissingArtwork && finishedLoading && cover == nil)
+                    MediaCardBackdrop(showsMissingArtwork: showsMissingArtwork && finishedLoading && cover == nil,
+                                      missingArtworkSymbol: missingArtworkSymbol)
                 } else {
                     Rectangle().fill(.regularMaterial)
                 }
@@ -146,6 +148,7 @@ struct MediaThumbnail: View {
 struct MediaCardBackdrop: View {
     var showsMissingArtwork = false
     var iconCenterY: CGFloat = 0.5
+    var missingArtworkSymbol: String? = nil
     @AppStorage("navigation.icons") private var navigationIcons = "{}"
 
     var body: some View {
@@ -154,7 +157,7 @@ struct MediaCardBackdrop: View {
                 if showsMissingArtwork {
                     GeometryReader { geometry in
                         let size = geometry.size
-                        Image(systemName: AppSection.media.symbol(configuredIcons: navigationIcons))
+                        Image(systemName: missingArtworkSymbol ?? AppSection.media.symbol(configuredIcons: navigationIcons))
                             .font(.system(size: min(44, min(size.width, size.height) * 0.28)))
                             .foregroundStyle(.secondary)
                             .position(x: size.width / 2, y: size.height * iconCenterY)
@@ -600,7 +603,10 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 }
                 playback.clearSavedProgress(for: item)
                 clearedServerProgress = true
-                if markPlayed { markedAsPlayed = true }
+                if markPlayed {
+                    playback.recordWatched(item, source: source)
+                    markedAsPlayed = true
+                }
             } catch {
                 watchError = error.localizedDescription
             }

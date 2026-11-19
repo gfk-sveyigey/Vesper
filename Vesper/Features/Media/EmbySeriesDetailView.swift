@@ -201,6 +201,8 @@ struct EmbySeriesDetailView: View {
             let margin = CGFloat(layout[.endPadding])
             let cardWidth = min(layout.episodeCardWidth, max(1, viewportWidth - margin * 2))
             episodeShelf(cardWidth: cardWidth)
+        } else if isLoading {
+            episodeLoadingPlaceholders(viewportWidth: viewportWidth)
         } else if let loadError {
             VStack(alignment: .leading, spacing: 8) {
                 Text(verbatim: loadError).font(.footnote).foregroundStyle(.secondary)
@@ -210,6 +212,23 @@ struct EmbySeriesDetailView: View {
         } else if !isLoading {
             Text("暂无分集").foregroundStyle(.secondary).padding(.horizontal, 20)
         }
+    }
+
+    private func episodeLoadingPlaceholders(viewportWidth: CGFloat) -> some View {
+        let margin = CGFloat(layout[.endPadding])
+        let cardWidth = min(layout.episodeCardWidth, max(1, viewportWidth - margin * 2))
+        return ScrollView(.horizontal) {
+            LazyHStack(spacing: 13) {
+                ForEach(0..<2, id: \.self) { _ in
+                    MediaCardBackdrop()
+                        .frame(width: cardWidth, height: layout.episodeCardHeight)
+                        .mediaArtworkBorder()
+                }
+            }
+        }
+        .contentMargins(.horizontal, margin, for: .scrollContent)
+        .scrollIndicators(.hidden)
+        .accessibilityLabel("正在加载分集")
     }
 
     @ViewBuilder
@@ -320,14 +339,11 @@ struct EmbySeriesDetailView: View {
                     VStack(spacing: 6) {
                         Group {
                             if let image = credit.image {
-                                MediaThumbnail(source: source, item: image, aspectRatio: 1)
+                                MediaThumbnail(source: source, item: image, aspectRatio: 1,
+                                               missingArtworkSymbol: "person.crop.circle.fill")
                             } else {
-                                VesperTheme.mediaCardBackground
-                                    .overlay {
-                                        Image(systemName: "person.crop.circle.fill")
-                                            .font(.system(size: 36))
-                                            .foregroundStyle(.secondary)
-                                    }
+                                MediaCardBackdrop(showsMissingArtwork: true,
+                                                  missingArtworkSymbol: "person.crop.circle.fill")
                             }
                         }
                         .frame(width: 78, height: 78)
@@ -422,6 +438,9 @@ struct EmbySeriesDetailView: View {
                     }
                 }
                 playback.clearSavedProgress(for: episode.item)
+                if markPlayed {
+                    playback.recordWatched(episode.item, source: source)
+                }
             } catch { actionError = error.localizedDescription }
         }
     }

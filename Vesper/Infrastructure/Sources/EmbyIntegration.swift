@@ -213,13 +213,19 @@ actor EmbyRepository {
             let role = (value["Role"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? value["Type"] as? String ?? ""
             return EmbyCredit(id: "\(index)", name: name, role: role, image: image)
         }
+        let providers = response["ProviderIds"] as? [String: String] ?? [:]
+        let traktID = providers.first(where: { $0.key.caseInsensitiveCompare("Trakt") == .orderedSame })?.value
         var links = (response["ExternalUrls"] as? [[String: Any]] ?? []).compactMap { value -> EmbyExternalLink? in
             guard let name = value["Name"] as? String, let raw = value["Url"] as? String,
+                  !(name.localizedCaseInsensitiveContains("trakt") && traktID != nil),
                   let url = URL(string: raw), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
                   url.host != nil, url.user == nil, url.password == nil else { return nil }
             return EmbyExternalLink(name: name, url: url)
         }
-        let providers = response["ProviderIds"] as? [String: String] ?? [:]
+        if let traktID, traktID.utf8.allSatisfy({ (48...57).contains($0) }),
+           let url = URL(string: "https://trakt.tv/\(item.isEmbySeries ? "shows" : "movies")/\(traktID)") {
+            links.append(EmbyExternalLink(name: "Trakt", url: url))
+        }
         for (provider, name, base) in [("Imdb", "IMDb", "https://www.imdb.com/title/"),
                                        ("Tmdb", "TMDb", "https://www.themoviedb.org/tv/"),
                                        ("Douban", "豆瓣", "https://movie.douban.com/subject/")] {
