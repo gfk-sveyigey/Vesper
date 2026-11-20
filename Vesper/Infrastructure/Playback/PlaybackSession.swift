@@ -81,8 +81,9 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         preferencesObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .sink { [weak self] _ in
                 Task { @MainActor in
-                    guard let self, self.appliedBackgroundPolicy != self.backgroundPolicyID else { return }
-                    self.refreshPlaybackPreferences()
+                    guard let self else { return }
+                    self.refreshSkipMarkers()
+                    if self.appliedBackgroundPolicy != self.backgroundPolicyID { self.refreshPlaybackPreferences() }
                 }
             }
         let savedRate = UserDefaults.standard.float(forKey: "player.playbackRate")
@@ -120,6 +121,11 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var embySession: EmbyPlaybackSession?
     private var request: Task<Void, Never>?
     private var generation = UUID()
+    private var skipMarkers = EmbySkipMarkers.empty
+    private var skipLookupTask: Task<Void, Never>?
+    private var skipLookupIdentity: String?
+    private var skippedIntroEnds = Set<Double>()
+    private var skippedCredits = false
     @Published private(set) var queue: [MediaItem] = []
     private var source: MediaSource?
     private var externalFile: IncomingVideo?
@@ -194,6 +200,11 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         let item = warmed?.item ?? item
         request?.cancel()
         generation = UUID()
+        skipLookupTask?.cancel()
+        skipMarkers = .empty
+        skipLookupIdentity = nil
+        skippedIntroEnds = []
+        skippedCredits = false
         let token = generation
         let previousState = core.snapshot
         let carriesSelection = currentItem?.id == item.id && position != nil
@@ -236,6 +247,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                     return
                 }
                 self.resource = resolved
+                self.refreshSkipMarkers()
                 self.progressRestored = true
                 if let source, source.kind == .emby, let playSessionID = resolved.embyPlaySessionID {
                     let session = EmbyPlaybackSession(source: source, item: item, playSessionID: playSessionID,
@@ -1073,9 +1085,63 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         if discardBytes { AetherSourcePrewarm.discard() }
     }
 
+    private func refreshSkipMarkers() {
+        guard let item = currentItem, let source, source.kind == .emby, resource != nil else { return }
+        guard EmbySkipSettings.introEnabled || EmbySkipSettings.outroEnabled else {
+            skipLookupTask?.cancel(); skipLookupTask = nil; skipLookupIdentity = nil; skipMarkers = .empty
+            return
+        }
+        let resourceDuration = resource?.duration ?? 0
+        let knownDuration = resourceDuration > 0 ? resourceDuration : duration
+        guard knownDuration.isFinite, knownDuration > 0, knownDuration < Double(Int64.max) / 1000 else { return }
+        let configuration = UserDefaults.standard.string(forKey: EmbySkipSettings.databasesKey) ?? ""
+        let identity = "\(item.id.localID)|\(resource?.embyMediaSourceID ?? "")|\(Int(knownDuration))|\(configuration)"
+        guard identity != skipLookupIdentity else { return }
+        skipLookupTask?.cancel()
+        skipLookupIdentity = identity
+        skipMarkers = .empty
+        let token = generation
+        var target = item
+        target.embyMediaSourceID = resource?.embyMediaSourceID ?? item.embyMediaSourceID
+        skipLookupTask = Task { [weak self] in
+            let markers = await EmbySkipLookup.shared.markers(for: target, source: source, duration: knownDuration)
+            guard !Task.isCancelled, let self, self.generation == token, self.skipLookupIdentity == identity else { return }
+            self.skipMarkers = markers
+            self.skipLookupTask = nil
+        }
+    }
+
+    private var nextEpisodePreloadPosition: Double {
+        let fraction = Double(EmbyPreloadCacheSettings.nextPercent) / 100
+        guard UserDefaults.standard.bool(forKey: EmbySkipSettings.bodyPreloadKey) else { return duration * fraction }
+        return skipMarkers.preloadPosition(duration: duration, fraction: fraction,
+                                          introEnabled: EmbySkipSettings.introEnabled, outroEnabled: EmbySkipSettings.outroEnabled)
+    }
+
+    /// Automatic actions never run while scrubbing, paused, loading or on a non-Emby source.
+    private func applySkipMarkers() -> Bool {
+        guard source?.kind == .emby, isPlaying, !isLoading, !isSeeking, !seekInFlight, duration > 0 else { return false }
+        if EmbySkipSettings.introEnabled, canSeek,
+           let interval = skipMarkers.intros.first(where: { currentTime >= $0.start && currentTime < $0.end && !skippedIntroEnds.contains($0.end) }),
+           interval.end < duration {
+            skippedIntroEnds.insert(interval.end)
+            seek(to: interval.end, resume: true)
+        }
+        if EmbySkipSettings.outroEnabled, !skippedCredits, currentItem?.embyItemType == "Episode", hasNext,
+           let currentItem, let index = queue.firstIndex(where: { $0.id == currentItem.id }),
+           queue[index + 1].embyItemType == "Episode",
+           let start = skipMarkers.creditsStart, start < duration, currentTime >= start {
+            skippedCredits = true
+            next()
+            return true
+        }
+        return false
+    }
+
     private func prepareNextEpisodeIfNeeded() {
+        if UserDefaults.standard.bool(forKey: EmbySkipSettings.bodyPreloadKey), skipLookupTask != nil { return }
         guard isPlaying, !isLoading, !isSeeking, currentEngine == .aether,
-              duration > 0, currentTime > 0, duration - currentTime <= 120,
+              duration > 0, currentTime >= nextEpisodePreloadPosition,
               let source, source.kind == .emby, let item = currentItem, item.embyItemType == "Episode",
               let index = queue.firstIndex(where: { $0.id == item.id }), index + 1 < queue.count,
               queue[index + 1].embyItemType == "Episode",
@@ -1127,15 +1193,14 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 guard warmed, self.generation == token, self.nextPreparationID == target.id else { return }
                 self.preparedNext = (selected, source.id, resource)
                 retained = true
-                // Bound lifetime and discard on disallowed network/settings changes.
-                for _ in 0..<300 {
+                // Keep the warm until consumed, stopped, replaced, or disallowed by network policy.
+                while !Task.isCancelled {
                     try await Task.sleep(for: .seconds(1))
                     guard self.generation == token else { return }
                     let allowed = await EmbyPreloadCacheSettings.allowsNextEpisode()
                     guard !Task.isCancelled, self.generation == token else { return }
                     guard allowed else { self.cancelNextPreparation(); return }
                 }
-                self.cancelNextPreparation()
             } catch {
                 // Preloading is best-effort; playback errors belong only to the active video.
                 if self.generation == token { self.cancelNextPreparation() }
@@ -1161,6 +1226,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         saveProgress()
         recordPlaybackHistory()
         cancelNextPreparation()
+        skipLookupTask?.cancel()
+        skipLookupTask = nil
         request?.cancel()
         request = nil
         generation = UUID()
@@ -1261,6 +1328,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         embySession?.update(position: currentTime, paused: !isPlaying, rate: playbackRate,
                             remembersProgress: PlaybackPreferences.remembersProgress,
                             ready: !isLoading && (state.phase == .playing || state.phase == .paused || state.phase == .ended))
+        refreshSkipMarkers()
+        if applySkipMarkers() { return }
         prepareNextEpisodeIfNeeded()
         refreshTracks(); updateSubtitles(); configurePictureInPicture()
         // SwiftVLC retains its native AVKit delegate; consume its observable PiP state.

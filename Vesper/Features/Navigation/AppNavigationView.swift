@@ -132,17 +132,23 @@ struct AppNavigationView: View {
             // Tab bar images need an intrinsic, point-sized canvas rather than
             // the full-resolution source image.
             let size: CGFloat = 25
-            let icon = UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { _ in
+            let format = UIGraphicsImageRendererFormat()
+            format.opaque = false
+            let icon = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format).image { _ in
                 let bounds = CGRect(x: 0, y: 0, width: size, height: size)
-                UIBezierPath(roundedRect: bounds, cornerRadius: size * 0.23).addClip()
+                if customIcon != nil {
+                    UIBezierPath(roundedRect: bounds, cornerRadius: size * 0.23).addClip()
+                }
                 let scale = customIcon == nil
                     ? min(size / image.size.width, size / image.size.height)
                     : max(size / image.size.width, size / image.size.height)
                 let width = image.size.width * scale
                 let height = image.size.height * scale
-                image.draw(in: CGRect(x: (size - width) / 2, y: (size - height) / 2, width: width, height: height))
+                image.withRenderingMode(.alwaysOriginal)
+                    .draw(in: CGRect(x: (size - width) / 2, y: (size - height) / 2, width: width, height: height))
             }
-            return Image(uiImage: icon).renderingMode(.original)
+            // Preserve this flag across SwiftUI's conversion to the native tab item.
+            return Image(uiImage: icon.withRenderingMode(.alwaysOriginal)).renderingMode(.original)
         }
     }
 

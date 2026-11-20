@@ -345,6 +345,11 @@ enum EmbyPreloadCacheSettings {
     static let choices = [100, 250, 500, 1000, 2000]
     static let nextWiFiKey = "emby.preload.next.wifi"
     static let nextCellularKey = "emby.preload.next.cellular"
+    static let nextPercentKey = "emby.preload.next.percent"
+    static var nextPercent: Int {
+        let value = UserDefaults.standard.object(forKey: nextPercentKey) as? Int ?? 90
+        return min(99, max(1, value))
+    }
 
     static func allowsNextEpisode() async -> Bool {
         let cellular = await usesCellularBudget()

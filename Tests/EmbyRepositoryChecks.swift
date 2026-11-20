@@ -4,6 +4,7 @@ import Foundation
 struct EmbyRepositoryChecks {
     @MainActor static func main() async throws {
         checkVersionMatching()
+        try checkSkipMarkers()
         UserDefaults.standard.set(true, forKey: EmbyUserAgentPolicy.enabledKey)
         UserDefaults.standard.set("CustomVesper", forKey: EmbyUserAgentPolicy.nameKey)
         UserDefaults.standard.set("2.0", forKey: EmbyUserAgentPolicy.versionKey)
@@ -205,6 +206,21 @@ struct EmbyRepositoryChecks {
         precondition(EmbyVersionMatcher.bestIndex(current: current, candidates: []) == nil)
         precondition(EmbyVersionMatcher.bestIndex(current: Format(), candidates: [hdr, matching]) == 0)
         precondition(EmbyVersionMatcher.bestIndex(current: current, candidates: [matching, matching]) == 0)
+    }
+
+    private static func checkSkipMarkers() throws {
+        let intro = Data(#"{"intro":{"start_ms":10000,"end_ms":70000},"outro":{"start_ms":550000,"end_ms":600000}}"#.utf8)
+        let value = try EmbySkipMarkers.decode(intro, format: .introDB, duration: 600)
+        precondition(value.intros == [.init(start: 10, end: 70)] && value.creditsStart == 550)
+        precondition(value.preloadPosition(duration: 600, fraction: 0.8, introEnabled: true, outroEnabled: true) == 452)
+        precondition(value.preloadPosition(duration: 600, fraction: 0.8, introEnabled: false, outroEnabled: false) == 480)
+        let v4 = Data(#"{"intro":[{"start_ms":null,"end_ms":30000},{"start_ms":20000,"end_ms":40000}],"credits":[{"start_ms":500000,"end_ms":null}]}"#.utf8)
+        let merged = try EmbySkipMarkers.decode(v4, format: .theIntroDB, duration: 600)
+        precondition(merged.intros == [.init(start: 0, end: 40)] && merged.creditsStart == 500)
+        let invalid = Data(#"{"intro":{"start_ms":80000,"end_ms":10000},"outro":{"start_ms":900000}}"#.utf8)
+        let rejected = try EmbySkipMarkers.decode(invalid, format: .introDB, duration: 600)
+        precondition(!rejected.hasData)
+        precondition(EmbySkipDatabase.builtins.count == 2 && EmbySkipDatabase.builtins.allSatisfy(\.isBuiltin))
     }
 
 }

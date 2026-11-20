@@ -168,6 +168,11 @@ struct SettingsView: View {
 }
 
 private struct EmbySettingsView: View {
+    @AppStorage(EmbySkipSettings.introKey) private var skipIntro = false
+    @AppStorage(EmbySkipSettings.outroKey) private var skipOutro = false
+    @AppStorage(EmbySkipSettings.bodyPreloadKey) private var bodyPreload = false
+    @State private var showsSkipDatabases = false
+    @AppStorage(EmbyPreloadCacheSettings.nextPercentKey) private var preloadNextPercent = 90
     @AppStorage(EmbyPreloadCacheSettings.nextWiFiKey) private var preloadNextWiFi = true
     @AppStorage(EmbyPreloadCacheSettings.nextCellularKey) private var preloadNextCellular = false
     @AppStorage(EmbyPreloadCacheSettings.wifiKey) private var wifiCacheMB = 500
@@ -179,10 +184,27 @@ private struct EmbySettingsView: View {
 
     var body: some View {
         SettingsPage {
+            SettingsSection("跳过片头片尾") {
+                Toggle("自动跳过片头", isOn: $skipIntro)
+                Toggle("片尾自动播放下一集", isOn: $skipOutro)
+                Button { showsSkipDatabases = true } label: {
+                    HStack {
+                        Text("片头片尾数据库")
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }
+                }
+                Text("按数据库顺序查询，首个有效结果命中后停止。不支持手动标记；外部媒体 ID、季集编号和视频时长会发送给已启用的数据库。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             SettingsSection("预加载下一集") {
                 Toggle("Wi-Fi 下预加载", isOn: $preloadNextWiFi)
                 Toggle("蜂窝网络下预加载", isOn: $preloadNextCellular)
-                Text("Aether 播放分集剩余两分钟时，按当前版本的封装、编码、动态范围及分辨率选择下一集版本，预读开头约 8 MB，必要时读取尾部索引。五分钟后释放；停止、切换视频或网络策略不允许时取消。VLC 和原生远程 HLS 暂不支持。")
+                Toggle("按正片时长预加载", isOn: $bodyPreload)
+                Stepper(value: $preloadNextPercent, in: 1...99) {
+                    LabeledContent("预加载触发进度", value: "\(preloadNextPercent)%")
+                }
+                Text("Aether 播放分集达到设定百分比时，按当前版本的封装、编码、动态范围及分辨率选择下一集版本，预读开头约 8 MB，必要时读取尾部索引。预读缓存不设定时过期；播放下一集时复用，停止、切换视频或网络策略不允许时清理。VLC 和原生远程 HLS 暂不支持。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -220,9 +242,97 @@ private struct EmbySettingsView: View {
                 Toggle("无对应语言时关闭字幕", isOn: $disableMissingSubtitle)
             }
         }
+        .sheet(isPresented: $showsSkipDatabases) { EmbySkipDatabasesView() }
         .task {
             if ["zho", "chi", "zh"].contains(audioLanguage) { audioLanguage = "zh-Hans" }
             if ["zho", "chi", "zh"].contains(subtitleLanguage) { subtitleLanguage = "zh-Hans" }
+        }
+    }
+}
+
+private struct EmbySkipDatabasesView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var databases = EmbySkipSettings.databases
+    @State private var editing: EmbySkipDatabase?
+    @State private var adding = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach($databases) { $database in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle(database.name, isOn: $database.enabled)
+                            Text(database.address).font(.caption).foregroundStyle(.secondary)
+                            HStack {
+                                Text(database.format.title).font(.caption).foregroundStyle(.secondary)
+                                Spacer()
+                                if database.isBuiltin { Text("内置").font(.caption).foregroundStyle(.secondary) }
+                                else { Button("编辑") { editing = database }.buttonStyle(.borderless) }
+                            }
+                        }
+                        .deleteDisabled(database.isBuiltin)
+                    }
+                    .onMove { databases.move(fromOffsets: $0, toOffset: $1) }
+                    .onDelete { offsets in
+                        for index in offsets.sorted(by: >) where !databases[index].isBuiltin { databases.remove(at: index) }
+                    }
+                } footer: {
+                    Text("从上到下查询。内置数据库只能启用、停用和调整顺序，不能修改或删除。自定义地址需使用 HTTPS。")
+                }
+                Button("添加数据库", systemImage: "plus") { adding = true }
+            }
+            .navigationTitle("片头片尾数据库")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { EditButton() }
+                ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
+            }
+            .onChange(of: databases) { _, value in EmbySkipSettings.save(value) }
+            .sheet(isPresented: $adding) {
+                EmbySkipDatabaseEditor(database: .init(name: "", address: "https://", format: .introDB)) { databases.append($0) }
+            }
+            .sheet(item: $editing) { value in
+                EmbySkipDatabaseEditor(database: value) { edited in
+                    if let index = databases.firstIndex(where: { $0.id == edited.id }) { databases[index] = edited }
+                }
+            }
+        }
+    }
+}
+
+private struct EmbySkipDatabaseEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State var database: EmbySkipDatabase
+    let save: (EmbySkipDatabase) -> Void
+    private var valid: Bool {
+        guard !database.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let url = URL(string: database.address.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+        return url.scheme?.lowercased() == "https" && url.host != nil && url.user == nil && url.password == nil
+            && url.query == nil && url.fragment == nil
+    }
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("名称", text: $database.name)
+                TextField("API 基础地址", text: $database.address)
+                    .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Picker("数据库格式", selection: $database.format) {
+                    ForEach(EmbySkipDatabase.Format.allCases) { Text($0.title).tag($0) }
+                }
+                Text("IntroDB 填写 /segments 之前的地址；TheIntroDB 可填写服务根地址或含 /v4 的地址。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            .navigationTitle("数据库设置")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        database.name = database.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                        database.address = database.address.trimmingCharacters(in: .whitespacesAndNewlines)
+                        save(database); dismiss()
+                    }.disabled(!valid || database.isBuiltin)
+                }
+            }
         }
     }
 }

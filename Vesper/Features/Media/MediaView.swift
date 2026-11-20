@@ -1578,6 +1578,19 @@ private enum EmbyBrowserSort: String, CaseIterable, Identifiable {
     case rating = "CommunityRating", lastPlayed = "DatePlayed", runtime = "Runtime"
     case resolution = "Resolution", size = "Size"
     var id: String { rawValue }
+    var symbol: String {
+        switch self {
+        case .name: "textformat.abc"
+        case .added: "calendar.badge.plus"
+        case .released: "calendar"
+        case .year: "calendar"
+        case .rating: "star"
+        case .lastPlayed: "clock.arrow.circlepath"
+        case .runtime: "timer"
+        case .resolution: "tv"
+        case .size: "internaldrive"
+        }
+    }
     var title: LocalizedStringKey {
         switch self {
         case .name: "名称"
@@ -1609,7 +1622,7 @@ private struct EmbySeriesBrowserView: View {
     @State private var nextOffset = 0
     @State private var errorMessage: String?
     @State private var loadGeneration = UUID()
-    @AppStorage("emby.browser.layout") private var displayLayout: EmbyBrowserLayout = .grid
+    @AppStorage("emby.browser.layout") private var displayLayout: EmbyBrowserLayout = .list
     @AppStorage("emby.browser.sort") private var sortField: EmbyBrowserSort = .added
     @AppStorage("emby.browser.ascending") private var ascending = false
 
@@ -1662,14 +1675,14 @@ private struct EmbySeriesBrowserView: View {
                             Label(value.title, systemImage: value.symbol).tag(value)
                         }
                     }
-                    Picker("排序依据", selection: $sortField) {
-                        ForEach(EmbyBrowserSort.allCases) { value in
-                            Text(value.title).tag(value)
-                        }
-                    }
                     Picker("排序方式", selection: $ascending) {
                         Label("正序", systemImage: "arrow.up").tag(true)
                         Label("倒序", systemImage: "arrow.down").tag(false)
+                    }
+                    Picker("排序依据", selection: $sortField) {
+                        ForEach(EmbyBrowserSort.allCases) { value in
+                            Label(value.title, systemImage: value.symbol).tag(value)
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis")

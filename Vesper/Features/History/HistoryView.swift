@@ -108,7 +108,7 @@ private struct HistoryMediaCard: View {
                     if !episodeParts.isEmpty { lines.append(episodeParts.joined(separator: " · ")) }
                     let episodeTitle = metadata.item.title.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !episodeTitle.isEmpty, episodeTitle != series.title { lines.append(episodeTitle) }
-                    title = lines.joined(separator: "\n")
+                    title = lines.joined(separator: " · ")
                 } else if metadata.item.embyItemType == "Episode" {
                     // Missing parent metadata must not switch this history card to an episode Thumb.
                     poster.embyItemType = "Movie"

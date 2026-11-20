@@ -271,6 +271,7 @@ struct EmbyMediaDetailView: View {
     @State private var seasonMovesForward = true
     @State private var openedEpisodeID: MediaID?
     @State private var hasScrolled = false
+    @Namespace private var toolbarMorph
     @Namespace private var recommendationZoom
     @State private var busy: Set<MediaID> = []
     @State private var openedRecommendation: MediaItem?
@@ -391,31 +392,45 @@ struct EmbyMediaDetailView: View {
                     .accessibilityHidden(true)
             }
             .sharedBackgroundVisibility(.hidden)
-            if hasScrolled {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        versionMenu
-                        trackMenu(type: "Audio", symbol: "speaker.wave.2")
-                        trackMenu(type: "Subtitle", symbol: "captions.bubble")
-                        favoriteButton
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .foregroundStyle(.primary)
+            ToolbarItem(placement: .topBarTrailing) {
+                GlassEffectContainer(spacing: 12) {
+                    HStack(spacing: 12) {
+                        if hasScrolled {
+                            Menu {
+                                versionMenu
+                                trackMenu(type: "Audio", symbol: "waveform")
+                                trackMenu(type: "Subtitle", symbol: "captions.bubble")
+                                favoriteButton
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .frame(width: 44, height: 44)
+                            }
+                            .accessibilityLabel("媒体操作")
+                            .glassEffect(.regular, in: .capsule)
+                            .glassEffectID("mediaActions", in: toolbarMorph)
+                            .glassEffectTransition(.matchedGeometry)
+                        } else {
+                            HStack(spacing: 0) {
+                                versionMenu.frame(width: 44, height: 44)
+                                trackMenu(type: "Audio", symbol: "waveform").frame(width: 44, height: 44)
+                                trackMenu(type: "Subtitle", symbol: "captions.bubble").frame(width: 44, height: 44)
+                            }
+                            .glassEffect(.regular, in: .capsule)
+                            .glassEffectID("mediaActions", in: toolbarMorph)
+                            .glassEffectTransition(.matchedGeometry)
+                            favoriteButton.frame(width: 44, height: 44)
+                                .labelStyle(.iconOnly)
+                                .glassEffect(.regular, in: .capsule)
+                                .glassEffectID("favorite", in: toolbarMorph)
+                                .glassEffectTransition(.matchedGeometry)
+                        }
                     }
-                    .accessibilityLabel("媒体操作")
-                    .tint(Color(uiColor: .label))
                 }
-            } else {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    versionMenu
-                    trackMenu(type: "Audio", symbol: "speaker.wave.2")
-                    trackMenu(type: "Subtitle", symbol: "captions.bubble")
-                }
-                ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                ToolbarItem(placement: .topBarTrailing) {
-                    favoriteButton
-                }
+                .animation(reduceMotion ? nil : .snappy(duration: 0.3), value: hasScrolled)
+                .tint(Color(uiColor: .label))
+                .foregroundStyle(.primary)
             }
+            .sharedBackgroundVisibility(.hidden)
             if showsCloseButton {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("关闭", systemImage: "xmark") { dismiss() }
@@ -443,6 +458,13 @@ struct EmbyMediaDetailView: View {
         )) {
             Button("好", role: .cancel) { actionError = nil }
         } message: { Text(verbatim: actionError ?? "") }
+        .task(id: "skip:\(item.id.localID):\(selectedEpisodeID?.localID ?? ""):\(selectedVersion?.id ?? "")") {
+            let target = series.isEmbySeries ? episodes.first(where: { $0.id == selectedEpisodeID })?.item : item
+            guard var target else { return }
+            target.embyMediaSourceID = selectedVersion?.id ?? target.embyMediaSourceID
+            _ = await EmbySkipLookup.shared.markers(for: target, source: source,
+                                                    duration: selectedVersion?.duration ?? target.duration ?? 0)
+        }
         .task(id: selectedEpisodeID) {
             guard series.isEmbySeries else { return }
             episodeVersions = []
@@ -570,7 +592,8 @@ struct EmbyMediaDetailView: View {
                 }
             }
         } label: {
-            Image(systemName: "rectangle.stack")
+            if hasScrolled { Label("版本", systemImage: "rectangle.stack").labelStyle(.titleAndIcon) }
+            else { Image(systemName: "rectangle.stack") }
         }
         .tint(Color(uiColor: .label))
         .foregroundStyle(.primary)
@@ -582,7 +605,7 @@ struct EmbyMediaDetailView: View {
         let audio = type == "Audio"
         let tracks = selectedVersion?.streams.filter { $0.type == type } ?? []
         return Menu {
-            Picker(audio ? "音轨" : "字幕", selection: Binding<Int?>(
+            Picker(audio ? "音频" : "字幕", selection: Binding<Int?>(
                 get: { audio ? selectedAudioIndex : selectedSubtitleIndex },
                 set: { index in
                     if audio { selectedAudioIndex = index }
@@ -596,11 +619,12 @@ struct EmbyMediaDetailView: View {
                 }
             }
         } label: {
-            Image(systemName: symbol)
+            if hasScrolled { Label(audio ? "音频" : "字幕", systemImage: symbol).labelStyle(.titleAndIcon) }
+            else { Image(systemName: symbol) }
         }
         .tint(Color(uiColor: .label))
         .foregroundStyle(.primary)
-        .accessibilityLabel(audio ? "音轨" : "字幕")
+        .accessibilityLabel(audio ? "音频" : "字幕")
         .disabled(selectedVersion == nil || (series.isEmbySeries && versionsEpisodeID != selectedEpisodeID))
     }
 
