@@ -961,7 +961,8 @@ private struct PlayerQueueRow: View {
     var body: some View {
         HStack(spacing: 14) {
             if let source = session.queueSource {
-                MediaThumbnail(source: source, item: item, aspectRatio: 16.0 / 9.0, logsQueueDiagnostics: true,
+                MediaThumbnail(source: source, item: item, aspectRatio: 16.0 / 9.0,
+                               imageOrientation: .landscape, logsQueueDiagnostics: true,
                                usesMediaCardBackdrop: false)
                     .frame(width: 104, height: 58.5)
             }

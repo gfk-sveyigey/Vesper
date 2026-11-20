@@ -398,7 +398,8 @@ struct EmbyMediaDetailView: View {
 
     private var episodeHero: some View {
         VStack(alignment: .leading, spacing: 12) {
-            MediaThumbnail(source: source, item: item, aspectRatio: 16.0 / 9.0, cornerRadius: 0)
+            MediaThumbnail(source: source, item: item, aspectRatio: 16.0 / 9.0,
+                           imageOrientation: .landscape, cornerRadius: 0)
             VStack(alignment: .leading, spacing: 8) {
                 let number = episodeNumberLabel == episodeTitle ? nil : episodeNumberLabel
                 let season = (metadata?.seasonNumber ?? episode?.season).map(embySeasonName)
@@ -554,7 +555,7 @@ struct EmbyMediaDetailView: View {
                 openedRecommendation = parent
             } label: {
                 HStack(spacing: 12) {
-                    MediaThumbnail(source: source, item: parent)
+                    MediaThumbnail(source: source, item: parent, imageOrientation: .portrait)
                         .frame(width: 44)
                         .mediaArtworkBorder()
                     VStack(alignment: .leading, spacing: 4) {
@@ -844,7 +845,7 @@ struct EmbyMediaDetailView: View {
             shelf {
                 ForEach(similar) { item in
                     Button { openedRecommendation = item } label: {
-                        MediaThumbnail(source: source, item: item)
+                        MediaThumbnail(source: source, item: item, imageOrientation: .portrait)
                             .frame(width: CGFloat(layout[.itemWidth]), height: CGFloat(layout[.itemHeight]))
                             .mediaArtworkBorder()
                             .matchedTransitionSource(id: item.id, in: recommendationZoom)
@@ -869,6 +870,7 @@ struct EmbyMediaDetailView: View {
                             Group {
                                 if let image = credit.image {
                                     MediaThumbnail(source: source, item: image, aspectRatio: 1,
+                                                   imageOrientation: .square,
                                                    missingArtworkSymbol: "person.crop.circle.fill")
                                 } else {
                                     MediaCardBackdrop(showsMissingArtwork: true,
@@ -1132,9 +1134,7 @@ private struct EmbyEpisodeCard: View {
     }
 
     private var artworkKey: String {
-        let aspectRatio = width / max(1, height)
-        let orientation = aspectRatio > 1 ? "landscape" : aspectRatio < 1 ? "portrait" : "square"
-        return "\(AppCacheStore.embyArtworkKey(for: episode.item, source: source))|\(orientation)"
+        "\(AppCacheStore.embyArtworkKey(for: episode.item, source: source))|landscape"
     }
 
     private var artwork: EpisodeArtwork? {
@@ -1201,7 +1201,8 @@ private struct EmbyEpisodeCard: View {
         .task(id: artworkKey) {
             let key = artworkKey
             let data = await MediaThumbnailLoader.shared.load(episode.item, source: source,
-                                                              aspectRatio: width / max(1, height))
+                                                              aspectRatio: width / max(1, height),
+                                                              imageOrientation: .landscape)
             guard !Task.isCancelled else { return }
             let image = data.flatMap { UIImage(data: $0) }
             let bottomStrip = image.flatMap(\.cgImage).flatMap { cgImage in

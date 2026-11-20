@@ -154,7 +154,8 @@ struct LocalFilesView<SourceMenu: View>: View {
                             .font(.system(size: 48)).foregroundStyle(.tint)
                     }
             } else if VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
-                MediaThumbnail(source: source, item: mediaItem(entry), playback: playback, fixedHeight: layout.thumbnailHeight)
+                MediaThumbnail(source: source, item: mediaItem(entry), playback: playback,
+                               imageOrientation: .portrait, fixedHeight: layout.thumbnailHeight)
                     .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
             } else {
                 RoundedRectangle(cornerRadius: 12)

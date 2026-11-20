@@ -36,6 +36,7 @@ struct HistoryView: View {
                                             playback.play(entry.item, in: source, queue: group.entries.map(\.item))
                                         } label: {
                                             MediaThumbnail(source: source, item: entry.item, playback: playback, historyEntry: entry,
+                                                           imageOrientation: .portrait,
                                                            usesMediaCardBackdrop: false)
                                                 .frame(width: 132, height: 198)
                                         }

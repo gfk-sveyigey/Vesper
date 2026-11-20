@@ -168,8 +168,8 @@ private struct EmbyItemImage: Sendable {
     let height: Int
 }
 
-private enum EmbyImageOrientation: Equatable {
-    case portrait, landscape
+enum EmbyImageOrientation: String, Equatable, Sendable {
+    case portrait, landscape, square
 }
 
 enum EmbyBrowseScope: Equatable, Sendable {
@@ -834,14 +834,15 @@ actor EmbyRepository {
         }
     }
 
-    func thumbnailData(for item: MediaItem, source: MediaSource, aspectRatio: Double) async -> Data? {
+    func thumbnailData(for item: MediaItem, source: MediaSource,
+                       orientation: EmbyImageOrientation) async -> Data? {
         guard let client = try? await clientProvider(source) else { return nil }
         if item.embyItemType == "Person" {
             guard let imageURL = item.imageURL, client.sameOrigin(imageURL) else { return nil }
             return await fetchThumbnail(imageURL, client: client)
         }
 
-        let orientation = imageOrientation(for: aspectRatio)
+        let preferredOrientation = orientation == .square ? nil : orientation
         let isPosterItem = ["Movie", "Series"].contains(item.embyItemType ?? "")
         let isEpisode = item.embyItemType == "Episode"
         let preferredTypes: [String]
@@ -853,17 +854,12 @@ actor EmbyRepository {
             preferredTypes = ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
         }
         for image in await selectedImages(for: item, source: source, client: client,
-                                          preferredTypes: preferredTypes, preferredOrientation: orientation)
+                                          preferredTypes: preferredTypes, preferredOrientation: preferredOrientation)
             where client.sameOrigin(image) {
             guard !Task.isCancelled else { return nil }
             if let data = await fetchThumbnail(image, client: client) { return data }
         }
         return nil
-    }
-
-    private func imageOrientation(for aspectRatio: Double?) -> EmbyImageOrientation? {
-        guard let aspectRatio, aspectRatio.isFinite, aspectRatio > 0, aspectRatio != 1 else { return nil }
-        return aspectRatio > 1 ? .landscape : .portrait
     }
 
     private func selectedImages(for item: MediaItem, source: MediaSource, client: EmbyAPIClient,
