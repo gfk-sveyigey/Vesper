@@ -145,7 +145,7 @@ private struct SeriesHeroWatchButtonStyle: ButtonStyle {
         configuration.label
             .foregroundStyle(Color(uiColor: .label))
             .background(Color(uiColor: .systemGray5).opacity(configuration.isPressed ? 0.82 : 1))
-            .overlay(Circle().strokeBorder(Color(uiColor: .label), lineWidth: 1))
+            .overlay(Circle().strokeBorder(Color(uiColor: .systemGray3), lineWidth: 1))
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
     }
 }
@@ -246,6 +246,7 @@ struct EmbyMediaDetailView: View {
     let series: MediaItem
     var showsCloseButton = false
     var startsWithCarouselInformationHidden = false
+    var initialHeroArtwork: EmbyFeaturedArtwork? = nil
     var episode: EmbyEpisode? = nil
     var parentSeries: MediaItem? = nil
 
@@ -283,6 +284,8 @@ struct EmbyMediaDetailView: View {
     @State private var clearedServerProgress = false
     @State private var carouselDetailReady = false
     @State private var detailDataReady = false
+    @State private var screenshots: [Data] = []
+    @State private var initialEpisodeArtworkIDs: Set<MediaID> = []
     @State private var preparedArtwork: [MediaID: Data] = [:]
     private var detailContentReady: Bool {
         detailDataReady && (!series.isEmbySeries || pendingInitialEpisodeID == nil)
@@ -342,6 +345,7 @@ struct EmbyMediaDetailView: View {
                                     .padding(.horizontal, CGFloat(layout[.endPadding]))
                                 }
                             }
+                            screenshotSection
                             similarSection
                             creditsSection
                             linksSection
@@ -449,6 +453,8 @@ struct EmbyMediaDetailView: View {
             EmbyFeaturedPage(source: source, item: item, size: geometry.size,
                              artwork: nil, artworkIsPrepared: false, featuredArtwork: nil,
                              featuredArtworkIsPrepared: false,
+                             initialHeroArtwork: initialHeroArtwork,
+                             crossfadesArtwork: true,
                              usesEpisodeArtwork: isEpisode,
                              episodeContext: episodeHeroContext,
                              showsInformation: detailContentReady && (!startsWithCarouselInformationHidden || carouselDetailReady),
@@ -833,7 +839,9 @@ struct EmbyMediaDetailView: View {
                                     isBusy: busy.contains(episode.id), isSelected: episode.id == selectedEpisodeID,
                                     open: { openedEpisodeID = episode.id },
                                     clear: { clearProgress(for: episode) },
-                                    preloadedData: preparedArtwork[episode.id], artworkIsPrepared: detailDataReady,
+                                    preloadedData: preparedArtwork[episode.id],
+                                    artworkIsPrepared: detailDataReady && initialEpisodeArtworkIDs.contains(episode.id),
+                                    allowsArtworkLoading: detailContentReady,
                                     setPlayed: { played in
                                         playback.setPlayed(played, for: episode.item, source: source) { actionError = $0 }
                                     })
@@ -993,6 +1001,33 @@ struct EmbyMediaDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private var screenshotSection: some View {
+        if !series.isEmbySeries && !screenshots.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("预览图")
+                    .font(.system(size: 17, weight: .semibold))
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.horizontal, CGFloat(layout[.endPadding]))
+                    .padding(.vertical, CGFloat(layout[.titlePadding]))
+                shelf {
+                    ForEach(screenshots.indices, id: \.self) { index in
+                        if let image = UIImage(data: screenshots[index]) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: layout.episodeCardWidth,
+                                       height: layout.episodeCardWidth * 9 / 16)
+                                .clipped()
+                                .mediaArtworkBorder()
+                                .accessibilityLabel("预览图 \(index + 1)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private func shelf<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         ScrollView(.horizontal) {
             LazyHStack(spacing: CGFloat(layout[.itemSpacing])) { content() }
@@ -1016,6 +1051,10 @@ struct EmbyMediaDetailView: View {
         detailDataReady = false
         pendingInitialEpisodeID = nil
         preparedArtwork = [:]
+        initialEpisodeArtworkIDs = []
+        screenshots = []
+        async let previewImages: [Data] = (isEpisode || item.embyItemType == "Movie")
+            ? repository.screenshotData(for: item, source: source) : []
         async let info = repository.detailMetadata(for: series, source: source)
         async let recommendations = isEpisode ? nil : try? repository.similarTitles(for: series, source: source)
         if series.isEmbySeries { await loadEpisodes() }
@@ -1035,10 +1074,18 @@ struct EmbyMediaDetailView: View {
         let relatedTitles = await recommendations
         if !Task.isCancelled {
             similar = relatedTitles ?? []
-            let images = episodes.map { ($0.item, EmbyImageOrientation.landscape) }
+            // Only prepare a bounded window around the initial resume target.
+            let targetID = pendingInitialEpisodeID ?? selectedEpisodeID
+            let targetIndex = episodes.firstIndex { $0.id == targetID } ?? 0
+            let initialEpisodes = episodes.isEmpty ? [] : Array(episodes[
+                max(0, targetIndex - 2)..<min(episodes.count, targetIndex + 5)
+            ])
+            initialEpisodeArtworkIDs = Set(initialEpisodes.map(\.id))
+            let images = initialEpisodes.map { ($0.item, EmbyImageOrientation.landscape) }
                 + similar.map { ($0, EmbyImageOrientation.portrait) }
                 + (metadata?.credits.compactMap(\.image) ?? []).map { ($0, EmbyImageOrientation.square) }
             preparedArtwork = await prepareDetailArtwork(images)
+            screenshots = await previewImages
             guard !Task.isCancelled else { return }
             detailDataReady = true
             if startsWithCarouselInformationHidden {
@@ -1199,6 +1246,7 @@ private struct EmbyEpisodeCard: View {
     let clear: () -> Void
     var preloadedData: Data? = nil
     var artworkIsPrepared = false
+    var allowsArtworkLoading = true
     let setPlayed: (Bool) -> Void
 
     @EnvironmentObject private var playback: PlaybackSession
@@ -1253,10 +1301,17 @@ private struct EmbyEpisodeCard: View {
             .frame(width: 280)
             .padding(12)
         }
-        .task(id: "\(artworkKey)|\(artworkIsPrepared)") {
-            guard artworkIsPrepared else { return }
+        .task(id: "\(artworkKey)|\(artworkIsPrepared)|\(allowsArtworkLoading)") {
+            guard artworkIsPrepared || allowsArtworkLoading else { return }
             let key = artworkKey
-            let data = preloadedData
+            if loadedArtwork?.key == key { return }
+            let data: Data?
+            if artworkIsPrepared {
+                data = preloadedData
+            } else {
+                data = await MediaThumbnailLoader.shared.load(episode.item, source: source,
+                                                              imageOrientation: .landscape)
+            }
             guard !Task.isCancelled else { return }
             let image = data.flatMap { UIImage(data: $0) }
             loadedArtwork = EpisodeArtwork(key: key, image: image)

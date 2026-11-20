@@ -162,16 +162,14 @@ struct MediaView: View {
             } else if let item = route.item {
                 if route.origin == .carousel {
                     let detail = EmbyMediaDetailView(source: route.source, series: item,
-                                                      startsWithCarouselInformationHidden: true)
+                                                      startsWithCarouselInformationHidden: true,
+                                                      initialHeroArtwork: library.embyHome?.featuredArtwork[item.id]
+                                                        ?? EmbyFeaturedArtwork(poster: library.embyHome?.artwork[item.id.localID], logo: nil))
                         .background {
                             CarouselDetailCrossfade.ReturnObserver(transition: carouselCrossfade,
                                                                    reduceMotion: reduceMotion)
                         }
-                    if #available(iOS 27, *) {
-                        detail.navigationTransition(.crossFade)
-                    } else {
-                        detail
-                    }
+                    detail
                 } else if item.isEmbySeries {
                     EmbyMediaDetailView(source: route.source, series: item)
                         .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
@@ -198,7 +196,8 @@ struct MediaView: View {
     private var mediaContent: some View {
         let featured = featured
         let showsFeaturedRegion = library.selectedSource?.kind == .emby && !library.canNavigateBack
-        return VesperRootScrollView(title: "媒体", extendsContentUnderHeader: showsFeaturedRegion,
+        let title: LocalizedStringKey = library.selectedSource.map { LocalizedStringKey("\($0.name)") } ?? "媒体"
+        return VesperRootScrollView(title: title, extendsContentUnderHeader: showsFeaturedRegion,
                                    showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
                                    scrollPosition: $mediaScrollPosition,
                                    onVerticalOffsetChange: updateMediaScrollOffset,
@@ -634,12 +633,6 @@ private final class CarouselDetailCrossfade {
         cover.addSubview(snapshot)
         pushCover = cover
 
-        // Reveal after navigation has had a chance to mount, without waiting for data.
-        Task { [weak self, weak cover] in
-            await Task.yield()
-            guard let cover, self?.pushCover === cover else { return }
-            self?.revealDetail()
-        }
         return true
     }
 
@@ -734,6 +727,8 @@ private final class CarouselDetailCrossfade {
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
             navigation = navigationController
+            // The destination is mounted; reveal it without waiting for network data.
+            if !reduceMotion { transition?.revealDetail() }
         }
 
         override func viewWillDisappear(_ animated: Bool) {
@@ -1046,6 +1041,8 @@ struct EmbyFeaturedPage: View {
     let artworkIsPrepared: Bool
     let featuredArtwork: EmbyFeaturedArtwork?
     let featuredArtworkIsPrepared: Bool
+    var initialHeroArtwork: EmbyFeaturedArtwork? = nil
+    var crossfadesArtwork = false
     var usesEpisodeArtwork = false
     var episodeContext = ""
     let showsInformation: Bool
@@ -1053,6 +1050,7 @@ struct EmbyFeaturedPage: View {
     var seriesFooterOpacity: Double = 1
     var mirroredEdgeFraction: CGFloat = 0
     @ObservedObject private var layout = MediaLayoutSettings.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @State private var loadedArtwork: EmbyFeaturedArtwork?
     @State private var loadedArtworkID: MediaID?
@@ -1060,18 +1058,26 @@ struct EmbyFeaturedPage: View {
     var body: some View {
         let images = featuredArtworkIsPrepared
             ? featuredArtwork
-            : loadedArtworkID == item.id ? loadedArtwork : nil
+            : loadedArtworkID == item.id ? loadedArtwork : initialHeroArtwork
         Group {
             if usesEpisodeArtwork {
                 MediaCardBackdrop(showsMissingArtwork: loadedArtwork != nil && images?.poster == nil, iconCenterY: 1.0 / 3)
                     .frame(width: size.width, height: size.height)
                     .overlay {
-                        EmbyEpisodeArtworkSurface(image: images?.poster.flatMap { UIImage(data: $0) }, size: size)
+                        ZStack {
+                            if let data = images?.poster, let image = UIImage(data: data) {
+                                EmbyEpisodeArtworkSurface(image: image, size: size)
+                                    .id(data.hashValue)
+                                    .transition(.opacity)
+                            }
+                        }
+                        .animation(crossfadesArtwork && !reduceMotion ? .easeInOut(duration: 0.3) : nil,
+                                   value: images?.poster)
                     }
             } else {
         MediaThumbnail(source: source, item: item, aspectRatio: EmbyPosterLayout.aspectRatio,
                        imageOrientation: usesEpisodeArtwork ? .landscape : .portrait,
-                       cornerRadius: 0, fixedHeight: size.height,
+                       crossfadesArtwork: crossfadesArtwork, allowsRemotePrimary: false, cornerRadius: 0, fixedHeight: size.height,
                        preloadedData: images?.poster ?? artwork,
                        artworkIsPrepared: images?.poster != nil || artworkIsPrepared,
                        mirroredEdgeFraction: mirroredEdgeFraction,
@@ -1148,7 +1154,9 @@ struct EmbyFeaturedPage: View {
                     images = await MediaThumbnailLoader.shared.featuredArtwork(for: item, source: source)
                 }
                 guard !Task.isCancelled else { return }
-                loadedArtwork = images
+                // Keep already-visible artwork if the refresh failed.
+                loadedArtwork = EmbyFeaturedArtwork(poster: images.poster ?? initialHeroArtwork?.poster,
+                                                     logo: images.logo ?? initialHeroArtwork?.logo)
                 loadedArtworkID = item.id
             }
     }

@@ -16,6 +16,8 @@ struct MediaThumbnail: View {
     var historyEntry: PlaybackHistoryEntry? = nil
     var aspectRatio: CGFloat = 2.0 / 3.0
     var imageOrientation: EmbyImageOrientation = .portrait
+    var crossfadesArtwork = false
+    var allowsRemotePrimary = true
     var logsQueueDiagnostics = false
     var cacheOnly = false
     var cornerRadius: CGFloat = 12
@@ -26,6 +28,7 @@ struct MediaThumbnail: View {
     var mirroredEdgeFraction: CGFloat = 0
     var showsMissingArtwork = true
     var usesMediaCardBackdrop = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var loadedArtwork: LoadedArtwork?
 
     private struct LoadedArtwork {
@@ -72,7 +75,7 @@ struct MediaThumbnail: View {
             let key = loadKey
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.begin source=\(source.kind.rawValue) item=\(item.id.localID)") }
             let data = await MediaThumbnailLoader.shared.load(item, source: source, aspectRatio: aspectRatio,
-                                                             imageOrientation: imageOrientation,
+                                                             imageOrientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary,
                                                              diagnostics: logsQueueDiagnostics, cacheOnly: cacheOnly)
             guard !Task.isCancelled else {
                 if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.cancelled item=\(item.id.localID)") }
@@ -98,6 +101,11 @@ struct MediaThumbnail: View {
         return loadedArtwork?.key == loadKey ? loadedArtwork?.image : nil
     }
 
+    private var artworkIdentity: Int? {
+        if artworkIsPrepared { return preloadedData?.hashValue }
+        return loadedArtwork?.key == loadKey ? loadedArtwork?.image.map { ObjectIdentifier($0).hashValue } : nil
+    }
+
     private var artwork: some View {
         GeometryReader { geometry in
             let cover = cover
@@ -109,9 +117,15 @@ struct MediaThumbnail: View {
                 } else {
                     Rectangle().fill(.regularMaterial)
                 }
-                if let cover {
-                    croppedArtwork(cover, size: geometry.size)
+                ZStack {
+                    if let cover {
+                        croppedArtwork(cover, size: geometry.size)
+                            .id(crossfadesArtwork ? artworkIdentity : nil)
+                            .transition(.opacity)
+                    }
                 }
+                .animation(crossfadesArtwork && !reduceMotion ? .easeInOut(duration: 0.3) : nil,
+                           value: crossfadesArtwork ? artworkIdentity : nil)
             }
         }
     }
@@ -309,7 +323,7 @@ final class MediaThumbnailLoader {
 
     func load(_ item: MediaItem, source: MediaSource, aspectRatio: CGFloat = 2.0 / 3.0,
               imageOrientation: EmbyImageOrientation = .portrait,
-              diagnostics: Bool = false, cacheOnly: Bool = false) async -> Data? {
+              allowsRemotePrimary: Bool = true, diagnostics: Bool = false, cacheOnly: Bool = false) async -> Data? {
         guard item.id.sourceID == source.id, !Task.isCancelled else { return nil }
         switch source.kind {
         case .demo: return nil
@@ -318,14 +332,14 @@ final class MediaThumbnailLoader {
             let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
             let (data, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
             if let data, UIImage(data: data) != nil { return data }
-            let requestKey = "\(key)|\(generation)|\(ignoresCache)"
+            let requestKey = "\(key)|\(generation)|\(ignoresCache)|remote:\(allowsRemotePrimary)"
             if let pending = pendingEmbyImages[requestKey] { return await pending.value }
             guard !cacheOnly, !Task.isCancelled else { return nil }
             let task = Task { () -> Data? in
                 defer { pendingEmbyImages[requestKey] = nil }
                 guard let data = await EmbyRepository.shared.artworkData(for: item, source: source,
                             purpose: item.embyItemType == "Person" ? .avatar : imageOrientation == .landscape ? .thumbnail : .poster,
-                            orientation: imageOrientation),
+                            orientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary),
                       UIImage(data: data) != nil else { return nil }
                 if !ignoresCache {
                     await AppCacheStore.shared.saveImage(data, key: key, generation: generation)

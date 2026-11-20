@@ -91,6 +91,11 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
             }
             .frame(minHeight: viewportHeight, alignment: .top)
+            .background {
+                if usesMediaScrollEdges {
+                    VesperNativeScrollToTopTarget()
+                }
+            }
         }
         .scrollDisabled(showsLoading)
         .scrollClipDisabled()
@@ -712,8 +717,15 @@ private struct VesperBackdropBlur: UIViewRepresentable {
 
 struct VesperPageLoadingOverlay: View {
     var body: some View {
-        VesperTheme.background
-            .overlay { ProgressView().controlSize(.large).accessibilityLabel("正在加载") }
+        ProgressView()
+            .controlSize(.large)
+            .accessibilityLabel("正在加载")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                VesperTheme.background
+                    .ignoresSafeArea(.container, edges: .vertical)
+            }
+            .contentShape(Rectangle())
             .accessibilityAddTraits(.isModal)
     }
 }
@@ -736,5 +748,52 @@ struct VesperCenteredEmptyContent: View {
     var body: some View {
         VesperEmptyContent(message: message, symbol: symbol)
             .frame(maxWidth: .infinity, minHeight: height)
+    }
+}
+
+
+// Keep the media page's vertical scroll view as the sole native scroll-to-top target.
+// Nested horizontal shelves must not compete with it. No tab gestures/delegates
+// or UIScrollView delegates are intercepted.
+private struct VesperNativeScrollToTopTarget: UIViewRepresentable {
+    func makeUIView(context: Context) -> TargetView {
+        let view = TargetView()
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        return view
+    }
+
+    func updateUIView(_ view: TargetView, context: Context) {
+        view.setNeedsLayout()
+    }
+
+    final class TargetView: UIView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            setNeedsLayout()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard window != nil else { return }
+            var ancestor = superview
+            while let view = ancestor {
+                if let scrollView = view as? UIScrollView {
+                    scrollView.scrollsToTop = true
+                    disableNestedTargets(in: scrollView)
+                    return
+                }
+                ancestor = view.superview
+            }
+        }
+
+        private func disableNestedTargets(in view: UIView) {
+            for child in view.subviews {
+                if let scrollView = child as? UIScrollView {
+                    scrollView.scrollsToTop = false
+                }
+                disableNestedTargets(in: child)
+            }
+        }
     }
 }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(ImageIO)
+import ImageIO
+#endif
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -893,7 +896,7 @@ actor EmbyRepository {
     /// Single server-artwork entry point. Remote provider posters remain a separate,
     /// explicit carousel policy; ordinary posters always prefer the server default Primary.
     func artworkData(for item: MediaItem, source: MediaSource, purpose: EmbyArtworkPurpose,
-                     orientation: EmbyImageOrientation = .portrait) async -> Data? {
+                     orientation: EmbyImageOrientation = .portrait, allowsRemotePrimary: Bool = false) async -> Data? {
         switch purpose {
         case .logo:
             return await featuredLogoData(for: item, source: source)
@@ -902,28 +905,40 @@ actor EmbyRepository {
                   let url = item.imageURL, client.sameOrigin(url) else { return nil }
             return await fetchThumbnail(url, client: client)
         case .poster, .thumbnail:
-            return await thumbnailData(for: item, source: source, orientation: orientation)
+            return await thumbnailData(for: item, source: source, orientation: orientation, allowsRemotePrimary: allowsRemotePrimary)
         }
     }
 
     func thumbnailData(for item: MediaItem, source: MediaSource,
-                       orientation: EmbyImageOrientation) async -> Data? {
+                       orientation: EmbyImageOrientation, allowsRemotePrimary: Bool = false) async -> Data? {
         guard let client = try? await clientProvider(source) else { return nil }
         if item.embyItemType == "Person" {
             guard let imageURL = item.imageURL, client.sameOrigin(imageURL) else { return nil }
             return await fetchThumbnail(imageURL, client: client)
         }
 
+        // Episode artwork retains the original server-default Thumb → Primary policy.
+        if item.embyItemType == "Episode" {
+            let candidates = [
+                item.previewImageURL ?? client.imageURL(itemID: item.id.localID, tag: nil, type: "Thumb"),
+                item.imageURL ?? client.imageURL(itemID: item.id.localID, tag: nil)
+            ]
+            for url in candidates.compactMap({ $0 }) where client.sameOrigin(url) {
+                guard !Task.isCancelled else { return nil }
+                if let data = await fetchThumbnail(url, client: client) { return data }
+            }
+            return nil
+        }
+
         let preferredOrientation = orientation == .square ? nil : orientation
         let isPosterItem = ["Movie", "Series"].contains(item.embyItemType ?? "")
-        let isEpisode = item.embyItemType == "Episode"
         let preferredTypes: [String]
         if isPosterItem || item.isContainer {
-            preferredTypes = ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
-        } else if isEpisode || orientation == .landscape {
-            preferredTypes = ["Thumb", "Screenshot", "Backdrop", "Primary", "Thumbnail"]
+            preferredTypes = ["Primary", "Thumbnail", "Thumb", "Screenshot"]
+        } else if orientation == .landscape {
+            preferredTypes = ["Thumb", "Screenshot", "Primary", "Thumbnail"]
         } else {
-            preferredTypes = ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
+            preferredTypes = ["Primary", "Thumbnail", "Thumb", "Screenshot"]
         }
         if isPosterItem || item.isContainer,
            let primaryURL = item.imageURL ?? client.imageURL(itemID: item.id.localID, tag: nil),
@@ -931,14 +946,43 @@ actor EmbyRepository {
            let data = await fetchThumbnail(primaryURL, client: client) {
             return data
         }
+        if isPosterItem && allowsRemotePrimary {
+            for url in await featuredPosterCandidates(for: item, source: source) {
+                guard !Task.isCancelled else { return nil }
+                var request = URLRequest(url: url, timeoutInterval: 8)
+                request.httpShouldHandleCookies = false
+                guard let (data, response) = try? await EmbyNetworkSession.shared.data(for: request),
+                      (response as? HTTPURLResponse)?.statusCode == 200,
+                      data.count <= 8 * 1024 * 1024 else { continue }
+                #if canImport(ImageIO)
+                guard CGImageSourceCreateWithData(data as CFData, nil) != nil else { continue }
+                #endif
+                return data
+            }
+        }
         for image in await selectedImages(for: item, source: source, client: client,
                                           preferredTypes: preferredTypes, preferredOrientation: preferredOrientation,
+                                          allowedTypes: Set(preferredTypes),
                                           requiresOrientation: item.isContainer && !isPosterItem && orientation == .landscape)
             where client.sameOrigin(image) {
             guard !Task.isCancelled else { return nil }
             if let data = await fetchThumbnail(image, client: client) { return data }
         }
         return nil
+    }
+
+    func screenshotData(for item: MediaItem, source: MediaSource) async -> [Data] {
+        guard let client = try? await clientProvider(source) else { return [] }
+        let urls = await selectedImages(for: item, source: source, client: client,
+                                        preferredTypes: ["Screenshot"], allowedTypes: ["Screenshot"])
+        var result: [Data] = []
+        for url in urls where client.sameOrigin(url) {
+            guard !Task.isCancelled else { return [] }
+            if let data = await fetchThumbnail(url, client: client) {
+                result.append(data)
+            }
+        }
+        return result
     }
 
     private func selectedImages(for item: MediaItem, source: MediaSource, client: EmbyAPIClient,
