@@ -201,7 +201,7 @@ struct MediaView: View {
         let title: LocalizedStringKey = library.selectedSource.map { LocalizedStringKey("\($0.name)") } ?? "媒体"
         return VesperRootScrollView(title: title, extendsContentUnderHeader: showsFeaturedRegion,
                                    showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
-                                   // Diagnostic A/B test: leave the native scroll position unbound.
+                                   scrollPosition: $mediaScrollPosition,
                                    onVerticalOffsetChange: updateMediaScrollOffset,
                                    onVerticalScrollPhaseChange: updateMediaScrollPhase,
                                    onTopPullChange: expandEmbyShortcuts(forTopPull:)) {
@@ -319,24 +319,13 @@ struct MediaView: View {
                     ForEach(visibleGroups) { group in
                         VStack(alignment: .leading, spacing: 0) {
                             groupTitle(group, source: source)
-                            ScrollView(.horizontal) {
-                                LazyHStack(spacing: CGFloat(layout[.itemSpacing])) {
-                                    if group.isLoading {
-                                        ForEach(0..<5, id: \.self) { _ in groupPlaceholder(group) }
-                                    } else {
-                                        ForEach(group.items) { item in
-                                            groupCard(item, in: group, source: source, artwork: home.artwork)
-                                        }
-                                    }
-                                }
-                                .scrollTargetLayout()
-                                .padding(.vertical, CGFloat(layout[.itemVerticalPadding]))
-                            }
-                            .scrollClipDisabled()
-                            .scrollIndicators(.hidden)
-                            .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
-                            .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
-                            .padding(.vertical, CGFloat(layout[.scrollPadding]))
+                            // Diagnostic comparison: preserve the vertical extent without
+                            // mounting any horizontal shelf scroll views.
+                            Color.clear
+                                .frame(height: groupCardSize(group).height
+                                    + CGFloat(layout[.itemVerticalPadding]) * 2
+                                    + CGFloat(layout[.scrollPadding]) * 2)
+                                .accessibilityHidden(true)
                         }
                     }
                 }

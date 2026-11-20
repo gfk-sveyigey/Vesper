@@ -292,7 +292,7 @@ struct AppNavigationView: View {
             NavigationStack(path: $mediaPath) {
                 MediaView(path: $mediaPath)
             }
-                .modifier(VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty))
+                // Diagnostic comparison: temporarily omit the media header overlay.
         case .sources:
             NavigationStack(path: $sourcesPath) { SourcesView() }
                 .modifier(VesperNavigationHeaderLayer(isRoot: sourcesPath.isEmpty))
