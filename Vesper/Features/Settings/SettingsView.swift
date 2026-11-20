@@ -758,6 +758,7 @@ private extension MediaLayoutSettings.Metric {
         case .endPadding: "媒体库滚动区域左右内缩"
         case .episodeCardWidth: "剧集卡片宽度"
         case .episodeCardHeight: "剧集卡片高度"
+        case .seriesHeroButtonHeight: "剧集海报按钮高度"
         case .statusBarEdgeBlur: "状态栏边缘模糊最大强度"
         case .headerBackdropBlur: "Header 毛玻璃效果强度"
         case .headerForegroundBlur: "Header 模糊效果最大强度"

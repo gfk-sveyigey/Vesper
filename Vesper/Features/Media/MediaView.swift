@@ -8,6 +8,7 @@ final class MediaLayoutSettings: ObservableObject {
     enum Metric: String, CaseIterable {
         case thumbnailHeight, groupSpacing, titlePadding, scrollPadding
         case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding, episodeCardWidth, episodeCardHeight
+        case seriesHeroButtonHeight
 
         case statusBarEdgeBlur, headerBackdropBlur, headerForegroundBlur, headerAnimationMinimumDistance, headerTitleSize
 
@@ -30,6 +31,7 @@ final class MediaLayoutSettings: ObservableObject {
             case .endPadding: 20
             case .episodeCardWidth: 246
             case .episodeCardHeight: 230
+            case .seriesHeroButtonHeight: 44
             case .statusBarEdgeBlur: 100
             case .headerBackdropBlur: 65
             case .headerForegroundBlur: 8
@@ -46,6 +48,7 @@ final class MediaLayoutSettings: ObservableObject {
             case .thumbnailHeight: 0...600
             case .itemWidth, .itemHeight: 24...480
             case .episodeCardWidth, .episodeCardHeight: 120...1200
+            case .seriesHeroButtonHeight: 32...64
             case .statusBarEdgeBlur, .headerBackdropBlur, .carouselBlurHeight, .carouselBlurStrength: 0...100
             case .headerForegroundBlur: 0...40
             case .headerAnimationMinimumDistance: 1...60
@@ -227,7 +230,8 @@ struct MediaView: View {
                         if items.isEmpty {
                             VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
                         } else {
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: CGFloat(layout[.itemSpacing])), count: 3),
+                                      spacing: CGFloat(layout[.itemVerticalPadding]) * 2) {
                                 ForEach(items) { item in
                                     Button {
                                         guard let source = library.selectedSource else { return }
@@ -249,7 +253,8 @@ struct MediaView: View {
                                     .accessibilityLabel(Text(verbatim: item.title))
                                 }
                             }
-                            .padding(.horizontal, 20)
+                            .padding(.horizontal, CGFloat(layout[.endPadding]))
+                            .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
                             if library.selectedSource?.kind == .emby, library.hasMoreEmbyItems {
                                 Button("加载更多") { library.loadMoreEmbyItems() }
                                     .frame(maxWidth: .infinity)
@@ -340,7 +345,7 @@ struct MediaView: View {
                 NavigationLink(value: EmbyMediaRoute.library(source, id: group.id, title: group.title)) {
                     HStack(spacing: 6) {
                         Text(verbatim: group.title)
-                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold))
                             .foregroundStyle(Color(uiColor: .systemGray2))
                             .accessibilityHidden(true)
                     }
@@ -351,7 +356,7 @@ struct MediaView: View {
         .font(.system(size: 18, weight: .semibold))
         .foregroundStyle(.primary)
         .accessibilityAddTraits(.isHeader)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, CGFloat(layout[.endPadding]))
         .padding(.vertical, CGFloat(layout[.titlePadding]))
     }
 
@@ -1457,11 +1462,13 @@ private struct EmbySeriesBrowserView: View {
     @State private var errorMessage: String?
 
     private let pageSize = 21
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: CGFloat(layout[.itemSpacing])), count: 3)
+    }
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 14) {
+            LazyVGrid(columns: columns, spacing: CGFloat(layout[.itemVerticalPadding]) * 2) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     let route = EmbyMediaRoute.detail(source, item, origin: detailOrigin)
                     Button { openDetail(route) } label: {
@@ -1481,7 +1488,8 @@ private struct EmbySeriesBrowserView: View {
                     }
                 }
             }
-            .padding(12)
+            .padding(.horizontal, CGFloat(layout[.endPadding]))
+            .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
             if isLoading && didLoadFirstPage { ProgressView().padding() }
             if reachedEnd && items.isEmpty {
                 Text(emptyMessage).foregroundStyle(.secondary).padding()

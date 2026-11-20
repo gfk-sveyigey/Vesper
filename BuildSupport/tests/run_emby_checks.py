@@ -87,6 +87,8 @@ class Handler(BaseHTTPRequestHandler):
             self.respond({'image': 'ratio-neutral-portrait'}); return
         if path.path == '/proxy/emby/Items/ratio-neutral/Images/Primary/1':
             self.respond({'image': 'ratio-neutral-landscape'}); return
+        if path.path == '/proxy/emby/Items/library/Images/Primary':
+            self.respond({'image': 'library-default-primary'}); return
         if path.path == '/proxy/emby/Items/library/Images/Primary/1':
             self.respond({'image': 'library-primary-landscape'}); return
         if path.path == '/proxy/emby/Items/library/Images/Primary/0':

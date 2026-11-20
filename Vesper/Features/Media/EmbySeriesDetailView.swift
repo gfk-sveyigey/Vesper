@@ -42,6 +42,8 @@ struct EmbySeriesHeroFooter: View {
     var selectedEpisodeIsPlayed = false
     var playSelectedEpisode: () -> Void = {}
     var toggleSelectedEpisodePlayed: () -> Void = {}
+    @ObservedObject private var layout = MediaLayoutSettings.shared
+    private var buttonHeight: CGFloat { CGFloat(layout[.seriesHeroButtonHeight]) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -49,10 +51,10 @@ struct EmbySeriesHeroFooter: View {
                 HStack(spacing: 10) {
                     Button(action: playSelectedEpisode) {
                         Label(selectedEpisodeLabel(selectedEpisode), systemImage: "play.fill")
-                            .font(.system(size: 19, weight: .semibold))
+                            .font(.system(size: buttonHeight * 17 / 44, weight: .semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity, minHeight: 64)
+                            .frame(width: buttonHeight * 3.8, height: buttonHeight)
                     }
                     .buttonStyle(SeriesHeroPlayButtonStyle())
                     .buttonBorderShape(.capsule)
@@ -64,9 +66,9 @@ struct EmbySeriesHeroFooter: View {
                         }
                     } label: {
                         Image(systemName: selectedEpisodeIsPlayed ? "checkmark" : "plus")
-                            .font(.system(size: 27, weight: .medium))
+                            .font(.system(size: buttonHeight * 24 / 44, weight: .medium))
                             .contentTransition(.symbolEffect(.replace))
-                            .frame(width: 64, height: 64)
+                            .frame(width: buttonHeight, height: buttonHeight)
                     }
                     .buttonStyle(SeriesHeroWatchButtonStyle())
                     .clipShape(Circle())
@@ -277,6 +279,11 @@ struct EmbyMediaDetailView: View {
     @State private var reloadID = 0
     @State private var clearedServerProgress = false
     @State private var carouselDetailReady = false
+    @State private var detailDataReady = false
+    @State private var preparedArtwork: [MediaID: Data] = [:]
+    private var detailContentReady: Bool {
+        detailDataReady && (!series.isEmbySeries || pendingInitialEpisodeID == nil)
+    }
 
     private var item: MediaItem { metadata?.item ?? series }
     private var selectedVersion: EmbyMediaVersionDetails? {
@@ -315,25 +322,43 @@ struct EmbyMediaDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     if isEpisode { episodeHero } else { hero }
-                    if series.isEmbySeries {
-                        episodeSection(viewportWidth: width)
-                    } else {
-                        versionSelectionSection
-                        playbackSection
-                        if isEpisode { parentSeriesSection }
-                        technicalSection
-                        if let loadError {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(verbatim: loadError).font(.footnote).foregroundStyle(.secondary)
-                                Button("重试") { reloadID += 1 }
+                    VStack(alignment: .leading, spacing: CGFloat(layout[.groupSpacing])) {
+                        if series.isEmbySeries {
+                            episodeSection(viewportWidth: width)
+                        } else {
+                            versionSelectionSection
+                            playbackSection
+                            if isEpisode { parentSeriesSection }
+                            technicalSection
+                            if let loadError {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(verbatim: loadError).font(.footnote).foregroundStyle(.secondary)
+                                    Button("重试") { reloadID += 1 }
+                                }
+                                .padding(.horizontal, CGFloat(layout[.endPadding]))
                             }
-                            .padding(.horizontal, 20)
+                        }
+                        similarSection
+                        creditsSection
+                        linksSection
+                        seriesInformationSection
+                    }
+                    .opacity(detailContentReady ? 1 : 0)
+                    .allowsHitTesting(detailContentReady)
+                    .accessibilityHidden(!detailContentReady)
+                    .overlay(alignment: .topLeading) {
+                        if !detailContentReady {
+                            VStack(alignment: .leading, spacing: 20) {
+                                RoundedRectangle(cornerRadius: 4).fill(.quaternary)
+                                    .frame(width: 90, height: 20)
+                                    .padding(.horizontal, CGFloat(layout[.endPadding]))
+                                episodeLoadingPlaceholders(viewportWidth: width)
+                            }
+                            .allowsHitTesting(false)
+                            .accessibilityLabel("正在加载详情")
                         }
                     }
-                    similarSection
-                    creditsSection
-                    linksSection
-                    seriesInformationSection
+                    .animation(reduceMotion ? nil : .easeIn(duration: 0.3), value: detailContentReady)
                 }
                 .padding(.bottom, 20)
             }
@@ -406,7 +431,7 @@ struct EmbyMediaDetailView: View {
             EmbyFeaturedPage(source: source, item: item, size: geometry.size,
                              artwork: nil, artworkIsPrepared: false, featuredArtwork: nil,
                              featuredArtworkIsPrepared: false,
-                             showsInformation: !startsWithCarouselInformationHidden || carouselDetailReady,
+                             showsInformation: detailContentReady && (!startsWithCarouselInformationHidden || carouselDetailReady),
                              seriesFooter: EmbySeriesHeroFooter(series: item, season: selectedSeason,
                                                                seasonCount: seasonNumbers.count,
                                                                episodes: episodes.filter { $0.season == selectedSeason },
@@ -417,11 +442,29 @@ struct EmbyMediaDetailView: View {
                                                                 .map { playback.effectivePlayed(for: $0.item) } ?? false,
                                                                playSelectedEpisode: playSelectedEpisode,
                                                                toggleSelectedEpisodePlayed: toggleSelectedEpisodePlayed),
-                             seriesFooterOpacity: (!series.isEmbySeries || loadedSeriesID == series.id)
+                             seriesFooterOpacity: detailContentReady
                                 && (!startsWithCarouselInformationHidden || carouselDetailReady) ? 1 : 0)
+                .animation(reduceMotion ? nil : .easeIn(duration: 0.3), value: detailContentReady)
                 .modifier(EmbyPosterStretch(geometry: geometry))
         }
         .aspectRatio(EmbyPosterLayout.aspectRatio, contentMode: .fit)
+        .overlay(alignment: .bottom) {
+            if !detailContentReady {
+                VStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 6).fill(.quaternary).frame(width: 180, height: 26)
+                    RoundedRectangle(cornerRadius: 4).fill(.quaternary).frame(width: 220, height: 16)
+                    HStack(spacing: 10) {
+                        Capsule().fill(.quaternary).frame(width: CGFloat(layout[.seriesHeroButtonHeight]) * 3.8,
+                                                        height: CGFloat(layout[.seriesHeroButtonHeight]))
+                        Circle().fill(.quaternary).frame(width: CGFloat(layout[.seriesHeroButtonHeight]),
+                                                       height: CGFloat(layout[.seriesHeroButtonHeight]))
+                    }
+                }
+                .padding(.bottom, 70)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
     }
 
     private var episodeHero: some View {
@@ -441,7 +484,7 @@ struct EmbyMediaDetailView: View {
                     Text(verbatim: overview).font(.subheadline)
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, CGFloat(layout[.endPadding]))
         }
     }
 
@@ -500,7 +543,7 @@ struct EmbyMediaDetailView: View {
                 }
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, CGFloat(layout[.endPadding]))
     }
 
     @ViewBuilder
@@ -544,7 +587,7 @@ struct EmbyMediaDetailView: View {
                 .accessibilityLabel("选择媒体文件")
                 .accessibilityValue(versionMenuTitle(selectedVersion))
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, CGFloat(layout[.endPadding]))
         }
     }
 
@@ -596,7 +639,7 @@ struct EmbyMediaDetailView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, CGFloat(layout[.endPadding]))
         }
     }
 
@@ -674,7 +717,7 @@ struct EmbyMediaDetailView: View {
                 }
             }
             .font(.subheadline)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, CGFloat(layout[.endPadding]))
         } else if let video = metadata?.video, video.dimensions != nil || !video.technical.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 Text("媒体信息").font(.system(size: 18, weight: .semibold)).accessibilityAddTraits(.isHeader)
@@ -686,7 +729,7 @@ struct EmbyMediaDetailView: View {
                 }
             }
             .font(.subheadline)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, CGFloat(layout[.endPadding]))
         }
     }
 
@@ -715,29 +758,30 @@ struct EmbyMediaDetailView: View {
         if !episodes.isEmpty {
             let margin = CGFloat(layout[.endPadding])
             let cardWidth = min(layout.episodeCardWidth, max(1, viewportWidth - margin * 2))
-            VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 seasonMenu
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, CGFloat(layout[.endPadding]))
+                    .padding(.vertical, CGFloat(layout[.titlePadding]))
                 episodeShelf(cardWidth: cardWidth)
-                    .padding(.vertical, 20)
+                    .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
             }
         } else if isLoading {
-            VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text("")
                     .font(.system(size: 17, weight: .semibold))
                     .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, CGFloat(layout[.endPadding]))
                 episodeLoadingPlaceholders(viewportWidth: viewportWidth)
-                    .padding(.vertical, 20)
+                    .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
             }
         } else if let loadError {
             VStack(alignment: .leading, spacing: 8) {
                 Text(verbatim: loadError).font(.footnote).foregroundStyle(.secondary)
-                Button("重试") { Task { await loadEpisodes() } }
+                Button("重试") { Task { await loadDetail() } }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, CGFloat(layout[.endPadding]))
         } else if !isLoading {
-            Text("暂无分集").foregroundStyle(.secondary).padding(.horizontal, 20)
+            Text("暂无分集").foregroundStyle(.secondary).padding(.horizontal, CGFloat(layout[.endPadding]))
         }
     }
 
@@ -745,7 +789,7 @@ struct EmbyMediaDetailView: View {
         let margin = CGFloat(layout[.endPadding])
         let cardWidth = min(layout.episodeCardWidth, max(1, viewportWidth - margin * 2))
         return ScrollView(.horizontal) {
-            LazyHStack(spacing: 13) {
+            LazyHStack(spacing: CGFloat(layout[.itemSpacing])) {
                 ForEach(0..<2, id: \.self) { _ in
                     MediaCardBackdrop()
                         .frame(width: cardWidth, height: layout.episodeCardHeight)
@@ -819,13 +863,14 @@ struct EmbyMediaDetailView: View {
 
     private func episodeShelf(cardWidth: CGFloat) -> some View {
         ScrollView(.horizontal) {
-            LazyHStack(spacing: 13) {
+            LazyHStack(spacing: CGFloat(layout[.itemSpacing])) {
                 ForEach(episodes) { episode in
                     EmbyEpisodeCard(source: source, episode: episode, width: cardWidth,
                                     height: layout.episodeCardHeight, position: resumePosition(episode),
                                     isBusy: busy.contains(episode.id), isSelected: episode.id == selectedEpisodeID,
                                     open: { openedEpisodeID = episode.id },
                                     clear: { clearProgress(for: episode) },
+                                    preloadedData: preparedArtwork[episode.id], artworkIsPrepared: detailDataReady,
                                     setPlayed: { played in
                                         playback.setPlayed(played, for: episode.item, source: source) { actionError = $0 }
                                     })
@@ -869,19 +914,23 @@ struct EmbyMediaDetailView: View {
     @ViewBuilder
     private var similarSection: some View {
         if !similar.isEmpty {
-            Text("类似作品").font(.system(size: 17, weight: .semibold)).padding(.horizontal, 20)
-            shelf {
-                ForEach(similar) { item in
-                    Button { openedRecommendation = item } label: {
-                        MediaThumbnail(source: source, item: item, imageOrientation: .portrait)
-                            .frame(width: CGFloat(layout[.itemWidth]), height: CGFloat(layout[.itemHeight]))
-                            .mediaArtworkBorder()
-                            .matchedTransitionSource(id: item.id, in: recommendationZoom)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("类似作品").font(.system(size: 17, weight: .semibold)).padding(.horizontal, CGFloat(layout[.endPadding]))
+                    .padding(.vertical, CGFloat(layout[.titlePadding]))
+                shelf {
+                    ForEach(similar) { item in
+                        Button { openedRecommendation = item } label: {
+                            MediaThumbnail(source: source, item: item, imageOrientation: .portrait,
+                                           preloadedData: preparedArtwork[item.id], artworkIsPrepared: detailDataReady)
+                                .frame(width: CGFloat(layout[.itemWidth]), height: CGFloat(layout[.itemHeight]))
+                                .mediaArtworkBorder()
+                                .matchedTransitionSource(id: item.id, in: recommendationZoom)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text(verbatim: item.title))
+                        .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
+                                                     showsEmbyFacts: true, openEmbyDetails: { openedRecommendation = item }) { EmptyView() })
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text(verbatim: item.title))
-                    .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
-                                                 showsEmbyFacts: true, openEmbyDetails: { openedRecommendation = item }) { EmptyView() })
                 }
             }
         }
@@ -890,30 +939,34 @@ struct EmbyMediaDetailView: View {
     @ViewBuilder
     private var creditsSection: some View {
         if let credits = metadata?.credits, !credits.isEmpty {
-            Text("演职人员").font(.system(size: 17, weight: .semibold)).padding(.horizontal, 20)
-            shelf {
-                ForEach(credits) { credit in
-                    Button { openedPerson = credit.person } label: {
-                        VStack(spacing: 6) {
-                            Group {
-                                if let image = credit.image {
-                                    MediaThumbnail(source: source, item: image, aspectRatio: 1,
-                                                   imageOrientation: .square,
-                                                   missingArtworkSymbol: "person.crop.circle.fill")
-                                } else {
-                                    MediaCardBackdrop(showsMissingArtwork: true,
-                                                      missingArtworkSymbol: "person.crop.circle.fill")
+            VStack(alignment: .leading, spacing: 0) {
+                Text("演职人员").font(.system(size: 17, weight: .semibold)).padding(.horizontal, CGFloat(layout[.endPadding]))
+                    .padding(.vertical, CGFloat(layout[.titlePadding]))
+                shelf {
+                    ForEach(credits) { credit in
+                        Button { openedPerson = credit.person } label: {
+                            VStack(spacing: 6) {
+                                Group {
+                                    if let image = credit.image {
+                                        MediaThumbnail(source: source, item: image, aspectRatio: 1,
+                                                       imageOrientation: .square,
+                                                       preloadedData: preparedArtwork[image.id],
+                                                       missingArtworkSymbol: "person.crop.circle.fill", artworkIsPrepared: detailDataReady)
+                                    } else {
+                                        MediaCardBackdrop(showsMissingArtwork: true,
+                                                          missingArtworkSymbol: "person.crop.circle.fill")
+                                    }
                                 }
+                                .frame(width: 78, height: 78)
+                                .clipShape(Circle())
+                                Text(verbatim: credit.person.name).font(.subheadline).lineLimit(1)
+                                Text(verbatim: credit.role).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
-                            .frame(width: 78, height: 78)
-                            .clipShape(Circle())
-                            Text(verbatim: credit.person.name).font(.subheadline).lineLimit(1)
-                            Text(verbatim: credit.role).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            .frame(width: 104)
+                            .contentShape(Rectangle())
                         }
-                        .frame(width: 104)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -922,20 +975,23 @@ struct EmbyMediaDetailView: View {
     @ViewBuilder
     private var linksSection: some View {
         if let links = metadata?.links, !links.isEmpty {
-            Text("链接").font(.system(size: 17, weight: .semibold)).padding(.horizontal, 20)
-            shelf {
-                ForEach(links) { link in
-                    Link(destination: link.url) {
-                        Label(link.name, systemImage: "arrow.up.right")
-                            .font(.subheadline)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(VesperTheme.mediaCardBackground, in: Capsule())
-                            .overlay {
-                                Capsule()
-                                    .strokeBorder(.primary.opacity(0.18), lineWidth: 1)
-                                    .allowsHitTesting(false)
-                            }
+            VStack(alignment: .leading, spacing: 0) {
+                Text("链接").font(.system(size: 17, weight: .semibold)).padding(.horizontal, CGFloat(layout[.endPadding]))
+                    .padding(.vertical, CGFloat(layout[.titlePadding]))
+                shelf {
+                    ForEach(links) { link in
+                        Link(destination: link.url) {
+                            Label(link.name, systemImage: "arrow.up.right")
+                                .font(.subheadline)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(VesperTheme.mediaCardBackground, in: Capsule())
+                                .overlay {
+                                    Capsule()
+                                        .strokeBorder(.primary.opacity(0.18), lineWidth: 1)
+                                        .allowsHitTesting(false)
+                                }
+                        }
                     }
                 }
             }
@@ -969,18 +1025,20 @@ struct EmbyMediaDetailView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, CGFloat(layout[.endPadding]))
         }
     }
 
     private func shelf<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         ScrollView(.horizontal) {
-            LazyHStack(spacing: 13) { content() }
+            LazyHStack(spacing: CGFloat(layout[.itemSpacing])) { content() }
                 .scrollTargetLayout()
+                .padding(.vertical, CGFloat(layout[.itemVerticalPadding]))
         }
         .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
         .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
         .scrollIndicators(.hidden)
+        .padding(.vertical, CGFloat(layout[.scrollPadding]))
     }
 
     private func resumePosition(_ episode: EmbyEpisode) -> Double {
@@ -990,6 +1048,9 @@ struct EmbyMediaDetailView: View {
     private func loadDetail() async {
         let repository = EmbyRepository.shared
         loadError = nil
+        detailDataReady = false
+        pendingInitialEpisodeID = nil
+        preparedArtwork = [:]
         async let info = repository.detailMetadata(for: series, source: source)
         async let recommendations = isEpisode ? nil : try? repository.similarTitles(for: series, source: source)
         if series.isEmbySeries { await loadEpisodes() }
@@ -1009,6 +1070,12 @@ struct EmbyMediaDetailView: View {
         let relatedTitles = await recommendations
         if !Task.isCancelled {
             similar = relatedTitles ?? []
+            let images = episodes.map { ($0.item, EmbyImageOrientation.landscape) }
+                + similar.map { ($0, EmbyImageOrientation.portrait) }
+                + (metadata?.credits.compactMap(\.image) ?? []).map { ($0, EmbyImageOrientation.square) }
+            preparedArtwork = await prepareDetailArtwork(images)
+            guard !Task.isCancelled else { return }
+            detailDataReady = true
             if startsWithCarouselInformationHidden {
                 await Task.yield()
                 guard !Task.isCancelled else { return }
@@ -1016,6 +1083,27 @@ struct EmbyMediaDetailView: View {
                 await Task.yield()
                 onCarouselDetailReady?()
             }
+        }
+    }
+
+    private func prepareDetailArtwork(_ images: [(MediaItem, EmbyImageOrientation)]) async -> [MediaID: Data] {
+        let source = source
+        return await withTaskGroup(of: (MediaID, Data?).self) { tasks in
+            var pending = images.makeIterator()
+            func enqueueNext() {
+                guard let (item, orientation) = pending.next() else { return }
+                tasks.addTask {
+                    (item.id, await MediaThumbnailLoader.shared.load(item, source: source, imageOrientation: orientation))
+                }
+            }
+            for _ in 0..<6 { enqueueNext() }
+            var result: [MediaID: Data] = [:]
+            for await (id, data) in tasks {
+                guard !Task.isCancelled else { tasks.cancelAll(); break }
+                result[id] = data
+                enqueueNext()
+            }
+            return result
         }
     }
 
@@ -1146,6 +1234,8 @@ private struct EmbyEpisodeCard: View {
     let isSelected: Bool
     let open: () -> Void
     let clear: () -> Void
+    var preloadedData: Data? = nil
+    var artworkIsPrepared = false
     let setPlayed: (Bool) -> Void
 
     @EnvironmentObject private var playback: PlaybackSession
@@ -1196,12 +1286,7 @@ private struct EmbyEpisodeCard: View {
         }
         .overlay(alignment: .bottomLeading) { details }
         .overlay(alignment: .bottomTrailing) { moreButton.padding(.trailing, 10).padding(.bottom, 10) }
-        .mediaArtworkBorder(cornerRadius: 16)
-        .overlay {
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(isSelected ? Color.accentColor : .clear, lineWidth: 3)
-                .allowsHitTesting(false)
-        }
+        .mediaArtworkBorder(cornerRadius: 16, isSelected: isSelected)
         .contentShape(RoundedRectangle(cornerRadius: 16))
         .onTapGesture(perform: open)
         .accessibilityAddTraits(.isButton)
@@ -1223,11 +1308,10 @@ private struct EmbyEpisodeCard: View {
             .frame(width: 280)
             .padding(12)
         }
-        .task(id: artworkKey) {
+        .task(id: "\(artworkKey)|\(artworkIsPrepared)") {
+            guard artworkIsPrepared else { return }
             let key = artworkKey
-            let data = await MediaThumbnailLoader.shared.load(episode.item, source: source,
-                                                              aspectRatio: width / max(1, height),
-                                                              imageOrientation: .landscape)
+            let data = preloadedData
             guard !Task.isCancelled else { return }
             let image = data.flatMap { UIImage(data: $0) }
             let bottomStrip = image.flatMap(\.cgImage).flatMap { cgImage in

@@ -931,7 +931,7 @@ actor EmbyRepository {
         } else {
             preferredTypes = ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
         }
-        if isPosterItem,
+        if isPosterItem || item.isContainer,
            let primaryURL = item.imageURL ?? client.imageURL(itemID: item.id.localID, tag: nil),
            client.sameOrigin(primaryURL),
            let data = await fetchThumbnail(primaryURL, client: client) {

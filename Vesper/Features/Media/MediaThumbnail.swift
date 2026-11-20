@@ -173,6 +173,7 @@ struct MediaCardBackdrop: View {
 private struct MediaArtworkBorder: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     let cornerRadius: CGFloat
+    var isSelected = false
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius)
@@ -180,7 +181,7 @@ private struct MediaArtworkBorder: ViewModifier {
         content
             .clipShape(shape)
             .overlay {
-                shape.strokeBorder(stroke, lineWidth: 1)
+                shape.strokeBorder(isSelected ? Color.accentColor : stroke, lineWidth: 1)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
@@ -188,8 +189,8 @@ private struct MediaArtworkBorder: ViewModifier {
 }
 
 extension View {
-    func mediaArtworkBorder(cornerRadius: CGFloat = 12) -> some View {
-        modifier(MediaArtworkBorder(cornerRadius: cornerRadius))
+    func mediaArtworkBorder(cornerRadius: CGFloat = 12, isSelected: Bool = false) -> some View {
+        modifier(MediaArtworkBorder(cornerRadius: cornerRadius, isSelected: isSelected))
     }
 }
 
