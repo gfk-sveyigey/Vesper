@@ -284,7 +284,7 @@ actor EmbyRepository {
                limit: Int = 100, sortBy: String = "SortName", sortOrder: String = "Ascending",
                scope: EmbyBrowseScope = .children) async throws -> [MediaItem] {
         let client = try await clientProvider(source)
-        var query = ["StartIndex": String(startIndex), "Limit": String(limit), "Fields": "Overview,PrimaryImageAspectRatio,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData,Genres,PremiereDate,Status,OfficialRating,CommunityRating,Studios,SeasonCount",
+        var query = ["StartIndex": String(startIndex), "Limit": String(limit), "Fields": "Overview,MediaSources,DateCreated,ProductionYear,RunTimeTicks,UserData,Genres,PremiereDate,Status,OfficialRating,CommunityRating,Studios,SeasonCount",
                      "SortBy": sortBy, "SortOrder": sortOrder]
         switch scope {
         case .person(let person):
@@ -763,7 +763,6 @@ actor EmbyRepository {
                                  imageURL: client.imageURL(itemID: id, tag: imageTags["Primary"]),
                                  fallbackImageURL: seriesImage,
                                  previewImageURL: type == "Episode" ? client.imageURL(itemID: id, tag: imageTags["Thumb"], type: "Thumb") : nil,
-                                 primaryImageAspectRatio: (value["PrimaryImageAspectRatio"] as? NSNumber)?.doubleValue,
                                  duration: (value["RunTimeTicks"] as? NSNumber).map { $0.doubleValue / 10_000_000 },
                                  resumePosition: ((value["UserData"] as? [String: Any])?["PlaybackPositionTicks"] as? NSNumber)
                                     .map { $0.doubleValue / 10_000_000 },
@@ -813,7 +812,6 @@ actor EmbyRepository {
         let logoTypes: Set<String> = ["Logo", "LogoLight", "LogoLightColor"]
         for image in await selectedImages(for: item, source: source, client: client,
                                           preferredTypes: ["Logo", "LogoLight", "LogoLightColor"],
-                                          preferredOrientation: imageOrientation(for: item.primaryImageAspectRatio),
                                           allowedTypes: logoTypes)
             where client.sameOrigin(image) {
             if let data = await fetchThumbnail(image, client: client) { return data }
@@ -836,14 +834,14 @@ actor EmbyRepository {
         }
     }
 
-    func thumbnailData(for item: MediaItem, source: MediaSource) async -> Data? {
+    func thumbnailData(for item: MediaItem, source: MediaSource, aspectRatio: Double) async -> Data? {
         guard let client = try? await clientProvider(source) else { return nil }
         if item.embyItemType == "Person" {
             guard let imageURL = item.imageURL, client.sameOrigin(imageURL) else { return nil }
             return await fetchThumbnail(imageURL, client: client)
         }
 
-        let orientation = imageOrientation(for: item.primaryImageAspectRatio)
+        let orientation = imageOrientation(for: aspectRatio)
         let isPosterItem = ["Movie", "Series"].contains(item.embyItemType ?? "")
         let isEpisode = item.embyItemType == "Episode"
         let preferredTypes: [String]

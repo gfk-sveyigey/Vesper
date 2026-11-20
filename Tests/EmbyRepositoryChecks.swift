@@ -68,12 +68,13 @@ struct EmbyRepositoryChecks {
         precondition(episode.number == 2 && episode.item.resumePosition == 30)
         precondition(episode.item.embyPresentation?.overview == "Episode synopsis")
         precondition(episode.is4K && episode.dolbyVision && episode.dolbyAtmos)
-        let episodeThumbnail = await repository.thumbnailData(for: episode.item, source: source)
+        let episodeThumbnail = await repository.thumbnailData(for: episode.item, source: source, aspectRatio: 16.0 / 9.0)
         let episodeImage = try JSONDecoder().decode([String: String].self, from: episodeThumbnail ?? Data())
         precondition(episodeImage["image"] == "episode-thumb")
         let unnamedEpisode = seriesEpisodes[1].item
         precondition(unnamedEpisode.title.isEmpty && unnamedEpisode.isPlayed == true)
-        let missingEpisodeThumbnail = await repository.thumbnailData(for: unnamedEpisode, source: source)
+        let missingEpisodeThumbnail = await repository.thumbnailData(for: unnamedEpisode, source: source,
+                                                                      aspectRatio: 16.0 / 9.0)
         precondition(missingEpisodeThumbnail == nil)
         let similar = try await repository.similarTitles(for: series, source: source)
         precondition(similar.map(\.id.localID) == ["movie"])
@@ -100,15 +101,17 @@ struct EmbyRepositoryChecks {
         precondition(items.count == 1 && !items[0].isContainer)
         var item = items[0]
         precondition(item.fallbackImageURL?.path == "/proxy/emby/Items/series/Images/Primary")
-        precondition(item.primaryImageAspectRatio == 1.78)
-        let thumbnail = await repository.thumbnailData(for: item, source: source)
+        let thumbnail = await repository.thumbnailData(for: item, source: source, aspectRatio: 16.0 / 9.0)
         let movieImage = try JSONDecoder().decode([String: String].self, from: thumbnail ?? Data())
         precondition(movieImage["image"] == "movie-primary-landscape")
         precondition(thumbnail != nil)
+        let portraitThumbnail = await repository.thumbnailData(for: item, source: source, aspectRatio: 2.0 / 3.0)
+        let portraitImage = try JSONDecoder().decode([String: String].self, from: portraitThumbnail ?? Data())
+        precondition(portraitImage["image"] == "movie-primary")
         let ratioNeutralItem = MediaItem(id: MediaID(sourceID: source.id, localID: "ratio-neutral"),
                                          title: "Neutral Ratio", resource: nil,
-                                         embyItemType: "Movie", primaryImageAspectRatio: 1)
-        let ratioNeutralThumbnail = await repository.thumbnailData(for: ratioNeutralItem, source: source)
+                                         embyItemType: "Movie")
+        let ratioNeutralThumbnail = await repository.thumbnailData(for: ratioNeutralItem, source: source, aspectRatio: 1)
         let ratioNeutralImage = try JSONDecoder().decode([String: String].self, from: ratioNeutralThumbnail ?? Data())
         precondition(ratioNeutralImage["image"] == "ratio-neutral-portrait")
         precondition(item.id.sourceID == source.id && item.id.localID == "movie")

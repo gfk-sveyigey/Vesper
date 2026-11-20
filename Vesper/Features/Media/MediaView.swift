@@ -1080,7 +1080,8 @@ struct EmbyFeaturedPage: View {
         let images = featuredArtworkIsPrepared
             ? featuredArtwork
             : loadedArtworkID == item.id ? loadedArtwork : nil
-        MediaThumbnail(source: source, item: item, cornerRadius: 0, fixedHeight: size.height,
+        MediaThumbnail(source: source, item: item, aspectRatio: EmbyPosterLayout.aspectRatio,
+                       cornerRadius: 0, fixedHeight: size.height,
                        preloadedData: images?.poster ?? artwork,
                        artworkIsPrepared: images?.poster != nil || artworkIsPrepared,
                        mirroredEdgeFraction: mirroredEdgeFraction,

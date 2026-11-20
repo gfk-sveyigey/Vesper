@@ -28,7 +28,6 @@ struct MediaItem: Identifiable, Hashable, Codable, Sendable {
     var imageURL: URL? = nil
     var fallbackImageURL: URL? = nil
     var previewImageURL: URL? = nil
-    var primaryImageAspectRatio: Double? = nil
     var duration: Double? = nil
     var resumePosition: Double? = nil
     var dateCreated: Date? = nil
@@ -434,15 +433,12 @@ final class SourceLibrary: ObservableObject {
 
                 if fullRendering {
                     try Task.checkCancellation()
-                    var seen = Set<MediaID>()
-                    let items = groups.flatMap(\.items).filter { seen.insert($0.id).inserted }
-                    let artwork = await Self.prepareEmbyArtwork(items, source: source)
                     let featuredArtwork = await carouselPreparation
                     try Task.checkCancellation()
                     guard generation == token else { return }
                     embyHome = EmbyHome(scope: scope, groups: groups,
                                         featured: sampledFeatured.filter { featuredArtwork[$0.id] != nil },
-                                        artwork: artwork, featuredArtwork: featuredArtwork)
+                                        featuredArtwork: featuredArtwork)
                     content = .loaded([])
                 } else {
                     _ = await carouselPreparation
@@ -485,31 +481,6 @@ final class SourceLibrary: ObservableObject {
             embyHome = home
         }
         return artwork
-    }
-
-    private static func prepareEmbyArtwork(_ items: [MediaItem], source: MediaSource) async -> [String: Data] {
-        await withTaskGroup(of: (String, Data?).self) { tasks in
-            var items = items.makeIterator()
-            func enqueueNext() {
-                guard let item = items.next() else { return }
-                tasks.addTask {
-                    guard !Task.isCancelled else { return (item.id.localID, nil) }
-                    let data = await MediaThumbnailLoader.shared.load(item, source: source)
-                    return (item.id.localID, data)
-                }
-            }
-            for _ in 0..<6 { enqueueNext() }
-            var artwork: [String: Data] = [:]
-            for await (id, data) in tasks {
-                guard !Task.isCancelled else {
-                    tasks.cancelAll()
-                    break
-                }
-                artwork[id] = data
-                enqueueNext()
-            }
-            return artwork
-        }
     }
 
     func reload() {

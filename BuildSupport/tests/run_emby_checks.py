@@ -23,7 +23,6 @@ MEDIA = {'Id': 'v2', 'Name': 'Version 2', 'RunTimeTicks': 6000000000, 'Container
                            'IsDefault': True}]}
 ITEM = {'Id': 'movie', 'Name': 'Movie', 'Type': 'Movie', 'RunTimeTicks': 6000000000,
         'UserData': {'PlaybackPositionTicks': 300000000}, 'Overview': 'A movie',
-        'PrimaryImageAspectRatio': 1.78,
         'SeriesId': 'series', 'SeriesPrimaryImageTag': 'series-tag',
         'MediaSources': [dict(MEDIA, Id='v1', Name='Version 1'), MEDIA]}
 SERIES = {'Id': 'series', 'Name': 'Series', 'Type': 'Series', 'IsFolder': True,
@@ -161,12 +160,13 @@ class Handler(BaseHTTPRequestHandler):
         if path.path == '/proxy/emby/Shows/series/Episodes':
             query = parse_qs(path.query)
             assert query['UserId'] == ['user'] and query['EnableUserData'] == ['true']
+            assert 'MediaStreams' in query['Fields'][0]
             next_season = dict(EPISODE, Id='next-season', ParentIndexNumber=2, IndexNumber=1,
                                UserData={'Played': True})
             next_season.pop('Name')
             first_season = dict(EPISODE, ParentIndexNumber=1, IndexNumber=2, Overview='Episode synopsis',
                                 ImageTags={'Thumb': 'episode-thumb'}, UserData={'Played': False, 'PlaybackPositionTicks': 300000000},
-                                MediaStreams=[{'Type': 'Video', 'Width': 3840, 'VideoRangeType': 'DOVI'},
+                                MediaStreams=[{'Type': 'Video', 'Width': 3840, 'Height': 2160, 'VideoRangeType': 'DOVI'},
                                               {'Type': 'Audio', 'DisplayTitle': 'Dolby Atmos'}])
             if query['StartIndex'] == ['0']:
                 self.respond({'Items': [next_season], 'TotalRecordCount': 2}); return

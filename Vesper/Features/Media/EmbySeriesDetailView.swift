@@ -1131,7 +1131,11 @@ private struct EmbyEpisodeCard: View {
         let bottomStrip: UIImage?
     }
 
-    private var artworkKey: String { AppCacheStore.embyArtworkKey(for: episode.item, source: source) }
+    private var artworkKey: String {
+        let aspectRatio = width / max(1, height)
+        let orientation = aspectRatio > 1 ? "landscape" : aspectRatio < 1 ? "portrait" : "square"
+        return "\(AppCacheStore.embyArtworkKey(for: episode.item, source: source))|\(orientation)"
+    }
 
     private var artwork: EpisodeArtwork? {
         loadedArtwork?.key == artworkKey ? loadedArtwork : nil

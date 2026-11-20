@@ -234,7 +234,7 @@ final class MediaThumbnailLoader {
                 group.addTask {
                     var poster = await self.textlessPoster(for: item, source: source)
                     if poster == nil, !Task.isCancelled {
-                        poster = await self.load(item, source: source)
+                        poster = await self.load(item, source: source, aspectRatio: 3.0 / 5.0)
                     }
                     return CarouselArtworkPartResult(id: item.id, part: .poster, data: poster)
                 }
@@ -309,7 +309,8 @@ final class MediaThumbnailLoader {
         switch source.kind {
         case .demo: return nil
         case .emby:
-            let key = AppCacheStore.embyArtworkKey(for: item, source: source)
+            let orientation = aspectRatio > 1 ? "landscape" : aspectRatio < 1 ? "portrait" : "square"
+            let key = "\(AppCacheStore.embyArtworkKey(for: item, source: source))|\(orientation)"
             let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
             let (data, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
             if let data, UIImage(data: data) != nil { return data }
@@ -318,7 +319,8 @@ final class MediaThumbnailLoader {
             guard !cacheOnly, !Task.isCancelled else { return nil }
             let task = Task { () -> Data? in
                 defer { pendingEmbyImages[requestKey] = nil }
-                guard let data = await EmbyRepository.shared.thumbnailData(for: item, source: source),
+                guard let data = await EmbyRepository.shared.thumbnailData(for: item, source: source,
+                                                                           aspectRatio: Double(aspectRatio)),
                       UIImage(data: data) != nil else { return nil }
                 if !ignoresCache {
                     await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
