@@ -53,14 +53,68 @@ struct PlayerScreen: View {
 
     var body: some View {
         observedPlayer
+            .task(id: hudRevision) { await dismissHUDWhenReady() }
             .task(id: autoHideRevision) { await autoHideControlsWhenReady() }
             .task(id: volumeResetRevision) { await resetVolumeWhenReady() }
-            .task(id: hudRevision) { await dismissHUDWhenReady() }
     }
 
     private var observedPlayer: some View {
         presentedPlayer
-            .onAppear(perform: preparePlayerAppearance)
+        .onAppear {
+            PlayerOrientationPolicy.update(true, scene: session.videoView?.window?.windowScene)
+            session.playerDidAppear()
+            brightnessScreen = screen
+            originalBrightness = screen?.brightness
+            scrubTime = session.currentTime
+            setControlsVisible(voiceOver || session.errorMessage != nil)
+        }
+        .onDisappear {
+            if isScrubbing { finishScrubbing(commit: scrubPreviews) }
+            if let originalBrightness { brightnessScreen?.brightness = originalBrightness }
+        }
+        .onChange(of: session.currentTime) { _, time in
+            if !isScrubbing { scrubTime = min(time, max(session.duration, 1)) }
+        }
+        .onChange(of: session.currentItem?.id) { _, _ in
+            isScrubbing = false
+            scrubTime = 0
+            setControlsVisible(voiceOver)
+        }
+        .onChange(of: session.isPlaying) { _, _ in autoHideRevision += 1 }
+        .onChange(of: session.isLoading) { _, _ in autoHideRevision += 1 }
+        .onChange(of: session.isSeeking) { _, _ in autoHideRevision += 1 }
+        .onChange(of: session.errorMessage) { _, message in if message != nil { revealControls() } }
+        .onChange(of: session.playbackNotice) { _, message in if message != nil { showingNotice = true; revealControls() } }
+        .onChange(of: session.playbackTransitionNotice) { _, notice in
+            guard let notice else { return }
+            showHUD(notice.message, symbol: "arrow.triangle.2.circlepath", duration: 3)
+        }
+        .onChange(of: session.automaticSkipNotice) { _, notice in
+            guard let notice else { return }
+            showHUD(VesperLocalization.string(notice.kind == .intro ? "已跳过片头" : "已跳过片尾"),
+                    symbol: notice.kind == .intro ? "forward.fill" : "forward.end.fill")
+        }
+        .onChange(of: volume.value) { old, new in if new > 0.001 && old != new && session.isMuted { session.unmute() } }
+        .onChange(of: volumeDragStart) { _, _ in autoHideRevision += 1 }
+        .onChange(of: voiceOver) { _, _ in revealControls() }
+        .onChange(of: panel) { _, _ in revealControls() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active && isScrubbing { finishScrubbing(commit: scrubPreviews) } }
+    }
+
+    @MainActor private func autoHideControlsWhenReady() async {
+        guard canAutoHide else { return }
+        do { try await Task.sleep(for: .seconds(3)) } catch { return }
+        guard !Task.isCancelled, canAutoHide else { return }
+        setControlsVisible(false)
+    }
+
+    @MainActor private func resetVolumeWhenReady() async {
+        guard !controlsVisible else { return }
+        do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+        guard !Task.isCancelled, !controlsVisible else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { volumeExpanded = false; volumeDragStart = nil }
     }
 
     private var presentedPlayer: some View {
@@ -174,60 +228,6 @@ struct PlayerScreen: View {
         .alert("播放器", isPresented: $showingNotice) {
             Button("好", role: .cancel) { session.playbackNotice = nil; rotationError = nil }
         } message: { Text(verbatim: rotationError ?? session.playbackNotice ?? "") }
-        .onAppear {
-            PlayerOrientationPolicy.update(true, scene: session.videoView?.window?.windowScene)
-            session.playerDidAppear()
-            brightnessScreen = screen
-            originalBrightness = screen?.brightness
-            scrubTime = session.currentTime
-            setControlsVisible(voiceOver || session.errorMessage != nil)
-        }
-        .onDisappear {
-            if isScrubbing { finishScrubbing(commit: scrubPreviews) }
-            if let originalBrightness { brightnessScreen?.brightness = originalBrightness }
-        }
-        .onChange(of: session.currentTime) { _, time in
-            if !isScrubbing { scrubTime = min(time, max(session.duration, 1)) }
-        }
-        .onChange(of: session.currentItem?.id) { _, _ in
-            isScrubbing = false
-            scrubTime = 0
-            setControlsVisible(voiceOver)
-        }
-        .onChange(of: session.isPlaying) { _, _ in autoHideRevision += 1 }
-        .onChange(of: session.isLoading) { _, _ in autoHideRevision += 1 }
-        .onChange(of: session.isSeeking) { _, _ in autoHideRevision += 1 }
-        .onChange(of: session.errorMessage) { _, message in if message != nil { revealControls() } }
-        .onChange(of: session.playbackNotice) { _, message in if message != nil { showingNotice = true; revealControls() } }
-        .onChange(of: session.playbackTransitionNotice) { _, notice in
-            guard let notice else { return }
-            showHUD(notice.message, symbol: "arrow.triangle.2.circlepath", duration: 3)
-        }
-        .onChange(of: session.automaticSkipNotice) { _, notice in
-            guard let notice else { return }
-            showHUD(VesperLocalization.string(notice.kind == .intro ? "已跳过片头" : "已跳过片尾"),
-                    symbol: notice.kind == .intro ? "forward.fill" : "forward.end.fill")
-        }
-        .onChange(of: volume.value) { old, new in if new > 0.001 && old != new && session.isMuted { session.unmute() } }
-        .onChange(of: volumeDragStart) { _, _ in autoHideRevision += 1 }
-        .onChange(of: voiceOver) { _, _ in revealControls() }
-        .onChange(of: panel) { _, _ in revealControls() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active && isScrubbing { finishScrubbing(commit: scrubPreviews) } }
-        .task(id: autoHideRevision) {
-            guard canAutoHide else { return }
-            do { try await Task.sleep(for: .seconds(3)) } catch { return }
-            guard !Task.isCancelled, canAutoHide else { return }
-            setControlsVisible(false)
-        }
-        .task(id: volumeResetRevision) {
-            guard !controlsVisible else { return }
-            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-            guard !Task.isCancelled, !controlsVisible else { return }
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { volumeExpanded = false; volumeDragStart = nil }
-        }
-        .task(id: hudRevision) { await dismissHUDWhenReady() }
     }
 
     @MainActor private func dismissHUDWhenReady() async {
