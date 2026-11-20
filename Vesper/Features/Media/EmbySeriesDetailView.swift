@@ -42,6 +42,7 @@ struct EmbySeriesHeroFooter: View {
     var selectedEpisodeIsPlayed = false
     var playSelectedEpisode: () -> Void = {}
     var toggleSelectedEpisodePlayed: () -> Void = {}
+    var mediaFacts: [String]? = nil
     var showsItemActions = false
     var itemIsPlayed = false
     var playItem: () -> Void = {}
@@ -90,18 +91,18 @@ struct EmbySeriesHeroFooter: View {
                     Text(verbatim: facts.joined(separator: " · "))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                    if episodes.contains(where: \.is4K) {
+                    if mediaFacts == nil && episodes.contains(where: \.is4K) {
                         Image(systemName: "4k.tv")
                             .accessibilityLabel("4K")
                     }
-                    if episodes.contains(where: \.dolbyVision) {
+                    if mediaFacts == nil && episodes.contains(where: \.dolbyVision) {
                         Text("Dolby Vision").fontWeight(.semibold)
                     }
-                    if episodes.contains(where: \.dolbyAtmos) {
+                    if mediaFacts == nil && episodes.contains(where: \.dolbyAtmos) {
                         Text("Dolby Atmos").fontWeight(.semibold)
                     }
                 }
-                .font(.subheadline)
+                .font(.system(size: 14))
                 .lineLimit(1)
             }
         }
@@ -110,6 +111,7 @@ struct EmbySeriesHeroFooter: View {
     }
 
     private var facts: [String] {
+        if let mediaFacts { return mediaFacts }
         var facts = [series.subtitle].compactMap { $0 }
         if let runtime { facts.append(runtime) }
         if let season {
@@ -144,8 +146,8 @@ private struct SeriesHeroWatchButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(Color(uiColor: .label))
-            .background(Color(uiColor: .systemGray5).opacity(configuration.isPressed ? 0.82 : 1))
-            .overlay(Circle().strokeBorder(Color(uiColor: .systemGray3), lineWidth: 1))
+            .background(Color(uiColor: .systemGray4).opacity(configuration.isPressed ? 0.82 : 1))
+            .overlay(Circle().strokeBorder(Color(uiColor: .systemGray2), lineWidth: 1))
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
     }
 }
@@ -257,6 +259,7 @@ struct EmbyMediaDetailView: View {
     @State private var metadata: EmbyDetailMetadata?
     @State private var selectedMediaSourceID: String?
     @State private var selectedAudioIndex: Int?
+    @State private var audioShouldBeDisabled = false
     @State private var selectedSubtitleIndex: Int?
     @State private var episodes: [EmbyEpisode] = []
     @State private var seasonNumbers: [Int] = []
@@ -274,8 +277,8 @@ struct EmbyMediaDetailView: View {
     @State private var openedRecommendation: MediaItem?
     @State private var openedPerson: EmbyPerson?
     @State private var loadError: String?
-    @State private var favoriteOverride: Bool?
-    @State private var updatingFavorite = false
+    @State private var episodeVersions: [EmbyMediaVersionDetails] = []
+    @State private var versionsEpisodeID: MediaID?
     @State private var favoriteError: String?
     @State private var actionError: String?
     @State private var isLoading = true
@@ -292,10 +295,16 @@ struct EmbyMediaDetailView: View {
     }
 
     private var item: MediaItem { metadata?.item ?? series }
+    private var availableVersions: [EmbyMediaVersionDetails] {
+        if series.isEmbySeries {
+            return versionsEpisodeID == selectedEpisodeID ? episodeVersions : []
+        }
+        return metadata?.mediaVersions ?? []
+    }
     private var selectedVersion: EmbyMediaVersionDetails? {
-        metadata?.mediaVersions.first(where: { $0.id == selectedMediaSourceID })
-            ?? metadata?.mediaVersions.first(where: { $0.id == item.embyMediaSourceID })
-            ?? metadata?.mediaVersions.first
+        availableVersions.first(where: { $0.id == selectedMediaSourceID })
+            ?? availableVersions.first(where: { $0.id == item.embyMediaSourceID })
+            ?? availableVersions.first
     }
     private var playableItem: MediaItem {
         var result = item
@@ -334,7 +343,6 @@ struct EmbyMediaDetailView: View {
                         }
                         VStack(alignment: .leading, spacing: CGFloat(layout[.groupSpacing])) {
                             if !series.isEmbySeries {
-                                versionSelectionSection
                                 if isEpisode { parentSeriesSection }
                                 technicalSection
                                 if let loadError {
@@ -383,25 +391,21 @@ struct EmbyMediaDetailView: View {
                     .accessibilityHidden(true)
             }
             .sharedBackgroundVisibility(.hidden)
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                versionMenu
+                trackMenu(type: "Audio", symbol: "speaker.wave.2")
+                trackMenu(type: "Subtitle", symbol: "captions.bubble")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    Task { @MainActor in
-                        guard !updatingFavorite else { return }
-                        updatingFavorite = true
-                        defer { updatingFavorite = false }
-                        let target = !(favoriteOverride ?? item.isFavorite ?? false)
-                        do {
-                            try await playback.setFavorite(target, for: item, source: source)
-                            favoriteOverride = target
-                        } catch {
-                            favoriteError = error.localizedDescription
-                        }
+                    playback.setFavorite(!playback.effectiveFavorite(for: item), for: item, source: source) {
+                        favoriteError = $0
                     }
                 } label: {
-                    Image(systemName: (favoriteOverride ?? item.isFavorite ?? false) ? "heart.fill" : "heart")
+                    Image(systemName: playback.effectiveFavorite(for: item) ? "heart.fill" : "heart")
                 }
-                .accessibilityLabel((favoriteOverride ?? item.isFavorite ?? false) ? "取消收藏" : "收藏")
-                .disabled(updatingFavorite || source.emby?.userID == nil || !detailDataReady)
+                .accessibilityLabel(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏")
+                .disabled(source.emby?.userID == nil)
             }
             if showsCloseButton {
                 ToolbarItem(placement: .topBarLeading) {
@@ -430,6 +434,27 @@ struct EmbyMediaDetailView: View {
         )) {
             Button("好", role: .cancel) { actionError = nil }
         } message: { Text(verbatim: actionError ?? "") }
+        .task(id: selectedEpisodeID) {
+            guard series.isEmbySeries else { return }
+            episodeVersions = []
+            versionsEpisodeID = nil
+            selectedMediaSourceID = nil
+            selectedAudioIndex = nil
+            selectedSubtitleIndex = nil
+            audioShouldBeDisabled = false
+            guard let selected = episodes.first(where: { $0.id == selectedEpisodeID }) else { return }
+            do {
+                let details = try await EmbyRepository.shared.detailMetadata(for: selected.item, source: source)
+                guard !Task.isCancelled, selectedEpisodeID == selected.id else { return }
+                episodeVersions = details.mediaVersions
+                versionsEpisodeID = selected.id
+                selectedMediaSourceID = details.mediaVersions.first(where: { $0.id == selected.item.embyMediaSourceID })?.id
+                    ?? details.mediaVersions.first?.id
+                if let selectedVersion { resetTrackSelection(for: selectedVersion) }
+            } catch {
+                if !Task.isCancelled { actionError = error.localizedDescription }
+            }
+        }
         .task(id: "\(series.id.sourceID):\(series.id.localID):\(reloadID)") {
             guard loadedSeriesID != series.id else { return }
             await loadDetail()
@@ -468,6 +493,7 @@ struct EmbyMediaDetailView: View {
                                                                 .map { playback.effectivePlayed(for: $0.item) } ?? false,
                                                                playSelectedEpisode: playSelectedEpisode,
                                                                toggleSelectedEpisodePlayed: toggleSelectedEpisodePlayed,
+                                                               mediaFacts: series.isEmbySeries ? nil : heroMediaFacts,
                                                                showsItemActions: !series.isEmbySeries,
                                                                itemIsPlayed: playback.effectivePlayed(for: item),
                                                                playItem: playCurrentItem,
@@ -502,52 +528,95 @@ struct EmbyMediaDetailView: View {
         let audio = selectedVersion?.streams.first { $0.type == "Audio" && $0.id == selectedAudioIndex }
         let subtitle = selectedVersion?.streams.first { $0.type == "Subtitle" && $0.id == selectedSubtitleIndex }
         playback.play(playable, in: source, queue: [playable], audio: audio, subtitle: subtitle,
-                      streams: selectedVersion?.streams ?? [])
+                      streams: selectedVersion?.streams ?? [], audioDisabled: audioShouldBeDisabled)
     }
 
-    @ViewBuilder
-    private var versionSelectionSection: some View {
-        let versions = metadata?.mediaVersions ?? []
-        if versions.count > 1, let selectedVersion {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("媒体文件").font(.system(size: 18, weight: .semibold)).accessibilityAddTraits(.isHeader)
-                Menu {
-                    ForEach(versions) { version in
-                        Button {
-                            selectedMediaSourceID = version.id
-                            resetTrackSelection(for: version)
-                        } label: {
-                            if version.id == selectedVersion.id {
-                                Label(versionMenuTitle(version), systemImage: "checkmark")
-                            } else {
-                                Text(verbatim: versionMenuTitle(version))
-                            }
-                        }
-                    }
+    private var versionMenu: some View {
+        Menu {
+            ForEach(availableVersions) { version in
+                Button {
+                    selectedMediaSourceID = version.id
+                    resetTrackSelection(for: version)
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "doc.on.doc")
-                            .foregroundStyle(Color.accentColor)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(verbatim: selectedVersion.name).font(.subheadline.weight(.medium))
-                            Text(verbatim: versionSummary(selectedVersion))
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                        }
-                        Spacer(minLength: 4)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    if version.id == selectedVersion?.id {
+                        Label(versionMenuTitle(version), systemImage: "checkmark")
+                    } else {
+                        Text(verbatim: versionMenuTitle(version))
                     }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(VesperTheme.mediaCardBackground, in: RoundedRectangle(cornerRadius: 10))
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("选择媒体文件")
-                .accessibilityValue(versionMenuTitle(selectedVersion))
             }
-            .padding(.horizontal, CGFloat(layout[.endPadding]))
+        } label: {
+            Image(systemName: "doc.on.doc")
         }
+        .accessibilityLabel("媒体版本")
+        .disabled(availableVersions.isEmpty || (series.isEmbySeries && versionsEpisodeID != selectedEpisodeID))
+    }
+
+    private func trackMenu(type: String, symbol: String) -> some View {
+        let audio = type == "Audio"
+        let selection = audio ? selectedAudioIndex : selectedSubtitleIndex
+        let tracks = selectedVersion?.streams.filter { $0.type == type } ?? []
+        return Menu {
+            Button {
+                if audio {
+                    selectedAudioIndex = nil
+                    audioShouldBeDisabled = true
+                } else {
+                    selectedSubtitleIndex = nil
+                }
+            } label: {
+                let isOff = audio ? audioShouldBeDisabled : selection == nil
+                if isOff { Label("关闭", systemImage: "checkmark") }
+                else { Text("关闭") }
+            }
+            ForEach(tracks) { stream in
+                Button {
+                    if audio { selectedAudioIndex = stream.id; audioShouldBeDisabled = false }
+                    else { selectedSubtitleIndex = stream.id }
+                } label: {
+                    if selection == stream.id {
+                        Label(stream.displayTitle ?? stream.title ?? stream.displayLanguage ?? stream.language ?? "\(stream.id)",
+                              systemImage: "checkmark")
+                    } else {
+                        Text(verbatim: stream.displayTitle ?? stream.title ?? stream.displayLanguage ?? stream.language ?? "\(stream.id)")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: symbol)
+        }
+        .accessibilityLabel(audio ? "音轨" : "字幕")
+        .disabled(selectedVersion == nil || (series.isEmbySeries && versionsEpisodeID != selectedEpisodeID))
+    }
+
+    private var heroMediaFacts: [String] {
+        var facts: [String] = []
+        if let date = item.dateCreated {
+            facts.append(date.formatted(date: .numeric, time: .omitted))
+        }
+        if let runtime { facts.append(runtime) }
+        if let video = selectedVersion?.streams.first(where: { $0.type == "Video" }) {
+            if let height = video.height, height > 0 {
+                let width = video.width ?? 0
+                if width >= 7600 || height >= 4000 { facts.append("8K") }
+                else if width >= 3800 || height >= 2000 { facts.append("4K") }
+                else if width >= 1900 || height >= 1000 { facts.append("1080P") }
+                else if width >= 1200 || height >= 700 { facts.append("720P") }
+                else { facts.append("\(height)P") }
+            }
+            if let fps = video.averageFrameRate ?? video.realFrameRate, fps.isFinite, fps > 0 {
+                facts.append(String(format: "%.2f fps", fps))
+            }
+            let range = [video.videoRangeType, video.videoRange].compactMap { $0 }.joined(separator: " ").uppercased()
+            if range.contains("DOVI") || range.contains("DOLBY") || range.hasPrefix("DV") {
+                facts.append("Dolby Vision")
+            } else if range.contains("HLG") { facts.append("HLG") }
+            else if range.contains("HDR10PLUS") || range.contains("HDR10+") { facts.append("HDR10+") }
+            else if range.contains("HDR") { facts.append("HDR") }
+            else if !range.isEmpty { facts.append("SDR") }
+        }
+        if let size = selectedVersion?.size { facts.append(Self.byteCountLabel(size)) }
+        return facts
     }
 
     private func versionMenuTitle(_ version: EmbyMediaVersionDetails) -> String {
@@ -605,85 +674,43 @@ struct EmbyMediaDetailView: View {
     @ViewBuilder
     private var technicalSection: some View {
         if let selectedVersion {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("媒体信息").font(.system(size: 18, weight: .semibold)).accessibilityAddTraits(.isHeader)
-                if let fileName = selectedVersion.fileName {
-                    LabeledContent("文件名", value: fileName)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("媒体信息").font(.system(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
+                if let date = item.dateCreated {
+                    LabeledContent("添加时间", value: date.formatted(date: .numeric, time: .omitted))
                 }
-                if let container = selectedVersion.container {
-                    LabeledContent("容器格式", value: container.uppercased())
+                if let duration = selectedVersion.duration ?? item.duration, duration > 0 {
+                    LabeledContent("时长", value: Self.durationLabel(duration))
+                }
+                if let video = selectedVersion.streams.first(where: { $0.type == "Video" }) {
+                    if let width = video.width, let height = video.height {
+                        let label = width >= 7600 || height >= 4000 ? "8K"
+                            : width >= 3800 || height >= 2000 ? "4K"
+                            : width >= 1900 || height >= 1000 ? "1080P"
+                            : width >= 1200 || height >= 700 ? "720P" : "\(height)P"
+                        LabeledContent("分辨率", value: label)
+                    }
+                    if let frameRate = video.averageFrameRate ?? video.realFrameRate, frameRate > 0 {
+                        LabeledContent("帧率", value: String(format: "%.2f fps", frameRate))
+                    }
+                    let range = [video.videoRangeType, video.videoRange].compactMap { $0 }.joined(separator: " ").uppercased()
+                    let presentation = range.contains("DOVI") || range.contains("DOLBY") || range.hasPrefix("DV") ? "Dolby Vision"
+                        : range.contains("HLG") ? "HLG"
+                        : range.contains("HDR10+") || range.contains("HDR10PLUS") ? "HDR10+"
+                        : range.contains("HDR") ? "HDR" : (range.isEmpty ? nil : "SDR")
+                    if let presentation { LabeledContent("动态范围", value: presentation) }
                 }
                 if let size = selectedVersion.size {
                     LabeledContent("文件大小", value: Self.byteCountLabel(size))
-                }
-                if let bitRate = selectedVersion.bitRate {
-                    LabeledContent("总码率", value: Self.bitRateLabel(bitRate))
-                }
-                if let duration = selectedVersion.duration {
-                    LabeledContent("时长", value: Self.durationLabel(duration))
-                }
-                if let protocolName = selectedVersion.protocolName {
-                    LabeledContent("传输协议", value: protocolName)
-                }
-                if let mediaType = selectedVersion.mediaType {
-                    LabeledContent("媒体类型", value: mediaType)
-                }
-                if let mimeType = selectedVersion.mimeType {
-                    LabeledContent("MIME 类型", value: mimeType)
-                }
-                capabilitySummary(selectedVersion)
-                ForEach(["Video", "Audio", "Subtitle"], id: \.self) { type in
-                    let streams = selectedVersion.streams.filter { $0.type == type }
-                    if !streams.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(streamSectionTitle(type, count: streams.count))
-                                .font(.system(size: 16, weight: .semibold))
-                                .accessibilityAddTraits(.isHeader)
-                            if type == "Subtitle" {
-                                Button {
-                                    selectedSubtitleIndex = nil
-                                } label: {
-                                    HStack {
-                                        Text("关闭字幕")
-                                        Spacer()
-                                        if selectedSubtitleIndex == nil { Image(systemName: "checkmark") }
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            ForEach(streams) { stream in
-                                if type == "Video" {
-                                    EmbyMediaStreamRow(stream: stream)
-                                } else {
-                                    Button {
-                                        if type == "Audio" { selectedAudioIndex = stream.id }
-                                        else { selectedSubtitleIndex = stream.id }
-                                    } label: {
-                                        HStack {
-                                            EmbyMediaStreamRow(stream: stream)
-                                            if (type == "Audio" ? selectedAudioIndex : selectedSubtitleIndex) == stream.id {
-                                                Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
-                                            }
-                                        }
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityAddTraits((type == "Audio" ? selectedAudioIndex : selectedSubtitleIndex) == stream.id ? .isSelected : [])
-                                }
-                            }
-                        }
-                    }
                 }
             }
             .font(.subheadline)
             .padding(.horizontal, CGFloat(layout[.endPadding]))
         } else if let video = metadata?.video, video.dimensions != nil || !video.technical.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("媒体信息").font(.system(size: 18, weight: .semibold)).accessibilityAddTraits(.isHeader)
-                if let dimensions = video.dimensions {
-                    LabeledContent("分辨率", value: dimensions)
-                }
-                ForEach(Array(video.technical.enumerated()), id: \.offset) { _, field in
+                Text("媒体信息").font(.system(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
+                if let dimensions = video.dimensions { LabeledContent("分辨率", value: dimensions) }
+                ForEach(Array(video.technical.filter { !["视频轨道", "音轨", "字幕"].contains($0.label) }.enumerated()), id: \.offset) { _, field in
                     LabeledContent(field.label, value: field.value)
                 }
             }
@@ -1118,12 +1145,11 @@ struct EmbyMediaDetailView: View {
     }
 
     private func resetTrackSelection(for version: EmbyMediaVersionDetails) {
-        selectedAudioIndex = version.defaultAudioStreamIndex
-            ?? version.streams.first(where: { $0.type == "Audio" && $0.isDefault })?.id
-            ?? version.streams.first(where: { $0.type == "Audio" })?.id
-        let subtitleIndex = version.defaultSubtitleStreamIndex
-            ?? version.streams.first(where: { $0.type == "Subtitle" && $0.isDefault })?.id
-        selectedSubtitleIndex = subtitleIndex.flatMap { $0 >= 0 ? $0 : nil }
+        let preferredAudio = EmbyTrackPreferences.selection(version.streams, type: "Audio")
+        selectedAudioIndex = preferredAudio ?? version.streams.first(where: { $0.type == "Audio" })?.id
+        audioShouldBeDisabled = preferredAudio == nil
+            && UserDefaults.standard.bool(forKey: EmbyTrackPreferences.disableMissingAudioKey)
+        selectedSubtitleIndex = EmbyTrackPreferences.selection(version.streams, type: "Subtitle")
     }
 
     private func clearItemProgress() {
@@ -1181,7 +1207,16 @@ struct EmbyMediaDetailView: View {
 
     private func playSelectedEpisode() {
         guard let selected = episodes.first(where: { $0.id == selectedEpisodeID }) else { return }
-        playback.play(selected.item, in: source, queue: Array(episodes.dropFirst(episodes.firstIndex(where: { $0.id == selected.id }) ?? 0).map(\.item)))
+        guard let selectedVersion, versionsEpisodeID == selected.id else { return }
+        var playable = selected.item
+        playable.embyMediaSourceID = selectedVersion.id
+        playable.duration = selectedVersion.duration ?? playable.duration
+        let audio = selectedVersion.streams.first { $0.type == "Audio" && $0.id == selectedAudioIndex }
+        let subtitle = selectedVersion.streams.first { $0.type == "Subtitle" && $0.id == selectedSubtitleIndex }
+        playback.play(playable, in: source,
+                      queue: Array(episodes.dropFirst(episodes.firstIndex(where: { $0.id == selected.id }) ?? 0).map(\.item)),
+                      audio: audio, subtitle: subtitle, streams: selectedVersion.streams,
+                      audioDisabled: audioShouldBeDisabled)
     }
 
     private func toggleSelectedEpisodePlayed() {

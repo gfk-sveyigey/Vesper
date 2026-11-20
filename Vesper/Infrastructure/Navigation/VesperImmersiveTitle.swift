@@ -91,11 +91,6 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
             }
             .frame(minHeight: viewportHeight, alignment: .top)
-            .background {
-                if usesMediaScrollEdges {
-                    VesperNativeScrollToTopTarget()
-                }
-            }
         }
         .scrollDisabled(showsLoading)
         .scrollClipDisabled()
@@ -209,21 +204,18 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            positionedScrollView
-                .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
-                .scrollEdgeEffectHidden(true, for: .top)
-                .scrollEdgeEffectHidden(usesMediaScrollEdges, for: .bottom)
-                .ignoresSafeArea(.container, edges: .top)
-
-            if showsLoading {
-                VesperPageLoadingOverlay()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .transition(.opacity)
-                    .zIndex(1)
+        positionedScrollView
+            .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+            .scrollEdgeEffectHidden(true, for: .top)
+            .scrollEdgeEffectHidden(usesMediaScrollEdges, for: .bottom)
+            .ignoresSafeArea(.container, edges: .top)
+            .overlay {
+                if showsLoading {
+                    VesperPageLoadingOverlay()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity)
+                }
             }
-
-        }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: showsLoading)
         .task(id: mediaHeaderSnap) {
             guard let snap = mediaHeaderSnap else { return }
@@ -421,6 +413,28 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             Text(title)
                 .font(headerTitleFont)
                 .foregroundStyle(Color(uiColor: .label))
+                .background {
+                    if usesMediaScrollEdges {
+                        Canvas { context, size in
+                            let outline = context.resolve(
+                                Text(title)
+                                    .font(headerTitleFont)
+                                    .foregroundStyle(Color(uiColor: .systemBackground))
+                            )
+                            // A half-point contour behind the original accessible Text.
+                            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                            for step in 0..<16 {
+                                let angle = Double(step) * .pi / 8
+                                context.draw(outline, at: CGPoint(
+                                    x: center.x + CGFloat(cos(angle)) * 0.5,
+                                    y: center.y + CGFloat(sin(angle)) * 0.5
+                                ))
+                            }
+                        }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    }
+                }
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
             actions
@@ -748,52 +762,5 @@ struct VesperCenteredEmptyContent: View {
     var body: some View {
         VesperEmptyContent(message: message, symbol: symbol)
             .frame(maxWidth: .infinity, minHeight: height)
-    }
-}
-
-
-// Keep the media page's vertical scroll view as the sole native scroll-to-top target.
-// Nested horizontal shelves must not compete with it. No tab gestures/delegates
-// or UIScrollView delegates are intercepted.
-private struct VesperNativeScrollToTopTarget: UIViewRepresentable {
-    func makeUIView(context: Context) -> TargetView {
-        let view = TargetView()
-        view.isUserInteractionEnabled = false
-        view.accessibilityElementsHidden = true
-        return view
-    }
-
-    func updateUIView(_ view: TargetView, context: Context) {
-        view.setNeedsLayout()
-    }
-
-    final class TargetView: UIView {
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            setNeedsLayout()
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            guard window != nil else { return }
-            var ancestor = superview
-            while let view = ancestor {
-                if let scrollView = view as? UIScrollView {
-                    scrollView.scrollsToTop = true
-                    disableNestedTargets(in: scrollView)
-                    return
-                }
-                ancestor = view.superview
-            }
-        }
-
-        private func disableNestedTargets(in view: UIView) {
-            for child in view.subviews {
-                if let scrollView = child as? UIScrollView {
-                    scrollView.scrollsToTop = false
-                }
-                disableNestedTargets(in: child)
-            }
-        }
     }
 }

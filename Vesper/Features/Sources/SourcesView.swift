@@ -2,10 +2,16 @@ import SwiftUI
 import Photos
 import UIKit
 
+private enum SourcesAlert: Hashable, Identifiable {
+    case addSource
+    case localNetwork
+    var id: Self { self }
+}
+
 struct SourcesView: View {
     @EnvironmentObject private var library: SourceLibrary
     @AppStorage("navigation.icons") private var icons = "{}"
-    @State private var isShowingError = false
+    @State private var activeAlert: SourcesAlert?
     @State private var isShowingEmbyEditor = false
     @State private var editingEmby: MediaSource?
 
@@ -16,7 +22,7 @@ struct SourcesView: View {
             } else {
                 VStack(spacing: 16) {
                     ForEach(library.sources) { source in
-                        Button { library.select(source.id) } label: {
+                        Button { selectSource(source) } label: {
                             HStack(spacing: 12) {
                                 if source.kind == .emby {
                                     Group {
@@ -61,11 +67,39 @@ struct SourcesView: View {
         } actions: {
             addMenu
         }
-        .alert("无法添加来源", isPresented: $isShowingError) {
-            Button("好", role: .cancel) { }
-        } message: { Text("请检查相册访问权限或本地视频文件。") }
+        .alert(item: $activeAlert) { alert in
+            switch alert {
+            case .addSource:
+                Alert(title: Text("无法添加来源"), message: Text("请检查相册访问权限或本地视频文件。"),
+                      dismissButton: .cancel(Text("好")))
+            case .localNetwork:
+                Alert(title: Text("无法访问本地网络"),
+                      message: Text("请在系统设置中允许 Vesper 访问本地网络，然后重新选择 Emby 来源。"),
+                      primaryButton: .default(Text("前往设置")) {
+                          guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                          UIApplication.shared.open(url)
+                      },
+                      secondaryButton: .cancel(Text("取消")))
+            }
+        }
         .sheet(isPresented: $isShowingEmbyEditor) { EmbySourceEditor(source: nil) }
         .sheet(item: $editingEmby) { source in EmbySourceEditor(source: source) }
+    }
+
+    private func selectSource(_ source: MediaSource) {
+        guard source.id != library.selectedID else { return }
+        guard source.kind == .emby, let address = source.emby?.serverAddress,
+              LocalNetworkPermissionProbe.isLocalAddress(address) else {
+            library.select(source.id)
+            return
+        }
+        Task {
+            if await LocalNetworkPermissionProbe.check(address) == .denied {
+                activeAlert = .localNetwork
+            } else {
+                library.select(source.id)
+            }
+        }
     }
 
     private var addMenu: some View {
@@ -95,7 +129,7 @@ struct SourcesView: View {
             let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
             if status == .authorized || status == .limited {
                 library.addDeviceSource(kind: .photos, name: VesperLocalization.string("相册视频"))
-            } else { isShowingError = true }
+            } else { activeAlert = .addSource }
         }
     }
 
@@ -108,7 +142,7 @@ struct SourcesView: View {
                 name: VesperLocalization.string("本地视频")
             )
         } catch {
-            isShowingError = true
+            activeAlert = .addSource
         }
     }
 }

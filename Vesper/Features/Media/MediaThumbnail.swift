@@ -580,6 +580,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     @State private var updatingWatchState = false
     @State private var clearedServerProgress = false
     @State private var watchError: String?
+    @State private var favoriteError: String?
 
     private var showsWatchActions: Bool {
         source.kind == .emby && showsEmbyFacts && !item.isContainer
@@ -609,6 +610,14 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 } else {
                     Button("分享", systemImage: "square.and.arrow.up") { share() }
                         .disabled(preparingShare)
+                }
+                if source.kind == .emby, ["Movie", "Series"].contains(item.embyItemType ?? "") {
+                    let favorite = playback.effectiveFavorite(for: item)
+                    Button(favorite ? "取消收藏" : "收藏",
+                           systemImage: favorite ? "heart.slash" : "heart") {
+                        playback.setFavorite(!favorite, for: item, source: source) { favoriteError = $0 }
+                    }
+                    .disabled(source.emby?.userID == nil)
                 }
                 if showsWatchActions {
                     if hasServerProgress || playback.savedProgress(for: item) > 0 {
@@ -645,6 +654,11 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 embyDetailsSheet(source: source, item: item, artworkZoom: detailsZoom)
             }
             .onChange(of: item.resumePosition) { _, _ in clearedServerProgress = false }
+            .alert("无法更新收藏", isPresented: Binding(
+                get: { favoriteError != nil }, set: { if !$0 { favoriteError = nil } }
+            )) {
+                Button("好", role: .cancel) { favoriteError = nil }
+            } message: { Text(verbatim: favoriteError ?? "") }
             .alert("无法更新观看记录", isPresented: Binding(
                 get: { watchError != nil }, set: { if !$0 { watchError = nil } }
             )) {

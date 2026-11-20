@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Network
 
 @MainActor
 final class MediaLayoutSettings: ObservableObject {
@@ -114,6 +115,7 @@ struct MediaView: View {
     @State private var pendingCarouselRoute: EmbyMediaRoute?
     @State private var hidesCarouselInformation = false
     @State private var carouselCrossfade = CarouselDetailCrossfade()
+    @State private var localNetworkDenied = false
 
     var body: some View {
         Group {
@@ -129,6 +131,7 @@ struct MediaView: View {
                 .ignoresSafeArea(.container, edges: .top)
         }
         .onChange(of: library.selectedID) { _, _ in
+            path = NavigationPath()
             showsEmbyShortcuts = false
             pendingCarouselRoute = nil
             hidesCarouselInformation = false
@@ -292,6 +295,15 @@ struct MediaView: View {
         .modifier(ConditionalMediaRefresh(enabled: library.selectedSource?.kind != .emby) { [library] in
             library.reload()
         })
+        .alert("无法访问本地网络", isPresented: $localNetworkDenied) {
+            Button("取消", role: .cancel) {}
+            Button("前往设置") {
+                guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                UIApplication.shared.open(url)
+            }
+        } message: {
+            Text("请在系统设置中允许 Vesper 访问本地网络，然后重新选择 Emby 来源。")
+        }
     }
 
     @ViewBuilder
@@ -566,6 +578,22 @@ struct MediaView: View {
         return Image(uiImage: icon).renderingMode(.original)
     }
 
+    private func selectSource(_ source: MediaSource) {
+        guard source.id != library.selectedID else { return }
+        guard source.kind == .emby, let address = source.emby?.serverAddress,
+              LocalNetworkPermissionProbe.isLocalAddress(address) else {
+            library.select(source.id)
+            return
+        }
+        Task {
+            if await LocalNetworkPermissionProbe.check(address) == .denied {
+                localNetworkDenied = true
+            } else {
+                library.select(source.id)
+            }
+        }
+    }
+
     private var sourceMenuButton: some View {
         Menu {
             if let source = embyHomeSource, !showsEmbyShortcuts {
@@ -575,7 +603,7 @@ struct MediaView: View {
             Section {
                 ForEach(library.sources) { source in
                     Button {
-                        library.select(source.id)
+                        selectSource(source)
                     } label: {
                         Label {
                             Text(verbatim: source.name)
@@ -605,6 +633,65 @@ struct MediaView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("选择媒体来源")
+    }
+}
+
+enum LocalNetworkPermissionProbe {
+    enum Result: Equatable { case allowed, denied, unknown }
+
+    private final class CompletionGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var completed = false
+
+        func run(_ action: () -> Void) {
+            lock.lock()
+            guard !completed else { lock.unlock(); return }
+            completed = true
+            lock.unlock()
+            action()
+        }
+    }
+
+    static func isLocalAddress(_ address: String) -> Bool {
+        guard let components = URLComponents(string: address.contains("://") ? address : "http://\(address)"),
+              let host = components.host?.lowercased() else { return false }
+        if host == "localhost" || host.hasSuffix(".local") { return true }
+        let octets = host.split(separator: ".").compactMap { UInt8($0) }
+        guard octets.count == 4 else { return false }
+        return octets[0] == 10 || octets[0] == 127 || (octets[0] == 192 && octets[1] == 168)
+            || (octets[0] == 172 && (16...31).contains(Int(octets[1])))
+    }
+
+    static func check(_ address: String) async -> Result {
+        guard let components = URLComponents(string: address.contains("://") ? address : "http://\(address)"),
+              let host = components.host, let rawPort = components.port ?? (components.scheme == "https" ? 443 : 80),
+              let port = NWEndpoint.Port(rawValue: UInt16(rawPort)) else { return .unknown }
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .tcp)
+        return await withCheckedContinuation { continuation in
+            let gate = CompletionGate()
+            func finish(_ result: Result) {
+                gate.run {
+                    connection.cancel()
+                    continuation.resume(returning: result)
+                }
+            }
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready: finish(.allowed)
+                case .waiting(let error), .failed(let error):
+                    if case .posix(let code) = error, code == .EPERM || code == .EACCES {
+                        finish(.denied)
+                    } else if case .waiting = state {
+                        return
+                    } else {
+                        finish(.unknown)
+                    }
+                default: break
+                }
+            }
+            connection.start(queue: .global(qos: .utility))
+            DispatchQueue.global().asyncAfter(deadline: .now() + 4) { finish(.unknown) }
+        }
     }
 }
 

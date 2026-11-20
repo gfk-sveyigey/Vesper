@@ -92,6 +92,49 @@ struct EmbyMediaVersionDetails: Hashable, Sendable, Identifiable {
     let streams: [EmbyMediaStreamDetails]
 }
 
+enum EmbyTrackPreferences {
+    static let audioLanguageKey = "emby.audioLanguage"
+    static let subtitleLanguageKey = "emby.subtitleLanguage"
+    static let disableMissingAudioKey = "emby.disableMissingAudio"
+    static let disableMissingSubtitleKey = "emby.disableMissingSubtitle"
+    static let languages = [("", "未指定"), ("zho", "中文"), ("eng", "英语"), ("jpn", "日语"),
+                            ("kor", "韩语"), ("fra", "法语"), ("deu", "德语"), ("spa", "西班牙语"),
+                            ("ita", "意大利语"), ("por", "葡萄牙语"), ("rus", "俄语"),
+                            ("ara", "阿拉伯语"), ("hin", "印地语"), ("tha", "泰语"), ("vie", "越南语")]
+    static func normalized(_ language: String) -> String {
+        let value = language.lowercased().replacingOccurrences(of: "_", with: "-")
+            .split(separator: "-").first.map(String.init) ?? ""
+        switch value {
+        case "zh", "chi", "zho": return "zho"
+        case "en", "eng": return "eng"
+        case "ja", "jpn": return "jpn"
+        case "ko", "kor": return "kor"
+        case "fr", "fre", "fra": return "fra"
+        case "de", "ger", "deu": return "deu"
+        case "es", "spa": return "spa"
+        case "it", "ita": return "ita"
+        case "pt", "por": return "por"
+        case "ru", "rus": return "rus"
+        case "ar", "ara": return "ara"
+        case "hi", "hin": return "hin"
+        case "th", "tha": return "tha"
+        case "vi", "vie": return "vie"
+        default: return value
+        }
+    }
+    static func selection(_ streams: [EmbyMediaStreamDetails], type: String) -> Int? {
+        let tracks = streams.filter { $0.type == type }
+        let audio = type == "Audio"
+        let language = UserDefaults.standard.string(forKey: audio ? audioLanguageKey : subtitleLanguageKey) ?? ""
+        guard !language.isEmpty else { return tracks.first?.id }
+        if let match = tracks.first(where: { normalized($0.language ?? "") == normalized(language) }) {
+            return match.id
+        }
+        return UserDefaults.standard.bool(forKey: audio ? disableMissingAudioKey : disableMissingSubtitleKey)
+            ? nil : tracks.first?.id
+    }
+}
+
 enum EmbyBrowsingSettings {
     static let fullRenderingKey = "emby.fullRendering"
 }

@@ -1,8 +1,9 @@
 import SwiftUI
 import UIKit
+import Photos
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku, debug, cache, emby
+    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku, debug, cache, emby, permissions
 
     var title: LocalizedStringKey {
         switch self {
@@ -17,6 +18,7 @@ private enum SettingsRoute: Hashable {
         case .debug: "调试功能"
         case .cache: "缓存管理"
         case .emby: "Emby 设置"
+        case .permissions: "应用权限"
         }
     }
 }
@@ -49,6 +51,8 @@ struct SettingsView: View {
                     settingsLink(.cache, title: "缓存管理", symbol: "internaldrive")
                     Divider().padding(.leading, 52)
                     settingsLink(.emby, title: "Emby 设置", symbol: "server.rack")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.permissions, title: "应用权限", symbol: "hand.raised")
                     Divider().padding(.leading, 52)
                         HStack {
                             SettingsLabel("语言设置", symbol: "globe")
@@ -131,6 +135,7 @@ struct SettingsView: View {
                 case .licenses: PlaybackLicensesView()
                 case .debug: DebugSettingsView()
                 case .emby: EmbySettingsView()
+                case .permissions: AppPermissionsView()
                 case .cache:
                     CacheManagementView()
                         .navigationBarTitleDisplayMode(.inline)
@@ -164,12 +169,96 @@ struct SettingsView: View {
 
 private struct EmbySettingsView: View {
     @AppStorage(EmbyBrowsingSettings.fullRenderingKey) private var waitsForArtwork = false
+    @AppStorage(EmbyTrackPreferences.audioLanguageKey) private var audioLanguage = ""
+    @AppStorage(EmbyTrackPreferences.subtitleLanguageKey) private var subtitleLanguage = ""
+    @AppStorage(EmbyTrackPreferences.disableMissingAudioKey) private var disableMissingAudio = false
+    @AppStorage(EmbyTrackPreferences.disableMissingSubtitleKey) private var disableMissingSubtitle = false
 
     var body: some View {
         SettingsPage {
             SettingsSection {
                 Toggle("完整加载后渲染", isOn: $waitsForArtwork)
             }
+            SettingsSection {
+                Picker("默认音轨语言", selection: $audioLanguage) {
+                    ForEach(EmbyTrackPreferences.languages.indices, id: \.self) { index in
+                        Text(verbatim: EmbyTrackPreferences.languages[index].1)
+                            .tag(EmbyTrackPreferences.languages[index].0)
+                    }
+                }
+                Toggle("无对应语言时关闭音轨", isOn: $disableMissingAudio)
+                Picker("默认字幕语言", selection: $subtitleLanguage) {
+                    ForEach(EmbyTrackPreferences.languages.indices, id: \.self) { index in
+                        Text(verbatim: EmbyTrackPreferences.languages[index].1)
+                            .tag(EmbyTrackPreferences.languages[index].0)
+                    }
+                }
+                Toggle("无对应语言时关闭字幕", isOn: $disableMissingSubtitle)
+            }
+        }
+    }
+}
+
+private struct AppPermissionsView: View {
+    @State private var photoStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+    @State private var isRequestingPhotos = false
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        SettingsPage {
+            SettingsSection {
+                LabeledContent("照片图库", value: photoStatusText)
+                if photoStatus == .notDetermined {
+                    Button("请求照片访问权限", systemImage: "photo") {
+                        requestPhotos()
+                    }
+                    .disabled(isRequestingPhotos)
+                } else if photoStatus == .denied || photoStatus == .restricted {
+                    Button("前往系统设置", systemImage: "arrow.up.forward.app") {
+                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                        UIApplication.shared.open(url)
+                    }
+                }
+            }
+            SettingsSection {
+                LabeledContent("本地网络", value: "使用时由系统请求")
+                Text("连接局域网 Emby 服务器时，iOS 会显示本地网络访问提示。系统不向 App 提供权限状态查询 API。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("前往系统设置", systemImage: "arrow.up.forward.app") {
+                    guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                    UIApplication.shared.open(url)
+                }
+            }
+            SettingsSection {
+                Text("文件和文件夹通过系统文档选择器授权；媒体播放无需单独的麦克风或摄像头权限。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("应用权限")
+        .task { photoStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { photoStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite) }
+        }
+    }
+
+    private var photoStatusText: String {
+        switch photoStatus {
+        case .authorized: "已允许"
+        case .limited: "受限访问"
+        case .denied: "未允许"
+        case .restricted: "受系统限制"
+        case .notDetermined: "尚未请求"
+        @unknown default: "未知"
+        }
+    }
+
+    private func requestPhotos() {
+        isRequestingPhotos = true
+        Task {
+            photoStatus = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+            isRequestingPhotos = false
         }
     }
 }

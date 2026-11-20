@@ -125,13 +125,17 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
 
     func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem],
               audio: EmbyMediaStreamDetails? = nil, subtitle: EmbyMediaStreamDetails? = nil,
-              streams: [EmbyMediaStreamDetails] = []) {
+              streams: [EmbyMediaStreamDetails] = [], audioDisabled: Bool = false) {
         recordPlaybackHistory()
         externalFile = nil
         self.queue = queue
         self.source = source
+        isMuted = audioDisabled
         isPresented = true
-        load(item, source: source, initialAudio: trackPreference(audio, streams: streams),
+        let preferredAudio = audioDisabled
+            ? EngineTrack(id: "emby-audio-off", name: "", language: nil, codec: nil)
+            : trackPreference(audio, streams: streams)
+        load(item, source: source, initialAudio: preferredAudio,
              initialSubtitle: trackPreference(subtitle, streams: streams))
     }
 
@@ -634,6 +638,42 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             try await enqueueEmbyRecordWrite(.clearProgress, for: item, source: source).value
         }
         clearSavedProgress(for: item)
+    }
+
+    @Published private var favoriteStates: [MediaID: Bool] = [:]
+    private var favoriteRevisions: [MediaID: UUID] = [:]
+    private var confirmedFavorites: [MediaID: Bool] = [:]
+
+    func effectiveFavorite(for item: MediaItem) -> Bool {
+        favoriteStates[item.id] ?? item.isFavorite ?? false
+    }
+
+    /// Optimistic UI, with server writes serialized by the shared item queue.
+    func setFavorite(_ favorite: Bool, for item: MediaItem, source: MediaSource,
+                     completion: @escaping (String?) -> Void) {
+        guard source.id == item.id.sourceID, source.kind == .emby else {
+            completion(EmbyError.invalidResponse.localizedDescription)
+            return
+        }
+        if confirmedFavorites[item.id] == nil {
+            confirmedFavorites[item.id] = item.isFavorite ?? false
+        }
+        let revision = UUID()
+        favoriteRevisions[item.id] = revision
+        favoriteStates[item.id] = favorite
+        let write = enqueueEmbyRecordWrite(.setFavorite(favorite), for: item, source: source)
+        Task {
+            do {
+                try await write.value
+                confirmedFavorites[item.id] = favorite
+                completion(nil)
+            } catch {
+                if favoriteRevisions[item.id] == revision {
+                    favoriteStates[item.id] = confirmedFavorites[item.id] ?? item.isFavorite ?? false
+                }
+                completion(error.localizedDescription)
+            }
+        }
     }
 
     /// Favorites use the same per-item queue as watched/progress writes.
