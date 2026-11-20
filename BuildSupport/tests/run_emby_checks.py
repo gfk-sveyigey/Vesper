@@ -59,6 +59,9 @@ class Handler(BaseHTTPRequestHandler):
                           {'ImageType': 'Primary', 'ImageIndex': 1, 'Width': 1600, 'Height': 900}],
                 'ratio-neutral': [{'ImageType': 'Primary', 'ImageIndex': 0, 'Width': 600, 'Height': 900},
                                   {'ImageType': 'Primary', 'ImageIndex': 1, 'Width': 1600, 'Height': 900}],
+                'library': [{'ImageType': 'Thumb', 'ImageIndex': 0, 'Width': 1600, 'Height': 900},
+                            {'ImageType': 'Primary', 'ImageIndex': 0, 'Width': 600, 'Height': 900},
+                            {'ImageType': 'Primary', 'ImageIndex': 1, 'Width': 1600, 'Height': 900}],
                 'series': [{'ImageType': 'Logo', 'ImageIndex': 0, 'Width': 800, 'Height': 200},
                            {'ImageType': 'Primary', 'ImageIndex': 0, 'Width': 600, 'Height': 900}],
                 'no-logo': [{'ImageType': 'Primary', 'ImageIndex': 0, 'Width': 600, 'Height': 900}],
@@ -78,6 +81,12 @@ class Handler(BaseHTTPRequestHandler):
             self.respond({'image': 'ratio-neutral-portrait'}); return
         if path.path == '/proxy/emby/Items/ratio-neutral/Images/Primary/1':
             self.respond({'image': 'ratio-neutral-landscape'}); return
+        if path.path == '/proxy/emby/Items/library/Images/Primary/1':
+            self.respond({'image': 'library-primary-landscape'}); return
+        if path.path == '/proxy/emby/Items/library/Images/Primary/0':
+            self.respond({'image': 'library-primary-portrait'}); return
+        if path.path == '/proxy/emby/Items/library/Images/Thumb/0':
+            self.respond({'image': 'library-thumb-landscape'}); return
         if path.path == '/proxy/emby/Items/movie/Images/Thumb/0':
             self.respond({'image': 'movie-thumb'}); return
         if path.path == '/proxy/emby/Items/episode/Images/Thumb/0':

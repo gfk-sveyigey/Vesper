@@ -187,7 +187,6 @@ struct MediaView: View {
             } else if let item = route.item {
                 if route.origin == .carousel {
                     let detail = EmbyMediaDetailView(source: route.source, series: item,
-                                                      carouselArtwork: route.carouselArtwork,
                                                       startsWithCarouselInformationHidden: true,
                                                       onCarouselDetailReady: { carouselCrossfade.revealDetail() })
                         .background {
@@ -831,8 +830,7 @@ private struct EmbyFeaturedCarousel: View {
                         let shift = reduceMotion ? 0 : CGFloat(direction) * width * travelFraction
                         let images = featuredArtwork?[item.id]
                         let fallback = artwork?[item.id.localID]
-                        let route = EmbyMediaRoute.detail(source, item, origin: .carousel,
-                                                          carouselArtwork: .init(poster: images?.poster ?? fallback, logo: images?.logo))
+                        let route = EmbyMediaRoute.detail(source, item, origin: .carousel)
                         Button { openDetail(route) } label: {
                             EmbyFeaturedPage(source: source, item: item, size: geometry.size,
                                              artwork: fallback, artworkIsPrepared: artwork != nil,
@@ -1413,7 +1411,6 @@ private struct EmbyMediaRoute: Hashable {
     let itemID: String
     let item: MediaItem?
     var origin: Origin? = nil
-    var carouselArtwork: EmbyFeaturedArtwork? = nil
     var opensFavorites: Bool { item == nil && origin == .favorites }
     var opensLibrary: Bool { item == nil && !opensFavorites }
 
@@ -1425,9 +1422,8 @@ private struct EmbyMediaRoute: Hashable {
         Self(source: source, title: title, itemID: id, item: nil)
     }
 
-    static func detail(_ source: MediaSource, _ item: MediaItem, origin: Origin, carouselArtwork: EmbyFeaturedArtwork? = nil) -> Self {
-        Self(source: source, title: item.title, itemID: item.id.localID, item: item, origin: origin,
-             carouselArtwork: carouselArtwork)
+    static func detail(_ source: MediaSource, _ item: MediaItem, origin: Origin) -> Self {
+        Self(source: source, title: item.title, itemID: item.id.localID, item: item, origin: origin)
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {

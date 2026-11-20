@@ -846,7 +846,7 @@ actor EmbyRepository {
         let isPosterItem = ["Movie", "Series"].contains(item.embyItemType ?? "")
         let isEpisode = item.embyItemType == "Episode"
         let preferredTypes: [String]
-        if isPosterItem {
+        if isPosterItem || item.isContainer {
             preferredTypes = ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
         } else if isEpisode || orientation == .landscape {
             preferredTypes = ["Thumb", "Screenshot", "Backdrop", "Primary", "Thumbnail"]

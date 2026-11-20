@@ -213,7 +213,6 @@ struct EmbyMediaDetailView: View {
     let source: MediaSource
     let series: MediaItem
     var showsCloseButton = false
-    var carouselArtwork: EmbyFeaturedArtwork? = nil
     var startsWithCarouselInformationHidden = false
     var onCarouselDetailReady: (() -> Void)? = nil
     var episode: EmbyEpisode? = nil
@@ -376,8 +375,8 @@ struct EmbyMediaDetailView: View {
     private var hero: some View {
         GeometryReader { geometry in
             EmbyFeaturedPage(source: source, item: item, size: geometry.size,
-                             artwork: nil, artworkIsPrepared: false, featuredArtwork: carouselArtwork,
-                             featuredArtworkIsPrepared: carouselArtwork?.poster != nil,
+                             artwork: nil, artworkIsPrepared: false, featuredArtwork: nil,
+                             featuredArtworkIsPrepared: false,
                              showsInformation: !startsWithCarouselInformationHidden || carouselDetailReady,
                              seriesFooter: EmbySeriesHeroFooter(series: item, season: selectedSeason,
                                                                seasonCount: seasonNumbers.count,

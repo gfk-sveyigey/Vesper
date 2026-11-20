@@ -16,6 +16,9 @@ struct EmbyRepositoryChecks {
         precondition(roots.count == 3 && roots[0].isContainer)
         let libraries = try await repository.mediaLibraries(for: source)
         precondition(libraries.map(\.id.localID) == ["library", "sets", "lists"] && libraries.allSatisfy(\.isContainer))
+        let libraryThumbnail = await repository.thumbnailData(for: libraries[0], source: source, orientation: .landscape)
+        let libraryImage = try JSONDecoder().decode([String: String].self, from: libraryThumbnail ?? Data())
+        precondition(libraryImage["image"] == "library-primary-landscape")
         let favorites = try await repository.items(for: source, parentID: nil, startIndex: 21,
                                                    limit: 21, scope: .favorites)
         precondition(favorites.map(\.id.localID) == ["movie", "series", "episode"])
