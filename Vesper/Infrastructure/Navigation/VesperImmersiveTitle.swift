@@ -8,6 +8,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let content: Content
     private let extendsContentUnderHeader: Bool
     private let showsLoading: Bool
+    private let disablesScrollingWhileLoading: Bool
     private let usesMediaScrollEdges: Bool
     private let scrollPosition: Binding<ScrollPosition>?
     private let onVerticalScrollPhaseChange: (ScrollPhase, CGFloat) -> Void
@@ -38,7 +39,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var interactionStartedCollapsed = false
 
     init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
-         usesMediaScrollEdges: Bool = false,
+         usesMediaScrollEdges: Bool = false, disablesScrollingWhileLoading: Bool = true,
          scrollPosition: Binding<ScrollPosition>? = nil,
          onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
          onVerticalScrollPhaseChange: @escaping (ScrollPhase, CGFloat) -> Void = { _, _ in },
@@ -47,6 +48,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         self.title = title
         self.extendsContentUnderHeader = extendsContentUnderHeader
         self.showsLoading = showsLoading
+        self.disablesScrollingWhileLoading = disablesScrollingWhileLoading
         self.usesMediaScrollEdges = usesMediaScrollEdges
         self.scrollPosition = scrollPosition
         self.onVerticalScrollPhaseChange = onVerticalScrollPhaseChange
@@ -92,7 +94,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             .frame(minHeight: viewportHeight, alignment: .top)
         }
-        .scrollDisabled(showsLoading)
+        .scrollDisabled(showsLoading && disablesScrollingWhileLoading)
         .scrollClipDisabled()
         .scrollBounceBehavior(.always, axes: .vertical)
         .simultaneousGesture(
@@ -765,174 +767,20 @@ struct VesperCenteredEmptyContent: View {
     }
 }
 
-/// Temporary diagnostics: a never-recognizing touch observer and read-only
-/// snapshots. No system delegate replacement or scroll-property writes.
-struct VesperTabScrollDiagnostics: UIViewRepresentable {
-    func makeUIView(context: Context) -> ProbeView { ProbeView() }
-    func updateUIView(_ uiView: ProbeView, context: Context) { }
-    static func dismantleUIView(_ uiView: ProbeView, coordinator: ()) { uiView.stop() }
+enum MediaScrollDebugSettings {
+    static let disableBackgroundsKey = "debug.mediaScroll.disableBackgrounds"
+    static let keepScrollingEnabledKey = "debug.mediaScroll.keepScrollingEnabled"
+    static let fixedCarouselHeightKey = "debug.mediaScroll.fixedCarouselHeight"
+    static let disableMediaScrollHandlingKey = "debug.mediaScroll.disableMediaScrollHandling"
+}
 
-    /// Receives raw touch callbacks, but never recognizes a gesture or prevents
-    /// another recognizer. Native tab recognizers are left entirely in charge.
-    final class TabTouchObserver: UIGestureRecognizer {
-        var onTouch: ((String, UITouch) -> Void)?
+/// Remove the background modifier itself when isolating scroll discovery.
+struct MediaDiagnosticBackground<Background: View>: ViewModifier {
+    let disabled: Bool
+    @ViewBuilder let background: () -> Background
 
-        override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
-        override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
-        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-            for touch in touches { onTouch?("began", touch) }
-        }
-        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-            for touch in touches { onTouch?("ended", touch) }
-            state = .failed
-        }
-        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
-            for touch in touches { onTouch?("cancelled", touch) }
-            state = .failed
-        }
-    }
-
-    final class ProbeView: UIView, UIGestureRecognizerDelegate {
-        private var timer: Timer?
-        private weak var tabs: UITabBarController?
-        private weak var observedWindow: UIWindow?
-        private var touchObserver: TabTouchObserver?
-        private var lastSignature = ""
-        private var needsSettledSnapshot = false
-        private var lastChange = Date.distantPast
-        private var eventNumber = 0
-
-        init() {
-            super.init(frame: .zero)
-            isUserInteractionEnabled = false
-            accessibilityElementsHidden = true
-        }
-        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            stop()
-            guard let window else { return }
-            let observer = TabTouchObserver()
-            observer.cancelsTouchesInView = false
-            observer.delaysTouchesBegan = false
-            observer.delaysTouchesEnded = false
-            observer.requiresExclusiveTouchType = false
-            observer.delegate = self
-            observer.onTouch = { [weak self] phase, touch in
-                self?.recordTouch(phase, touch: touch)
-            }
-            window.addGestureRecognizer(observer)
-            observedWindow = window
-            touchObserver = observer
-            let timer = Timer(timeInterval: 0.2, target: self,
-                              selector: #selector(sample), userInfo: nil, repeats: true)
-            self.timer = timer
-            RunLoop.main.add(timer, forMode: .common)
-            sample()
-        }
-
-        func stop() {
-            timer?.invalidate()
-            timer = nil
-            if let touchObserver { observedWindow?.removeGestureRecognizer(touchObserver) }
-            touchObserver = nil
-            observedWindow = nil
-            tabs = nil
-        }
-
-        private func descendants(_ view: UIView) -> [UIView] {
-            [view] + view.subviews.flatMap { descendants($0) }
-        }
-
-        private func findTabs(_ controller: UIViewController) -> UITabBarController? {
-            if let tabs = controller as? UITabBarController { return tabs }
-            for child in controller.children {
-                if let tabs = findTabs(child) { return tabs }
-            }
-            return nil
-        }
-
-        @objc private func sample() {
-            guard let window, !window.isHidden,
-                  window.windowScene?.activationState == .foregroundActive,
-                  let root = window.rootViewController,
-                  let current = findTabs(root) else { return }
-            if tabs !== current {
-                tabs = current
-                snapshot("attached passiveTouchObserver OS=\(UIDevice.current.systemVersion)")
-            }
-            guard let selected = current.selectedViewController, selected.isViewLoaded else { return }
-            let scrolls = descendants(selected.view).compactMap { $0 as? UIScrollView }
-            let signature = "\(current.selectedIndex):" + scrolls.map {
-                "\(ObjectIdentifier($0)):\(Int($0.contentOffset.y.rounded())):\($0.isDragging):\($0.isDecelerating)"
-            }.joined(separator: ";")
-            if signature != lastSignature {
-                lastSignature = signature
-                lastChange = .now
-                needsSettledSnapshot = true
-            } else if needsSettledSnapshot, Date.now.timeIntervalSince(lastChange) >= 0.4 {
-                needsSettledSnapshot = false
-                snapshot("scroll/layout settled")
-            }
-        }
-
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard let bar = tabs?.tabBar, !bar.isHidden else { return false }
-            return touch.view?.isDescendant(of: bar) == true || bar.bounds.contains(touch.location(in: bar))
-        }
-
-        private func recordTouch(_ phase: String, touch: UITouch) {
-            guard let window else { return }
-            if phase == "began" { eventNumber += 1 }
-            let event = eventNumber
-            var hierarchy: [String] = []
-            var view = touch.view
-            while let current = view, hierarchy.count < 8 {
-                hierarchy.append(String(describing: type(of: current)))
-                view = current.superview
-            }
-            snapshot("event=\(event) touch=\(phase) uptime=\(touch.timestamp) point=\(touch.location(in: window)) hit=\(hierarchy.joined(separator: ">"))")
-            guard phase == "ended" || phase == "cancelled" else { return }
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(350))
-                guard let self, self.window != nil else { return }
-                self.snapshot("event=\(event) +350ms")
-                try? await Task.sleep(for: .milliseconds(650))
-                guard self.window != nil else { return }
-                self.snapshot("event=\(event) +1000ms")
-            }
-        }
-
-        private func snapshot(_ reason: String) {
-            guard let tabs, let selected = tabs.selectedViewController, selected.isViewLoaded else { return }
-            var lines = ["\(reason) selected=\(tabs.selectedIndex) tabDelegate=\(tabs.delegate.map { String(describing: type(of: $0)) } ?? "nil")"]
-            func visit(_ controller: UIViewController, depth: Int) {
-                func identity(_ scroll: UIScrollView?) -> String {
-                    scroll.map { String(describing: ObjectIdentifier($0)) } ?? "nil"
-                }
-                let navigation = (controller as? UINavigationController).map { " stack=\($0.viewControllers.count)" } ?? ""
-                lines.append("controller[\(depth)]=\(type(of: controller))\(navigation) contentTop=\(identity(controller.contentScrollView(for: .top))) contentBottom=\(identity(controller.contentScrollView(for: .bottom)))")
-                for child in controller.children { visit(child, depth: depth + 1) }
-            }
-            visit(selected, depth: 0)
-            for scroll in descendants(selected.view).compactMap({ $0 as? UIScrollView }) {
-                let frame = scroll.convert(scroll.bounds, to: window)
-                var ancestorsVisible = true
-                var ancestor: UIView? = scroll
-                while let view = ancestor {
-                    if view.isHidden || view.alpha <= 0.01 { ancestorsVisible = false; break }
-                    ancestor = view.superview
-                }
-                let visible = scroll.window === window && ancestorsVisible && frame.intersects(window?.bounds ?? .zero)
-                lines.append("scroll=\(ObjectIdentifier(scroll)) class=\(type(of: scroll)) visible=\(visible) frame=\(frame) offset=\(scroll.contentOffset) content=\(scroll.contentSize) inset=\(scroll.adjustedContentInset) toTop=\(scroll.scrollsToTop) enabled=\(scroll.isScrollEnabled) dragging=\(scroll.isDragging) decelerating=\(scroll.isDecelerating)")
-            }
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let timestamp = formatter.string(from: Date())
-            for line in lines {
-                AppLog.runtimeEntries.append("\(timestamp) [TabScroll] \(line)")
-            }
-        }
+    @ViewBuilder func body(content: Content) -> some View {
+        if disabled { content }
+        else { content.background(content: background) }
     }
 }

@@ -221,7 +221,6 @@ struct AppNavigationView: View {
                 selection = .section(.settings)
             }
         }
-        .background { VesperTabScrollDiagnostics().frame(width: 0, height: 0) }
         .tabBarMinimizeBehavior(tabBarCanMinimize ? .onScrollDown : .never)
         .tabViewSearchActivation(.searchTabSelection)
         .environmentObject(library)
@@ -292,7 +291,7 @@ struct AppNavigationView: View {
             NavigationStack(path: $mediaPath) {
                 MediaView(path: $mediaPath)
             }
-                // Diagnostic comparison: temporarily omit the media header overlay.
+                .modifier(VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty))
         case .sources:
             NavigationStack(path: $sourcesPath) { SourcesView() }
                 .modifier(VesperNavigationHeaderLayer(isRoot: sourcesPath.isEmpty))

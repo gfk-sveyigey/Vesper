@@ -795,6 +795,10 @@ private extension MediaLayoutSettings.Metric {
 }
 
 private struct DebugSettingsView: View {
+    @AppStorage(MediaScrollDebugSettings.disableBackgroundsKey) private var disableMediaBackgrounds = false
+    @AppStorage(MediaScrollDebugSettings.keepScrollingEnabledKey) private var keepMediaScrollingEnabled = false
+    @AppStorage(MediaScrollDebugSettings.fixedCarouselHeightKey) private var fixedCarouselHeight = false
+    @AppStorage(MediaScrollDebugSettings.disableMediaScrollHandlingKey) private var disableMediaScrollHandling = false
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @AppStorage(ImageCacheDebugSettings.ignoreLocalCacheKey) private var ignoreLocalImageCache = false
     @AppStorage(EmbyUserAgentPolicy.enabledKey) private var enabled = false
@@ -818,6 +822,20 @@ private struct DebugSettingsView: View {
                 }
             } footer: {
                 Text("客户端名称和版本会同时用于 User-Agent 及 Emby Authorization 请求头。留空或关闭时使用 Vesper 默认值。")
+            }
+            SettingsSection("媒体标签回顶排查") {
+                Toggle("移除媒体页额外背景", isOn: $disableMediaBackgrounds)
+                Toggle("加载时保持滚动启用", isOn: $keepMediaScrollingEnabled)
+                Toggle("轮播图使用固定高度", isOn: $fixedCarouselHeight)
+                Toggle("关闭媒体专用滚动处理", isOn: $disableMediaScrollHandling)
+                Button("恢复正常行为", systemImage: "arrow.counterclockwise") {
+                    disableMediaBackgrounds = false
+                    keepMediaScrollingEnabled = false
+                    fixedCarouselHeight = false
+                    disableMediaScrollHandling = false
+                }
+            } footer: {
+                Text("默认全部关闭。更改后返回媒体页测试；测试加载相关行为时，保持开关状态并重新启动 App。移除额外背景也会移除轮播图截图转场锚点。")
             }
             SettingsSection("图片缓存") {
                 Toggle("图片不使用本地缓存", isOn: $ignoreLocalImageCache)

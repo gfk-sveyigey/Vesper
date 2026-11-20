@@ -107,6 +107,9 @@ struct MediaView: View {
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @Namespace private var artworkZoom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(MediaScrollDebugSettings.disableBackgroundsKey) private var disableDiagnosticBackgrounds = false
+    @AppStorage(MediaScrollDebugSettings.keepScrollingEnabledKey) private var keepScrollingEnabled = false
+    @AppStorage(MediaScrollDebugSettings.disableMediaScrollHandlingKey) private var disableMediaScrollHandling = false
     @State private var showsEmbyShortcuts = false
     @State private var mediaScrollPosition = ScrollPosition(edge: .top)
     @State private var mediaScrollOffset: CGFloat = 0
@@ -125,10 +128,10 @@ struct MediaView: View {
                 mediaContent
             }
         }
-        .background {
+        .modifier(MediaDiagnosticBackground(disabled: disableDiagnosticBackgrounds) {
             CarouselDetailCrossfade.Anchor(transition: carouselCrossfade)
                 .ignoresSafeArea(.container, edges: .top)
-        }
+        })
         .onChange(of: library.selectedID) { _, _ in
             path = NavigationPath()
             showsEmbyShortcuts = false
@@ -200,7 +203,8 @@ struct MediaView: View {
         let showsFeaturedRegion = library.selectedSource?.kind == .emby && !library.canNavigateBack
         let title: LocalizedStringKey = library.selectedSource.map { LocalizedStringKey("\($0.name)") } ?? "媒体"
         return VesperRootScrollView(title: title, extendsContentUnderHeader: showsFeaturedRegion,
-                                   showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
+                                   showsLoading: isLoadingMedia, usesMediaScrollEdges: !disableMediaScrollHandling,
+                                   disablesScrollingWhileLoading: !keepScrollingEnabled,
                                    scrollPosition: $mediaScrollPosition,
                                    onVerticalOffsetChange: updateMediaScrollOffset,
                                    onVerticalScrollPhaseChange: updateMediaScrollPhase,
@@ -290,7 +294,9 @@ struct MediaView: View {
                 mediaSourceMenu
             }
         }
-        .background(VesperTheme.background.ignoresSafeArea())
+        .modifier(MediaDiagnosticBackground(disabled: disableDiagnosticBackgrounds) {
+            VesperTheme.background.ignoresSafeArea()
+        })
         .modifier(ConditionalMediaRefresh(enabled: library.selectedSource?.kind != .emby) { [library] in
             library.reload()
         })
@@ -319,13 +325,24 @@ struct MediaView: View {
                     ForEach(visibleGroups) { group in
                         VStack(alignment: .leading, spacing: 0) {
                             groupTitle(group, source: source)
-                            // Diagnostic comparison: preserve the vertical extent without
-                            // mounting any horizontal shelf scroll views.
-                            Color.clear
-                                .frame(height: groupCardSize(group).height
-                                    + CGFloat(layout[.itemVerticalPadding]) * 2
-                                    + CGFloat(layout[.scrollPadding]) * 2)
-                                .accessibilityHidden(true)
+                            ScrollView(.horizontal) {
+                                LazyHStack(spacing: CGFloat(layout[.itemSpacing])) {
+                                    if group.isLoading {
+                                        ForEach(0..<5, id: \.self) { _ in groupPlaceholder(group) }
+                                    } else {
+                                        ForEach(group.items) { item in
+                                            groupCard(item, in: group, source: source, artwork: home.artwork)
+                                        }
+                                    }
+                                }
+                                .scrollTargetLayout()
+                                .padding(.vertical, CGFloat(layout[.itemVerticalPadding]))
+                            }
+                            .scrollClipDisabled()
+                            .scrollIndicators(.hidden)
+                            .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
+                            .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
+                            .padding(.vertical, CGFloat(layout[.scrollPadding]))
                         }
                     }
                 }
@@ -853,6 +870,7 @@ private struct EmbyFeaturedCarousel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(MediaScrollDebugSettings.fixedCarouselHeightKey) private var fixedCarouselHeight = false
     @State private var selection: MediaID?
     @State private var incoming: MediaID?
     @State private var direction = 1
@@ -924,10 +942,16 @@ private struct EmbyFeaturedCarousel: View {
             }
         }
 
-        return EmbyCarouselRevealLayout(headerHeight: headerHeight, progress: hasPosters ? 1 : 0) {
-            pages
+        return Group {
+            if fixedCarouselHeight {
+                pages.aspectRatio(EmbyPosterLayout.aspectRatio, contentMode: .fit)
+            } else {
+                EmbyCarouselRevealLayout(headerHeight: headerHeight, progress: hasPosters ? 1 : 0) {
+                    pages
+                }
+            }
         }
-        .animation(reduceMotion || !hasPosters ? nil : .easeOut(duration: 0.32), value: hasPosters)
+        .animation(reduceMotion || !hasPosters || fixedCarouselHeight ? nil : .easeOut(duration: 0.32), value: hasPosters)
         .onChange(of: items.map(\.id), initial: true) { _, ids in
             guard selection.map(ids.contains) != true else { return }
             resetTransition()
