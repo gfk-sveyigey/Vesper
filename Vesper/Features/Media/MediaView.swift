@@ -8,7 +8,6 @@ final class MediaLayoutSettings: ObservableObject {
     enum Metric: String, CaseIterable {
         case thumbnailHeight, groupSpacing, titlePadding, scrollPadding
         case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding, episodeCardWidth, episodeCardHeight
-        case seriesHeroButtonHeight
 
         case statusBarEdgeBlur, headerBackdropBlur, headerForegroundBlur, headerAnimationMinimumDistance, headerTitleSize
 
@@ -31,7 +30,6 @@ final class MediaLayoutSettings: ObservableObject {
             case .endPadding: 20
             case .episodeCardWidth: 246
             case .episodeCardHeight: 230
-            case .seriesHeroButtonHeight: 44
             case .statusBarEdgeBlur: 100
             case .headerBackdropBlur: 65
             case .headerForegroundBlur: 8
@@ -48,7 +46,6 @@ final class MediaLayoutSettings: ObservableObject {
             case .thumbnailHeight: 0...600
             case .itemWidth, .itemHeight: 24...480
             case .episodeCardWidth, .episodeCardHeight: 120...1200
-            case .seriesHeroButtonHeight: 32...64
             case .statusBarEdgeBlur, .headerBackdropBlur, .carouselBlurHeight, .carouselBlurStrength: 0...100
             case .headerForegroundBlur: 0...40
             case .headerAnimationMinimumDistance: 1...60
@@ -326,6 +323,7 @@ struct MediaView: View {
                                 .scrollTargetLayout()
                                 .padding(.vertical, CGFloat(layout[.itemVerticalPadding]))
                             }
+                            .scrollClipDisabled()
                             .scrollIndicators(.hidden)
                             .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
                             .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
@@ -1074,50 +1072,52 @@ struct EmbyFeaturedPage: View {
                 ZStack(alignment: .bottom) {
                     bottomBlur
 
-                    VStack(spacing: 6) {
-                        Group {
-                            if let logo = images?.logo, let image = UIImage(data: logo) {
-                                Image(uiImage: image)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .accessibilityLabel(Text(verbatim: item.title))
-                            } else {
-                                Text(verbatim: item.title)
-                                    .font(.largeTitle.weight(.semibold))
-                                    .lineLimit(2)
-                                    .minimumScaleFactor(0.75)
+                    VStack(spacing: 0) {
+                        VStack(spacing: 6) {
+                            Group {
+                                if let logo = images?.logo, let image = UIImage(data: logo) {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .accessibilityLabel(Text(verbatim: item.title))
+                                } else {
+                                    Text(verbatim: item.title)
+                                        .font(.largeTitle.weight(.semibold))
+                                        .lineLimit(2)
+                                        .minimumScaleFactor(0.75)
+                                }
                             }
+                            .frame(maxWidth: size.width * 0.68)
+                            .frame(height: size.height * 0.14)
+                            VStack(spacing: 4) {
+                                Text(verbatim: firstLine)
+                                if !secondLine.isEmpty { Text(verbatim: secondLine) }
+                            }
+                            .font(.subheadline)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .frame(height: size.height * 0.06)
                         }
-                        .frame(maxWidth: size.width * 0.68)
-                        .frame(height: size.height * 0.14)
-                        VStack(spacing: 4) {
-                            Text(verbatim: firstLine)
-                            if !secondLine.isEmpty { Text(verbatim: secondLine) }
+                        .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+                        .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.65), radius: 3, y: 1)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, seriesFooter == nil ? EmbyPosterLayout.informationBottomInset : 16)
+                        .offset(y: seriesFooter == nil ? -24 : 0)
+                        .frame(maxWidth: .infinity)
+                        .opacity(showsInformation ? 1 : 0)
+                        .animation(.easeInOut(duration: 0.16), value: showsInformation)
+                        .accessibilityHidden(true)
+                        if let seriesFooter {
+                            seriesFooter
+                                .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+                                .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.65), radius: 3, y: 1)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, EmbyPosterLayout.seriesFooterBottomInset)
+                                .opacity(seriesFooterOpacity)
+                                .accessibilityHidden(seriesFooterOpacity == 0)
+                                .allowsHitTesting(seriesFooterOpacity > 0)
                         }
-                        .font(.subheadline)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .frame(height: size.height * 0.06)
-                    }
-                    .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
-                    .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.65), radius: 3, y: 1)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, EmbyPosterLayout.informationBottomInset)
-                    .offset(y: -24)
-                    .frame(maxWidth: .infinity)
-                    .opacity(showsInformation ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.16), value: showsInformation)
-                    .accessibilityHidden(true)
-                    if let seriesFooter {
-                        seriesFooter
-                            .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
-                            .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.65), radius: 3, y: 1)
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, EmbyPosterLayout.seriesFooterBottomInset)
-                            .opacity(seriesFooterOpacity)
-                            .accessibilityHidden(seriesFooterOpacity == 0)
-                            .allowsHitTesting(seriesFooterOpacity > 0)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -1197,7 +1197,10 @@ struct EmbyFeaturedPage: View {
         case "Upcoming": status = String(localized: "即将播出")
         default: status = metadata?.status
         }
-        let score = metadata?.communityRating.map { String(format: "%.1f", $0) }
+        let score = metadata?.communityRating.flatMap { rating -> String? in
+            guard rating > 0 else { return nil }
+            return String(format: "%.1f", rating)
+        }
         return [year, status, score].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }.joined(separator: " · ")
     }
@@ -1312,7 +1315,7 @@ struct EmbySeriesPosterCard: View {
             if let status = presentation?.status {
                 Text(verbatim: status == "Continuing" ? "连载中" : status == "Ended" ? "已完结" : status)
             }
-            if let rating = presentation?.communityRating {
+            if let rating = presentation?.communityRating, rating > 0 {
                 Label(String(format: "%.1f", rating), systemImage: "star.fill")
             }
             if let classification = presentation?.rating, !classification.isEmpty {

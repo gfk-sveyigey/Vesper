@@ -42,8 +42,7 @@ struct EmbySeriesHeroFooter: View {
     var selectedEpisodeIsPlayed = false
     var playSelectedEpisode: () -> Void = {}
     var toggleSelectedEpisodePlayed: () -> Void = {}
-    @ObservedObject private var layout = MediaLayoutSettings.shared
-    private var buttonHeight: CGFloat { CGFloat(layout[.seriesHeroButtonHeight]) }
+    private let buttonHeight: CGFloat = 50
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -51,7 +50,7 @@ struct EmbySeriesHeroFooter: View {
                 HStack(spacing: 10) {
                     Button(action: playSelectedEpisode) {
                         Label(selectedEpisodeLabel(selectedEpisode), systemImage: "play.fill")
-                            .font(.system(size: buttonHeight * 17 / 44, weight: .semibold))
+                            .font(.system(size: 16))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                             .frame(width: buttonHeight * 3.8, height: buttonHeight)
@@ -66,7 +65,7 @@ struct EmbySeriesHeroFooter: View {
                         }
                     } label: {
                         Image(systemName: selectedEpisodeIsPlayed ? "checkmark" : "plus")
-                            .font(.system(size: buttonHeight * 24 / 44, weight: .medium))
+                            .font(.system(size: 16))
                             .contentTransition(.symbolEffect(.replace))
                             .frame(width: buttonHeight, height: buttonHeight)
                     }
@@ -74,8 +73,8 @@ struct EmbySeriesHeroFooter: View {
                     .clipShape(Circle())
                     .accessibilityLabel(selectedEpisodeIsPlayed ? "标记为未观看" : "标记为已观看")
                 }
-                .padding(.top, 4)
                 .frame(maxWidth: .infinity)
+                .padding(.bottom, 8)
             }
 
             Text(verbatim: series.embyPresentation?.overview ?? "")
@@ -126,25 +125,23 @@ struct EmbySeriesHeroFooter: View {
 }
 
 private struct SeriesHeroPlayButtonStyle: ButtonStyle {
-    @Environment(\.colorScheme) private var colorScheme
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(.black)
-            .background(Color.white.opacity(configuration.isPressed ? 0.82 : 1))
+            .foregroundStyle(VesperTheme.background)
+            .background(Color("VesperPrimaryText").opacity(configuration.isPressed ? 0.82 : 1))
             .clipShape(Capsule())
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
 }
 
 private struct SeriesHeroWatchButtonStyle: ButtonStyle {
-    @Environment(\.colorScheme) private var colorScheme
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(.white)
-            .background(Color(uiColor: .secondarySystemBackground).opacity(colorScheme == .dark ? 0.72 : 0.9))
-            .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+            .foregroundStyle(Color("VesperPrimaryText"))
+            .background(Color("VesperSecondaryBackground").opacity(configuration.isPressed ? 0.82 : 1))
+            .overlay(Circle().strokeBorder(Color("VesperSeparator"), lineWidth: 1))
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
     }
 }
@@ -347,15 +344,11 @@ struct EmbyMediaDetailView: View {
                     .allowsHitTesting(detailContentReady)
                     .accessibilityHidden(!detailContentReady)
                     .overlay(alignment: .topLeading) {
-                        if !detailContentReady {
-                            VStack(alignment: .leading, spacing: 20) {
-                                RoundedRectangle(cornerRadius: 4).fill(.quaternary)
-                                    .frame(width: 90, height: 20)
-                                    .padding(.horizontal, CGFloat(layout[.endPadding]))
-                                episodeLoadingPlaceholders(viewportWidth: width)
-                            }
-                            .allowsHitTesting(false)
-                            .accessibilityLabel("正在加载详情")
+                        if series.isEmbySeries && !detailContentReady {
+                            episodeLoadingPlaceholders(viewportWidth: width)
+                                .padding(.top, 20 + CGFloat(layout[.titlePadding] * 2
+                                    + layout[.itemVerticalPadding] + layout[.scrollPadding]))
+                                .allowsHitTesting(false)
                         }
                     }
                     .animation(reduceMotion ? nil : .easeIn(duration: 0.3), value: detailContentReady)
@@ -448,23 +441,6 @@ struct EmbyMediaDetailView: View {
                 .modifier(EmbyPosterStretch(geometry: geometry))
         }
         .aspectRatio(EmbyPosterLayout.aspectRatio, contentMode: .fit)
-        .overlay(alignment: .bottom) {
-            if !detailContentReady {
-                VStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 6).fill(.quaternary).frame(width: 180, height: 26)
-                    RoundedRectangle(cornerRadius: 4).fill(.quaternary).frame(width: 220, height: 16)
-                    HStack(spacing: 10) {
-                        Capsule().fill(.quaternary).frame(width: CGFloat(layout[.seriesHeroButtonHeight]) * 3.8,
-                                                        height: CGFloat(layout[.seriesHeroButtonHeight]))
-                        Circle().fill(.quaternary).frame(width: CGFloat(layout[.seriesHeroButtonHeight]),
-                                                       height: CGFloat(layout[.seriesHeroButtonHeight]))
-                    }
-                }
-                .padding(.bottom, 70)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-        }
     }
 
     private var episodeHero: some View {
@@ -798,6 +774,7 @@ struct EmbyMediaDetailView: View {
             }
             .scrollTargetLayout()
         }
+        .scrollClipDisabled()
         .contentMargins(.horizontal, margin, for: .scrollContent)
         .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
         .scrollIndicators(.hidden)
@@ -879,6 +856,7 @@ struct EmbyMediaDetailView: View {
             }
             .scrollTargetLayout()
         }
+        .scrollClipDisabled()
         .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
         .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
         .scrollPosition(id: $leadingEpisode, anchor: .leading)
@@ -1035,6 +1013,7 @@ struct EmbyMediaDetailView: View {
                 .scrollTargetLayout()
                 .padding(.vertical, CGFloat(layout[.itemVerticalPadding]))
         }
+        .scrollClipDisabled()
         .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
         .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
         .scrollIndicators(.hidden)
