@@ -794,9 +794,7 @@ actor EmbyRepository {
               ]) else { return [] }
         let images = response["Images"] as? [[String: Any]] ?? []
         return Array(images.compactMap { image -> URL? in
-            let language = (image["Language"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard ["", "00", "zxx"].contains(language),
-                  let width = image["Width"] as? Int, let height = image["Height"] as? Int, width > 0, height > width,
+            guard let width = image["Width"] as? Int, let height = image["Height"] as? Int, width > 0, height > width,
                   let rawURL = image["Url"] as? String, let url = URL(string: rawURL),
                   url.scheme?.lowercased() == "https", url.host != nil,
                   url.user == nil, url.password == nil else { return nil }

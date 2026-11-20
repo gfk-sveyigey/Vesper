@@ -32,7 +32,7 @@ struct EmbyRepositoryChecks {
         precondition(series.embyPresentation?.seasonCount == 2 && series.embyPresentation?.communityRating == 8.4)
         precondition(series.embyPresentation?.premiereDate?.timeIntervalSince1970 == 1_709_251_200)
         let posterCandidates = await repository.featuredPosterCandidates(for: series, source: source)
-        precondition(posterCandidates.map(\.lastPathComponent) == ["textless.jpg"])
+        precondition(posterCandidates.map(\.lastPathComponent) == ["titled.jpg", "textless.jpg"])
         let logo = await repository.featuredLogoData(for: series, source: source)
         precondition(logo != nil)
         let noLogoItem = MediaItem(id: MediaID(sourceID: source.id, localID: "no-logo"),
