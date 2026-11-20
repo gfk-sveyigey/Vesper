@@ -758,6 +758,7 @@ actor EmbyRepository {
                                  imageURL: client.imageURL(itemID: id, tag: imageTags["Primary"]),
                                  fallbackImageURL: seriesImage,
                                  previewImageURL: type == "Episode" ? client.imageURL(itemID: id, tag: imageTags["Thumb"], type: "Thumb") : nil,
+                                 primaryImageAspectRatio: (value["PrimaryImageAspectRatio"] as? NSNumber)?.doubleValue,
                                  duration: (value["RunTimeTicks"] as? NSNumber).map { $0.doubleValue / 10_000_000 },
                                  resumePosition: ((value["UserData"] as? [String: Any])?["PlaybackPositionTicks"] as? NSNumber)
                                     .map { $0.doubleValue / 10_000_000 },
@@ -833,11 +834,13 @@ actor EmbyRepository {
 
     func thumbnailData(for item: MediaItem, source: MediaSource, aspectRatio: Double = 2.0 / 3.0) async -> Data? {
         guard let client = try? await clientProvider(source) else { return nil }
-        let preferredTypes = aspectRatio >= 1
+        let itemAspectRatio = item.primaryImageAspectRatio.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+            ?? (item.embyItemType == "Episode" ? 16.0 / 9.0 : 2.0 / 3.0)
+        let preferredTypes = itemAspectRatio >= 1
             ? ["Thumb", "Screenshot", "Backdrop", "Primary", "Thumbnail"]
             : ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
         for image in await selectedImages(for: item, source: source, client: client,
-                                          preferredTypes: preferredTypes, targetAspectRatio: aspectRatio)
+                                          preferredTypes: preferredTypes, targetAspectRatio: itemAspectRatio)
             where client.sameOrigin(image) {
             guard !Task.isCancelled else { return nil }
             if let data = await fetchThumbnail(image, client: client) { return data }

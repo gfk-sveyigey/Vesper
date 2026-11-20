@@ -28,6 +28,7 @@ struct MediaItem: Identifiable, Hashable, Codable, Sendable {
     var imageURL: URL? = nil
     var fallbackImageURL: URL? = nil
     var previewImageURL: URL? = nil
+    var primaryImageAspectRatio: Double? = nil
     var duration: Double? = nil
     var resumePosition: Double? = nil
     var dateCreated: Date? = nil

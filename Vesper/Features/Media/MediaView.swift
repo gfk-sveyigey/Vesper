@@ -413,29 +413,18 @@ struct MediaView: View {
             }
         } else {
             let route = EmbyMediaRoute.detail(source, item, origin: .shelf(group.id))
-            if item.isEmbySeries {
-                EmbySeriesPosterCard(source: source, item: item, playback: playback,
-                                     width: size.width, posterHeight: size.height,
-                                     preloadedData: data, artworkIsPrepared: artwork != nil,
-                                     open: { path.append(route) })
-                    .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
-                                                 preloadedData: data, artworkIsPrepared: artwork != nil,
-                                                 showsEmbyFacts: true, openEmbyDetails: { path.append(route) }) { EmptyView() })
+            NavigationLink(value: route) {
+                MediaThumbnail(source: source, item: item, playback: playback, aspectRatio: size.width / size.height,
+                               preloadedData: data, artworkIsPrepared: artwork != nil)
+                    .frame(width: size.width, height: size.height)
+                    .mediaArtworkBorder()
                     .matchedTransitionSource(id: route, in: artworkZoom)
-            } else {
-                NavigationLink(value: route) {
-                    MediaThumbnail(source: source, item: item, playback: playback, aspectRatio: size.width / size.height,
-                                   preloadedData: data, artworkIsPrepared: artwork != nil)
-                        .frame(width: size.width, height: size.height)
-                        .mediaArtworkBorder()
-                        .matchedTransitionSource(id: route, in: artworkZoom)
-                }
-                .buttonStyle(.plain)
-                .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
-                                              preloadedData: data, artworkIsPrepared: artwork != nil,
-                                              showsEmbyFacts: true, openEmbyDetails: { path.append(route) }) { EmptyView() })
-                .accessibilityLabel(Text(verbatim: item.title))
             }
+            .buttonStyle(.plain)
+            .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
+                                          preloadedData: data, artworkIsPrepared: artwork != nil,
+                                          showsEmbyFacts: true, openEmbyDetails: { path.append(route) }) { EmptyView() })
+            .accessibilityLabel(Text(verbatim: item.title))
         }
     }
 
