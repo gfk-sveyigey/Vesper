@@ -9,6 +9,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let extendsContentUnderHeader: Bool
     private let showsLoading: Bool
     private let usesMediaScrollEdges: Bool
+    private let outlinesHeaderTitle: Bool
     private let scrollPosition: Binding<ScrollPosition>?
     private let onVerticalScrollPhaseChange: (ScrollPhase, CGFloat) -> Void
     private let onVerticalOffsetChange: (CGFloat) -> Void
@@ -39,6 +40,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 
     init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
          usesMediaScrollEdges: Bool = false,
+         outlinesHeaderTitle: Bool = false,
          scrollPosition: Binding<ScrollPosition>? = nil,
          onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
          onVerticalScrollPhaseChange: @escaping (ScrollPhase, CGFloat) -> Void = { _, _ in },
@@ -48,6 +50,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         self.extendsContentUnderHeader = extendsContentUnderHeader
         self.showsLoading = showsLoading
         self.usesMediaScrollEdges = usesMediaScrollEdges
+        self.outlinesHeaderTitle = outlinesHeaderTitle
         self.scrollPosition = scrollPosition
         self.onVerticalScrollPhaseChange = onVerticalScrollPhaseChange
         self.onVerticalOffsetChange = onVerticalOffsetChange
@@ -414,7 +417,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 .font(headerTitleFont)
                 .foregroundStyle(Color(uiColor: .label))
                 .background {
-                    if usesMediaScrollEdges {
+                    if outlinesHeaderTitle {
                         Canvas { context, size in
                             let outline = context.resolve(
                                 Text(title)

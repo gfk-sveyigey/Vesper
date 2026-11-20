@@ -136,3 +136,12 @@ enum DanmakuLayout {
         return result
     }
 }
+
+
+enum DanmakuSearchQuery {
+    static func make(title: String, season: Int?, seasonCount: Int?) -> String {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let season, season >= 0, (seasonCount ?? 0) > 1 || season > 1 else { return name }
+        return "\(name) 第\(season)季"
+    }
+}

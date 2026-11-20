@@ -8,6 +8,23 @@ final class PlayerDanmaku: ObservableObject {
     @Published private(set) var revision = 0
     @Published var filename: String?
     @Published var offset: Double = 0
+    @Published private(set) var isImporting = false
+
+    func importFile(_ url: URL) async throws {
+        guard !isImporting else { return }
+        isImporting = true
+        defer { isImporting = false }
+        let parsed = try await Task.detached(priority: .userInitiated) {
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            let data = try handle.read(upToCount: 16 * 1024 * 1024 + 1) ?? Data()
+            return try DanmakuXMLParser.parse(data)
+        }.value
+        try Task.checkCancellation()
+        comments = parsed; filename = url.lastPathComponent; offset = 0
+    }
 }
 
 struct DanmakuOverlay: View {
@@ -74,17 +91,9 @@ struct DanmakuOverlay: View {
 
 struct PlayerDanmakuSettingsView: View {
     @ObservedObject var document: PlayerDanmaku
-    @State private var importing = false
-    @State private var loading = false
-    @State private var error: String?
-
     var body: some View {
-        Form {
-            DanmakuPreferenceSections()
-            Section {
-                NavigationLink("搜索在线弹幕") { DanmakuAPISearchView(document: document) }
-                    .disabled(loading)
-                Button(loading ? "正在导入…" : "导入本地弹幕文件") { importing = true }.disabled(loading)
+        SettingsPage {
+            SettingsSection("当前视频弹幕") {
                 if let filename = document.filename {
                     Text(filename)
                     Text("\(document.comments.count) 条弹幕").foregroundStyle(.secondary)
@@ -94,37 +103,15 @@ struct PlayerDanmakuSettingsView: View {
                     Button("移除当前弹幕", role: .destructive) {
                         document.comments = []; document.filename = nil; document.offset = 0
                     }
+                } else {
+                    Text("尚未加载弹幕").foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("支持 Bilibili XML 的滚动、顶部和底部弹幕。正偏移表示延后显示。弹幕仅用于当前视频，切换视频后清空；画中画暂不显示弹幕。")
+                Text("从进度条上方的多功能菜单搜索或导入弹幕。支持 Bilibili XML 的滚动、顶部和底部弹幕。正偏移表示延后显示。弹幕仅用于当前视频，切换视频后清空；画中画暂不显示弹幕。")
             }
+            DanmakuPreferenceSections()
         }
         .navigationTitle("弹幕设置")
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.xml]) { result in
-            switch result {
-            case .failure(let failure): error = failure.localizedDescription
-            case .success(let url):
-                loading = true
-                Task { @MainActor in
-                    do {
-                        let comments = try await Task.detached(priority: .userInitiated) {
-                            let access = url.startAccessingSecurityScopedResource()
-                            defer { if access { url.stopAccessingSecurityScopedResource() } }
-                            let values = try url.resourceValues(forKeys: [.fileSizeKey])
-                            guard (values.fileSize ?? 0) <= 16 * 1024 * 1024 else { throw DanmakuImportError.tooLarge }
-                            let handle = try FileHandle(forReadingFrom: url)
-                            defer { try? handle.close() }
-                            let data = try handle.read(upToCount: 16 * 1024 * 1024 + 1) ?? Data()
-                            return try DanmakuXMLParser.parse(data)
-                        }.value
-                        document.comments = comments; document.filename = url.lastPathComponent; document.offset = 0
-                    } catch { self.error = error.localizedDescription }
-                    loading = false
-                }
-            }
-        }
-        .alert("弹幕导入失败", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-            Button("好", role: .cancel) { error = nil }
-        } message: { Text(error ?? "") }
+        .toolbarTitleDisplayMode(.inline)
     }
 }

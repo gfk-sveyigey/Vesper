@@ -64,3 +64,8 @@ options.filterDuplicates = false
 assert(layout([comment(0), comment(1), comment(11)], options).count == 3)
 assert(DanmakuLayout.build(comments: barrage, width: 0, height: 0, options: options, measure: { _ in 10 }).isEmpty)
 print("Danmaku display settings and layout tests passed")
+
+assert(DanmakuSearchQuery.make(title: " 剧集 ", season: 1, seasonCount: 1) == "剧集")
+assert(DanmakuSearchQuery.make(title: "剧集", season: 1, seasonCount: 3) == "剧集 第1季")
+assert(DanmakuSearchQuery.make(title: "剧集", season: 2, seasonCount: nil) == "剧集 第2季")
+assert(DanmakuSearchQuery.make(title: "电影", season: nil, seasonCount: nil) == "电影")

@@ -1,8 +1,11 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
+import AVFoundation
+import QuartzCore
 
 private enum PlayerPanel: String, Identifiable {
-    case queue, gestures, danmaku, subtitles, synopsis, details, more
+    case queue, gestures, danmaku, danmakuSearch, subtitles, synopsis, details, more
     var id: String { rawValue }
 }
 
@@ -28,6 +31,9 @@ struct PlayerScreen: View {
     @State private var panel: PlayerPanel?
     @State private var pendingPanel: PlayerPanel?
     @State private var pendingRotation: Bool?
+    @State private var pendingDanmakuImport = false
+    @State private var importingDanmaku = false
+    @State private var importDocument: PlayerDanmaku?
     @State private var gestureAction = PlayerGestureAction.none
     @State private var gestureStart: Double = 0
     @State private var regionsVisible = false
@@ -45,7 +51,7 @@ struct PlayerScreen: View {
 
     private var canAutoHide: Bool {
         controlsVisible && session.isPlaying && !session.isLoading && !session.isSeeking
-            && !isScrubbing && !volumeExpanded && volumeDragStart == nil && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
+            && !isScrubbing && !importingDanmaku && !volumeExpanded && volumeDragStart == nil && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
     }
     private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
 
@@ -54,6 +60,7 @@ struct PlayerScreen: View {
             .task(id: hudRevision) { await dismissHUDWhenReady() }
             .task(id: autoHideRevision) { await autoHideControlsWhenReady() }
             .task(id: volumeResetRevision) { await resetVolumeWhenReady() }
+            .fileImporter(isPresented: $importingDanmaku, allowedContentTypes: [.xml], onCompletion: handleDanmakuImport)
     }
 
     private var observedPlayer: some View {
@@ -433,10 +440,39 @@ struct PlayerScreen: View {
 
     private var playbackOptionsMenu: some View {
         PlayerMenuButton(symbol: "ellipsis", accessibilityTitle: VesperLocalization.string("播放选项"),
-                         makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu()]) },
+                         makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu()] + danmakuSourceActions()) },
                          visibilityChanged: menuVisibilityChanged)
             .frame(width: 44, height: 44)
             .glassEffect(.regular.interactive(), in: Circle())
+    }
+
+    private func danmakuSourceActions() -> [UIMenuElement] {
+        [
+            menuAction(VesperLocalization.string("搜索弹幕"), symbol: "text.magnifyingglass") {
+                requestPanel(.danmakuSearch)
+            },
+            menuAction(VesperLocalization.string("导入本地弹幕文件"), symbol: "doc.badge.plus",
+                       enabled: !session.danmaku.isImporting) {
+                pendingDanmakuImport = true
+                if !menuPresented { performMenuNavigation() }
+            }
+        ]
+    }
+
+    private func handleDanmakuImport(_ result: Result<URL, Error>) {
+        guard let document = importDocument else { return }
+        importDocument = nil
+        Task { @MainActor in
+            do {
+                try await document.importFile(result.get())
+                guard session.danmaku === document else { return }
+                showHUD(VesperLocalization.string("弹幕已导入"), symbol: "text.bubble")
+            } catch {
+                if (error as NSError).code != CocoaError.userCancelled.rawValue {
+                    session.playbackNotice = "弹幕导入失败：" + error.localizedDescription
+                }
+            }
+        }
     }
 
     private func speedMenu() -> UIMenu {
@@ -469,6 +505,7 @@ struct PlayerScreen: View {
             landscapeMenu("播放速度", symbol: "speedometer", menu: speedMenu)
             landscapeMenu("音频", symbol: "waveform", menu: audioMenu)
             landscapeMenu("字幕", symbol: "captions.bubble", menu: subtitleMenu)
+            landscapeMenu("弹幕来源", symbol: "ellipsis", menu: { UIMenu(children: danmakuSourceActions()) })
         }
         .glassEffect(.regular.interactive(), in: Capsule())
         .accessibilityElement(children: .contain)
@@ -563,6 +600,11 @@ struct PlayerScreen: View {
                 pendingPanel = nil
                 panel = selected
             }
+            if pendingDanmakuImport {
+                pendingDanmakuImport = false
+                importDocument = session.danmaku
+                importingDanmaku = true
+            }
             if let landscape = pendingRotation {
                 pendingRotation = nil
                 rotate(landscape: landscape)
@@ -620,6 +662,10 @@ struct PlayerScreen: View {
                     }.contentMargins(.top, 0, for: .scrollContent).navigationTitle("更多设置")
                 case .gestures: PlayerGestureSettingsView()
                 case .danmaku: PlayerDanmakuSettingsView(document: session.danmaku)
+                case .danmakuSearch:
+                    DanmakuAPISearchView(document: session.danmaku, item: session.currentItem,
+                                         mediaSource: session.queueSource)
+                        .id(ObjectIdentifier(session.danmaku))
                 case .subtitles: PlayerSubtitleSettingsView(session: session)
                 case .synopsis: PlayerMediaInfoView(session: session, showsDetails: false)
                 case .details: PlayerMediaInfoView(session: session, showsDetails: true)
@@ -1004,33 +1050,161 @@ private struct PlayerQueueRow: View {
     }
 }
 
-/// Only mounts the existing rendering view. Dismissal detaches its surface,
-/// while the app-owned session continues decoding and playing audio.
-struct PlayerVideoSurface: UIViewRepresentable {
+/// UIKit owns the orientation transition; do not apply a separate SwiftUI
+/// rotation or recreate the engine's rendering surface during it.
+struct PlayerVideoSurface: UIViewControllerRepresentable {
     let videoView: UIView
     var isActive = true
 
-    func makeUIView(context: Context) -> UIView { UIView() }
+    func makeUIViewController(context: Context) -> PlayerVideoSurfaceController {
+        PlayerVideoSurfaceController()
+    }
+    func updateUIViewController(_ controller: PlayerVideoSurfaceController, context: Context) {
+        controller.mount(isActive ? videoView : nil)
+    }
+    static func dismantleUIViewController(_ controller: PlayerVideoSurfaceController, coordinator: ()) {
+        controller.mount(nil)
+    }
+}
 
-    func updateUIView(_ host: UIView, context: Context) {
-        guard isActive else {
-            if videoView.superview === host { videoView.removeFromSuperview() }
-            return
-        }
-        guard videoView.superview !== host else { return }
-        host.subviews.forEach { $0.removeFromSuperview() }
-        videoView.removeFromSuperview()
-        videoView.translatesAutoresizingMaskIntoConstraints = false
-        host.addSubview(videoView)
-        NSLayoutConstraint.activate([
-            videoView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            videoView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            videoView.topAnchor.constraint(equalTo: host.topAnchor),
-            videoView.bottomAnchor.constraint(equalTo: host.bottomAnchor)
-        ])
+final class PlayerVideoSurfaceController: UIViewController {
+    private weak var renderingView: UIView?
+    private var mountingConstraints: [NSLayoutConstraint] = []
+    private var rotationRevision = 0
+    private typealias LayerGeometry = (layer: CALayer, bounds: CGRect, position: CGPoint)
+    private var rotationFrames: [LayerGeometry] = []
+    private var rotationStarted: CFTimeInterval = 0
+    private var rotationDuration: TimeInterval = 0
+    private var rotationTiming = CAMediaTimingFunction(name: .easeInEaseOut)
+    private static let boundsAnimation = "vesper.videoRotation.bounds"
+    private static let positionAnimation = "vesper.videoRotation.position"
+
+    override func loadView() {
+        let host = UIView()
+        host.backgroundColor = .black
+        host.clipsToBounds = true
+        view = host
     }
 
-    static func dismantleUIView(_ host: UIView, coordinator: ()) {
-        host.subviews.forEach { $0.removeFromSuperview() }
+    func mount(_ renderingView: UIView?) {
+        loadViewIfNeeded()
+        if self.renderingView === renderingView, renderingView == nil || renderingView?.superview === view { return }
+        NSLayoutConstraint.deactivate(mountingConstraints)
+        mountingConstraints = []
+        if self.renderingView?.superview === view { self.renderingView?.removeFromSuperview() }
+        self.renderingView = renderingView
+        guard let renderingView else { return }
+        renderingView.removeFromSuperview()
+        renderingView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(renderingView)
+        // Centre-based constraints keep resizing symmetric about the video
+        // viewport rather than anchoring the drawable to its top-left corner.
+        mountingConstraints = [
+            renderingView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            renderingView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            renderingView.widthAnchor.constraint(equalTo: view.widthAnchor),
+            renderingView.heightAnchor.constraint(equalTo: view.heightAnchor)
+        ]
+        NSLayoutConstraint.activate(mountingConstraints)
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        guard let renderingView, renderingView.superview === view,
+              view.window != nil, coordinator.isAnimated, !UIAccessibility.isReduceMotionEnabled else { return }
+        rotationRevision += 1
+        let revision = rotationRevision
+        let frames = videoLayers(in: renderingView.layer).map { layer in
+            let visible = layer.presentation() ?? layer
+            return (layer: layer, bounds: visible.bounds, position: visible.position)
+        }
+        guard !frames.isEmpty else { return }
+        rotationFrames = frames
+        // Both engines disable implicit actions when laying out their video
+        // layers. UIKit animates the hosting view, but those layers otherwise
+        // jump straight to the final bounds/position, moving the visible video
+        // centre mid-rotation. Supply only the missing geometry animation,
+        // using the same transition coordinator and retaining live playback.
+        coordinator.animate(alongsideTransition: { [weak self] context in
+            guard let self, self.rotationRevision == revision else { return }
+            self.rotationStarted = CACurrentMediaTime()
+            self.rotationDuration = context.transitionDuration
+            self.rotationTiming = self.timingFunction(context.completionCurve)
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+            self.synchronizeVideoGeometry()
+        }, completion: { [weak self] _ in
+            guard let self, self.rotationRevision == revision else { return }
+            self.rotationDuration = 0
+            self.rotationFrames = []
+            for frame in frames {
+                frame.layer.removeAnimation(forKey: Self.boundsAnimation)
+                frame.layer.removeAnimation(forKey: Self.positionAnimation)
+            }
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+        })
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // SwiftUI may deliver the new viewport bounds after the coordinator's
+        // animation block. Synchronize that later layout to the same clock.
+        synchronizeVideoGeometry()
+    }
+
+    private func synchronizeVideoGeometry() {
+        guard rotationDuration > 0, CACurrentMediaTime() - rotationStarted < rotationDuration,
+              let renderingView, renderingView.superview === view else { return }
+        renderingView.layoutIfNeeded()
+        for frame in rotationFrames {
+            guard contains(frame.layer, in: renderingView.layer) else { continue }
+            let boundsKey = Self.boundsAnimation
+            let positionKey = Self.positionAnimation
+            let previousBounds = (frame.layer.animation(forKey: boundsKey) as? CABasicAnimation)?.toValue as? NSValue
+            if frame.bounds != frame.layer.bounds, previousBounds?.cgRectValue != frame.layer.bounds {
+                let animation = CABasicAnimation(keyPath: "bounds")
+                animation.fromValue = NSValue(cgRect: frame.bounds)
+                animation.toValue = NSValue(cgRect: frame.layer.bounds)
+                configure(animation, for: frame.layer)
+                frame.layer.add(animation, forKey: boundsKey)
+            }
+            let previousPosition = (frame.layer.animation(forKey: positionKey) as? CABasicAnimation)?.toValue as? NSValue
+            if frame.position != frame.layer.position, previousPosition?.cgPointValue != frame.layer.position {
+                let animation = CABasicAnimation(keyPath: "position")
+                animation.fromValue = NSValue(cgPoint: frame.position)
+                animation.toValue = NSValue(cgPoint: frame.layer.position)
+                configure(animation, for: frame.layer)
+                frame.layer.add(animation, forKey: positionKey)
+            }
+        }
+    }
+
+    private func configure(_ animation: CABasicAnimation, for layer: CALayer) {
+        animation.duration = rotationDuration
+        animation.beginTime = layer.convertTime(rotationStarted, from: nil)
+        animation.timingFunction = rotationTiming
+    }
+
+    private func videoLayers(in layer: CALayer) -> [CALayer] {
+        let isVideo = layer is AVPlayerLayer || layer is AVSampleBufferDisplayLayer
+            || layer is CAMetalLayer || layer is CAEAGLLayer
+        return (isVideo ? [layer] : []) + (layer.sublayers ?? []).flatMap { videoLayers(in: $0) }
+    }
+    private func contains(_ layer: CALayer, in root: CALayer) -> Bool {
+        var candidate: CALayer? = layer
+        while let current = candidate {
+            if current === root { return true }
+            candidate = current.superlayer
+        }
+        return false
+    }
+    private func timingFunction(_ curve: UIView.AnimationCurve) -> CAMediaTimingFunction {
+        switch curve {
+        case .easeIn: CAMediaTimingFunction(name: .easeIn)
+        case .easeOut: CAMediaTimingFunction(name: .easeOut)
+        case .linear: CAMediaTimingFunction(name: .linear)
+        default: CAMediaTimingFunction(name: .easeInEaseOut)
+        }
     }
 }

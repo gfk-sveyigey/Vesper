@@ -10,6 +10,8 @@ internal import AetherEngine
     private var engine: AetherEngine?
     private let surface = AetherPlayerView(frame: .zero)
     private var configuration = EngineConfiguration()
+    private var lastUsableSnapshot: EngineSnapshot?
+    private var manualPiPRequested = false
     private var pip: AVPictureInPictureController?
     private weak var pipLayer: AVPlayerLayer?
     private weak var pipSampleLayer: AVSampleBufferDisplayLayer?
@@ -18,6 +20,13 @@ internal import AetherEngine
     public init() {}
     public var nativePiPController: AVPictureInPictureController? {
         guard let engine else { return nil }
+        // Do not attach a PiP content source for audio-only backgrounding.
+        // Remove the system candidate entirely instead of relying on a
+        // later lifecycle callback to dismiss an unwanted automatic window.
+        guard configuration.automaticPiP || manualPiPRequested else {
+            discardPiPController()
+            return nil
+        }
         if let layer = engine.nativePlayerLayer {
             if pipLayer !== layer {
                 pip?.stopPictureInPicture()
@@ -38,6 +47,17 @@ internal import AetherEngine
     public var snapshot: EngineSnapshot {
         var result = EngineSnapshot()
         guard let engine else { return result }
+        if engine.needsForegroundVideoRestore {
+            // Background teardown parks selections inside Aether but clears
+            // the public track lists. Preserve the last usable App snapshot
+            // so a host-level Emby re-resolution can carry those choices.
+            result = lastUsableSnapshot ?? result
+            result.phase = .paused
+            result.requiresForegroundReload = true
+            result.pipPossible = pip?.isPictureInPicturePossible ?? false
+            result.pipActive = pip?.isPictureInPictureActive ?? false
+            return result
+        }
         switch engine.state {
         case .idle: result.phase = .idle
         case .loading, .seeking: result.phase = .loading
@@ -59,7 +79,16 @@ internal import AetherEngine
         if engine.playbackBackend == .native { result.actualDecoder = .hardware }
         result.audio = engine.audioTracks.map { .init(id: String($0.id), name: $0.name, language: $0.language, codec: $0.codec, selected: $0.id == engine.activeAudioTrackIndex) }
         result.subtitles = engine.subtitleTracks.map { .init(id: String($0.id), name: $0.name, language: $0.language, codec: $0.codec, selected: $0.id == engine.activeSubtitleTrackIndex) }
-        if let pip = nativePiPController { result.pipPossible = pip.isPictureInPicturePossible; result.pipActive = pip.isPictureInPictureActive }
+        if let pip = nativePiPController {
+            result.pipPossible = pip.isPictureInPicturePossible
+            result.pipActive = pip.isPictureInPictureActive
+        } else {
+            // Keep the manual button available without creating an automatic
+            // system candidate. Actual readiness is checked after preparePiP.
+            result.pipPossible = AVPictureInPictureController.isPictureInPictureSupported()
+                && (engine.nativePlayerLayer?.isReadyForDisplay == true || engine.softwarePiPSource != nil)
+        }
+        if result.duration > 0 { lastUsableSnapshot = result }
         return result
     }
     public func load(url: URL, configuration: EngineConfiguration) async throws {
@@ -68,6 +97,7 @@ internal import AetherEngine
         engine.deactivatesAudioSessionOnStop = false
         engine.bind(view: surface)
         self.configuration = configuration
+        lastUsableSnapshot = nil
         configure(configuration)
         var options = LoadOptions()
         options.autoplay = configuration.autoplay
@@ -89,7 +119,12 @@ internal import AetherEngine
         configure(configuration)
     }
     public func configure(_ configuration: EngineConfiguration) {
+        let disablingAutomaticPiP = self.configuration.automaticPiP && !configuration.automaticPiP
         self.configuration = configuration
+        if disablingAutomaticPiP {
+            manualPiPRequested = false
+            discardPiPController()
+        }
         engine?.setNativeSubtitleRendering(true)
         engine?.backgroundPlaybackEnabled = configuration.backgroundEnabled
         engine?.volume = configuration.muted ? 0 : 1
@@ -112,20 +147,33 @@ internal import AetherEngine
         engine?.stop(finalTeardown: true)
         await engine?.releaseScrubPreviewDecoders()
         engine = nil
+        manualPiPRequested = false
     }
     public func selectAudio(_ id: String) { if let index = Int(id) { engine?.selectAudioTrack(index: index) } }
     public func selectSubtitle(_ id: String?) { if let id, let index = Int(id) { engine?.selectSubtitleTrack(index: index) } else { engine?.clearSubtitle() } }
     public func setPiPActive(_ active: Bool) {
+        if !active { manualPiPRequested = false }
         engine?.pictureInPictureActive = active
         // Keep subtitles engine-rendered when returning from PiP too.
         engine?.setNativeSubtitleRendering(true)
         engine?.videoGravity = active || !configuration.fillsScreen ? .resizeAspect : .resizeAspectFill
     }
+    public func preparePiP() { manualPiPRequested = true }
     public func startPiP() {
         engine?.videoGravity = .resizeAspect
         nativePiPController?.startPictureInPicture()
     }
     public func stopPiP() { pip?.stopPictureInPicture() }
+
+    private func discardPiPController() {
+        guard pip != nil else { return }
+        pip?.delegate = nil
+        pip?.stopPictureInPicture()
+        pip?.contentSource = nil
+        pip = nil; pipLayer = nil; pipSampleLayer = nil
+        engine?.pictureInPictureActive = false
+    }
+
 }
 
 /// Probing does not create a playback engine or touch the audio session.

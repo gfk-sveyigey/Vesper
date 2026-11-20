@@ -416,6 +416,7 @@ struct TranscodedPlaybackResource: Sendable {
     }
     func selectAudio(_ id: String) { driver?.selectAudio(id) }
     func selectSubtitle(_ id: String?) { driver?.selectSubtitle(id) }
+    func preparePiP() { driver?.preparePiP() }
     func startPiP() { driver?.startPiP() }
     func stopPiP() { driver?.stopPiP() }
     func setPiPActive(_ active: Bool) { driver?.setPiPActive(active) }

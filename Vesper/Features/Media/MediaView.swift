@@ -104,6 +104,8 @@ struct MediaView: View {
     @Binding var path: NavigationPath
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
+    @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
+    @AppStorage("appearance.accent") private var accent = "vesper"
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @Namespace private var artworkZoom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -119,7 +121,12 @@ struct MediaView: View {
     var body: some View {
         Group {
             if let source = library.selectedSource, source.kind == .local {
-                LocalFilesView(source: source) { mediaSourceMenu }
+                LocalFilesView(source: source,
+                               onVerticalOffsetChange: updateMediaScrollOffset,
+                               onVerticalScrollPhaseChange: updateMediaScrollPhase,
+                               onTopPullChange: expandEmbyShortcuts(forTopPull:)) { busy, createFolder in
+                    mediaSourceMenu(localBusy: busy, createLocalFolder: createFolder)
+                }
                     .id(source.id)
             } else {
                 mediaContent
@@ -197,6 +204,7 @@ struct MediaView: View {
         let title: LocalizedStringKey = library.selectedSource.map { LocalizedStringKey("\($0.name)") } ?? "媒体"
         return VesperRootScrollView(title: title, extendsContentUnderHeader: showsFeaturedRegion,
                                    showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
+                                   outlinesHeaderTitle: library.selectedSource?.kind == .emby,
                                    scrollPosition: $mediaScrollPosition,
                                    onVerticalOffsetChange: updateMediaScrollOffset,
                                    onVerticalScrollPhaseChange: updateMediaScrollPhase,
@@ -292,7 +300,7 @@ struct MediaView: View {
                     .glassEffect(.regular.interactive(), in: .circle)
             }
             if !library.sources.isEmpty {
-                mediaSourceMenu
+                mediaSourceMenu()
             }
         }
         .background(VesperTheme.background.ignoresSafeArea())
@@ -441,16 +449,20 @@ struct MediaView: View {
         return source
     }
 
+    private var supportsSourceShortcuts: Bool {
+        embyHomeSource != nil || library.selectedSource?.kind == .local
+    }
+
     private func updateMediaScrollOffset(_ offset: CGFloat) {
         mediaScrollOffset = offset
         showPendingCarouselDestinationIfAtTop()
-        if showsEmbyShortcuts, offset > 1, embyHomeSource != nil {
+        if showsEmbyShortcuts, offset > 1, supportsSourceShortcuts {
             showsEmbyShortcuts = false
         }
     }
 
     private func expandEmbyShortcuts(forTopPull pull: CGFloat) {
-        guard pull >= 18, embyHomeSource != nil, !showsEmbyShortcuts else { return }
+        guard pull >= 18, supportsSourceShortcuts, !showsEmbyShortcuts else { return }
         showsEmbyShortcuts = true
     }
 
@@ -512,17 +524,21 @@ struct MediaView: View {
         }
     }
 
-    private var mediaSourceMenu: some View {
+    private func mediaSourceMenu(localBusy: Bool = false, createLocalFolder: (() -> Void)? = nil) -> some View {
         let source = embyHomeSource
-        let isExpanded = source != nil && showsEmbyShortcuts
+        let isLocal = library.selectedSource?.kind == .local && createLocalFolder != nil
+        let isExpanded = (source != nil || isLocal) && showsEmbyShortcuts
 
         return HStack(spacing: 0) {
-            if let source {
+            if source != nil || isLocal {
                 HStack(spacing: 0) {
-                    refreshButton
-                        .frame(width: 44, height: 44)
-                    favoritesButton(source)
-                        .frame(width: 44, height: 44)
+                    if let source {
+                        refreshButton.frame(width: 44, height: 44)
+                        favoritesButton(source).frame(width: 44, height: 44)
+                    } else if let createLocalFolder {
+                        localImportButton(busy: localBusy).frame(width: 44, height: 44)
+                        localFolderButton(busy: localBusy, action: createLocalFolder).frame(width: 44, height: 44)
+                    }
                 }
                 .labelStyle(.iconOnly)
                 .font(.system(size: 20, weight: .medium))
@@ -534,17 +550,33 @@ struct MediaView: View {
                 .allowsHitTesting(isExpanded)
                 .accessibilityHidden(!isExpanded)
             }
-            sourceMenuButton
+            sourceMenuButton(localBusy: localBusy, createLocalFolder: createLocalFolder)
         }
         // A single native glass capsule becomes a circle at its collapsed width.
         .glassEffect(.regular.interactive(), in: .capsule)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isExpanded)
     }
 
+    private func localImportButton(busy: Bool) -> some View {
+        Button { incomingVideos.selectVideo() } label: {
+            Label { Text("导入视频") } icon: {
+                menuSymbol("document.badge.plus", source: library.selectedSource)
+            }
+        }.disabled(busy)
+    }
+
+    private func localFolderButton(busy: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label { Text("新建文件夹") } icon: {
+                menuSymbol("folder.badge.plus", source: library.selectedSource)
+            }
+        }.disabled(busy)
+    }
+
     private var refreshButton: some View {
         Button { library.reload() } label: {
             Label { Text("刷新页面") } icon: {
-                menuSymbol("arrow.clockwise", color: .systemBlue, source: library.selectedSource)
+                menuSymbol("arrow.clockwise", source: library.selectedSource)
             }
         }
         .disabled(library.isLoadingEmbyHome)
@@ -552,7 +584,7 @@ struct MediaView: View {
 
     private func favoritesButton(_ source: MediaSource) -> some View {
         Button { path.append(EmbyMediaRoute.favorites(source)) } label: {
-            Label { Text("收藏媒体") } icon: { menuSymbol("heart", color: .systemPink, source: source) }
+            Label { Text("收藏媒体") } icon: { menuSymbol("heart", source: source) }
         }
     }
 
@@ -576,10 +608,10 @@ struct MediaView: View {
     }
 
     // Bake colors into original-rendering images so native menus retain them.
-    private func menuSymbol(_ name: String, color: UIColor, source: MediaSource?, address: String? = nil) -> Image {
+    private func menuSymbol(_ name: String, source: MediaSource?, address: String? = nil) -> Image {
         let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
         let icon = UIImage(systemName: name, withConfiguration: configuration)?
-            .withTintColor(statusTint(source, address: address) ?? color, renderingMode: .alwaysOriginal)
+            .withTintColor(statusTint(source, address: address) ?? UIColor(VesperTheme.accent(accent)), renderingMode: .alwaysOriginal)
         return icon.map { Image(uiImage: $0).renderingMode(.original) } ?? Image(systemName: name)
     }
 
@@ -587,7 +619,7 @@ struct MediaView: View {
         let configuredIcon = source.emby?.iconData.flatMap { UIImage(data: $0) }
         let image = configuredIcon ?? UIImage(named: "EmbyLogo")
         guard let image, image.size.width > 0, image.size.height > 0 else {
-            return menuSymbol(sourceSymbol(source), color: .systemGreen, source: source)
+            return menuSymbol(sourceSymbol(source), source: source)
         }
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
@@ -625,8 +657,14 @@ struct MediaView: View {
         }
     }
 
-    private var sourceMenuButton: some View {
+    private func sourceMenuButton(localBusy: Bool, createLocalFolder: (() -> Void)?) -> some View {
         Menu {
+            if library.selectedSource?.kind == .local, !showsEmbyShortcuts, let createLocalFolder {
+                Section {
+                    localImportButton(busy: localBusy)
+                    localFolderButton(busy: localBusy, action: createLocalFolder)
+                }
+            }
             if let source = embyHomeSource, !showsEmbyShortcuts {
                 Section { refreshButton }
                 Section { favoritesButton(source) }
@@ -642,7 +680,7 @@ struct MediaView: View {
                             if source.kind == .emby {
                                 sourceMenuIcon(source, size: 22)
                             } else {
-                                menuSymbol(source.id == library.selectedID ? "checkmark" : sourceSymbol(source), color: .systemBlue, source: source)
+                                menuSymbol(sourceSymbol(source), source: source)
                             }
                         }
                     }
@@ -657,13 +695,13 @@ struct MediaView: View {
                                 library.switchEmbyRoute(source.id, address: address)
                             } label: {
                                 Label { Text(verbatim: address) } icon: {
-                                    menuSymbol(EmbyRouteOptions.key(address) == EmbyRouteOptions.key(configuration.serverAddress) ? "checkmark" : "network",
-                                               color: .systemGreen, source: source, address: address)
+                                    menuSymbol("network",
+                                               source: source, address: address)
                                 }
                             }
                         }
                     } label: {
-                        Label { Text("切换线路") } icon: { menuSymbol("network", color: .systemOrange, source: source) }
+                        Label { Text("切换线路") } icon: { menuSymbol("network", source: source) }
                     }
                     .disabled((configuration.alternateAddresses ?? []).isEmpty)
                 }
@@ -677,7 +715,7 @@ struct MediaView: View {
                         .foregroundStyle(.primary)
                         .contentTransition(.symbolEffect(.replace))
                 } else {
-                    menuSymbol(sourceSymbol(library.selectedSource), color: .systemBlue, source: library.selectedSource)
+                    menuSymbol(sourceSymbol(library.selectedSource), source: library.selectedSource)
                         .contentTransition(.symbolEffect(.replace))
                 }
             }

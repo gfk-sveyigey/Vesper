@@ -22,7 +22,7 @@
 <key>NSLocalNetworkUsageDescription</key><string>连接你添加的 Emby 媒体服务器。</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 <key>UIFileSharingEnabled</key><true/>
-<key>LSSupportsOpeningDocumentsInPlace</key><false/>
+<key>LSSupportsOpeningDocumentsInPlace</key><true/>
 <key>CFBundleDocumentTypes</key>
 <array><dict>
     <key>CFBundleTypeName</key><string>Video</string>

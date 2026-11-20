@@ -80,6 +80,9 @@ public struct EngineExternalSubtitle: Sendable {
     public var subtitleImage: UIImage?
     public var pipPossible = false
     public var pipActive = false
+    /// The source is retained but its background video pipeline was released.
+    /// The host must rebuild before seeking or sending another play command.
+    public var requiresForegroundReload = false
     public init() {}
 }
 @MainActor public protocol PlaybackDriver: AnyObject {
@@ -98,10 +101,12 @@ public struct EngineExternalSubtitle: Sendable {
     func selectAudio(_ id: String)
     func selectSubtitle(_ id: String?)
     func setPiPActive(_ active: Bool)
+    func preparePiP()
     func startPiP()
     func stopPiP()
 }
 extension PlaybackDriver {
+    public func preparePiP() {}
     public func seek(to seconds: Double, fast: Bool) async throws {
         try await seek(to: seconds)
     }

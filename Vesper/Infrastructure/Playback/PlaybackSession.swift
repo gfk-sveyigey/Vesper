@@ -82,6 +82,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         let kind: Kind
     }
     @Published private(set) var automaticSkipNotice: AutomaticSkipNotice?
+    private var pipStartTask: Task<Void, Never>?
     private var pipController: AVPictureInPictureController?
     private var pipObservation: NSKeyValueObservation?
     private var pipConfigurationObservation: NSKeyValueObservation?
@@ -168,7 +169,9 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         guard let currentItem, let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return false }
         return index + 1 < queue.count
     }
-    var canControl: Bool { core.driver != nil && !core.isTransitioning && errorMessage == nil }
+    var canControl: Bool {
+        core.driver != nil && !core.isTransitioning && !core.snapshot.requiresForegroundReload && errorMessage == nil
+    }
     var canSeek: Bool { canControl && duration > 0 && core.snapshot.seekable }
 
     func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem],
@@ -354,6 +357,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     func togglePlayback() {
+        if restoreReleasedAetherSession(resume: true) { return }
         guard canControl else { return }
         if core.snapshot.phase == .ended, let currentItem {
             load(currentItem, source: source, engine: currentEngine, decoder: currentDecoder, position: 0)
@@ -413,12 +417,42 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     func startPictureInPicture() {
+        guard pipStartTask == nil else { return }
+        // Audio mode has no pre-mounted Aether PiP source. Manual opening
+        // creates one now; AVKit may need a moment to publish its readiness.
+        core.preparePiP()
         configurePictureInPicture()
-        guard core.snapshot.pipPossible || pipController?.isPictureInPicturePossible == true else {
-            playbackNotice = String(localized: "当前视频暂不支持画中画。")
+        if core.engineID != .aether {
+            guard core.snapshot.pipPossible else {
+                playbackNotice = String(localized: "当前视频暂不支持画中画。")
+                return
+            }
+            core.startPiP()
             return
         }
-        core.startPiP()
+        let token = generation
+        pipStartTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { if self.generation == token { self.pipStartTask = nil } }
+            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+            while !Task.isCancelled, self.generation == token {
+                guard !(self.appIsInBackground || self.appIsInactive) || self.automaticallyStartsPictureInPicture else {
+                    self.core.setPiPActive(false)
+                    self.configurePictureInPicture()
+                    return
+                }
+                if self.pipController?.isPictureInPicturePossible == true {
+                    self.core.startPiP()
+                    return
+                }
+                if ContinuousClock.now >= deadline { break }
+                do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+            }
+            guard !Task.isCancelled, self.generation == token else { return }
+            self.core.setPiPActive(false)
+            self.configurePictureInPicture()
+            self.playbackNotice = String(localized: "当前视频暂不支持画中画。")
+        }
     }
 
     private var automaticallyStartsPictureInPicture: Bool {
@@ -502,6 +536,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
 
     func pictureInPictureController(_ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
         guard controller === pipController else { return }
+        core.setPiPActive(false)
         playbackNotice = error.localizedDescription
         if appIsInBackground { pause() }
         restoreVideoContentMode()
@@ -573,6 +608,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             appIsInBackground = false
             appIsInactive = false
             pruneUnavailableHistory()
+            if restoreReleasedAetherSession(resume: false) { return }
             if isPictureInPictureActive { isPresented = false }
             else if core.driver != nil {
                 // Reattach the native rendering layer even when playback was
@@ -583,6 +619,21 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             }
         @unknown default: break
         }
+    }
+
+    /// Aether explicitly marks a background-released pipeline. A seek/play
+    /// against that shell cannot restore it. Resolve Emby again (including a
+    /// potentially expired direct/transcode URL), carrying position and tracks.
+    @discardableResult
+    private func restoreReleasedAetherSession(resume: Bool) -> Bool {
+        guard !appIsInBackground, !appIsInactive, !core.isTransitioning, !isLoading,
+              core.engineID == .aether, let item = currentItem, let source, source.kind == .emby,
+              core.driver?.snapshot.requiresForegroundReload == true else { return false }
+        let position = currentTime.isFinite ? max(0, currentTime) : 0
+        log("后台视频管线已释放，重新连接 Emby：position=\(position) resume=\(resume)")
+        load(item, source: source, engine: currentEngine, decoder: currentDecoder,
+             position: position, resume: resume, rate: playbackRate)
+        return true
     }
 
     private func recordPlaybackHistory() {
@@ -1315,6 +1366,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     private func tearDownPlayer() {
+        pipStartTask?.cancel(); pipStartTask = nil
         decoderChange?.cancel(); decoderChange = nil; requestedDecoder = nil
         pipController?.delegate = nil
         core.stopPiP()
@@ -1369,6 +1421,9 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
     private func syncCoreState() {
         let state = core.snapshot
+        // Lifecycle notifications and engine teardown completion can arrive in
+        // either order. Also check the first fresh snapshot after foreground.
+        if state.requiresForegroundReload, restoreReleasedAetherSession(resume: false) { return }
         videoView = core.view
         currentEngine = core.engineID == .aether ? .aether : .vlc
         if let actual = state.actualDecoder {
@@ -1381,12 +1436,12 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         isLoading = core.isTransitioning || state.phase == .loading
         isPlaying = state.phase == .playing
         if appIsInBackground && !PlaybackPreferences.backgroundEnabled && isPlaying { core.pause() }
-        if !isSeeking && !core.isTransitioning {
+        if !state.requiresForegroundReload && !isSeeking && !core.isTransitioning {
             if let landing = seekLanding {
                 if abs(state.time - landing.time) < 1.5 || Date() >= landing.deadline { seekLanding = nil; currentTime = max(0, state.time) }
             } else { currentTime = state.time.isFinite ? max(0, state.time) : 0 }
         }
-        if !isLoading || state.duration > 0 {
+        if !state.requiresForegroundReload && (!isLoading || state.duration > 0) {
             let engineDuration = state.duration.isFinite ? max(0, state.duration) : 0
             duration = engineDuration > 0 ? engineDuration : (resource?.duration ?? 0)
         }

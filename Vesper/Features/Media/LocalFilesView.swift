@@ -5,7 +5,10 @@ import UniformTypeIdentifiers
 struct LocalFilesView<SourceMenu: View>: View {
     let source: MediaSource
     var directory = ""
-    @ViewBuilder let sourceMenu: () -> SourceMenu
+    var onVerticalOffsetChange: (CGFloat) -> Void = { _ in }
+    var onVerticalScrollPhaseChange: (ScrollPhase, CGFloat) -> Void = { _, _ in }
+    var onTopPullChange: (CGFloat) -> Void = { _ in }
+    @ViewBuilder let sourceMenu: (Bool, @escaping () -> Void) -> SourceMenu
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
     @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
@@ -27,27 +30,11 @@ struct LocalFilesView<SourceMenu: View>: View {
         Group {
             if directory.isEmpty {
                 VesperRootScrollView(title: "媒体", showsLoading: loading && entries.isEmpty,
-                                     usesMediaScrollEdges: true, scrollPosition: $rootScrollPosition) { files } actions: {
-                    HStack(spacing: 12) {
-                        HStack(spacing: 0) {
-                            Button("选择视频", systemImage: "document.badge.plus") {
-                                incomingVideos.selectVideo()
-                            }
-                            .labelStyle(.iconOnly)
-                            .font(.system(size: 17, weight: .medium))
-                            .frame(width: 44, height: 44)
-                            .buttonStyle(.plain)
-                            .disabled(busy)
-                            Button("新建文件夹", systemImage: "folder.badge.plus", action: createFolder)
-                                .labelStyle(.iconOnly)
-                                .font(.system(size: 17, weight: .medium))
-                                .frame(width: 44, height: 44)
-                                .buttonStyle(.plain)
-                                .disabled(busy)
-                        }
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                        sourceMenu()
-                    }
+                                     usesMediaScrollEdges: true, scrollPosition: $rootScrollPosition,
+                                     onVerticalOffsetChange: onVerticalOffsetChange,
+                                     onVerticalScrollPhaseChange: onVerticalScrollPhaseChange,
+                                     onTopPullChange: onTopPullChange) { files } actions: {
+                    sourceMenu(busy, createFolder)
                 }
             } else {
                 ScrollView { files.padding(.top, 12).padding(.bottom, 20) }

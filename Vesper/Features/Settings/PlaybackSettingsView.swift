@@ -143,13 +143,10 @@ struct PlayerSubtitleSettingsView: View {
 
 struct DanmakuSettingsView: View {
     var body: some View {
-        Form {
-            Section {
-                NavigationLink("自定义弹幕 API") { DanmakuAPISettingsView() }
-            } footer: {
-                Text("在播放界面的弹幕设置中搜索在线弹幕或导入本地 Bilibili XML 文件。弹幕仅用于当前视频，时间偏移可在播放界面调整。")
-            }
-            DanmakuPreferenceSections()
+        SettingsPage {
+            SettingsIntroCard(title: "弹幕设置", symbol: "text.bubble",
+                              description: "调整弹幕显示，管理在线来源与内容过滤。")
+            DanmakuPreferenceSections(showsSourceManagement: true)
         }
         .navigationTitle("弹幕设置")
         .toolbarTitleDisplayMode(.inline)
