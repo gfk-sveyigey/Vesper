@@ -36,6 +36,8 @@ public struct EngineConfiguration: Sendable {
     public var automaticPiP = false
     public var subtitleFontSize: Double = 22
     public var subtitleBackground = true
+    /// Optional Emby compressed-media session cache budget, in bytes.
+    public var preloadCacheLimitBytes: Int? = nil
     public var requestHeaders: [String: String] = [:]
     public var externalSubtitles: [EngineExternalSubtitle] = []
     public init() {}

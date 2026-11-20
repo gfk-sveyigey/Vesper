@@ -168,6 +168,10 @@ struct SettingsView: View {
 }
 
 private struct EmbySettingsView: View {
+    @AppStorage(EmbyPreloadCacheSettings.nextWiFiKey) private var preloadNextWiFi = true
+    @AppStorage(EmbyPreloadCacheSettings.nextCellularKey) private var preloadNextCellular = false
+    @AppStorage(EmbyPreloadCacheSettings.wifiKey) private var wifiCacheMB = 500
+    @AppStorage(EmbyPreloadCacheSettings.cellularKey) private var cellularCacheMB = 500
     @AppStorage(EmbyBrowsingSettings.fullRenderingKey) private var waitsForArtwork = false
     @AppStorage(EmbyTrackPreferences.audioLanguageKey) private var audioLanguage = ""
     @AppStorage(EmbyTrackPreferences.subtitleLanguageKey) private var subtitleLanguage = ""
@@ -175,6 +179,28 @@ private struct EmbySettingsView: View {
 
     var body: some View {
         SettingsPage {
+            SettingsSection("预加载下一集") {
+                Toggle("Wi-Fi 下预加载", isOn: $preloadNextWiFi)
+                Toggle("蜂窝网络下预加载", isOn: $preloadNextCellular)
+                Text("Aether 播放分集剩余两分钟时，按当前版本的封装、编码、动态范围及分辨率选择下一集版本，预读开头约 8 MB，必要时读取尾部索引。五分钟后释放；停止、切换视频或网络策略不允许时取消。VLC 和原生远程 HLS 暂不支持。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            SettingsSection("视频预加载缓存") {
+                Picker("Wi-Fi", selection: $wifiCacheMB) {
+                    ForEach(EmbyPreloadCacheSettings.choices, id: \.self) { size in
+                        Text("\(size) MB").tag(size)
+                    }
+                }
+                Picker("蜂窝网络", selection: $cellularCacheMB) {
+                    ForEach(EmbyPreloadCacheSettings.choices, id: \.self) { size in
+                        Text("\(size) MB").tag(size)
+                    }
+                }
+                Text("每次打开 Emby 视频时按当前网络应用。仅限制 Aether 支持的临时媒体缓存，不是流量上限或播放器总内存限制；原生远程 HLS 和 VLC 暂不支持按容量限制。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             SettingsSection {
                 Toggle("完整加载后渲染", isOn: $waitsForArtwork)
             }

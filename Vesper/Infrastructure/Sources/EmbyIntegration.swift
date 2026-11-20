@@ -157,6 +157,7 @@ struct EmbyMediaGroup: Identifiable, Sendable {
     let id: String
     let title: String
     var items: [MediaItem]
+    var totalCount: Int? = nil
     var isLoading = false
     var errorMessage: String? = nil
 
@@ -313,14 +314,18 @@ actor EmbyRepository {
     }
 
     func latestMedia(for source: MediaSource, libraryID: String) async throws -> [MediaItem] {
-        try await latestMedia(for: source, parentID: libraryID, limit: 20)
+        try await latestMedia(for: source, parentID: libraryID, limit: 20).items
     }
 
     func featuredMedia(for source: MediaSource) async throws -> [MediaItem] {
-        try await latestMedia(for: source, parentID: nil, limit: 10)
+        try await latestMedia(for: source, parentID: nil, limit: 10).items
     }
 
-    private func latestMedia(for source: MediaSource, parentID: String?, limit: Int) async throws -> [MediaItem] {
+    func latestMediaGroup(for source: MediaSource, libraryID: String) async throws -> (items: [MediaItem], totalCount: Int?) {
+        try await latestMedia(for: source, parentID: libraryID, limit: 20)
+    }
+
+    private func latestMedia(for source: MediaSource, parentID: String?, limit: Int) async throws -> (items: [MediaItem], totalCount: Int?) {
         let client = try await clientProvider(source)
         let path = source.emby?.userID.map { "Users/\($0)/Items" } ?? "Items"
         let titleTypes = EmbyBrowseScope.titles.itemTypes ?? []
@@ -328,15 +333,16 @@ actor EmbyRepository {
             "Recursive": "true",
             "IncludeItemTypes": titleTypes.joined(separator: ","),
             "SortBy": "DateCreated", "SortOrder": "Descending", "StartIndex": "0", "Limit": String(limit),
-            "EnableImages": "true",
+            "EnableImages": "true", "EnableTotalRecordCount": "true",
             "Fields": "DateCreated,ProductionYear,RunTimeTicks,UserData,Genres,PremiereDate,Status,OfficialRating,CommunityRating,Studios,SeasonCount"
         ]
         if let parentID { query["ParentId"] = parentID }
         let response = try await client.get(path, query: query)
         guard let values = response["Items"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
         var seen = Set<MediaID>()
-        return Array(map(values, source: source, client: client)
-            .filter { titleTypes.contains($0.embyItemType ?? "") && seen.insert($0.id).inserted }.prefix(limit))
+        return (Array(map(values, source: source, client: client)
+            .filter { titleTypes.contains($0.embyItemType ?? "") && seen.insert($0.id).inserted }.prefix(limit)),
+                response["TotalRecordCount"] as? Int)
     }
 
     func serverName(for source: MediaSource) async throws -> String? {
@@ -491,6 +497,16 @@ actor EmbyRepository {
             return fields.isEmpty ? nil : .init(id: id, title: title, fields: fields)
         }
         return result
+    }
+
+    func seriesSeasonCount(for series: MediaItem, source: MediaSource) async throws -> Int {
+        guard series.id.sourceID == source.id else { throw EmbyError.invalidResponse }
+        let client = try await clientProvider(source)
+        var query = ["EnableTotalRecordCount": "true"]
+        if let userID = source.emby?.userID { query["UserId"] = userID }
+        let response = try await client.get("Shows/\(series.id.localID)/Seasons", query: query)
+        guard let rows = response["Items"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
+        return response["TotalRecordCount"] as? Int ?? rows.count
     }
 
     func seriesEpisodes(for series: MediaItem, source: MediaSource, limit: Int? = nil) async throws -> [EmbyEpisode] {
@@ -1118,4 +1134,98 @@ actor EmbyRepository {
         "TranscodingProfiles": [["Container": "ts", "Type": "Video", "VideoCodec": "h264", "AudioCodec": "aac", "Protocol": "hls", "Context": "Streaming", "MaxAudioChannels": "2"]],
         "CodecProfiles": [], "SubtitleProfiles": [["Format": "srt", "Method": "External"], ["Format": "vtt", "Method": "External"]]
     ] }
+}
+
+/// Stable, metadata-based matching; version display names and filenames are not reliable quality labels.
+enum EmbyVersionMatcher {
+    struct Format {
+        var container: String = ""
+        var videoCodec: String = ""
+        var dynamicRange: String = ""
+        var width: Int? = nil
+        var height: Int? = nil
+        var frameRate: Double? = nil
+        var audioCodec: String = ""
+        var audioChannels: Int? = nil
+        var bitRate: Int? = nil
+    }
+
+    static func closest(to current: EmbyMediaVersionDetails?, in candidates: [EmbyMediaVersionDetails]) -> EmbyMediaVersionDetails? {
+        guard let current else { return candidates.first }
+        guard let index = bestIndex(current: format(current), candidates: candidates.map(format)) else { return nil }
+        return candidates[index]
+    }
+
+    static func bestIndex(current: Format, candidates: [Format]) -> Int? {
+        candidates.indices.min { left, right in
+            let leftRank = rank(candidates[left], against: current)
+            let rightRank = rank(candidates[right], against: current)
+            return leftRank == rightRank ? left < right : leftRank.lexicographicallyPrecedes(rightRank)
+        }
+    }
+
+    private static func format(_ version: EmbyMediaVersionDetails) -> Format {
+        let video = version.streams.first { $0.type == "Video" }
+        let audio = version.streams.first { $0.type == "Audio" && $0.isDefault }
+            ?? version.streams.first { $0.type == "Audio" }
+        let range = [video?.videoRangeType, video?.videoRange, video?.colorTransfer]
+            .compactMap { $0 }.joined(separator: " ").uppercased()
+        let dynamicRange: String
+        if range.contains("DOVI") || range.contains("DOLBY") || range.hasPrefix("DV") { dynamicRange = "DV" }
+        else if range.contains("HLG") || range.contains("ARIB") { dynamicRange = "HLG" }
+        else if range.contains("HDR10+") || range.contains("HDR10PLUS") { dynamicRange = "HDR10+" }
+        else if range.contains("HDR") || range.contains("2084") || range.contains("PQ") { dynamicRange = "HDR10" }
+        else if range.isEmpty { dynamicRange = "" }
+        else { dynamicRange = "SDR" }
+        let fileExtension = version.fileName.map { URL(fileURLWithPath: $0).pathExtension } ?? ""
+        return Format(container: version.container ?? fileExtension, videoCodec: video?.codec ?? "",
+                      dynamicRange: dynamicRange, width: video?.width, height: video?.height,
+                      frameRate: video?.averageFrameRate ?? video?.realFrameRate, audioCodec: audio?.codec ?? "", audioChannels: audio?.channels,
+                      bitRate: version.bitRate ?? video?.bitRate)
+    }
+
+    private static func normalized(_ value: String) -> String {
+        let key = value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: ",").first.map(String.init) ?? ""
+        switch key {
+        case "h265", "h.265", "x265", "hev1", "hvc1": return "hevc"
+        case "avc", "avc1", "h.264", "x264": return "h264"
+        case "matroska": return "mkv"
+        case "mov", "m4v": return "mp4"
+        case "ec3", "ec-3", "e-ac-3": return "eac3"
+        case "ac-3": return "ac3"
+        default: return key
+        }
+    }
+
+    private static func mismatch(_ candidate: String, _ reference: String) -> Double {
+        let expected = normalized(reference), actual = normalized(candidate)
+        if expected.isEmpty { return 0 }
+        if actual == expected { return 0 }
+        return actual.isEmpty ? 4 : 3
+    }
+
+    private static func distance(_ value: Int?, _ reference: Int?) -> Double {
+        guard let reference, reference > 0 else { return 0 }
+        guard let value, value > 0 else { return 100 }
+        return abs(log(Double(value) / Double(reference)))
+    }
+
+    private static func frameRateDistance(_ value: Double?, _ reference: Double?) -> Double {
+        guard let reference, reference.isFinite, reference > 0 else { return 0 }
+        guard let value, value.isFinite, value > 0 else { return 100 }
+        return abs(log(value / reference))
+    }
+
+    private static func rank(_ candidate: Format, against reference: Format) -> [Double] {
+        // Lexicographic priority: container, video codec, HDR mode, resolution, audio, bitrate.
+        [mismatch(candidate.container, reference.container),
+         mismatch(candidate.videoCodec, reference.videoCodec),
+         mismatch(candidate.dynamicRange, reference.dynamicRange),
+         distance(candidate.width, reference.width) + distance(candidate.height, reference.height),
+         frameRateDistance(candidate.frameRate, reference.frameRate),
+         mismatch(candidate.audioCodec, reference.audioCodec),
+         distance(candidate.audioChannels, reference.audioChannels),
+         distance(candidate.bitRate, reference.bitRate)]
+    }
 }

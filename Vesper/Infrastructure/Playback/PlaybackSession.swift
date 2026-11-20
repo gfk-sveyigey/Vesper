@@ -76,6 +76,20 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
            let entries = try? JSONDecoder().decode([PlaybackHistoryEntry].self, from: data) {
             history = entries
         }
+        wireCore()
+        refreshPlaybackPreferences()
+        preferencesObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.appliedBackgroundPolicy != self.backgroundPolicyID else { return }
+                    self.refreshPlaybackPreferences()
+                }
+            }
+        let savedRate = UserDefaults.standard.float(forKey: "player.playbackRate")
+        if [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(savedRate) { playbackRate = savedRate }
+    }
+
+    private func wireCore() {
         core.onChange = { [weak self] in self?.syncCoreState() }
         core.log = { [weak self] in self?.log($0) }
         core.onEngineFailure = { [weak self] message in
@@ -89,19 +103,15 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             if self.isPresented { completion(true) }
             else { self.restorePiPCompletion = completion; self.isPresented = true }
         }
-        refreshPlaybackPreferences()
-        preferencesObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-            .sink { [weak self] _ in
-                Task { @MainActor in
-                    guard let self, self.appliedBackgroundPolicy != self.backgroundPolicyID else { return }
-                    self.refreshPlaybackPreferences()
-                }
-            }
-        let savedRate = UserDefaults.standard.float(forKey: "player.playbackRate")
-        if [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(savedRate) { playbackRate = savedRate }
     }
 
     private let core = PlaybackCore()
+    private var nextPreparation: Task<Void, Never>?
+    private var nextPreparationID: MediaID?
+    private var attemptedNextForGeneration: UUID?
+    private var lastNextPolicyAttempt = Date.distantPast
+    private var preparedNext: (item: MediaItem, sourceID: UUID, resource: ResolvedPlaybackResource)?
+
     private var trackIDs: [String: Int32] = [:]
     private var nextTrackID: Int32 = 1
     private var previouslyActivePiP = false
@@ -174,6 +184,14 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private func load(_ item: MediaItem, source: MediaSource?, engine: PlaybackEngine? = nil, decoder: PlaybackDecoder? = nil,
                       position: Double? = nil, resume: Bool = true, rate: Float? = nil,
                       initialAudio: EngineTrack? = nil, initialSubtitle: EngineTrack? = nil) {
+        let warmed = preparedNext.flatMap { prepared in
+            prepared.item.id == item.id && (item.embyMediaSourceID == nil || prepared.item.embyMediaSourceID == item.embyMediaSourceID)
+                && prepared.sourceID == source?.id && position == nil
+                && (engine ?? PlaybackPreferences.preferredEngine) == .aether ? prepared : nil
+        }
+        if warmed != nil { preparedNext = nil }
+        cancelNextPreparation(discardBytes: warmed == nil)
+        let item = warmed?.item ?? item
         request?.cancel()
         generation = UUID()
         let token = generation
@@ -204,7 +222,9 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         request = Task { [weak self] in
             do {
                 let resolved: ResolvedPlaybackResource
-                if let external {
+                if let warmed {
+                    resolved = warmed.resource
+                } else if let external {
                     resolved = ResolvedPlaybackResource(url: external.url, externalAccess: external.access)
                 } else if let source {
                     resolved = try await PlaybackResourceResolver().resolve(item, source: source, position: position ?? 0)
@@ -551,7 +571,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         return value.isFinite ? max(0, value) : 0
     }
 
-    func clearSavedProgress(for item: MediaItem) {
+    /// History removal hides the row while retaining watched-state metadata used by other pages.
+    func clearSavedProgress(for item: MediaItem, removeFromHistory: Bool = false) {
         let key = item.id.sourceID.uuidString + ":" + item.id.localID
         var values = UserDefaults.standard.dictionary(forKey: progressStorageKey) as? [String: Double] ?? [:]
         var durations = UserDefaults.standard.dictionary(forKey: durationStorageKey) as? [String: Double] ?? [:]
@@ -565,7 +586,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                                                    source: existing.source, watchedAt: existing.watchedAt,
                                                    position: 0, duration: existing.duration,
                                                    isPlayed: existing.isFullyWatched,
-                                                   hiddenFromHistory: existing.hiddenFromHistory)
+                                                   hiddenFromHistory: removeFromHistory ? true : existing.hiddenFromHistory)
         }
         persistHistory()
         savedProgressRevision += 1
@@ -1043,6 +1064,85 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         if subtitleImage !== state.subtitleImage { subtitleImage = state.subtitleImage }
     }
 
+    private func cancelNextPreparation(discardBytes: Bool = true) {
+        nextPreparation?.cancel()
+        nextPreparation = nil
+        nextPreparationID = nil
+        preparedNext?.resource.release()
+        preparedNext = nil
+        if discardBytes { AetherSourcePrewarm.discard() }
+    }
+
+    private func prepareNextEpisodeIfNeeded() {
+        guard isPlaying, !isLoading, !isSeeking, currentEngine == .aether,
+              duration > 0, currentTime > 0, duration - currentTime <= 120,
+              let source, source.kind == .emby, let item = currentItem, item.embyItemType == "Episode",
+              let index = queue.firstIndex(where: { $0.id == item.id }), index + 1 < queue.count,
+              queue[index + 1].embyItemType == "Episode",
+              attemptedNextForGeneration != generation,
+              Date().timeIntervalSince(lastNextPolicyAttempt) >= 5 else { return }
+        lastNextPolicyAttempt = Date()
+        attemptedNextForGeneration = generation
+        let target = queue[index + 1]
+        let token = generation
+        nextPreparationID = target.id
+        nextPreparation = Task { [weak self] in
+            guard let self else { return }
+            guard await EmbyPreloadCacheSettings.allowsNextEpisode(), !Task.isCancelled,
+                  self.generation == token else {
+                if self.generation == token { self.attemptedNextForGeneration = nil }
+                return
+            }
+            var resolved: ResolvedPlaybackResource?
+            var retained = false
+            defer { if !retained { resolved?.release() } }
+            do {
+                let currentSourceID = self.resource?.embyMediaSourceID ?? item.embyMediaSourceID
+                let current = try? await EmbyRepository.shared.detailMetadata(for: item, source: source)
+                try Task.checkCancellation()
+                let metadata = try await EmbyRepository.shared.detailMetadata(for: target, source: source)
+                let currentVersion = current?.mediaVersions.first(where: { $0.id == currentSourceID })
+                    ?? current?.mediaVersions.first
+                let best = EmbyVersionMatcher.closest(to: currentVersion, in: metadata.mediaVersions)
+                var selected = target
+                selected.embyMediaSourceID = best?.id
+                let resource = try await PlaybackResourceResolver().resolve(selected, source: source)
+                resolved = resource
+                selected.embyMediaSourceID = resource.embyMediaSourceID ?? selected.embyMediaSourceID
+                try Task.checkCancellation()
+                guard resource.url.pathExtension.lowercased() != "m3u8" else { return }
+                // Keep speculative reads small; this is separate from the playing session budget.
+                let budget = min(8 * 1024 * 1024, await EmbyPreloadCacheSettings.currentLimitBytes())
+                let policy = Task { @MainActor in
+                    while !Task.isCancelled {
+                        do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                        let allowed = await EmbyPreloadCacheSettings.allowsNextEpisode()
+                        guard !Task.isCancelled, self.generation == token else { return }
+                        guard allowed else { self.cancelNextPreparation(); return }
+                    }
+                }
+                defer { policy.cancel() }
+                let warmed = await AetherSourcePrewarm.prepare(url: resource.url, headers: resource.headers, byteBudget: budget)
+                try Task.checkCancellation()
+                guard warmed, self.generation == token, self.nextPreparationID == target.id else { return }
+                self.preparedNext = (selected, source.id, resource)
+                retained = true
+                // Bound lifetime and discard on disallowed network/settings changes.
+                for _ in 0..<300 {
+                    try await Task.sleep(for: .seconds(1))
+                    guard self.generation == token else { return }
+                    let allowed = await EmbyPreloadCacheSettings.allowsNextEpisode()
+                    guard !Task.isCancelled, self.generation == token else { return }
+                    guard allowed else { self.cancelNextPreparation(); return }
+                }
+                self.cancelNextPreparation()
+            } catch {
+                // Preloading is best-effort; playback errors belong only to the active video.
+                if self.generation == token { self.cancelNextPreparation() }
+            }
+        }
+    }
+
     func next() {
         guard hasNext, let source, let currentItem,
               let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return }
@@ -1060,6 +1160,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     func stop() {
         saveProgress()
         recordPlaybackHistory()
+        cancelNextPreparation()
         request?.cancel()
         request = nil
         generation = UUID()
@@ -1160,6 +1261,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         embySession?.update(position: currentTime, paused: !isPlaying, rate: playbackRate,
                             remembersProgress: PlaybackPreferences.remembersProgress,
                             ready: !isLoading && (state.phase == .playing || state.phase == .paused || state.phase == .ended))
+        prepareNextEpisodeIfNeeded()
         refreshTracks(); updateSubtitles(); configurePictureInPicture()
         // SwiftVLC retains its native AVKit delegate; consume its observable PiP state.
         isPictureInPicturePossible = state.pipPossible

@@ -356,7 +356,7 @@ struct MediaView: View {
             } else {
                 NavigationLink(value: EmbyMediaRoute.library(source, id: group.id, title: group.title)) {
                     HStack(spacing: 6) {
-                        Text(verbatim: group.title)
+                        Text(verbatim: group.totalCount.map { "\(group.title) · \($0)" } ?? group.title)
                         Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold))
                             .foregroundStyle(Color(uiColor: .systemGray2))
                             .accessibilityHidden(true)
@@ -904,7 +904,7 @@ private struct EmbyFeaturedCarousel: View {
                                              showsInformation: isCurrent && !isTransitioning && !hidesInformation,
                                              mirroredEdgeFraction: (isCurrent || isIncoming) && isTransitioning && !reduceMotion ? mirrorFraction : 0)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(EmbyCarouselButtonStyle())
                         .accessibilityLabel(Text(verbatim: item.title))
                         .opacity(isCurrent ? 1 - progress : isIncoming ? progress : 0)
                         .frame(width: width)
@@ -1566,6 +1566,33 @@ struct EmbyPersonWorksView: View {
     }
 }
 
+private enum EmbyBrowserLayout: String, CaseIterable, Identifiable {
+    case grid, list
+    var id: String { rawValue }
+    var title: LocalizedStringKey { self == .grid ? "网格显示" : "列表显示" }
+    var symbol: String { self == .grid ? "square.grid.2x2" : "list.bullet" }
+}
+
+private enum EmbyBrowserSort: String, CaseIterable, Identifiable {
+    case name = "SortName", added = "DateCreated", released = "PremiereDate", year = "ProductionYear"
+    case rating = "CommunityRating", lastPlayed = "DatePlayed", runtime = "Runtime"
+    case resolution = "Resolution", size = "Size"
+    var id: String { rawValue }
+    var title: LocalizedStringKey {
+        switch self {
+        case .name: "名称"
+        case .added: "添加日期"
+        case .released: "发行日期"
+        case .year: "年份"
+        case .rating: "社区评分"
+        case .lastPlayed: "最近播放"
+        case .runtime: "时长"
+        case .resolution: "分辨率"
+        case .size: "文件大小"
+        }
+    }
+}
+
 private struct EmbySeriesBrowserView: View {
     let source: MediaSource
     let groupTitle: String
@@ -1581,6 +1608,12 @@ private struct EmbySeriesBrowserView: View {
     @State private var didLoadFirstPage = false
     @State private var nextOffset = 0
     @State private var errorMessage: String?
+    @State private var loadGeneration = UUID()
+    @AppStorage("emby.browser.layout") private var displayLayout: EmbyBrowserLayout = .grid
+    @AppStorage("emby.browser.sort") private var sortField: EmbyBrowserSort = .added
+    @AppStorage("emby.browser.ascending") private var ascending = false
+
+    private var sortIdentity: String { "\(sortField.rawValue):\(ascending)" }
 
     private let pageSize = 21
     private var columns: [GridItem] {
@@ -1589,23 +1622,14 @@ private struct EmbySeriesBrowserView: View {
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: CGFloat(layout[.itemVerticalPadding]) * 2) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    let route = EmbyMediaRoute.detail(source, item, origin: detailOrigin)
-                    Button { openDetail(route) } label: {
-                        MediaThumbnail(source: source, item: item, imageOrientation: .portrait,
-                                       fixedHeight: layout.thumbnailHeight)
-                            .mediaArtworkBorder()
-                            .matchedTransitionSource(id: route, in: artworkZoom)
+            Group {
+                if displayLayout == .grid {
+                    LazyVGrid(columns: columns, spacing: CGFloat(layout[.itemVerticalPadding]) * 2) {
+                        browserItems
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text(verbatim: item.title))
-                    .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
-                                                 showsEmbyFacts: true, openEmbyDetails: { openDetail(route) }) { EmptyView() })
-                    .onAppear {
-                        if didLoadFirstPage, index >= items.count - 5, errorMessage == nil {
-                            Task { await loadPage() }
-                        }
+                } else {
+                    LazyVStack(spacing: 16) {
+                        browserItems
                     }
                 }
             }
@@ -1621,6 +1645,7 @@ private struct EmbySeriesBrowserView: View {
                 Text(verbatim: errorMessage).font(.caption).foregroundStyle(.secondary)
             }
         }
+        .id(sortIdentity)
         .background(VesperTheme.background.ignoresSafeArea())
         .overlay {
             if items.isEmpty && !didLoadFirstPage && errorMessage == nil { VesperPageLoadingOverlay() }
@@ -1629,13 +1654,101 @@ private struct EmbySeriesBrowserView: View {
         .navigationTitle(groupTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .task {
-            guard !didLoadFirstPage else { return }
-            let cached = await AppCacheStore.shared.items(scope: cacheScope, key: cacheKey)
-            guard !Task.isCancelled else { return }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("布局方式", selection: $displayLayout) {
+                        ForEach(EmbyBrowserLayout.allCases) { value in
+                            Label(value.title, systemImage: value.symbol).tag(value)
+                        }
+                    }
+                    Picker("排序依据", selection: $sortField) {
+                        ForEach(EmbyBrowserSort.allCases) { value in
+                            Text(value.title).tag(value)
+                        }
+                    }
+                    Picker("排序方式", selection: $ascending) {
+                        Label("正序", systemImage: "arrow.up").tag(true)
+                        Label("倒序", systemImage: "arrow.down").tag(false)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("布局与排序")
+            }
+        }
+        .task(id: sortIdentity) {
+            loadGeneration = UUID()
+            let token = loadGeneration
+            let key = cacheKey
+            items = []
+            isLoading = false
+            reachedEnd = false
+            didLoadFirstPage = false
+            nextOffset = 0
+            errorMessage = nil
+            let cached = await AppCacheStore.shared.items(scope: cacheScope, key: key)
+            guard !Task.isCancelled, loadGeneration == token else { return }
             if let cached, items.isEmpty { items = cached }
             await loadPage()
         }
+    }
+
+    private var browserItems: some View {
+        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+            let route = EmbyMediaRoute.detail(source, item, origin: detailOrigin)
+            Button { openDetail(route) } label: {
+                if displayLayout == .grid {
+                    MediaThumbnail(source: source, item: item, imageOrientation: .portrait,
+                                   fixedHeight: layout.thumbnailHeight)
+                        .mediaArtworkBorder()
+                        .matchedTransitionSource(id: route, in: artworkZoom)
+                } else {
+                    libraryRow(item, route: route)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(verbatim: item.title))
+            .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
+                                         showsEmbyFacts: true, openEmbyDetails: { openDetail(route) }) { EmptyView() })
+            .onAppear {
+                if didLoadFirstPage, index >= items.count - 5, errorMessage == nil {
+                    Task { await loadPage() }
+                }
+            }
+        }
+    }
+
+    private func libraryRow(_ item: MediaItem, route: EmbyMediaRoute) -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            MediaThumbnail(source: source, item: item, imageOrientation: .portrait, fixedHeight: 114)
+                .frame(width: 76)
+                .mediaArtworkBorder()
+                .matchedTransitionSource(id: route, in: artworkZoom)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(verbatim: item.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                if let subtitle = item.subtitle, !subtitle.isEmpty {
+                    Text(verbatim: subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if let genres = item.embyPresentation?.genres, !genres.isEmpty {
+                    Text(verbatim: genres.prefix(3).joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if let overview = item.embyPresentation?.overview, !overview.isEmpty {
+                    Text(verbatim: overview).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private var detailOrigin: EmbyMediaRoute.Origin {
@@ -1652,29 +1765,34 @@ private struct EmbySeriesBrowserView: View {
     }
 
     private var cacheScope: String { AppCacheStore.scope(for: source) }
-    private var cacheKey: String { "browser:\(scope.cacheKey):\(parentID ?? "")" }
+    private var cacheKey: String { "browser:\(scope.cacheKey):\(parentID ?? ""):\(sortIdentity)" }
 
     private func loadPage() async {
         guard !isLoading, !reachedEnd else { return }
+        let token = loadGeneration
+        let key = cacheKey
+        let field = sortField.rawValue
+        let order = ascending ? "Ascending" : "Descending"
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
+        defer { if loadGeneration == token { isLoading = false } }
         do {
             let generation = await AppCacheStore.shared.libraryGeneration
             let page = try await EmbyRepository.shared.items(for: source, parentID: parentID,
                                                              startIndex: nextOffset, limit: pageSize,
-                                                             sortBy: "DateCreated", sortOrder: "Descending",
+                                                             sortBy: field, sortOrder: order,
                                                              scope: scope)
             try Task.checkCancellation()
+            guard loadGeneration == token else { return }
             if !didLoadFirstPage { items = [] }
             var seen = Set(items.map(\.id))
             items.append(contentsOf: page.filter { seen.insert($0.id).inserted })
             nextOffset += page.count
             reachedEnd = page.count < pageSize
             didLoadFirstPage = true
-            await AppCacheStore.shared.save(items, scope: cacheScope, key: cacheKey, generation: generation)
+            await AppCacheStore.shared.save(items, scope: cacheScope, key: key, generation: generation)
         } catch {
-            if !Task.isCancelled { errorMessage = error.localizedDescription }
+            if !Task.isCancelled, loadGeneration == token { errorMessage = error.localizedDescription }
         }
     }
 }
@@ -1724,5 +1842,12 @@ struct VesperEmptyPage<Actions: View>: View {
 extension VesperEmptyPage where Actions == EmptyView {
     init(title: LocalizedStringKey, message: LocalizedStringKey, symbol: String) {
         self.init(title: title, message: message, symbol: symbol) { EmptyView() }
+    }
+}
+
+// Carousel pans should not dim artwork while a button is tracking the touch.
+private struct EmbyCarouselButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
     }
 }

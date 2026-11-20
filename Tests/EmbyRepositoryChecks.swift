@@ -3,6 +3,7 @@ import Foundation
 @main
 struct EmbyRepositoryChecks {
     @MainActor static func main() async throws {
+        checkVersionMatching()
         UserDefaults.standard.set(true, forKey: EmbyUserAgentPolicy.enabledKey)
         UserDefaults.standard.set("CustomVesper", forKey: EmbyUserAgentPolicy.nameKey)
         UserDefaults.standard.set("2.0", forKey: EmbyUserAgentPolicy.versionKey)
@@ -191,4 +192,19 @@ struct EmbyRepositoryChecks {
         })
         print("Emby repository/session checks passed: hierarchy, versions, resume, sidecars, transcode timeline, throttling, ordered reports and scoped cleanup.")
     }
+    private static func checkVersionMatching() {
+        typealias Format = EmbyVersionMatcher.Format
+        let current = Format(container: "mkv", videoCodec: "hevc", dynamicRange: "DV",
+                             width: 3840, height: 2160, audioCodec: "eac3", audioChannels: 6, bitRate: 20_000_000)
+        let lower = Format(container: "mkv", videoCodec: "hevc", dynamicRange: "DV", width: 1920, height: 1080)
+        let hdr = Format(container: "mkv", videoCodec: "hevc", dynamicRange: "HDR10", width: 3840, height: 2160)
+        let matching = Format(container: "matroska", videoCodec: "h265", dynamicRange: "DV",
+                              width: 3840, height: 2160, audioCodec: "ec-3", audioChannels: 6, bitRate: 19_000_000)
+        precondition(EmbyVersionMatcher.bestIndex(current: current, candidates: [hdr, lower, matching]) == 2)
+        precondition(EmbyVersionMatcher.bestIndex(current: current, candidates: [hdr, lower]) == 1)
+        precondition(EmbyVersionMatcher.bestIndex(current: current, candidates: []) == nil)
+        precondition(EmbyVersionMatcher.bestIndex(current: Format(), candidates: [hdr, matching]) == 0)
+        precondition(EmbyVersionMatcher.bestIndex(current: current, candidates: [matching, matching]) == 0)
+    }
+
 }

@@ -31,19 +31,7 @@ struct HistoryView: View {
                                 LazyHStack(spacing: 12) {
                                     ForEach(group.entries) { entry in
                                         let source = library.sources.first(where: { $0.id == group.id }) ?? group.source
-                                        Button {
-                                            playback.play(entry.item, in: source, queue: group.entries.map(\.item))
-                                        } label: {
-                                            MediaThumbnail(source: source, item: entry.item, playback: playback, historyEntry: entry,
-                                                           imageOrientation: .portrait,
-                                                           usesMediaCardBackdrop: false)
-                                                .frame(width: 132, height: 198)
-                                        }
-                                        .contentShape(Rectangle())
-                                        .clipped()
-                                        .buttonStyle(.plain)
-                                        .modifier(MediaThumbnailMenu(source: source, item: entry.item, playback: playback, historyEntry: entry) { EmptyView() })
-                                        .accessibilityLabel(Text(verbatim: entry.title))
+                                        HistoryMediaCard(source: source, entry: entry, queue: group.entries.map(\.item))
                                     }
                                 }
                                 .scrollTargetLayout()
@@ -65,4 +53,76 @@ private struct HistorySourceGroup: Identifiable {
     let source: MediaSource
     let entries: [PlaybackHistoryEntry]
     var id: UUID { source.id }
+}
+
+/// Artwork may belong to the parent series; playback and menu actions always target the episode.
+private struct HistoryMediaCard: View {
+    let source: MediaSource
+    let entry: PlaybackHistoryEntry
+    let queue: [MediaItem]
+    @EnvironmentObject private var playback: PlaybackSession
+    @State private var resolvedItem: MediaItem?
+    @State private var posterItem: MediaItem?
+    @State private var previewTitle: String?
+
+    private var item: MediaItem { resolvedItem ?? entry.item }
+
+    var body: some View {
+        Button {
+            playback.play(item, in: source, queue: queue)
+        } label: {
+            MediaThumbnail(source: source, item: posterItem ?? item, playback: playback, historyEntry: entry,
+                           imageOrientation: .portrait,
+                           artworkIsPrepared: source.kind == .emby && posterItem == nil,
+                           usesMediaCardBackdrop: false)
+                .frame(width: 132, height: 198)
+        }
+        .contentShape(Rectangle())
+        .clipped()
+        .buttonStyle(.plain)
+        .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback, historyEntry: entry,
+                                     artworkItem: posterItem, previewTitle: previewTitle) { EmptyView() })
+        .accessibilityLabel(Text(verbatim: previewTitle ?? entry.title))
+        .task(id: "\(AppCacheStore.scope(for: source))|\(entry.mediaID.localID)") {
+            guard source.kind == .emby, resolvedItem == nil else { return }
+            do {
+                let metadata = try await EmbyRepository.shared.detailMetadata(for: entry.item, source: source)
+                var poster = metadata.item
+                var title: String? = nil
+                if metadata.item.embyItemType == "Episode", let series = metadata.series {
+                    let parent = try? await EmbyRepository.shared.detailMetadata(for: series, source: source)
+                    try Task.checkCancellation()
+                    poster = parent?.item ?? series
+                    var seasonCount = poster.embyPresentation?.seasonCount
+                    if seasonCount == nil {
+                        seasonCount = try? await EmbyRepository.shared.seriesSeasonCount(for: series, source: source)
+                    }
+                    try Task.checkCancellation()
+                    let multipleSeasons = (seasonCount ?? 0) > 1 || (metadata.seasonNumber ?? 0) > 1
+                    var episodeParts: [String] = []
+                    if let season = metadata.seasonNumber, multipleSeasons || season == 0 {
+                        episodeParts.append(season == 0 ? String(localized: "特别篇") : String(localized: "第\(season)季"))
+                    }
+                    if let episode = metadata.episodeNumber { episodeParts.append(String(localized: "第\(episode)集")) }
+                    var lines = [series.title]
+                    if !episodeParts.isEmpty { lines.append(episodeParts.joined(separator: " · ")) }
+                    let episodeTitle = metadata.item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !episodeTitle.isEmpty, episodeTitle != series.title { lines.append(episodeTitle) }
+                    title = lines.joined(separator: "\n")
+                } else if metadata.item.embyItemType == "Episode" {
+                    // Missing parent metadata must not switch this history card to an episode Thumb.
+                    poster.embyItemType = "Movie"
+                }
+                try Task.checkCancellation()
+                resolvedItem = metadata.item
+                posterItem = poster
+                previewTitle = title
+            } catch {
+                guard !Task.isCancelled else { return }
+                var fallback = entry.item
+                fallback.embyItemType = "Movie"
+                posterItem = fallback
+            }
+        }
+    }
 }

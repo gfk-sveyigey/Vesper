@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import UIKit
 import AVKit
 import PlaybackContracts
@@ -105,6 +106,10 @@ struct TranscodedPlaybackResource: Sendable {
             do {
                 log?("打开引擎 \(id.rawValue)，position=\(configuration.position)")
                 var localConfiguration = configuration
+                if transcodingProvider != nil && localConfiguration.preloadCacheLimitBytes == nil {
+                    localConfiguration.preloadCacheLimitBytes = await EmbyPreloadCacheSettings.currentLimitBytes()
+                    guard token == generation, !Task.isCancelled else { await candidate.shutdown(); return }
+                }
                 localConfiguration.position = max(0, configuration.position - timelineOffset)
                 try await candidate.load(url: url, configuration: localConfiguration)
                 try Task.checkCancellation()
@@ -330,5 +335,39 @@ struct TranscodedPlaybackResource: Sendable {
                 || octets[0] == 169 && octets[1] == 254
         }
         return host.hasPrefix("fc") || host.hasPrefix("fd") || host.hasPrefix("fe80:")
+    }
+}
+
+/// Sample the active network for each Emby load, including engine/server fallbacks.
+enum EmbyPreloadCacheSettings {
+    static let wifiKey = "emby.preload.wifiMB"
+    static let cellularKey = "emby.preload.cellularMB"
+    static let choices = [100, 250, 500, 1000, 2000]
+    static let nextWiFiKey = "emby.preload.next.wifi"
+    static let nextCellularKey = "emby.preload.next.cellular"
+
+    static func allowsNextEpisode() async -> Bool {
+        let cellular = await usesCellularBudget()
+        let key = cellular ? nextCellularKey : nextWiFiKey
+        return UserDefaults.standard.object(forKey: key) as? Bool ?? !cellular
+    }
+
+    private static func usesCellularBudget() async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let monitor = NWPathMonitor()
+            monitor.pathUpdateHandler = { path in
+                monitor.pathUpdateHandler = nil
+                monitor.cancel()
+                // Expensive or unknown connections use the cellular budget conservatively.
+                continuation.resume(returning: path.isExpensive || !path.usesInterfaceType(.wifi) && !path.usesInterfaceType(.wiredEthernet))
+            }
+            monitor.start(queue: DispatchQueue(label: "vesper.emby.preload-network"))
+        }
+    }
+
+    static func currentLimitBytes() async -> Int {
+        let cellular = await usesCellularBudget()
+        let stored = UserDefaults.standard.object(forKey: cellular ? cellularKey : wifiKey) as? Int ?? 500
+        return (choices.contains(stored) ? stored : 500) * 1_000_000
     }
 }

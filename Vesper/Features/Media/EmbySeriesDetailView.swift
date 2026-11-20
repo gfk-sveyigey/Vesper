@@ -343,7 +343,6 @@ struct EmbyMediaDetailView: View {
                         VStack(alignment: .leading, spacing: CGFloat(layout[.groupSpacing])) {
                             if !series.isEmbySeries {
                                 if isEpisode { parentSeriesSection }
-                                technicalSection
                                 if let loadError {
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text(verbatim: loadError).font(.footnote).foregroundStyle(.secondary)
@@ -371,7 +370,9 @@ struct EmbyMediaDetailView: View {
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top > 0.5
             } action: { _, hasScrolled in
-                self.hasScrolled = hasScrolled
+                withAnimation(reduceMotion ? nil : .default) {
+                    self.hasScrolled = hasScrolled
+                }
             }
         }
         .overlay(alignment: .top) {
@@ -547,6 +548,8 @@ struct EmbyMediaDetailView: View {
             Label(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏",
                   systemImage: playback.effectiveFavorite(for: item) ? "heart.fill" : "heart")
         }
+        .contentTransition(.symbolEffect(.replace))
+        .animation(reduceMotion ? nil : .default, value: playback.effectiveFavorite(for: item))
         .tint(Color(uiColor: .label))
         .foregroundStyle(.primary)
         .disabled(source.emby?.userID == nil)
@@ -554,20 +557,20 @@ struct EmbyMediaDetailView: View {
 
     private var versionMenu: some View {
         Menu {
-            ForEach(availableVersions) { version in
-                Button {
-                    selectedMediaSourceID = version.id
+            Picker("媒体版本", selection: Binding(
+                get: { selectedVersion?.id ?? "" },
+                set: { id in
+                    guard let version = availableVersions.first(where: { $0.id == id }) else { return }
+                    selectedMediaSourceID = id
                     resetTrackSelection(for: version)
-                } label: {
-                    if version.id == selectedVersion?.id {
-                        Label(versionMenuTitle(version), systemImage: "checkmark")
-                    } else {
-                        Text(verbatim: versionMenuTitle(version))
-                    }
+                }
+            )) {
+                ForEach(availableVersions) { version in
+                    Text(verbatim: versionMenuTitle(version)).tag(version.id)
                 }
             }
         } label: {
-            Image(systemName: "doc.on.doc")
+            Image(systemName: "rectangle.stack")
         }
         .tint(Color(uiColor: .label))
         .foregroundStyle(.primary)
@@ -577,28 +580,19 @@ struct EmbyMediaDetailView: View {
 
     private func trackMenu(type: String, symbol: String) -> some View {
         let audio = type == "Audio"
-        let selection = audio ? selectedAudioIndex : selectedSubtitleIndex
         let tracks = selectedVersion?.streams.filter { $0.type == type } ?? []
         return Menu {
-            if !audio {
-                Button {
-                    selectedSubtitleIndex = nil
-                } label: {
-                    if selection == nil { Label("关闭", systemImage: "checkmark") }
-                    else { Text("关闭") }
+            Picker(audio ? "音轨" : "字幕", selection: Binding<Int?>(
+                get: { audio ? selectedAudioIndex : selectedSubtitleIndex },
+                set: { index in
+                    if audio { selectedAudioIndex = index }
+                    else { selectedSubtitleIndex = index }
                 }
-            }
-            ForEach(tracks) { stream in
-                Button {
-                    if audio { selectedAudioIndex = stream.id }
-                    else { selectedSubtitleIndex = stream.id }
-                } label: {
-                    if selection == stream.id {
-                        Label(stream.displayTitle ?? stream.title ?? stream.displayLanguage ?? stream.language ?? "\(stream.id)",
-                              systemImage: "checkmark")
-                    } else {
-                        Text(verbatim: stream.displayTitle ?? stream.title ?? stream.displayLanguage ?? stream.language ?? "\(stream.id)")
-                    }
+            )) {
+                if !audio { Text("关闭").tag(nil as Int?) }
+                ForEach(tracks) { stream in
+                    Text(verbatim: stream.displayTitle ?? stream.title ?? stream.displayLanguage ?? stream.language ?? "\(stream.id)")
+                        .tag(Optional(stream.id))
                 }
             }
         } label: {
@@ -693,54 +687,6 @@ struct EmbyMediaDetailView: View {
     }
 
     @ViewBuilder
-    private var technicalSection: some View {
-        if let selectedVersion {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("媒体信息").font(.system(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
-                if let date = item.dateCreated {
-                    LabeledContent("添加时间", value: date.formatted(date: .numeric, time: .omitted))
-                }
-                if let duration = selectedVersion.duration ?? item.duration, duration > 0 {
-                    LabeledContent("时长", value: Self.durationLabel(duration))
-                }
-                if let video = selectedVersion.streams.first(where: { $0.type == "Video" }) {
-                    if let width = video.width, let height = video.height {
-                        let label = width >= 7600 || height >= 4000 ? "8K"
-                            : width >= 3800 || height >= 2000 ? "4K"
-                            : width >= 1900 || height >= 1000 ? "1080P"
-                            : width >= 1200 || height >= 700 ? "720P" : "\(height)P"
-                        LabeledContent("分辨率", value: label)
-                    }
-                    if let frameRate = video.averageFrameRate ?? video.realFrameRate, frameRate > 0 {
-                        LabeledContent("帧率", value: String(format: "%.2f fps", frameRate))
-                    }
-                    let range = [video.videoRangeType, video.videoRange].compactMap { $0 }.joined(separator: " ").uppercased()
-                    let presentation = range.contains("DOVI") || range.contains("DOLBY") || range.hasPrefix("DV") ? "Dolby Vision"
-                        : range.contains("HLG") ? "HLG"
-                        : range.contains("HDR10+") || range.contains("HDR10PLUS") ? "HDR10+"
-                        : range.contains("HDR") ? "HDR" : (range.isEmpty ? nil : "SDR")
-                    if let presentation { LabeledContent("动态范围", value: presentation) }
-                }
-                if let size = selectedVersion.size {
-                    LabeledContent("文件大小", value: Self.byteCountLabel(size))
-                }
-            }
-            .font(.subheadline)
-            .padding(.horizontal, CGFloat(layout[.endPadding]))
-        } else if let video = metadata?.video, video.dimensions != nil || !video.technical.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("媒体信息").font(.system(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
-                if let dimensions = video.dimensions { LabeledContent("分辨率", value: dimensions) }
-                ForEach(Array(video.technical.filter { !["视频轨道", "音轨", "字幕"].contains($0.label) }.enumerated()), id: \.offset) { _, field in
-                    LabeledContent(field.label, value: field.value)
-                }
-            }
-            .font(.subheadline)
-            .padding(.horizontal, CGFloat(layout[.endPadding]))
-        }
-    }
-
-    @ViewBuilder
     private func capabilitySummary(_ version: EmbyMediaVersionDetails) -> some View {
         let capabilities = [
             version.supportsDirectPlay == true ? "直接播放" : nil,
@@ -825,16 +771,15 @@ struct EmbyMediaDetailView: View {
     private var seasonMenu: some View {
         if seasonNumbers.count > 1 {
             Menu {
-                ForEach(seasonNumbers, id: \.self) { season in
-                    Button {
+                Picker("季", selection: Binding(
+                    get: { selectedSeason ?? seasonNumbers.first ?? 1 },
+                    set: { season in
                         guard let first = episodes.first(where: { $0.season == season }) else { return }
                         selectSeason(season, firstEpisode: first.id)
-                    } label: {
-                        if selectedSeason == season {
-                            Label(embySeasonName(season), systemImage: "checkmark")
-                        } else {
-                            Text(verbatim: embySeasonName(season))
-                        }
+                    }
+                )) {
+                    ForEach(seasonNumbers, id: \.self) { season in
+                        Text(verbatim: embySeasonName(season)).tag(season)
                     }
                 }
             } label: {

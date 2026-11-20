@@ -80,6 +80,10 @@ internal import AetherEngine
         options.autoplay = configuration.autoplay
         options.preferredDecodePath = configuration.decoder == .software ? .software : .automatic
         options.httpHeaders = configuration.requestHeaders
+        if let limit = configuration.preloadCacheLimitBytes {
+            options.sessionCacheByteBudget = limit
+            options.sessionCacheHardLimitBytes = limit
+        }
         options.externalSubtitles = configuration.externalSubtitles.map {
             ExternalSubtitleTrack(url: $0.url, name: $0.name, language: $0.language,
                                   httpHeaders: $0.headers, formatHint: $0.format)
@@ -151,4 +155,14 @@ public enum AetherMediaProbe {
         }
         return result
     }
+}
+
+/// Keep upstream types behind the playback bridge.
+public enum AetherSourcePrewarm {
+    public static func prepare(url: URL, headers: [String: String], byteBudget: Int) async -> Bool {
+        let report = await AetherEngine.prewarm(url: url, httpHeaders: headers, byteBudget: byteBudget)
+        return report.isWarm
+    }
+
+    public static func discard() { AetherEngine.discardPrewarmedSources() }
 }

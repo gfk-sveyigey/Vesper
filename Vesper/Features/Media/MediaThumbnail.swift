@@ -564,6 +564,8 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     let item: MediaItem
     @ObservedObject var playback: PlaybackSession
     var historyEntry: PlaybackHistoryEntry? = nil
+    var artworkItem: MediaItem? = nil
+    var previewTitle: String? = nil
     var preloadedData: Data? = nil
     var artworkIsPrepared = false
     var showsEmbyFacts = false
@@ -626,7 +628,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 } else if !showsEmbyFacts && (playback.savedProgress(for: item) > 0
                     || playback.history.contains(where: { $0.mediaID == item.id })) {
                     Button(source.kind == .emby ? "清除本地记录" : "清除播放进度", systemImage: "clock.arrow.circlepath") {
-                        playback.clearSavedProgress(for: item)
+                        playback.clearSavedProgress(for: item, removeFromHistory: historyEntry != nil)
                     }
                 }
                 if showsWatchActions || (source.kind == .emby && historyEntry != nil) {
@@ -640,6 +642,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                 actions()
             } preview: {
                 MediaThumbnailPreview(source: source, item: item, historyEntry: historyEntry,
+                                      artworkItem: artworkItem, previewTitle: previewTitle,
                                       preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared,
                                       showsEmbyFacts: showsEmbyFacts)
             }
@@ -704,22 +707,24 @@ private struct MediaThumbnailPreview: View {
     let source: MediaSource
     let item: MediaItem
     var historyEntry: PlaybackHistoryEntry? = nil
+    var artworkItem: MediaItem? = nil
+    var previewTitle: String? = nil
     var preloadedData: Data? = nil
     var artworkIsPrepared = false
     var showsEmbyFacts = false
     @State private var duration: Double = 0
     private var displayName: String {
-        VideoImporter.isVideoType(URL(fileURLWithPath: item.title)) ? (item.title as NSString).deletingPathExtension : item.title
+        previewTitle ?? (VideoImporter.isVideoType(URL(fileURLWithPath: item.title)) ? (item.title as NSString).deletingPathExtension : item.title)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            MediaThumbnail(source: source, item: item, cacheOnly: true,
+            MediaThumbnail(source: source, item: artworkItem ?? item, cacheOnly: true,
                            preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared,
                            usesMediaCardBackdrop: historyEntry == nil)
                 .frame(width: 200, height: 300)
                 .mediaArtworkBorder()
             VStack(alignment: .leading, spacing: 3) {
-                Text(verbatim: displayName).lineLimit(2)
+                Text(verbatim: displayName).lineLimit(previewTitle == nil ? 2 : nil)
                 if let historyEntry {
                     Text(verbatim: "\(mediaTimeLabel(historyEntry.position)) / \(mediaTimeLabel(historyEntry.duration))")
                         .foregroundStyle(.secondary)

@@ -408,7 +408,9 @@ final class SourceLibrary: ObservableObject {
                             let key = "latest:titles:\(id)"
                             var group = EmbyMediaGroup(id: id, title: library.title, items: [])
                             do {
-                                group.items = try await repository.latestMedia(for: source, libraryID: id)
+                                let result = try await repository.latestMediaGroup(for: source, libraryID: id)
+                                group.items = result.items
+                                group.totalCount = result.totalCount
                                 try Task.checkCancellation()
                                 await cache.save(group.items, scope: scope, key: key, generation: cacheGeneration)
                             } catch {
