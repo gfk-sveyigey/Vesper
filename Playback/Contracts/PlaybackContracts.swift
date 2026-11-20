@@ -36,11 +36,23 @@ public struct EngineConfiguration: Sendable {
     public var automaticPiP = false
     public var subtitleFontSize: Double = 22
     public var subtitleBackground = true
-    /// Optional Emby compressed-media session cache budget, in bytes.
+    /// Optional Emby compressed-media cache budget, in bytes. VLC converts it to a time buffer.
     public var preloadCacheLimitBytes: Int? = nil
+    /// Total bitrate of the selected stream, in bits per second.
+    public var mediaBitRate: Double? = nil
     public var requestHeaders: [String: String] = [:]
     public var externalSubtitles: [EngineExternalSubtitle] = []
     public init() {}
+}
+
+public enum PlaybackCacheSizing {
+    /// VLC's network-caching option accepts 0...60,000 ms. Use 20 Mbps when
+    /// the server supplies no usable bitrate; this remains a time-based buffer.
+    public static func vlcMilliseconds(byteLimit: Int, bitRate: Double?) -> Int {
+        let rate = bitRate.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 20_000_000
+        let milliseconds = Double(max(0, byteLimit)) * 8_000 / rate
+        return Int(min(60_000, max(1, milliseconds.rounded(.down))))
+    }
 }
 
 public struct EngineExternalSubtitle: Sendable {
@@ -79,6 +91,7 @@ public struct EngineExternalSubtitle: Sendable {
     func play() throws
     func pause()
     func seek(to seconds: Double) async throws
+    func seek(to seconds: Double, fast: Bool) async throws
     func shutdown() async
     func configure(_ configuration: EngineConfiguration)
     func selectAudio(_ id: String)
@@ -86,6 +99,11 @@ public struct EngineExternalSubtitle: Sendable {
     func setPiPActive(_ active: Bool)
     func startPiP()
     func stopPiP()
+}
+extension PlaybackDriver {
+    public func seek(to seconds: Double, fast: Bool) async throws {
+        try await seek(to: seconds)
+    }
 }
 public enum PlaybackCoreError: LocalizedError {
     case failed(String), cancelled

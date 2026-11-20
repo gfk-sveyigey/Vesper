@@ -542,12 +542,18 @@ struct MediaView: View {
     }
 
     private var refreshButton: some View {
-        Button("刷新页面", systemImage: "arrow.clockwise") { library.reload() }
-            .disabled(library.isLoadingEmbyHome)
+        Button { library.reload() } label: {
+            Label { Text("刷新页面") } icon: {
+                menuSymbol("arrow.clockwise", color: .systemBlue, source: library.selectedSource)
+            }
+        }
+        .disabled(library.isLoadingEmbyHome)
     }
 
     private func favoritesButton(_ source: MediaSource) -> some View {
-        Button("收藏媒体", systemImage: "heart") { path.append(EmbyMediaRoute.favorites(source)) }
+        Button { path.append(EmbyMediaRoute.favorites(source)) } label: {
+            Label { Text("收藏媒体") } icon: { menuSymbol("heart", color: .systemPink, source: source) }
+        }
     }
 
     private func sourceSymbol(_ source: MediaSource?) -> String {
@@ -560,11 +566,28 @@ struct MediaView: View {
         }
     }
 
+    private func statusTint(_ source: MediaSource?, address: String? = nil) -> UIColor? {
+        guard let source else { return nil }
+        switch library.connectionStatus(for: source, address: address) {
+        case .normal, .verified: return nil
+        case .checking: return .systemGray
+        case .failed: return .black
+        }
+    }
+
+    // Bake colors into original-rendering images so native menus retain them.
+    private func menuSymbol(_ name: String, color: UIColor, source: MediaSource?, address: String? = nil) -> Image {
+        let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        let icon = UIImage(systemName: name, withConfiguration: configuration)?
+            .withTintColor(statusTint(source, address: address) ?? color, renderingMode: .alwaysOriginal)
+        return icon.map { Image(uiImage: $0).renderingMode(.original) } ?? Image(systemName: name)
+    }
+
     private func sourceMenuIcon(_ source: MediaSource, size: CGFloat) -> Image {
         let configuredIcon = source.emby?.iconData.flatMap { UIImage(data: $0) }
         let image = configuredIcon ?? UIImage(named: "EmbyLogo")
         guard let image, image.size.width > 0, image.size.height > 0 else {
-            return Image(systemName: sourceSymbol(source))
+            return menuSymbol(sourceSymbol(source), color: .systemGreen, source: source)
         }
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
@@ -579,11 +602,15 @@ struct MediaView: View {
             let height = image.size.height * scale
             image.draw(in: CGRect(x: (size - width) / 2, y: (size - height) / 2, width: width, height: height))
         }
-        return Image(uiImage: icon).renderingMode(.original)
+        let rendered = statusTint(source).map { icon.withTintColor($0, renderingMode: .alwaysOriginal) } ?? icon
+        return Image(uiImage: rendered).renderingMode(.original)
     }
 
     private func selectSource(_ source: MediaSource) {
-        guard source.id != library.selectedID else { return }
+        guard source.id != library.selectedID else {
+            library.verifyEmbyConnection(source.id)
+            return
+        }
         guard source.kind == .emby, let address = source.emby?.serverAddress,
               LocalNetworkPermissionProbe.isLocalAddress(address) else {
             library.select(source.id)
@@ -615,11 +642,30 @@ struct MediaView: View {
                             if source.kind == .emby {
                                 sourceMenuIcon(source, size: 22)
                             } else {
-                                Image(systemName: source.id == library.selectedID ? "checkmark" : sourceSymbol(source))
+                                menuSymbol(source.id == library.selectedID ? "checkmark" : sourceSymbol(source), color: .systemBlue, source: source)
                             }
                         }
                     }
                     .accessibilityAddTraits(source.id == library.selectedID ? .isSelected : [])
+                }
+            }
+            if let source = library.selectedSource, let configuration = source.emby {
+                Section {
+                    Menu {
+                        ForEach(EmbyRouteOptions.unique([configuration.serverAddress] + (configuration.alternateAddresses ?? [])), id: \.self) { address in
+                            Button {
+                                library.switchEmbyRoute(source.id, address: address)
+                            } label: {
+                                Label { Text(verbatim: address) } icon: {
+                                    menuSymbol(EmbyRouteOptions.key(address) == EmbyRouteOptions.key(configuration.serverAddress) ? "checkmark" : "network",
+                                               color: .systemGreen, source: source, address: address)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label { Text("切换线路") } icon: { menuSymbol("network", color: .systemOrange, source: source) }
+                    }
+                    .disabled((configuration.alternateAddresses ?? []).isEmpty)
                 }
             }
         } label: {
@@ -627,9 +673,8 @@ struct MediaView: View {
                 if let source = library.selectedSource, source.kind == .emby {
                     sourceMenuIcon(source, size: 24)
                 } else {
-                    Image(systemName: sourceSymbol(library.selectedSource))
+                    menuSymbol(sourceSymbol(library.selectedSource), color: .systemBlue, source: library.selectedSource)
                         .contentTransition(.symbolEffect(.replace))
-                        .font(.system(size: 17, weight: .medium))
                 }
             }
             .frame(width: 44, height: 44)

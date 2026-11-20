@@ -3,7 +3,9 @@ import Foundation
 @main
 struct EmbyRepositoryChecks {
     @MainActor static func main() async throws {
+        precondition(EmbyRouteOptions.unique(["https://EXAMPLE.com", "https://example.com/emby/", "https://example.com:443/emby", "https://backup.example.com"]).count == 2)
         checkVersionMatching()
+        checkPlaybackCacheSizing()
         try checkSkipMarkers()
         UserDefaults.standard.set(true, forKey: EmbyUserAgentPolicy.enabledKey)
         UserDefaults.standard.set("CustomVesper", forKey: EmbyUserAgentPolicy.nameKey)
@@ -144,13 +146,17 @@ struct EmbyRepositoryChecks {
         item.embyMediaSourceID = "v2"
         let resource = try await repository.playbackResource(item: item, source: source, position: 30)
         precondition(resource.mediaSourceID == "v2" && resource.resumePosition == 30)
+        precondition(resource.bitRate == 48_000_000)
         precondition(resource.subtitles.count == 1 && resource.subtitles[0].url.path.contains("/v2/Subtitles/2/"))
         precondition(resource.resource.headers["User-Agent"] == "CustomVesper/2.0")
-        precondition(resource.resource.headers["Authorization"]?.hasPrefix("Emby UserId=\"user\"") == true)
-        precondition(resource.resource.headers["X-Emby-Token"] == "secret")
+        precondition(resource.resource.headers["Authorization"] == nil)
+        precondition(resource.resource.headers["X-Emby-Token"] == nil)
+        precondition(URLComponents(url: resource.resource.url, resolvingAgainstBaseURL: false)?.queryItems?.contains(.init(name: "api_key", value: "secret")) == true)
+        precondition(URLComponents(url: resource.subtitles[0].url, resolvingAgainstBaseURL: false)?.queryItems?.contains(.init(name: "api_key", value: "secret")) == true)
         precondition(resource.resource.url.absoluteString.contains("MediaSourceId=v2"))
         let stream = try await repository.transcodedResource(item: item, source: source, position: 200)
         precondition(stream.resource.timelineOffset == 200 && stream.resource.originalDuration == 600)
+        precondition(stream.resource.bitRate == 12_000_000)
         precondition(stream.resource.url.path == "/proxy/emby/Videos/movie/master.m3u8")
         let session = EmbyPlaybackSession(source: source, item: item, playSessionID: "session-client",
                                            mediaSourceID: "v2", repository: repository)
@@ -206,6 +212,25 @@ struct EmbyRepositoryChecks {
         precondition(EmbyVersionMatcher.bestIndex(current: current, candidates: []) == nil)
         precondition(EmbyVersionMatcher.bestIndex(current: Format(), candidates: [hdr, matching]) == 0)
         precondition(EmbyVersionMatcher.bestIndex(current: current, candidates: [matching, matching]) == 0)
+    }
+
+    private static func checkPlaybackCacheSizing() {
+        // Decimal MB and bits/s: 100 MB at 20 Mbps represents 40 seconds.
+        precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: 100_000_000, bitRate: 20_000_000) == 40_000)
+        precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: 500_000_000, bitRate: 100_000_000) == 40_000)
+        precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: 500_000_000, bitRate: 20_000_000) == 60_000)
+        for rate in [nil, Double(0), -1, .nan, .infinity] as [Double?] {
+            precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: 100_000_000, bitRate: rate) == 40_000)
+        }
+        precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: Int.max, bitRate: .leastNonzeroMagnitude) == 60_000)
+        precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: -1, bitRate: 20_000_000) == 1)
+        precondition(EmbyRepository.playbackBitRate(["Bitrate": 40_000_000, "Size": 1, "RunTimeTicks": 10_000_000]) == 40_000_000)
+        precondition(EmbyRepository.playbackBitRate(["Bitrate": 0, "Size": 500_000_000, "RunTimeTicks": 2_000_000_000]) == 20_000_000)
+        precondition(EmbyRepository.playbackBitRate(["MediaStreams": [
+            ["Type": "Video", "BitRate": 20_000_000], ["Type": "Audio", "BitRate": 768_000],
+            ["Type": "Subtitle", "BitRate": 1_000]
+        ]]) == 20_768_000)
+        precondition(EmbyRepository.playbackBitRate([:]) == nil)
     }
 
     private static func checkSkipMarkers() throws {

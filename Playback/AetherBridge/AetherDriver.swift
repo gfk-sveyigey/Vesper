@@ -80,6 +80,9 @@ internal import AetherEngine
         options.autoplay = configuration.autoplay
         options.preferredDecodePath = configuration.decoder == .software ? .software : .automatic
         options.httpHeaders = configuration.requestHeaders
+        // Prepare AVPlayer renditions at load time; the app keeps drawing its own
+        // overlay inline and hands rendering to AVKit only while PiP is active.
+        options.prepareNativeSubtitles = true
         if let limit = configuration.preloadCacheLimitBytes {
             options.sessionCacheByteBudget = limit
             options.sessionCacheHardLimitBytes = limit
@@ -115,6 +118,9 @@ internal import AetherEngine
     public func selectSubtitle(_ id: String?) { if let id, let index = Int(id) { engine?.selectSubtitleTrack(index: index) } else { engine?.clearSubtitle() } }
     public func setPiPActive(_ active: Bool) {
         engine?.pictureInPictureActive = active
+        // Maps the selected source track to its native ordinal. This is a standing
+        // request, so track changes and subtitles-off keep working during PiP.
+        engine?.setNativeSubtitleRendering(active)
         engine?.videoGravity = active || !configuration.fillsScreen ? .resizeAspect : .resizeAspectFill
     }
     public func startPiP() {

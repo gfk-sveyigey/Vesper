@@ -13,6 +13,9 @@ internal import SwiftVLC
     private var pip: PiPController?
     private var configuration = EngineConfiguration()
     private var hasInstalledSurface = false
+    private var timelineEvents: Task<Void, Never>?
+    private var pendingSeekTime: Double?
+    private var seekClockDeadline = Date.distantPast
     public var restoreUI: ((@escaping (Bool) -> Void) -> Void)?
     public var view: UIView { surface }
     // SwiftVLC owns the native AVKit delegate. Do not replace it from the App.
@@ -21,6 +24,9 @@ internal import SwiftVLC
     public var snapshot: EngineSnapshot {
         var result = EngineSnapshot()
         guard let player else { return result }
+        // Never leave the UI pinned indefinitely if native acknowledgement is
+        // absent (paused inputs may legitimately publish none).
+        if Date() >= seekClockDeadline { pendingSeekTime = nil }
         switch player.state {
         case .idle, .stopped, .stopping: result.phase = player.didReachEnd ? .ended : .idle
         case .opening, .buffering: result.phase = .loading
@@ -28,7 +34,7 @@ internal import SwiftVLC
         case .paused: result.phase = .paused
         case .error: result.phase = .failed("SwiftVLC: 播放失败")
         }
-        result.time = seconds(player.currentTime)
+        result.time = pendingSeekTime ?? seconds(player.currentTime)
         result.duration = player.duration.map(seconds) ?? 0
         // bufferFill is a cache percentage, NOT a position in the file.
         result.buffered = result.time
@@ -49,6 +55,22 @@ internal import SwiftVLC
         self.configuration = configuration
         let player = Player()
         self.player = player
+        timelineEvents?.cancel()
+        pendingSeekTime = nil
+        let events = player.events
+        timelineEvents = Task { @MainActor [weak self, weak player] in
+            for await event in events {
+                guard !Task.isCancelled, let self, let player, self.player === player else { return }
+                if case .timeChanged(let time) = event, let target = self.pendingSeekTime {
+                    // Native time, not the optimistically assigned currentTime,
+                    // acknowledges the latest seek. Ignore outgoing old-clock events.
+                    if abs(self.seconds(time) - target) < 1.5 { self.pendingSeekTime = nil }
+                }
+                if case .stateChanged(let state) = event, state == .error || state == .stopped {
+                    self.pendingSeekTime = nil
+                }
+            }
+        }
         installSurface(player)
         let media = try Media(url: url)
         for subtitle in configuration.externalSubtitles {
@@ -65,11 +87,19 @@ internal import SwiftVLC
             }
         }
         media.addOption(":no-video-title-show")
+        var networkCachingMilliseconds: Int?
+        if !url.isFileURL, let limit = configuration.preloadCacheLimitBytes {
+            let milliseconds = PlaybackCacheSizing.vlcMilliseconds(byteLimit: limit, bitRate: configuration.mediaBitRate)
+            media.addOption(":network-caching=\(milliseconds)")
+            networkCachingMilliseconds = milliseconds
+        }
         if configuration.position > 0 { media.addOption(":start-time=\(configuration.position)") }
         if !configuration.autoplay { media.addOption(":start-paused") }
         try player.play(media)
         // Readiness is asynchronous. Do not report success merely on play().
-        let deadline = ContinuousClock.now.advanced(by: .seconds(40))
+        // A large network buffer must be allowed to fill before the open timeout.
+        let openTimeout = max(40.0, Double(networkCachingMilliseconds ?? 0) / 1_000 + 15)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(openTimeout))
         while ContinuousClock.now < deadline {
             try Task.checkCancellation()
             switch player.state {
@@ -129,9 +159,20 @@ internal import SwiftVLC
     public func play() throws { try player?.play() }
     public func pause() { player?.pause() }
     public func seek(to seconds: Double) async throws {
+        try await seek(to: seconds, fast: false)
+    }
+    public func seek(to seconds: Double, fast: Bool) async throws {
         guard let player else { throw PlaybackCoreError.cancelled }
         let stream = player.events
-        try player.seek(to: .seconds(seconds), fast: false)
+        let wasPaused = !player.isPlaybackRequestedActive
+        try player.seek(to: .seconds(seconds), fast: fast)
+        pendingSeekTime = seconds
+        seekClockDeadline = Date().addingTimeInterval(8)
+        // SwiftVLC 1.0.0 explicitly permits no timeChanged callback while
+        // paused. This is request acceptance, not proof of a decoded frame.
+        // Waiting here deadlocks scrub previews behind an eight-second timeout
+        // and prevents the final seek from reaching the resume command.
+        if wasPaused || fast { try Task.checkCancellation(); return }
         // currentTime is optimistically assigned by SwiftVLC; require native
         // timeChanged acknowledgement instead of trusting that shadow value.
         let landed = await withTaskGroup(of: Bool.self) { group in
@@ -150,9 +191,10 @@ internal import SwiftVLC
             group.cancelAll()
             return landed
         }
-        guard landed else { throw PlaybackCoreError.failed("SwiftVLC: 定位未完成") }
+        guard landed else { pendingSeekTime = nil; throw PlaybackCoreError.failed("SwiftVLC: 定位未完成") }
     }
     public func shutdown() async {
+        timelineEvents?.cancel(); timelineEvents = nil; pendingSeekTime = nil
         pip?.onRestoreUserInterface = nil; pip?.stop(); pip = nil
         let old = player
         player = nil

@@ -61,13 +61,9 @@ struct PlaybackSettingsView: View {
                     .disabled(!backgroundEnabled)
                 }
                 SettingsSection {
-                    Toggle(isOn: $miniPlayerEnabled) {
-                        SettingsLabel("启用迷你播放器", symbol: "play.rectangle")
-                    }
+                    Toggle("启用迷你播放器", isOn: $miniPlayerEnabled)
                     if #available(iOS 26.1, *) {
-                        Toggle(isOn: $miniPlayerAlwaysVisible) {
-                            SettingsLabel("常显迷你播放器", symbol: "eye")
-                        }
+                        Toggle("常显迷你播放器", isOn: $miniPlayerAlwaysVisible)
                         .disabled(!miniPlayerEnabled)
                     }
                 } footer: {

@@ -51,6 +51,17 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     @Published private(set) var isPictureInPicturePossible = false
     @Published private(set) var isPictureInPictureActive = false
     @Published var playbackNotice: String?
+    struct PlaybackTransitionNotice: Equatable {
+        let id = UUID()
+        let message: String
+    }
+    @Published private(set) var playbackTransitionNotice: PlaybackTransitionNotice?
+    struct AutomaticSkipNotice: Equatable {
+        enum Kind: Equatable { case intro, outro }
+        let id = UUID()
+        let kind: Kind
+    }
+    @Published private(set) var automaticSkipNotice: AutomaticSkipNotice?
     private var pipController: AVPictureInPictureController?
     private var pipObservation: NSKeyValueObservation?
     private var pipConfigurationObservation: NSKeyValueObservation?
@@ -58,7 +69,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var appliedBackgroundPolicy = ""
     private var restorePiPCompletion: ((Bool) -> Void)?
     private var restoringPiP = false
-    private var pendingSeek: (time: TimeInterval, resume: Bool)?
+    private var pendingSeek: (time: TimeInterval, resume: Bool, preview: Bool)?
     private var seekInFlight = false
     private var seekLanding: (time: Double, deadline: Date)?
     private var appIsInBackground = false
@@ -93,10 +104,10 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private func wireCore() {
         core.onChange = { [weak self] in self?.syncCoreState() }
         core.log = { [weak self] in self?.log($0) }
-        core.onEngineFailure = { [weak self] message in
-            guard let self, let requested = self.requestedDecoder else { return }
-            self.requestedDecoder = nil
-            self.playbackNotice = "切换至\(requested.title)失败：\(message)。正在尝试备用播放引擎。"
+        core.onEngineFallback = { [weak self] from, to in
+            let previous: PlaybackEngine = from == .aether ? .aether : .vlc
+            let next: PlaybackEngine = to == .aether ? .aether : .vlc
+            self?.playbackTransitionNotice = .init(message: "\(previous.title) 无法播放，正在切换至 \(next.title)")
         }
         core.restoreUI = { [weak self] completion in
             guard let self else { completion(false); return }
@@ -117,6 +128,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var nextTrackID: Int32 = 1
     private var previouslyActivePiP = false
     private var requestedDecoder: PlaybackDecoder?
+    private var decoderChange: Task<Void, Never>?
     private var resource: ResolvedPlaybackResource?
     private var embySession: EmbyPlaybackSession?
     private var request: Task<Void, Never>?
@@ -172,13 +184,26 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     func setCurrentDecoder(_ decoder: PlaybackDecoder) {
-        guard decoder != currentDecoder, let item = currentItem else { return }
+        guard decoder != currentDecoder, currentItem != nil, decoderChange == nil, canControl else { return }
+        let token = generation
         requestedDecoder = decoder
-        let position = currentTime
-        let playing = isPlaying
-        let rate = playbackRate
-        log("切换解码方式：\(decoder.rawValue)，位置=\(position)，继续播放=\(playing)")
-        load(item, source: source, engine: currentEngine, decoder: decoder, position: position, resume: playing, rate: rate)
+        decoderChange = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.generation == token { self.decoderChange = nil; self.requestedDecoder = nil }
+            }
+            do {
+                let actual = try await self.core.switchDecoder(to: decoder == .software ? .software : .hardware)
+                guard !Task.isCancelled, self.generation == token else { return }
+                self.currentDecoder = actual.map { $0 == .software ? .software : .hardware } ?? decoder
+                self.playbackTransitionNotice = .init(message: actual == nil
+                    ? "已应用\(decoder.title)设置" : "已切换至\(decoder.title)")
+            } catch {
+                guard !Task.isCancelled, self.generation == token else { return }
+                self.playbackTransitionNotice = .init(message: "切换至\(decoder.title)失败，继续使用原解码")
+                self.log("后台切换解码失败：\(error.localizedDescription)")
+            }
+        }
     }
 
     func setCurrentEngine(_ engine: PlaybackEngine) {
@@ -189,7 +214,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
 
     private func load(_ item: MediaItem, source: MediaSource?, engine: PlaybackEngine? = nil, decoder: PlaybackDecoder? = nil,
                       position: Double? = nil, resume: Bool = true, rate: Float? = nil,
-                      initialAudio: EngineTrack? = nil, initialSubtitle: EngineTrack? = nil) {
+                      initialAudio: EngineTrack? = nil, initialSubtitle: EngineTrack? = nil,
+                      reportsDecoderChange: Bool = false) {
         let warmed = preparedNext.flatMap { prepared in
             prepared.item.id == item.id && (item.embyMediaSourceID == nil || prepared.item.embyMediaSourceID == item.embyMediaSourceID)
                 && prepared.sourceID == source?.id && position == nil
@@ -213,6 +239,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         saveProgress()
         recordPlaybackHistory()
         tearDownPlayer()
+        requestedDecoder = reportsDecoderChange ? decoder : nil
         lastHistorySave = .distantPast
         if !carriesSelection { manuallyUnplayedCurrentItem = nil }
         progressRestored = position != nil
@@ -265,6 +292,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 configuration.autoplay = resume
                 configuration.requestHeaders = resolved.headers
                 configuration.externalSubtitles = resolved.externalSubtitles
+                configuration.mediaBitRate = resolved.bitRate
                 try await self.core.load(resolved.url, preferred: selectedEngine == .aether ? .aether : .vlc,
                                          configuration: configuration, audio: previousAudio, subtitle: previousSubtitle,
                                          server: self.embySession)
@@ -274,7 +302,12 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                     self.requestedDecoder = nil
                     if let actual = self.core.snapshot.actualDecoder,
                        (actual == .software) != (requested == .software) {
-                        self.playbackNotice = "此视频不支持所选的\(requested.title)，已使用可用的解码方式。"
+                        let actualTitle = actual == .software ? PlaybackDecoder.software.title : PlaybackDecoder.hardware.title
+                        self.playbackTransitionNotice = .init(message: "不支持\(requested.title)，已切换至\(actualTitle)")
+                    } else {
+                        let message = self.core.snapshot.actualDecoder == nil
+                            ? "已应用\(requested.title)设置" : "已切换至\(requested.title)"
+                        self.playbackTransitionNotice = .init(message: message)
                     }
                 }
             } catch {
@@ -282,7 +315,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 self.tearDownPlayer()
                 self.isLoading = false
                 if let requested = self.requestedDecoder {
-                    self.playbackNotice = "切换至\(requested.title)失败：\(error.localizedDescription)"
+                    self.playbackTransitionNotice = .init(message: "切换至\(requested.title)失败")
                     self.requestedDecoder = nil
                 }
                 self.errorMessage = error.localizedDescription
@@ -307,10 +340,10 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         recordPlaybackHistory()
     }
 
-    func seek(to time: TimeInterval, resume: Bool? = nil) {
+    func seek(to time: TimeInterval, resume: Bool? = nil, preview: Bool = false) {
         guard canSeek, time.isFinite else { return }
         let target = min(max(0, time), duration)
-        pendingSeek = (target, resume ?? isPlaying)
+        pendingSeek = (target, resume ?? isPlaying, preview)
         seekLanding = (target, Date().addingTimeInterval(3))
         currentTime = target
         isSeeking = true
@@ -324,7 +357,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         pendingSeek = nil
         seekInFlight = true
         let token = generation
-        core.seek(to: next.time, resume: next.resume) { [weak self] finished in
+        core.seek(to: next.time, resume: next.resume, fast: next.preview) { [weak self] finished in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
                 self.seekInFlight = false
@@ -334,7 +367,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                     self.seekLanding = finished ? (next.time, Date().addingTimeInterval(2)) : nil
                     self.isSeeking = false
                     self.updateSubtitles()
-                    if finished { self.embySession?.didSeek(to: next.time, paused: !self.isPlaying) }
+                    if finished && !next.preview { self.embySession?.didSeek(to: next.time, paused: !self.isPlaying) }
                 }
             }
         }
@@ -1126,6 +1159,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
            interval.end < duration {
             skippedIntroEnds.insert(interval.end)
             seek(to: interval.end, resume: true)
+            automaticSkipNotice = AutomaticSkipNotice(kind: .intro)
         }
         if EmbySkipSettings.outroEnabled, !skippedCredits, currentItem?.embyItemType == "Episode", hasNext,
            let currentItem, let index = queue.firstIndex(where: { $0.id == currentItem.id }),
@@ -1133,6 +1167,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
            let start = skipMarkers.creditsStart, start < duration, currentTime >= start {
             skippedCredits = true
             next()
+            automaticSkipNotice = AutomaticSkipNotice(kind: .outro)
             return true
         }
         return false
@@ -1251,6 +1286,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     private func tearDownPlayer() {
+        decoderChange?.cancel(); decoderChange = nil; requestedDecoder = nil
         pipController?.delegate = nil
         core.stopPiP()
         pipObservation = nil
@@ -1306,7 +1342,13 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         let state = core.snapshot
         videoView = core.view
         currentEngine = core.engineID == .aether ? .aether : .vlc
-        if let actual = state.actualDecoder { currentDecoder = actual == .software ? .software : .hardware }
+        if let actual = state.actualDecoder {
+            let decoder: PlaybackDecoder = actual == .software ? .software : .hardware
+            if decoder != currentDecoder, requestedDecoder == nil, !core.isTransitioning {
+                playbackTransitionNotice = .init(message: "已自动切换至\(decoder.title)")
+            }
+            currentDecoder = decoder
+        }
         isLoading = core.isTransitioning || state.phase == .loading
         isPlaying = state.phase == .playing
         if appIsInBackground && !PlaybackPreferences.backgroundEnabled && isPlaying { core.pause() }

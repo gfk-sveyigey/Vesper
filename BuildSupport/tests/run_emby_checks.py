@@ -223,6 +223,7 @@ class Handler(BaseHTTPRequestHandler):
             media = dict(MEDIA)
             if not payload['EnableDirectPlay']:
                 media['TranscodingUrl'] = '/emby/Videos/movie/master.m3u8?StartTimeTicks=' + str(payload['StartTimeTicks'])
+                media['TranscodingBitrate'] = 12000000
             else:
                 assert payload['MediaSourceId'] == 'v2'
                 media['DirectStreamUrl'] = '/emby/Videos/movie/stream?static=true&MediaSourceId=v2'
@@ -265,7 +266,11 @@ try:
         # from their iOS files; platform/keychain implementations are not tested here.
         source = (ROOT / 'Vesper/Infrastructure/Sources/SourceLibrary.swift').read_text()
         models = source[source.index('/// Stable identity'):source.index('enum SourceFailure:')]
+        # Reuse the real cache scope helper needed by image and skip lookups,
+        # without importing the platform-backed disk cache actor.
+        models += '\nenum AppCacheStore {\n' + source[source.index('    nonisolated static func scope('):source.index('    nonisolated static func embyArtworkKey(')] + '}\n'
         source = (ROOT / 'Playback/Contracts/PlaybackContracts.swift').read_text()
+        models += source[source.index('public enum PlaybackCacheSizing'):source.index('public struct EngineExternalSubtitle')]
         models += source[source.index('public struct EngineExternalSubtitle'):source.index('/// Value-only state')]
         source = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
         models += source[source.index('struct TranscodedPlaybackResource'):source.index('/// The UI talks')]

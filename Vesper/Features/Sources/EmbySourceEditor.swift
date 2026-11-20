@@ -32,10 +32,7 @@ struct EmbySourceEditor: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                identityFields
-                settingsForm
-            }
+            settingsForm
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(source == nil ? "添加 Emby 来源" : "编辑 Emby 来源")
             .navigationBarTitleDisplayMode(.inline)
@@ -86,12 +83,17 @@ struct EmbySourceEditor: View {
             .padding(.horizontal, 16)
             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
         }
-        .padding(.horizontal, 20)
         .padding(.top, 12)
     }
 
     private var settingsForm: some View {
         Form {
+            Section {
+                identityFields
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
             Section("服务器") {
                 fieldRow("域名") {
                     TextField("example.com", text: $host)
@@ -128,15 +130,13 @@ struct EmbySourceEditor: View {
             }
             Section("备用线路") {
                 Toggle("从服务器获取", isOn: $fetchAlternateAddresses)
-                if !fetchAlternateAddresses {
-                    ForEach(alternateAddresses, id: \.self) { Text($0).lineLimit(1) }
-                        .onDelete { alternateAddresses.remove(atOffsets: $0) }
-                    HStack {
-                        TextField("添加线路地址", text: $alternateAddress)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                        Button("添加") { addAlternateAddress() }
-                            .disabled(alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
+                ForEach(alternateAddresses, id: \.self) { Text($0).lineLimit(1) }
+                    .onDelete { alternateAddresses.remove(atOffsets: $0) }
+                HStack {
+                    TextField("添加线路地址", text: $alternateAddress)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                    Button("添加") { addAlternateAddress() }
+                        .disabled(alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             Section("高级功能") {
@@ -235,10 +235,12 @@ struct EmbySourceEditor: View {
                 if let source { try await library.updateEmby(source.id, configuration: configuration, password: password.isEmpty ? nil : password) }
                 else { try await library.addEmby(configuration: configuration, password: password) }
                 if fetchAlternateAddresses,
-                   let savedSource = source ?? library.sources.last(where: { $0.kind == .emby && $0.emby?.serverAddress == trimmedAddress }),
+                   let savedSource = source.flatMap({ original in library.sources.first(where: { $0.id == original.id }) })
+                    ?? library.sources.last(where: { $0.kind == .emby && $0.emby?.serverAddress == trimmedAddress }),
                    let fetched = try? await EmbyRepository.shared.alternateAddresses(for: savedSource) {
                     var refreshed = library.embyConfiguration(for: savedSource.id) ?? configuration
-                    refreshed.alternateAddresses = fetched
+                    refreshed.alternateAddresses = EmbyRouteOptions.unique((refreshed.alternateAddresses ?? []) + fetched)
+                        .filter { EmbyRouteOptions.key($0) != EmbyRouteOptions.key(refreshed.serverAddress) }
                     try await library.updateEmby(savedSource.id, configuration: refreshed, password: nil)
                 }
                 saving = false
@@ -252,7 +254,12 @@ struct EmbySourceEditor: View {
 
     private func addAlternateAddress() {
         let value = alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, !alternateAddresses.contains(value) else { return }
+        guard !value.isEmpty else { return }
+        do {
+            _ = try EmbyAPIClient(configuration: .init(title: "", note: "", serverAddress: value, username: ""), token: nil, deviceID: "validation")
+        } catch { errorMessage = error.localizedDescription; return }
+        guard EmbyRouteOptions.key(value) != EmbyRouteOptions.key(serverAddress),
+              !alternateAddresses.contains(where: { EmbyRouteOptions.key($0) == EmbyRouteOptions.key(value) }) else { return }
         alternateAddresses.append(value)
         alternateAddress = ""
     }

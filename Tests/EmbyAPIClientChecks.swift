@@ -39,6 +39,14 @@ struct EmbyAPIClientChecks {
         precondition(imageHeaders["Authorization"]?.hasPrefix("Emby UserId=\"test-user\"") == true)
         precondition(imageHeaders["Authorization"]?.contains("Token=") != true)
         precondition(imageHeaders["User-Agent"] == "CustomVesper/2.0")
+        let playbackHeaders = client.playbackHeaders()
+        precondition(playbackHeaders == ["User-Agent": "CustomVesper/2.0", "X-Test": "present"])
+        let authenticatedStream = try client.resolveMediaURL("/emby/Videos/1/stream?static=true", includeToken: true)
+        precondition(URLComponents(url: authenticatedStream, resolvingAgainstBaseURL: false)?.queryItems?.contains(.init(name: "api_key", value: "secret +&token")) == true)
+        do {
+            _ = try client.resolveMediaURL("https://foreign.invalid/stream", includeToken: true)
+            preconditionFailure("Playback token must not leave the configured origin")
+        } catch {}
         let imageURL = client.imageURL(itemID: "1", tag: "cache-tag")!
         precondition(imageURL.absoluteString.contains("maxWidth=640"))
         precondition(imageURL.absoluteString.contains("quality=90"))

@@ -24,6 +24,24 @@ struct EmbySourceConfiguration: Codable, Equatable, Sendable {
     var strmDirectPlayback: Bool? = nil
 }
 
+enum EmbyRouteOptions {
+    static func key(_ address: String) -> String {
+        let value = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let configuration = EmbySourceConfiguration(title: "", note: "", serverAddress: value, username: "")
+        guard let url = try? EmbyAPIClient(configuration: configuration, token: nil, deviceID: "validation").baseURL,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return value }
+        components.host = components.host?.lowercased()
+        components.scheme = components.scheme?.lowercased()
+        if components.scheme == "https" && components.port == 443 || components.scheme == "http" && components.port == 80 { components.port = nil }
+        return (components.string ?? value).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+    static func unique(_ addresses: [String]) -> [String] {
+        var seen = Set<String>()
+        return addresses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert(key($0)).inserted }
+    }
+}
+
 enum EmbyUserAgentPolicy {
     static let enabledKey = "debug.emby.clientSimulation.enabled"
     static let nameKey = "debug.emby.clientSimulation.name"
@@ -179,6 +197,16 @@ struct EmbyAPIClient: Sendable {
         }.joined(separator: ",")
         headers["Authorization"] = "Emby " + identity.map { "\($0.0)=\"\(quoted($0.1))\"" }.joined(separator: ", ")
         if let token { headers["X-Emby-Token"] = token }
+        return headers
+    }
+
+    /// Media URLs carry the Emby token. Keep API identity headers out of native
+    /// players that cannot inject arbitrary HTTP headers (SwiftVLC 1.0.0).
+    /// Explicit proxy headers are retained so unsupported authentication fails
+    /// safely instead of silently playing without required credentials.
+    func playbackHeaders() -> [String: String] {
+        var headers = customHeaders
+        headers["User-Agent"] = EmbyUserAgentPolicy.userAgent(for: .playback)
         return headers
     }
 

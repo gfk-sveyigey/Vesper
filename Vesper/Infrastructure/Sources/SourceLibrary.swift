@@ -154,6 +154,40 @@ final class SourceLibrary: ObservableObject {
     @Published private(set) var selectedID: UUID?
     @Published private(set) var content: ContentState = .unselected
     @Published private(set) var storageFailed = false
+    enum ConnectionStatus: Equatable { case normal, checking, verified, failed }
+    @Published private var connectionStatuses: [UUID: [String: ConnectionStatus]] = [:]
+    private var connectionChecks: [UUID: Task<Void, Never>] = [:]
+    private var connectionGenerations: [UUID: UUID] = [:]
+
+    func connectionStatus(for source: MediaSource, address: String? = nil) -> ConnectionStatus {
+        guard let configuration = source.emby else { return .normal }
+        return connectionStatuses[source.id]?[EmbyRouteOptions.key(address ?? configuration.serverAddress)] ?? .normal
+    }
+
+    /// Feedback only: verification never blocks or rolls back the selected route.
+    func verifyEmbyConnection(_ id: UUID) {
+        guard let source = sources.first(where: { $0.id == id }), let configuration = source.emby else { return }
+        connectionChecks[id]?.cancel()
+        connectionStatuses[id] = connectionStatuses[id]?.mapValues { $0 == .checking ? .normal : $0 }
+        let generation = UUID()
+        connectionGenerations[id] = generation
+        let key = EmbyRouteOptions.key(configuration.serverAddress)
+        connectionStatuses[id, default: [:]][key] = .checking
+        connectionChecks[id] = Task { [weak self] in
+            let result: ConnectionStatus
+            do {
+                try await EmbyAccountStore.shared.verifyConnection(for: source)
+                result = .verified
+            } catch {
+                result = .failed
+            }
+            guard let self, !Task.isCancelled, self.connectionGenerations[id] == generation,
+                  self.sources.first(where: { $0.id == id })?.emby == configuration else { return }
+            self.connectionStatuses[id, default: [:]][key] = result
+            self.connectionChecks[id] = nil
+        }
+    }
+
     private let defaults: UserDefaults
     private let adapter: any SourceAdapter
     private var request: Task<Void, Never>?
@@ -222,6 +256,7 @@ final class SourceLibrary: ObservableObject {
     func select(_ id: UUID) {
         guard sources.contains(where: { $0.id == id }) else { return }
         selectedID = id
+        verifyEmbyConnection(id)
         embyParentStack.removeAll()
         currentEmbyParentID = nil
         hasMoreEmbyItems = false
@@ -315,6 +350,26 @@ final class SourceLibrary: ObservableObject {
         updated.emby?.customHeaders = [:]
         guard let currentIndex = sources.firstIndex(where: { $0.id == id }) else { return }
         sources[currentIndex] = updated
+        connectionStatuses[id] = nil
+        verifyEmbyConnection(id)
+        persist()
+        if selectedID == id { reload() }
+    }
+
+    /// Route selection is immediate; verification only updates its status icon.
+    func switchEmbyRoute(_ id: UUID, address: String) {
+        guard let index = sources.firstIndex(where: { $0.id == id && $0.kind == .emby }),
+              var configuration = sources[index].emby else { return }
+        guard EmbyRouteOptions.key(address) != EmbyRouteOptions.key(configuration.serverAddress) else {
+            verifyEmbyConnection(id)
+            return
+        }
+        let oldAddress = configuration.serverAddress
+        configuration.serverAddress = address
+        configuration.alternateAddresses = EmbyRouteOptions.unique([oldAddress] + (configuration.alternateAddresses ?? []))
+            .filter { EmbyRouteOptions.key($0) != EmbyRouteOptions.key(address) }
+        sources[index].emby = configuration
+        verifyEmbyConnection(id)
         persist()
         if selectedID == id { reload() }
     }
@@ -327,6 +382,9 @@ final class SourceLibrary: ObservableObject {
     }
 
     func remove(_ id: UUID) {
+        connectionChecks.removeValue(forKey: id)?.cancel()
+        connectionGenerations[id] = nil
+        connectionStatuses[id] = nil
         if let source = sources.first(where: { $0.id == id }), source.kind == .emby {
             EmbyAccountStore.shared.logout(source: source)
         }

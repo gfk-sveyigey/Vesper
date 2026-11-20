@@ -3,6 +3,7 @@ import SwiftUI
 struct HistoryView: View {
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
+    @State private var openedDetail: HistoryDetailRoute?
 
     private var groups: [HistorySourceGroup] {
         Dictionary(grouping: playback.history.filter { $0.hiddenFromHistory != true }, by: { $0.source.id }).values.map { entries in
@@ -31,7 +32,9 @@ struct HistoryView: View {
                                 LazyHStack(spacing: 12) {
                                     ForEach(group.entries) { entry in
                                         let source = library.sources.first(where: { $0.id == group.id }) ?? group.source
-                                        HistoryMediaCard(source: source, entry: entry, queue: group.entries.map(\.item))
+                                        HistoryMediaCard(source: source, entry: entry, queue: group.entries.map(\.item)) { item in
+                                            openedDetail = HistoryDetailRoute(source: source, item: item)
+                                        }
                                     }
                                 }
                                 .scrollTargetLayout()
@@ -46,6 +49,23 @@ struct HistoryView: View {
             }
         }
         .onAppear { playback.pruneUnavailableHistory() }
+        .navigationDestination(item: $openedDetail) { route in
+            EmbyMediaDetailView(source: route.source, series: route.item)
+        }
+    }
+}
+
+private struct HistoryDetailRoute: Hashable {
+    let source: MediaSource
+    let item: MediaItem
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.source.id == rhs.source.id && lhs.item == rhs.item
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(source.id)
+        hasher.combine(item)
     }
 }
 
@@ -60,6 +80,7 @@ private struct HistoryMediaCard: View {
     let source: MediaSource
     let entry: PlaybackHistoryEntry
     let queue: [MediaItem]
+    let openDetail: (MediaItem) -> Void
     @EnvironmentObject private var playback: PlaybackSession
     @State private var resolvedItem: MediaItem?
     @State private var posterItem: MediaItem?
@@ -69,7 +90,8 @@ private struct HistoryMediaCard: View {
 
     var body: some View {
         Button {
-            playback.play(item, in: source, queue: queue)
+            if source.kind == .emby { openDetail(item) }
+            else { playback.play(item, in: source, queue: queue) }
         } label: {
             MediaThumbnail(source: source, item: posterItem ?? item, playback: playback, historyEntry: entry,
                            imageOrientation: .portrait,
@@ -81,7 +103,8 @@ private struct HistoryMediaCard: View {
         .clipped()
         .buttonStyle(.plain)
         .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback, historyEntry: entry,
-                                     artworkItem: posterItem, previewTitle: previewTitle) { EmptyView() })
+                                     artworkItem: posterItem, previewTitle: previewTitle,
+                                     openEmbyDetails: { openDetail(item) }) { EmptyView() })
         .accessibilityLabel(Text(verbatim: previewTitle ?? entry.title))
         .task(id: "\(AppCacheStore.scope(for: source))|\(entry.mediaID.localID)") {
             guard source.kind == .emby, resolvedItem == nil else { return }

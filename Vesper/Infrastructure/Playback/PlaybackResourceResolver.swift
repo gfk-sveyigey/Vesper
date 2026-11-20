@@ -13,6 +13,7 @@ final class ResolvedPlaybackResource {
     let embyMediaSourceID: String?
     let embyUserID: String?
     let duration: Double?
+    let bitRate: Double?
     let resumePosition: Double?
     let externalSubtitles: [EngineExternalSubtitle]
     private let scopedFolder: URL?
@@ -21,7 +22,7 @@ final class ResolvedPlaybackResource {
 
     init(url: URL, headers: [String: String] = [:], embyPlaySessionID: String? = nil,
          embyItemID: String? = nil, embyMediaSourceID: String? = nil, embyUserID: String? = nil,
-         duration: Double? = nil, resumePosition: Double? = nil,
+         duration: Double? = nil, bitRate: Double? = nil, resumePosition: Double? = nil,
          externalSubtitles: [EngineExternalSubtitle] = [],
          scopedFolder: URL? = nil, temporary: Bool = false, externalAccess: IncomingFileAccess? = nil) {
         self.url = url
@@ -31,6 +32,7 @@ final class ResolvedPlaybackResource {
         self.embyMediaSourceID = embyMediaSourceID
         self.embyUserID = embyUserID
         self.duration = duration
+        self.bitRate = bitRate
         self.resumePosition = resumePosition
         self.externalSubtitles = externalSubtitles
         self.scopedFolder = scopedFolder
@@ -116,6 +118,7 @@ struct PlaybackResourceResolver {
                                             embyPlaySessionID: playback.sessionID, embyItemID: item.embyItemID,
                                             embyMediaSourceID: playback.mediaSourceID,
                                             embyUserID: source.emby?.userID, duration: playback.duration,
+                                            bitRate: playback.bitRate,
                                             resumePosition: playback.resumePosition,
                                             externalSubtitles: playback.subtitles)
         }

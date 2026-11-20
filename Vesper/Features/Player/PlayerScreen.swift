@@ -41,6 +41,7 @@ struct PlayerScreen: View {
     @State private var hudSymbol = ""
     @State private var hudDetail = ""
     @State private var hudRevision = 0
+    @State private var hudDuration: Double = 1
     @State private var rotationError: String?
     @State private var showingNotice = false
 
@@ -100,7 +101,7 @@ struct PlayerScreen: View {
                     VStack {
                         HStack(spacing: 8) {
                             Image(systemName: hudSymbol)
-                            Text(verbatim: hudText).fontWeight(.semibold)
+                            Text(verbatim: hudText).fontWeight(.semibold).lineLimit(2)
                             if !hudDetail.isEmpty {
                                 Text(verbatim: hudDetail).foregroundStyle(.secondary)
                             }
@@ -186,6 +187,15 @@ struct PlayerScreen: View {
         .onChange(of: session.isSeeking) { _, _ in autoHideRevision += 1 }
         .onChange(of: session.errorMessage) { _, message in if message != nil { revealControls() } }
         .onChange(of: session.playbackNotice) { _, message in if message != nil { showingNotice = true; revealControls() } }
+        .onChange(of: session.playbackTransitionNotice) { _, notice in
+            guard let notice else { return }
+            showHUD(notice.message, symbol: "arrow.triangle.2.circlepath", duration: 3)
+        }
+        .onChange(of: session.automaticSkipNotice) { _, notice in
+            guard let notice else { return }
+            showHUD(VesperLocalization.string(notice.kind == .intro ? "已跳过片头" : "已跳过片尾"),
+                    symbol: notice.kind == .intro ? "forward.fill" : "forward.end.fill")
+        }
         .onChange(of: volume.value) { old, new in if new > 0.001 && old != new && session.isMuted { session.unmute() } }
         .onChange(of: volumeDragStart) { _, _ in autoHideRevision += 1 }
         .onChange(of: voiceOver) { _, _ in revealControls() }
@@ -206,7 +216,7 @@ struct PlayerScreen: View {
             withTransaction(transaction) { volumeExpanded = false; volumeDragStart = nil }
         }
         .task(id: hudRevision) {
-            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            do { try await Task.sleep(for: .seconds(hudDuration)) } catch { return }
             guard !Task.isCancelled else { return }
             hudText = ""
         }
@@ -647,14 +657,15 @@ struct PlayerScreen: View {
         scrubTime = scrubStart
         isScrubbing = true
         lastPreview = .distantPast
-        if previews { session.pause() }
+        if scrubPreviews { session.pause() }
         if showControls { revealControls() }
     }
     private func updateScrubbing(_ target: Double) {
         scrubTime = min(session.duration, max(0, target))
-        if scrubPreviews && Date().timeIntervalSince(lastPreview) >= 0.15 {
+        let interval = session.currentEngine == .vlc ? 0.35 : 0.15
+        if scrubPreviews && Date().timeIntervalSince(lastPreview) >= interval {
             lastPreview = Date()
-            session.seek(to: scrubTime, resume: false)
+            session.seek(to: scrubTime, resume: false, preview: true)
         }
     }
     private func finishScrubbing(commit: Bool = true) {
@@ -850,8 +861,8 @@ struct PlayerScreen: View {
         }
     }
 
-    private func showHUD(_ text: String, symbol: String, detail: String = "") {
-        hudText = text; hudSymbol = symbol; hudDetail = detail; hudRevision += 1
+    private func showHUD(_ text: String, symbol: String, detail: String = "", duration: Double = 1) {
+        hudText = text; hudSymbol = symbol; hudDetail = detail; hudDuration = duration; hudRevision += 1
     }
     private func showSeekHUD(from start: Double, to target: Double) {
         let delta = Int((target - start).rounded())

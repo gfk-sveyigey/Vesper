@@ -404,9 +404,12 @@ struct EmbyMediaDetailView: View {
                             } label: {
                                 Image(systemName: "ellipsis")
                                     .frame(width: 44, height: 44)
+                                    .contentShape(Circle())
                             }
+                            .buttonStyle(.plain)
+                            .frame(width: 44, height: 44)
                             .accessibilityLabel("媒体操作")
-                            .glassEffect(.regular, in: .capsule)
+                            .glassEffect(.regular, in: .circle)
                             .glassEffectID("mediaActions", in: toolbarMorph)
                             .glassEffectTransition(.matchedGeometry)
                         } else {

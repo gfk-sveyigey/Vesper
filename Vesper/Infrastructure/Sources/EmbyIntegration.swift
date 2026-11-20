@@ -20,6 +20,7 @@ struct EmbyPlaybackResource: Sendable {
     let duration: Double
     let resumePosition: Double
     let subtitles: [EngineExternalSubtitle]
+    var bitRate: Double? = nil
 }
 
 struct EmbyTranscodeResult: Sendable {
@@ -793,7 +794,8 @@ actor EmbyRepository {
         guard let sources = response["MediaSources"] as? [[String: Any]],
               let media = sources.first(where: { $0["Id"] as? String == item.embyMediaSourceID }) ?? sources.first,
               let mediaSourceID = media["Id"] as? String else { throw EmbyError.invalidResponse }
-        let addApiKey = media["AddApiKeyToDirectStreamUrl"] as? Bool ?? false
+        // Playback engines without arbitrary HTTP headers authenticate via the URL.
+        let addApiKey = true
         let directURL = media["DirectStreamUrl"] as? String
         let url: URL
         if let directURL { url = try client.resolveMediaURL(directURL, includeToken: addApiKey) }
@@ -802,7 +804,7 @@ actor EmbyRepository {
                                                                            "PlaySessionId": playSessionID, "DeviceId": client.deviceID],
                                       includeToken: addApiKey)
         }
-        var headers = client.requestHeaders(accept: "*/*", kind: .playback)
+        var headers = client.playbackHeaders()
         if let required = media["RequiredHttpHeaders"] as? [String: String] {
             for (name, value) in required where !["authorization", "x-emby-token", "x-emby-authorization", "host", "user-agent"].contains(name.lowercased()) {
                 headers[name] = value
@@ -819,7 +821,25 @@ actor EmbyRepository {
         let subtitles = externalSubtitles(media: media, itemID: itemID, client: client)
         return EmbyPlaybackResource(resource: PlayableResource(url: url, headers: headers), sessionID: playSessionID,
                                     mediaSourceID: mediaSourceID, duration: duration,
-                                    resumePosition: (progressTicks?.doubleValue ?? 0) / 10_000_000, subtitles: subtitles)
+                                    resumePosition: (progressTicks?.doubleValue ?? 0) / 10_000_000, subtitles: subtitles,
+                                    bitRate: Self.playbackBitRate(media))
+    }
+
+    /// Prefer the selected source's total bitrate, then derive it from size and
+    /// duration. Stream rates are a last resort when the container has neither.
+    static func playbackBitRate(_ media: [String: Any]) -> Double? {
+        if let rate = (media["Bitrate"] as? NSNumber)?.doubleValue, rate.isFinite, rate > 0 { return rate }
+        if let size = (media["Size"] as? NSNumber)?.doubleValue,
+           let ticks = (media["RunTimeTicks"] as? NSNumber)?.doubleValue,
+           size.isFinite, size > 0, ticks.isFinite, ticks > 0 {
+            let rate = size * 8 / (ticks / 10_000_000)
+            if rate.isFinite, rate > 0 { return rate }
+        }
+        let streams = media["MediaStreams"] as? [[String: Any]] ?? []
+        let rate = streams.filter { ["Video", "Audio"].contains($0["Type"] as? String ?? "") }
+            .compactMap { ($0["BitRate"] as? NSNumber)?.doubleValue }
+            .filter { $0.isFinite && $0 > 0 }.reduce(0, +)
+        return rate.isFinite && rate > 0 ? rate : nil
     }
 
     func transcodedResource(item: MediaItem, source: MediaSource, position: Double,
@@ -837,15 +857,17 @@ actor EmbyRepository {
               let mediaSources = response["MediaSources"] as? [[String: Any]],
               let media = mediaSources.first(where: { $0["Id"] as? String == item.embyMediaSourceID }) ?? mediaSources.first,
               let stream = media["TranscodingUrl"] as? String,
-              let url = try? client.resolveMediaURL(stream, includeToken: media["AddApiKeyToDirectStreamUrl"] as? Bool ?? false) else { throw EmbyError.invalidResponse }
-        var headers = client.requestHeaders(accept: "*/*", kind: .playback)
+              let url = try? client.resolveMediaURL(stream, includeToken: true) else { throw EmbyError.invalidResponse }
+        var headers = client.playbackHeaders()
         if let required = media["RequiredHttpHeaders"] as? [String: String] {
             for (name, value) in required where !["authorization", "x-emby-token", "x-emby-authorization", "host", "user-agent"].contains(name.lowercased()) {
                 headers[name] = value
             }
         }
         let ticks = (media["RunTimeTicks"] as? NSNumber)?.doubleValue ?? ((item.duration ?? 0) * 10_000_000)
+        let transcodingBitRate = (media["TranscodingBitrate"] as? NSNumber)?.doubleValue
         return EmbyTranscodeResult(resource: TranscodedPlaybackResource(url: url, headers: headers,
+                                                                          bitRate: transcodingBitRate.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? Self.playbackBitRate(media),
                                                                           timelineOffset: position,
                                                                           originalDuration: ticks / 10_000_000),
                                    sessionID: sessionID)
@@ -967,8 +989,8 @@ actor EmbyRepository {
             let format = (stream["Codec"] as? String ?? "srt").lowercased()
             let path = stream["DeliveryUrl"] as? String
                 ?? "/Videos/\(itemID)/\(media["Id"] as? String ?? "")/Subtitles/\(index)/Stream.\(format)"
-            guard let url = try? client.resolveMediaURL(path) else { return nil }
-            let headers = client.requestHeaders(accept: "text/*,*/*;q=0.8", kind: .playback)
+            guard let url = try? client.resolveMediaURL(path, includeToken: true) else { return nil }
+            let headers = client.playbackHeaders()
             return EngineExternalSubtitle(url: url, name: stream["DisplayTitle"] as? String ?? "字幕",
                                            language: stream["Language"] as? String, format: format, headers: headers)
         }
@@ -1263,7 +1285,7 @@ struct EmbySkipDatabase: Identifiable, Codable, Hashable, Sendable {
     enum Format: String, Codable, CaseIterable, Identifiable, Sendable {
         case introDB, theIntroDB
         var id: String { rawValue }
-        var title: String { self == .introDB ? "IntroDB /segments" : "TheIntroDB v4 /media" }
+        var title: String { self == .introDB ? "IntroDB" : "TheIntroDB" }
     }
     var id: String = UUID().uuidString
     var name: String

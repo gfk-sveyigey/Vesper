@@ -186,7 +186,7 @@ private struct EmbySettingsView: View {
         SettingsPage {
             SettingsSection("跳过片头片尾") {
                 Toggle("自动跳过片头", isOn: $skipIntro)
-                Toggle("片尾自动播放下一集", isOn: $skipOutro)
+                Toggle("自动跳过片尾", isOn: $skipOutro)
                 Button { showsSkipDatabases = true } label: {
                     HStack {
                         Text("片头片尾数据库")
@@ -219,12 +219,9 @@ private struct EmbySettingsView: View {
                         Text("\(size) MB").tag(size)
                     }
                 }
-                Text("每次打开 Emby 视频时按当前网络应用。仅限制 Aether 支持的临时媒体缓存，不是流量上限或播放器总内存限制；原生远程 HLS 和 VLC 暂不支持按容量限制。")
+                Text("每次打开 Emby 视频时按当前网络应用。Aether 按容量限制支持的临时媒体缓存；VLC 按视频总码率换算缓冲时长，最长 60 秒。不是流量上限或播放器总内存限制；Aether 原生远程 HLS 暂不支持按容量限制。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            }
-            SettingsSection {
-                Toggle("完整加载后渲染", isOn: $waitsForArtwork)
             }
             SettingsSection {
                 Picker("默认音轨语言", selection: $audioLanguage) {
@@ -240,6 +237,9 @@ private struct EmbySettingsView: View {
                     }
                 }
                 Toggle("无对应语言时关闭字幕", isOn: $disableMissingSubtitle)
+            }
+            SettingsSection {
+                Toggle("完整加载后渲染", isOn: $waitsForArtwork)
             }
         }
         .sheet(isPresented: $showsSkipDatabases) { EmbySkipDatabasesView() }
@@ -258,8 +258,8 @@ private struct EmbySkipDatabasesView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
+            SettingsPage {
+                SettingsSection {
                     ForEach($databases) { $database in
                         VStack(alignment: .leading, spacing: 6) {
                             Toggle(database.name, isOn: $database.enabled)
@@ -280,11 +280,19 @@ private struct EmbySkipDatabasesView: View {
                 } footer: {
                     Text("从上到下查询。内置数据库只能启用、停用和调整顺序，不能修改或删除。自定义地址需使用 HTTPS。")
                 }
-                Button("添加数据库", systemImage: "plus") { adding = true }
+                SettingsSection {
+                    Button("添加数据库", systemImage: "plus") { adding = true }
+                }
             }
+            .environment(\.editMode, .constant(.active))
             .navigationTitle("片头片尾数据库")
+            .vesperNavigationStyle(.inline)
+            .toolbarRole(.automatic)
+            .navigationBarBackButtonHidden(true)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { EditButton() }
+                ToolbarItem(placement: .principal) {
+                    Text("片头片尾数据库").font(.headline)
+                }
                 ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
             }
             .onChange(of: databases) { _, value in EmbySkipSettings.save(value) }
@@ -297,6 +305,9 @@ private struct EmbySkipDatabasesView: View {
                 }
             }
         }
+        .presentationDetents([.custom(TabOrderDetent.self), .large])
+        .presentationDragIndicator(.hidden)
+        .presentationBackground(VesperTheme.background)
     }
 }
 
@@ -642,8 +653,16 @@ struct TabSettingsView: View {
                     Text("关闭后，该页面将从标签栏移除，可能没有其他访问入口。需要使用时，请在此重新开启。设置标签始终保留。")
                 }
                 SettingsSection {
+                    Toggle(isOn: $tabBarCanMinimize) {
+                        SettingsLabel("允许标签栏收缩", symbol: "arrow.down.right.and.arrow.up.left")
+                    }
+                } footer: {
+                    Text("关闭后，向下滚动页面时标签栏保持展开。")
+                }
+                SettingsSection {
                     Button { isShowingOrderSettings = true } label: {
-                        SettingsLabel("标签顺序", symbol: "arrow.up.arrow.down")
+                        Text("标签顺序")
+                            .foregroundStyle(.tint)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                     }
@@ -655,13 +674,6 @@ struct TabSettingsView: View {
                     .pickerStyle(.menu)
                 } footer: {
                     Text("打开 App 时优先显示所选标签页；已关闭的标签不可设为默认。")
-                }
-                SettingsSection {
-                    Toggle(isOn: $tabBarCanMinimize) {
-                        SettingsLabel("允许标签栏收缩", symbol: "arrow.down.right.and.arrow.up.left")
-                    }
-                } footer: {
-                    Text("关闭后，向下滚动页面时标签栏保持展开。")
                 }
 
             }

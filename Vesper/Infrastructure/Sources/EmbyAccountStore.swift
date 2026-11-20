@@ -39,6 +39,32 @@ final class EmbyAccountStore {
         return try EmbyAPIClient(configuration: config, token: account.token, deviceID: account.deviceID)
     }
 
+    /// Check identity without account credentials before sending a token to this route.
+    func verifyConnection(for source: MediaSource) async throws {
+        guard var configuration = source.emby, let expectedServerID = configuration.serverID,
+              !expectedServerID.isEmpty, let account = account(sourceID: source.id) else {
+            throw EmbyError.missingAccount
+        }
+        configuration.customHeaders = [:]
+        let publicClient = try EmbyAPIClient(configuration: configuration, token: nil, deviceID: "route-validation")
+        let info = try await publicClient.get("System/Info/Public")
+        guard info["Id"] as? String == expectedServerID else { throw EmbyError.invalidResponse }
+        try Task.checkCancellation()
+        // A saved guest account has no login session to validate.
+        guard let userID = account.userID, !userID.isEmpty else {
+            guard configuration.userID == nil, configuration.username.isEmpty else { throw EmbyError.authentication }
+            return
+        }
+        guard let token = account.token, !token.isEmpty, configuration.userID == userID else {
+            throw EmbyError.authentication
+        }
+        configuration.customHeaders = account.customHeaders
+        configuration.userID = userID
+        let client = try EmbyAPIClient(configuration: configuration, token: token, deviceID: account.deviceID)
+        let user = try await client.get("Users/\(userID)")
+        guard user["Id"] as? String == userID else { throw EmbyError.authentication }
+    }
+
     func customHeaders(sourceID: UUID) -> [String: String] { account(sourceID: sourceID)?.customHeaders ?? [:] }
 
     func updateCustomHeaders(_ headers: [String: String], sourceID: UUID) throws {
