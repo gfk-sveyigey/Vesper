@@ -589,8 +589,23 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     func setPlayed(_ played: Bool, for item: MediaItem, source: MediaSource,
                    onFailure: ((String) -> Void)? = nil) {
         guard source.id == item.id.sourceID else { return }
+        let previousEntry = history.first { $0.mediaID == item.id }
+        let previousEdit = playedEdits[item.id]
+        let previousPlayed = effectivePlayed(for: item)
         recordPlayed(played, for: item, source: source)
-        submitPlayed(played, for: item, source: source, onFailure: onFailure)
+        submitPlayed(played, for: item, source: source) { [weak self] message in
+            guard let self else { return }
+            self.playedEdits[item.id] = previousEdit
+            self.history.removeAll { $0.mediaID == item.id }
+            if let previousEntry { self.history.insert(previousEntry, at: 0) }
+            if self.currentItem?.id == item.id {
+                self.currentItem?.isPlayed = previousPlayed
+                self.manuallyUnplayedCurrentItem = previousPlayed ? nil : item.id
+            }
+            self.persistHistory()
+            self.savedProgressRevision += 1
+            onFailure?(message)
+        }
     }
 
     private func submitPlayed(_ played: Bool, for item: MediaItem, source: MediaSource,
@@ -613,8 +628,21 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         }
     }
 
-    // UserData writes read the current server record before editing it, so serialize
-    // both kinds of writes for one item without blocking its next UI action.
+    /// Clear server progress first, then its local resume state. Does not change watched/favorite state.
+    func clearProgress(for item: MediaItem, source: MediaSource, syncServer: Bool = true) async throws {
+        if syncServer, source.kind == .emby {
+            try await enqueueEmbyRecordWrite(.clearProgress, for: item, source: source).value
+        }
+        clearSavedProgress(for: item)
+    }
+
+    /// Favorites use the same per-item queue as watched/progress writes.
+    func setFavorite(_ favorite: Bool, for item: MediaItem, source: MediaSource) async throws {
+        guard source.id == item.id.sourceID, source.kind == .emby else { throw EmbyError.invalidResponse }
+        try await enqueueEmbyRecordWrite(.setFavorite(favorite), for: item, source: source).value
+    }
+
+    // Serialize all user actions for one item without blocking its next UI action.
     func enqueueEmbyRecordWrite(_ change: EmbyPlaybackRecordChange, for item: MediaItem,
                                 source: MediaSource) -> Task<Void, Error> {
         let previous = recordWrites[item.id]?.task
@@ -626,7 +654,22 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                     self.recordWrites.removeValue(forKey: item.id)
                 }
             }
-            try await EmbyRepository.shared.updatePlaybackRecord(for: item, source: source, change: change)
+            do {
+                try await EmbyRepository.shared.updatePlaybackRecord(for: item, source: source, change: change)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                let operation: String
+                switch change {
+                case .clearProgress: operation = "清除播放进度"
+                case .setPlayed: operation = "更新观看标记"
+                case .setFavorite: operation = "更新收藏状态"
+                }
+                let failure = EmbyOperationFailure(operation: operation, itemID: item.id.localID,
+                                                   sourceID: source.id, reason: error.localizedDescription)
+                self?.log("Emby action source=\(source.id) item=\(item.id.localID) operation=\(operation): \(error.localizedDescription)")
+                throw failure
+            }
         }
         recordWrites[item.id] = EmbyRecordWrite(id: writeID, task: task)
         return task

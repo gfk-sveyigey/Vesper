@@ -49,25 +49,30 @@ struct EmbySeriesHeroFooter: View {
                 HStack(spacing: 10) {
                     Button(action: playSelectedEpisode) {
                         Label(selectedEpisodeLabel(selectedEpisode), systemImage: "play.fill")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.system(size: 19, weight: .semibold))
                             .lineLimit(1)
-                            .minimumScaleFactor(0.75)
+                            .minimumScaleFactor(0.7)
+                            .frame(maxWidth: .infinity, minHeight: 64)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(SeriesHeroPlayButtonStyle())
                     .buttonBorderShape(.capsule)
                     .controlSize(.large)
 
-                    Button(action: toggleSelectedEpisodePlayed) {
+                    Button {
+                        withAnimation(.snappy(duration: 0.32)) {
+                            toggleSelectedEpisodePlayed()
+                        }
+                    } label: {
                         Image(systemName: selectedEpisodeIsPlayed ? "checkmark" : "plus")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
+                            .font(.system(size: 27, weight: .medium))
+                            .contentTransition(.symbolEffect(.replace))
+                            .frame(width: 64, height: 64)
                     }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    .controlSize(.large)
+                    .buttonStyle(SeriesHeroWatchButtonStyle())
+                    .clipShape(Circle())
                     .accessibilityLabel(selectedEpisodeIsPlayed ? "标记为未观看" : "标记为已观看")
                 }
+                .padding(.top, 4)
                 .frame(maxWidth: .infinity)
             }
 
@@ -115,6 +120,30 @@ struct EmbySeriesHeroFooter: View {
         let number = String(format: "%02d", episode.number ?? 0)
         if seriesSeasonCount <= 1 { return String(localized: "开始播放 E\(number)") }
         return String(localized: "开始播放 S\(String(format: "%02d", episode.season))E\(number)")
+    }
+}
+
+private struct SeriesHeroPlayButtonStyle: ButtonStyle {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.black)
+            .background(Color.white.opacity(configuration.isPressed ? 0.82 : 1))
+            .clipShape(Capsule())
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+    }
+}
+
+private struct SeriesHeroWatchButtonStyle: ButtonStyle {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white)
+            .background(Color(uiColor: .secondarySystemBackground).opacity(colorScheme == .dark ? 0.72 : 0.9))
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
     }
 }
 
@@ -1005,8 +1034,7 @@ struct EmbyMediaDetailView: View {
         Task {
             defer { busy.remove(target.id) }
             do {
-                try await playback.enqueueEmbyRecordWrite(.clearProgress, for: target, source: source).value
-                playback.clearSavedProgress(for: target)
+                try await playback.clearProgress(for: target, source: source)
                 clearedServerProgress = true
             } catch {
                 actionError = error.localizedDescription
@@ -1069,13 +1097,11 @@ struct EmbyMediaDetailView: View {
         Task {
             defer { busy.remove(episode.id) }
             do {
-                if (episode.item.resumePosition ?? 0) > 0 {
-                    try await playback.enqueueEmbyRecordWrite(.clearProgress, for: episode.item, source: source).value
-                }
+                try await playback.clearProgress(for: episode.item, source: source,
+                                                 syncServer: (episode.item.resumePosition ?? 0) > 0)
                 if let index = episodes.firstIndex(where: { $0.id == episode.id }) {
                     episodes[index].item.resumePosition = 0
                 }
-                playback.clearSavedProgress(for: episode.item)
             } catch { actionError = error.localizedDescription }
         }
     }

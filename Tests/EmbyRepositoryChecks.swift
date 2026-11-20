@@ -12,6 +12,16 @@ struct EmbyRepositoryChecks {
         let client = try EmbyAPIClient(configuration: configuration, token: "secret", deviceID: "stable-device")
         let repository = EmbyRepository(clientProvider: { _ in client })
         let source = MediaSource(id: UUID(), name: configuration.title, kind: .emby, behavior: .empty, emby: configuration)
+        for type in ["Movie", "Series", "Episode"] {
+            let target = MediaItem(id: MediaID(sourceID: source.id, localID: "action-" + type),
+                                   title: type, resource: nil, embyItemType: type)
+            try await repository.setPlayed(true, for: target, source: source)
+            try await repository.setPlayed(false, for: target, source: source)
+            try await repository.setFavorite(true, for: target, source: source)
+            try await repository.setFavorite(false, for: target, source: source)
+            try await repository.setProgress(12.5, for: target, source: source)
+            try await repository.clearProgress(for: target, source: source)
+        }
         let roots = try await repository.rootItems(for: source)
         precondition(roots.count == 3 && roots[0].isContainer)
         let libraries = try await repository.mediaLibraries(for: source)
@@ -36,11 +46,11 @@ struct EmbyRepositoryChecks {
         precondition(series.embyPresentation?.premiereDate?.timeIntervalSince1970 == 1_709_251_200)
         let posterCandidates = await repository.featuredPosterCandidates(for: series, source: source)
         precondition(posterCandidates.map(\.lastPathComponent) == ["titled.jpg", "textless.jpg"])
-        let logo = await repository.featuredLogoData(for: series, source: source)
+        let logo = await repository.artworkData(for: series, source: source, purpose: .logo)
         precondition(logo != nil)
         let noLogoItem = MediaItem(id: MediaID(sourceID: source.id, localID: "no-logo"),
                                    title: "No Logo", resource: nil, embyItemID: "no-logo", embyItemType: "Series")
-        let missingLogo = await repository.featuredLogoData(for: noLogoItem, source: source)
+        let missingLogo = await repository.artworkData(for: noLogoItem, source: source, purpose: .logo)
         precondition(missingLogo == nil)
         let metadata = try await repository.detailMetadata(for: series, source: source)
         precondition(metadata.item.embyPresentation?.overview == "Series synopsis")
@@ -71,7 +81,7 @@ struct EmbyRepositoryChecks {
         precondition(episode.number == 2 && episode.item.resumePosition == 30)
         precondition(episode.item.embyPresentation?.overview == "Episode synopsis")
         precondition(episode.is4K && episode.dolbyVision && episode.dolbyAtmos)
-        let episodeThumbnail = await repository.thumbnailData(for: episode.item, source: source, orientation: .landscape)
+        let episodeThumbnail = await repository.artworkData(for: episode.item, source: source, purpose: .thumbnail, orientation: .landscape)
         let episodeImage = try JSONDecoder().decode([String: String].self, from: episodeThumbnail ?? Data())
         precondition(episodeImage["image"] == "episode-thumb")
         let unnamedEpisode = seriesEpisodes[1].item
@@ -108,7 +118,7 @@ struct EmbyRepositoryChecks {
         let movieImage = try JSONDecoder().decode([String: String].self, from: thumbnail ?? Data())
         precondition(movieImage["image"] == "movie-default-primary")
         precondition(thumbnail != nil)
-        let portraitThumbnail = await repository.thumbnailData(for: item, source: source, orientation: .portrait)
+        let portraitThumbnail = await repository.artworkData(for: item, source: source, purpose: .poster, orientation: .portrait)
         let portraitImage = try JSONDecoder().decode([String: String].self, from: portraitThumbnail ?? Data())
         precondition(portraitImage["image"] == "movie-default-primary")
         let ratioNeutralItem = MediaItem(id: MediaID(sourceID: source.id, localID: "ratio-neutral"),

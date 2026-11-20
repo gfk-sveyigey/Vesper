@@ -146,3 +146,41 @@ DeviceProfile 按实际引擎、轨道、输出路线制定，先采用已验证
 尚需真实服务器和 iOS/Xcode 验证：两引擎网络播放、HLS 的实际时间轴与跨分片 seek、服务器实际选择重封装/转码、轨道重新协商/烧录字幕、弱网恢复、PiP/AirPlay 鉴权及后台状态。模拟测试不能证明这些项目已验收。SwiftVLC 仅公开 UA/Referer/Cookie 请求选项；遇到其他必要请求头会明确失败并由 Core 尝试 Aether，不能保证 SwiftVLC 支持任意自定义请求头。RequiresOpening/Closing 的特殊动态媒体源及直播暂未实现。
 
 HTTP 仅允许局域网地址，远程服务器要求 HTTPS；未禁用系统证书校验。关闭保留播放进度后不发送 PositionTicks，但服务器是否仍修改播放计数等 UserData 需要实际服务端确认。未修改 workflow、未推送。
+
+### Common user actions
+
+Movie, Series and Episode use their own `MediaItem.id.localID` (never a media-version ID).
+Repository entry points in `EmbyIntegration.swift`:
+
+- `setPlayed(_:for:source:)`: POST/DELETE `Users/{user}/PlayedItems/{item}`.
+- `setFavorite(_:for:source:)`: POST/DELETE `Users/{user}/FavoriteItems/{item}`.
+- `setProgress(_:for:source:)`: seconds, finite and nonnegative; read UserData,
+  update only PlaybackPositionTicks, POST UserData. Preserves other fields.
+- `clearProgress(for:source:)`: set progress to zero; does not explicitly change played/favorite.
+
+UI entry points on PlaybackSession: `setPlayed`, `setFavorite`, `clearProgress`.
+They share the per-item serialized write queue. `clearProgress` clears local resume
+state only after the requested server operation succeeds. `setPlayed` retains its
+existing optimistic UI behavior and failure callback; `setFavorite` is async/throwing.
+The favorites browse scope remains `.favorites`. No favorite toggle UI is added here.
+
+Active playback reporting remains in EmbyPlaybackSession (Sessions/Playing,
+Progress, Stopped); it must not be replaced with repeated manual UserData writes.
+Series progress is a server field on the series item; these helpers do not invent
+an aggregate position or recursively clear child episodes. Played/favorite parent
+behavior follows the server's dedicated endpoint semantics.
+
+### Shared artwork, detail and action-failure entry points
+
+- `EmbyRepository.artworkData(for:source:purpose:orientation:)` routes explicit
+  poster/thumbnail/avatar/logo purposes. The existing MediaThumbnailLoader owns
+  disk caching, request coalescing and the ignore-local-cache switch. Default
+  Primary preference and the carousel's explicit RemoteImages policy are unchanged.
+- `detailMetadata` and playback `details` share `detailSnapshot`: one transport,
+  source validation and contextual failures, without merging their different result
+  contracts. No persistent detail cache is added, to avoid stale playback metadata.
+- `PlaybackSession` serializes writes and reports `EmbyOperationFailure` with
+  operation, source ID and item ID; no credentials are included in this context.
+  Existing UI alerts consume its localized description. Watched-state failure rolls
+  back optimistic state only for the latest outstanding edit; progress/favorite
+  async entry points propagate failures and do not optimistically alter local state.

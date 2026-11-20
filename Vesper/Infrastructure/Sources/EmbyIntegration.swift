@@ -172,6 +172,22 @@ enum EmbyImageOrientation: String, Equatable, Sendable {
     case portrait, landscape, square
 }
 
+/// Explicit artwork purpose; layout dimensions never choose server image types.
+enum EmbyArtworkPurpose: Sendable {
+    case poster
+    case thumbnail
+    case avatar
+    case logo
+}
+
+struct EmbyOperationFailure: LocalizedError, Sendable {
+    let operation: String
+    let itemID: String
+    let sourceID: UUID
+    let reason: String
+    var errorDescription: String? { "\(operation)失败：\(reason)（条目 \(itemID)）" }
+}
+
 enum EmbyBrowseScope: Equatable, Sendable {
     case children, titles, episodes, favorites
     case person(EmbyPerson)
@@ -199,6 +215,7 @@ enum EmbyBrowseScope: Equatable, Sendable {
 enum EmbyPlaybackRecordChange: Sendable {
     case clearProgress
     case setPlayed(Bool)
+    case setFavorite(Bool)
 }
 
 actor EmbyRepository {
@@ -312,8 +329,7 @@ actor EmbyRepository {
     }
 
     func detailMetadata(for item: MediaItem, source: MediaSource) async throws -> EmbyDetailMetadata {
-        let client = try await clientProvider(source)
-        let response = try await fetchDetailItem(item, source: source, client: client)
+        let (client, response) = try await detailSnapshot(for: item, source: source)
         let credits = (response["People"] as? [[String: Any]] ?? []).enumerated().compactMap { index, value -> EmbyCredit? in
             guard let name = (value["Name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !name.isEmpty else { return nil }
@@ -487,25 +503,68 @@ actor EmbyRepository {
         }
     }
 
-    func updatePlaybackRecord(for item: MediaItem, source: MediaSource, change: EmbyPlaybackRecordChange) async throws {
-        guard let userID = source.emby?.userID else { throw EmbyError.missingAccount }
-        let client = try await clientProvider(source)
+    // Public user actions accept the item itself: Movie, Series and Episode all use
+    // the same endpoints. Never substitute a media-source/version ID for the item ID.
+    func setPlayed(_ played: Bool, for item: MediaItem, source: MediaSource) async throws {
+        let (client, userID) = try await userActionClient(item, source: source)
+        _ = try await client.send("Users/\(userID)/PlayedItems/\(item.id.localID)",
+                                  method: played ? "POST" : "DELETE")
+    }
+
+    func setFavorite(_ favorite: Bool, for item: MediaItem, source: MediaSource) async throws {
+        let (client, userID) = try await userActionClient(item, source: source)
+        _ = try await client.send("Users/\(userID)/FavoriteItems/\(item.id.localID)",
+                                  method: favorite ? "POST" : "DELETE")
+    }
+
+    func setProgress(_ seconds: Double, for item: MediaItem, source: MediaSource) async throws {
+        guard seconds.isFinite, seconds >= 0, seconds * 10_000_000 < Double(Int64.max) else {
+            throw EmbyError.invalidResponse
+        }
+        let (client, userID) = try await userActionClient(item, source: source)
         let path = "Users/\(userID)/Items/\(item.id.localID)"
         let stored = try await client.get(path)
         guard var data = stored["UserData"] as? [String: Any] else { throw EmbyError.invalidResponse }
-        switch change {
-        case .clearProgress:
-            data["PlaybackPositionTicks"] = 0
-        case .setPlayed(let played):
-            data["Played"] = played
-        }
+        data["PlaybackPositionTicks"] = Int64(seconds * 10_000_000)
         _ = try await client.send("\(path)/UserData", method: "POST", body: EmbyJSON(data))
     }
 
+    func clearProgress(for item: MediaItem, source: MediaSource) async throws {
+        try await setProgress(0, for: item, source: source)
+    }
+
+    private func userActionClient(_ item: MediaItem, source: MediaSource) async throws -> (EmbyAPIClient, String) {
+        guard item.id.sourceID == source.id, !item.id.localID.isEmpty else { throw EmbyError.invalidResponse }
+        guard let userID = source.emby?.userID else { throw EmbyError.missingAccount }
+        return (try await clientProvider(source), userID)
+    }
+
+    // Shared dispatcher used by PlaybackSession's per-item serialized write queue.
+    func updatePlaybackRecord(for item: MediaItem, source: MediaSource, change: EmbyPlaybackRecordChange) async throws {
+        switch change {
+        case .clearProgress: try await clearProgress(for: item, source: source)
+        case .setPlayed(let value): try await setPlayed(value, for: item, source: source)
+        case .setFavorite(let value): try await setFavorite(value, for: item, source: source)
+        }
+    }
+
     func details(for item: MediaItem, source: MediaSource) async throws -> EmbyItemDetails {
-        let client = try await clientProvider(source)
-        let response = try await fetchDetailItem(item, source: source, client: client)
+        let (_, response) = try await detailSnapshot(for: item, source: source)
         return itemDetails(response, item: item, source: source)
+    }
+
+    /// Shared Movie/Series/Episode detail transport and error context.
+    private func detailSnapshot(for item: MediaItem, source: MediaSource) async throws -> (EmbyAPIClient, EmbyJSON) {
+        do {
+            guard item.id.sourceID == source.id else { throw EmbyError.invalidResponse }
+            let client = try await clientProvider(source)
+            return (client, try await fetchDetailItem(item, source: source, client: client))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw EmbyOperationFailure(operation: "获取媒体详情", itemID: item.id.localID,
+                                       sourceID: source.id, reason: error.localizedDescription)
+        }
     }
 
     private func fetchDetailItem(_ item: MediaItem, source: MediaSource, client: EmbyAPIClient) async throws -> EmbyJSON {
@@ -831,6 +890,22 @@ actor EmbyRepository {
             let headers = client.requestHeaders(accept: "text/*,*/*;q=0.8", kind: .playback)
             return EngineExternalSubtitle(url: url, name: stream["DisplayTitle"] as? String ?? "字幕",
                                            language: stream["Language"] as? String, format: format, headers: headers)
+        }
+    }
+
+    /// Single server-artwork entry point. Remote provider posters remain a separate,
+    /// explicit carousel policy; ordinary posters always prefer the server default Primary.
+    func artworkData(for item: MediaItem, source: MediaSource, purpose: EmbyArtworkPurpose,
+                     orientation: EmbyImageOrientation = .portrait) async -> Data? {
+        switch purpose {
+        case .logo:
+            return await featuredLogoData(for: item, source: source)
+        case .avatar:
+            guard let client = try? await clientProvider(source),
+                  let url = item.imageURL, client.sameOrigin(url) else { return nil }
+            return await fetchThumbnail(url, client: client)
+        case .poster, .thumbnail:
+            return await thumbnailData(for: item, source: source, orientation: orientation)
         }
     }
 

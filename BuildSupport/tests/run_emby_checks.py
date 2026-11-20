@@ -37,10 +37,10 @@ EPISODE = {'Id': 'episode', 'Name': 'Episode', 'Type': 'Episode', 'SeriesId': 's
 
 EPISODE_USER_DATA = {'PlaybackPositionTicks': 300000000, 'Played': False, 'IsFavorite': True}
 EXPECTED_EPISODE_WRITES = [
-    {'PlaybackPositionTicks': 300000000, 'Played': True, 'IsFavorite': True},
-    {'PlaybackPositionTicks': 300000000, 'Played': False, 'IsFavorite': True},
     {'PlaybackPositionTicks': 0, 'Played': False, 'IsFavorite': True},
 ]
+EPISODE_PLAYED_OPERATIONS = []
+ACTION_REQUESTS = []
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -48,6 +48,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path)
+        if path.path.startswith('/proxy/emby/Users/user/Items/action-'):
+            self.respond({'UserData': {'Played': False, 'IsFavorite': True, 'PlaybackPositionTicks': 123}}); return
         if path.path == '/proxy/emby/':
             self.respond({'Id': 'test-server'}); return
         if path.path.startswith('/proxy/emby/Status/'):
@@ -197,7 +199,14 @@ class Handler(BaseHTTPRequestHandler):
                       'term': parse_qs(path.query).get('term', [''])[0]})
 
     def do_POST(self):
+        if '/action-' in self.path:
+            payload = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0')))) if self.path.endswith('/UserData') else None
+            ACTION_REQUESTS.append(('POST', self.path, payload))
+            self.send_response(204); self.end_headers(); return
         if self.path == '/proxy/emby/Empty':
+            self.send_response(204); self.end_headers(); return
+        if self.path == '/proxy/emby/Users/user/PlayedItems/episode':
+            EPISODE_PLAYED_OPERATIONS.append(('POST', self.path))
             self.send_response(204); self.end_headers(); return
         payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         if self.path == '/proxy/emby/Users/user/Items/episode/UserData':
@@ -222,8 +231,13 @@ class Handler(BaseHTTPRequestHandler):
         self.respond(payload)
 
     def do_DELETE(self):
+        if '/action-' in self.path:
+            ACTION_REQUESTS.append(('DELETE', self.path, None))
+            self.send_response(204); self.end_headers(); return
         if urlsplit(self.path).path == '/proxy/emby/Videos/ActiveEncodings':
             EVENTS.append({'method': 'DELETE', 'query': parse_qs(urlsplit(self.path).query)})
+        elif urlsplit(self.path).path == '/proxy/emby/Users/user/PlayedItems/episode':
+            EPISODE_PLAYED_OPERATIONS.append(('DELETE', self.path))
         else:
             assert urlsplit(self.path).path == '/proxy/emby/Empty' 
         self.send_response(204); self.end_headers()
@@ -262,6 +276,18 @@ try:
         subprocess.run([os.environ.get('SWIFTC', 'swiftc'), '-swift-version', '6', '-strict-concurrency=complete',
                         *units, str(ROOT / 'Tests/EmbyRepositoryChecks.swift'), '-o', binary], check=True)
         subprocess.run([binary, 'http://127.0.0.1:' + str(server.server_port)], check=True)
+    assert len(ACTION_REQUESTS) == 18
+    for kind in ['Movie', 'Series', 'Episode']:
+        item = 'action-' + kind
+        base = '/proxy/emby/Users/user/'
+        assert ('POST', base + 'PlayedItems/' + item, None) in ACTION_REQUESTS
+        assert ('DELETE', base + 'PlayedItems/' + item, None) in ACTION_REQUESTS
+        assert ('POST', base + 'FavoriteItems/' + item, None) in ACTION_REQUESTS
+        assert ('DELETE', base + 'FavoriteItems/' + item, None) in ACTION_REQUESTS
+        for ticks in [125000000, 0]:
+            assert ('POST', base + 'Items/' + item + '/UserData',
+                    {'Played': False, 'IsFavorite': True, 'PlaybackPositionTicks': ticks}) in ACTION_REQUESTS
     assert not EXPECTED_EPISODE_WRITES
+    assert [method for method, _ in EPISODE_PLAYED_OPERATIONS] == ['POST', 'DELETE']
 finally:
     server.shutdown()

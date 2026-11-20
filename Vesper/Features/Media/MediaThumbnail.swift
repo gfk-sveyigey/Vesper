@@ -276,7 +276,7 @@ final class MediaThumbnailLoader {
         let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
         let (cached, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
         if let cached, UIImage(data: cached) != nil { return cached }
-        guard let data = await EmbyRepository.shared.featuredLogoData(for: item, source: source),
+        guard let data = await EmbyRepository.shared.artworkData(for: item, source: source, purpose: .logo),
               UIImage(data: data) != nil, !Task.isCancelled else { return nil }
         if !ignoresCache {
             await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
@@ -322,8 +322,9 @@ final class MediaThumbnailLoader {
             guard !cacheOnly, !Task.isCancelled else { return nil }
             let task = Task { () -> Data? in
                 defer { pendingEmbyImages[requestKey] = nil }
-                guard let data = await EmbyRepository.shared.thumbnailData(for: item, source: source,
-                                                                           orientation: imageOrientation),
+                guard let data = await EmbyRepository.shared.artworkData(for: item, source: source,
+                            purpose: item.embyItemType == "Person" ? .avatar : imageOrientation == .landscape ? .thumbnail : .poster,
+                            orientation: imageOrientation),
                       UIImage(data: data) != nil else { return nil }
                 if !ignoresCache {
                     await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
@@ -645,10 +646,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
         Task { @MainActor in
             defer { updatingWatchState = false }
             do {
-                if hasServerProgress {
-                    try await playback.enqueueEmbyRecordWrite(.clearProgress, for: item, source: source).value
-                }
-                playback.clearSavedProgress(for: item)
+                try await playback.clearProgress(for: item, source: source, syncServer: hasServerProgress)
                 clearedServerProgress = true
             } catch {
                 watchError = error.localizedDescription
