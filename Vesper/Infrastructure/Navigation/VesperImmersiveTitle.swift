@@ -764,19 +764,3 @@ struct VesperCenteredEmptyContent: View {
             .frame(maxWidth: .infinity, minHeight: height)
     }
 }
-
-enum MediaScrollDebugSettings {
-    static let removePageBackgroundKey = "debug.mediaScroll.removePageBackground"
-    static let removeTransitionAnchorKey = "debug.mediaScroll.removeTransitionAnchor"
-}
-
-/// Remove the background modifier itself when isolating scroll discovery.
-struct MediaDiagnosticBackground<Background: View>: ViewModifier {
-    let disabled: Bool
-    @ViewBuilder let background: () -> Background
-
-    @ViewBuilder func body(content: Content) -> some View {
-        if disabled { content }
-        else { content.background(content: background) }
-    }
-}

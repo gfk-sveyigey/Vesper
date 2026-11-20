@@ -107,8 +107,6 @@ struct MediaView: View {
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @Namespace private var artworkZoom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(MediaScrollDebugSettings.removePageBackgroundKey) private var removePageBackground = false
-    @AppStorage(MediaScrollDebugSettings.removeTransitionAnchorKey) private var removeTransitionAnchor = false
     @State private var showsEmbyShortcuts = false
     @State private var mediaScrollPosition = ScrollPosition(edge: .top)
     @State private var mediaScrollOffset: CGFloat = 0
@@ -127,10 +125,6 @@ struct MediaView: View {
                 mediaContent
             }
         }
-        .modifier(MediaDiagnosticBackground(disabled: removeTransitionAnchor) {
-            CarouselDetailCrossfade.Anchor(transition: carouselCrossfade)
-                .ignoresSafeArea(.container, edges: .top)
-        })
         .onChange(of: library.selectedID) { _, _ in
             path = NavigationPath()
             showsEmbyShortcuts = false
@@ -281,6 +275,15 @@ struct MediaView: View {
                     }
                 }
             }
+            .overlay(alignment: .topLeading) {
+                // Keep the window anchor inside the scroll content. A UIKit
+                // background sibling of the root scroll view breaks native
+                // tab reselection scrolling on iOS.
+                CarouselDetailCrossfade.Anchor(transition: carouselCrossfade)
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
         } actions: {
             if library.canNavigateBack {
                 Button("返回", systemImage: "chevron.left") { library.navigateEmbyBack() }
@@ -292,9 +295,7 @@ struct MediaView: View {
                 mediaSourceMenu
             }
         }
-        .modifier(MediaDiagnosticBackground(disabled: removePageBackground) {
-            VesperTheme.background.ignoresSafeArea()
-        })
+        .background(VesperTheme.background.ignoresSafeArea())
         .modifier(ConditionalMediaRefresh(enabled: library.selectedSource?.kind != .emby) { [library] in
             library.reload()
         })
