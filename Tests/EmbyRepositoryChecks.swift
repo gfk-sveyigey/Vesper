@@ -47,7 +47,8 @@ struct EmbyRepositoryChecks {
         let posterCandidates = await repository.featuredPosterCandidates(for: series, source: source)
         precondition(posterCandidates.map(\.lastPathComponent) == ["titled.jpg", "textless.jpg"])
         let logo = await repository.artworkData(for: series, source: source, purpose: .logo)
-        precondition(logo != nil)
+        let logoImage = try JSONDecoder().decode([String: String].self, from: logo ?? Data())
+        precondition(logoImage["image"] == "default-logo")
         let noLogoItem = MediaItem(id: MediaID(sourceID: source.id, localID: "no-logo"),
                                    title: "No Logo", resource: nil, embyItemID: "no-logo", embyItemType: "Series")
         let missingLogo = await repository.artworkData(for: noLogoItem, source: source, purpose: .logo)

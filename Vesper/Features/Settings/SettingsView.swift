@@ -31,8 +31,6 @@ struct SettingsView: View {
     @EnvironmentObject private var playback: PlaybackSession
     @AppStorage("language.code") private var languageCode = "system"
     @ObservedObject private var debugVisibility = DebugSettingsVisibility.shared
-    @State private var versionTapCount = 0
-    @State private var lastVersionTap: ContinuousClock.Instant?
 
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
@@ -104,19 +102,19 @@ struct SettingsView: View {
                             Text("尚未连接").foregroundStyle(.secondary)
                         }.padding(12)
                 }
+                settingsLink(.licenses, title: "开源许可", symbol: "doc.plaintext")
                 if debugVisibility.isRevealed {
                     VStack(spacing: 0) {
                         settingsLink(.debug, title: "调试功能", symbol: "ladybug")
                     }
                 }
-                settingsLink(.licenses, title: "开源许可", symbol: "doc.plaintext")
-                Button(action: registerVersionTap) {
-                    Text("Vesper \(version) · Aholic")
-                        .font(.footnote).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                Text("Vesper \(version) · Aholic")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .contentShape(Rectangle())
+                    .onLongPressGesture(minimumDuration: 5) {
+                        debugVisibility.isRevealed = true
+                    }
             }
             .padding(.horizontal, 16)
         }
@@ -143,17 +141,6 @@ struct SettingsView: View {
             .vesperNavigationTitle(route.title)
             .modifier(SettingsNavigationStyle(useSharedStyle: route != .cache))
         }
-    }
-
-    private func registerVersionTap() {
-        guard !debugVisibility.isRevealed else { return }
-        let now = ContinuousClock.now
-        if let lastVersionTap, lastVersionTap.duration(to: now) > .seconds(1) {
-            versionTapCount = 0
-        }
-        lastVersionTap = now
-        versionTapCount += 1
-        if versionTapCount == 10 { debugVisibility.isRevealed = true }
     }
 
     private func settingsLink(_ route: SettingsRoute, title: LocalizedStringKey, symbol: String) -> some View {

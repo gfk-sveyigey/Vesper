@@ -868,6 +868,9 @@ actor EmbyRepository {
     func featuredLogoData(for item: MediaItem, source: MediaSource) async -> Data? {
         guard let client = try? await clientProvider(source),
               !Task.isCancelled else { return nil }
+        // The mapped URL includes the server tag and may belong to a parent item.
+        if let url = item.embyPresentation?.logoURL, client.sameOrigin(url),
+           let data = await fetchThumbnail(url, client: client) { return data }
         let logoTypes: Set<String> = ["Logo", "LogoLight", "LogoLightColor"]
         for image in await selectedImages(for: item, source: source, client: client,
                                           preferredTypes: ["Logo", "LogoLight", "LogoLightColor"],
@@ -935,7 +938,8 @@ actor EmbyRepository {
             return data
         }
         for image in await selectedImages(for: item, source: source, client: client,
-                                          preferredTypes: preferredTypes, preferredOrientation: preferredOrientation)
+                                          preferredTypes: preferredTypes, preferredOrientation: preferredOrientation,
+                                          requiresOrientation: item.isContainer && !isPosterItem && orientation == .landscape)
             where client.sameOrigin(image) {
             guard !Task.isCancelled else { return nil }
             if let data = await fetchThumbnail(image, client: client) { return data }
@@ -945,7 +949,7 @@ actor EmbyRepository {
 
     private func selectedImages(for item: MediaItem, source: MediaSource, client: EmbyAPIClient,
                                 preferredTypes: [String], preferredOrientation: EmbyImageOrientation? = nil,
-                                allowedTypes: Set<String>? = nil) async -> [URL] {
+                                allowedTypes: Set<String>? = nil, requiresOrientation: Bool = false) async -> [URL] {
         let cacheKey = "\(AppCacheStore.scope(for: source))|\(item.id.localID)"
         let images: [EmbyItemImage]
         if let cached = itemImages[cacheKey] {
@@ -959,7 +963,6 @@ actor EmbyRepository {
             images = rows.compactMap { row in
                 guard let type = row["ImageType"] as? String,
                       supportedTypes.contains(type),
-                      allowedTypes == nil || allowedTypes!.contains(type),
                       let index = row["ImageIndex"] as? Int,
                       let width = row["Width"] as? Int, width > 0,
                       let height = row["Height"] as? Int, height > 0 else { return nil }
@@ -968,7 +971,15 @@ actor EmbyRepository {
             itemImages[cacheKey] = images
         }
 
-        let ranked = images.sorted { lhs, rhs in
+        // Cache the full inventory; purpose-specific filters must not poison other requests.
+        let candidates = images.filter { image in
+            if let allowedTypes, !allowedTypes.contains(image.type) { return false }
+            if requiresOrientation, let preferredOrientation {
+                return preferredOrientation == .landscape ? image.width > image.height : image.width < image.height
+            }
+            return true
+        }
+        let ranked = candidates.sorted { lhs, rhs in
             let leftType = preferredTypes.firstIndex(of: lhs.type) ?? preferredTypes.count
             let rightType = preferredTypes.firstIndex(of: rhs.type) ?? preferredTypes.count
             if leftType != rightType { return leftType < rightType }

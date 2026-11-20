@@ -101,7 +101,6 @@ final class MediaLayoutSettings: ObservableObject {
 
 struct MediaView: View {
     @Binding var path: NavigationPath
-    let scrollToTopRequest: Int
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
     @ObservedObject private var layout = MediaLayoutSettings.shared
@@ -112,7 +111,6 @@ struct MediaView: View {
     @State private var mediaScrollPosition = ScrollPosition(edge: .top)
     @State private var mediaScrollOffset: CGFloat = 0
     @State private var mediaScrollPhase: ScrollPhase = .idle
-    @State private var mediaTabReselectTask: Task<Void, Never>?
     @State private var pendingCarouselRoute: EmbyMediaRoute?
     @State private var hidesCarouselInformation = false
     @State private var carouselCrossfade = CarouselDetailCrossfade()
@@ -120,7 +118,7 @@ struct MediaView: View {
     var body: some View {
         Group {
             if let source = library.selectedSource, source.kind == .local {
-                LocalFilesView(source: source, scrollToTopRequest: scrollToTopRequest) { mediaSourceMenu }
+                LocalFilesView(source: source) { mediaSourceMenu }
                     .id(source.id)
             } else {
                 mediaContent
@@ -142,31 +140,8 @@ struct MediaView: View {
                 hidesCarouselInformation = false
             }
         }
-        .onChange(of: scrollToTopRequest) { _, _ in
-            pendingCarouselRoute = nil
-            showsEmbyShortcuts = false
-            mediaTabReselectTask?.cancel()
-            mediaTabReselectTask = Task { @MainActor in
-                defer { mediaTabReselectTask = nil }
-                for _ in 0..<12 {
-                    guard !Task.isCancelled else { return }
-                    if path.isEmpty { break }
-                    do {
-                        try await Task.sleep(for: .milliseconds(35))
-                    } catch {
-                        return
-                    }
-                }
-                guard !Task.isCancelled, path.isEmpty else { return }
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.32)) {
-                    mediaScrollPosition.scrollTo(edge: .top)
-                }
-            }
-        }
         .onDisappear {
             pendingCarouselRoute = nil
-            mediaTabReselectTask?.cancel()
-            mediaTabReselectTask = nil
         }
         .task(id: pendingCarouselRoute) {
             guard pendingCarouselRoute != nil else { return }

@@ -104,6 +104,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404); self.end_headers(); return
         if path.path == '/proxy/emby/Items/series/Images/Primary/0':
             self.respond({'image': 'series'}); return
+        if path.path == '/proxy/emby/Items/series/Images/Logo':
+            assert parse_qs(path.query)['tag'] == ['logo']
+            self.respond({'image': 'default-logo'}); return
         if path.path == '/proxy/emby/Items/series/Images/Logo/0':
             assert self.headers.get('X-Emby-Token') == 'secret'
             self.respond({'image': 'logo'}); return
