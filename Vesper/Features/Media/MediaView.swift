@@ -1573,7 +1573,7 @@ struct VesperEmptyContent: View {
                 .accessibilityHidden(true)
             Text(message)
                 .font(.title3.weight(.semibold))
-                .foregroundStyle(Color("VesperPrimaryText"))
+                .foregroundStyle(Color(uiColor: .label))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)

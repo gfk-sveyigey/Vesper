@@ -129,7 +129,7 @@ private struct SeriesHeroPlayButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(VesperTheme.background)
-            .background(Color("VesperPrimaryText").opacity(configuration.isPressed ? 0.82 : 1))
+            .background(Color(uiColor: .label).opacity(configuration.isPressed ? 0.82 : 1))
             .clipShape(Capsule())
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
@@ -139,9 +139,9 @@ private struct SeriesHeroWatchButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(Color("VesperPrimaryText"))
-            .background(Color("VesperSecondaryBackground").opacity(configuration.isPressed ? 0.82 : 1))
-            .overlay(Circle().strokeBorder(Color("VesperSeparator"), lineWidth: 1))
+            .foregroundStyle(Color(uiColor: .label))
+            .background(Color(uiColor: .systemGray5).opacity(configuration.isPressed ? 0.82 : 1))
+            .overlay(Circle().strokeBorder(Color(uiColor: .opaqueSeparator), lineWidth: 1))
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
     }
 }
@@ -322,35 +322,30 @@ struct EmbyMediaDetailView: View {
                     VStack(alignment: .leading, spacing: CGFloat(layout[.groupSpacing])) {
                         if series.isEmbySeries {
                             episodeSection(viewportWidth: width)
-                        } else {
-                            versionSelectionSection
-                            playbackSection
-                            if isEpisode { parentSeriesSection }
-                            technicalSection
-                            if let loadError {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(verbatim: loadError).font(.footnote).foregroundStyle(.secondary)
-                                    Button("重试") { reloadID += 1 }
-                                }
-                                .padding(.horizontal, CGFloat(layout[.endPadding]))
-                            }
                         }
-                        similarSection
-                        creditsSection
-                        linksSection
-                        seriesInformationSection
+                        VStack(alignment: .leading, spacing: CGFloat(layout[.groupSpacing])) {
+                            if !series.isEmbySeries {
+                                versionSelectionSection
+                                playbackSection
+                                if isEpisode { parentSeriesSection }
+                                technicalSection
+                                if let loadError {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text(verbatim: loadError).font(.footnote).foregroundStyle(.secondary)
+                                        Button("重试") { reloadID += 1 }
+                                    }
+                                    .padding(.horizontal, CGFloat(layout[.endPadding]))
+                                }
+                            }
+                            similarSection
+                            creditsSection
+                            linksSection
+                            seriesInformationSection
+                        }
+                        .opacity(detailContentReady ? 1 : 0)
                     }
-                    .opacity(detailContentReady ? 1 : 0)
                     .allowsHitTesting(detailContentReady)
                     .accessibilityHidden(!detailContentReady)
-                    .overlay(alignment: .topLeading) {
-                        if series.isEmbySeries && !detailContentReady {
-                            episodeLoadingPlaceholders(viewportWidth: width)
-                                .padding(.top, 20 + CGFloat(layout[.titlePadding] * 2
-                                    + layout[.itemVerticalPadding] + layout[.scrollPadding]))
-                                .allowsHitTesting(false)
-                        }
-                    }
                     .animation(reduceMotion ? nil : .easeIn(duration: 0.3), value: detailContentReady)
                 }
                 .padding(.bottom, 20)
@@ -736,17 +731,26 @@ struct EmbyMediaDetailView: View {
             let cardWidth = min(layout.episodeCardWidth, max(1, viewportWidth - margin * 2))
             VStack(alignment: .leading, spacing: 0) {
                 seasonMenu
+                    .opacity(detailContentReady ? 1 : 0)
                     .padding(.horizontal, CGFloat(layout[.endPadding]))
                     .padding(.vertical, CGFloat(layout[.titlePadding]))
                 episodeShelf(cardWidth: cardWidth)
+                    .opacity(detailContentReady ? 1 : 0)
+                    .overlay {
+                        if !detailContentReady {
+                            episodeLoadingPlaceholders(viewportWidth: viewportWidth)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
                     .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
             }
         } else if isLoading {
             VStack(alignment: .leading, spacing: 0) {
-                Text("")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
+                seasonMenu
+                    .hidden()
                     .padding(.horizontal, CGFloat(layout[.endPadding]))
+                    .padding(.vertical, CGFloat(layout[.titlePadding]))
                 episodeLoadingPlaceholders(viewportWidth: viewportWidth)
                     .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
             }

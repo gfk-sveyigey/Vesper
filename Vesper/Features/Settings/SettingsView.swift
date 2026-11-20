@@ -97,7 +97,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.tint)
                                 .accessibilityHidden(true)
                             Text(verbatim: "Trakt").font(.body)
-                                .foregroundStyle(Color("VesperPrimaryText"))
+                                .foregroundStyle(Color(uiColor: .label))
                             Spacer()
                             Text("尚未连接").foregroundStyle(.secondary)
                         }.padding(12)
@@ -147,7 +147,7 @@ struct SettingsView: View {
         NavigationLink(value: route) {
             HStack {
                 SettingsLabel(title, symbol: symbol)
-                    .foregroundStyle(Color("VesperPrimaryText"))
+                    .foregroundStyle(Color(uiColor: .label))
                 Spacer()
                 Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))
@@ -627,7 +627,7 @@ struct SettingsLabel: View {
                 .accessibilityHidden(true)
             Text(title)
                 .font(.body)
-                .foregroundStyle(Color("VesperPrimaryText"))
+                .foregroundStyle(Color(uiColor: .label))
         }
         .frame(minHeight: 28)
     }

@@ -5,10 +5,7 @@ import UIKit
 enum VesperTheme {
     static let mediaCardBackground = Color(uiColor: .secondarySystemBackground)
 
-    static let background = Color(uiColor: UIColor { traits in
-        if traits.userInterfaceStyle == .dark { return .systemBackground }
-        return UIColor(named: "VesperBackground", in: .main, compatibleWith: traits) ?? .systemBackground
-    })
+    static let background = Color(uiColor: .systemBackground)
 
     static func accent(_ identifier: String) -> Color {
         if identifier.hasPrefix("#"), identifier.count == 7,

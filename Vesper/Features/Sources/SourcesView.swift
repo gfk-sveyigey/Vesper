@@ -45,7 +45,7 @@ struct SourcesView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(source.id == library.selectedID ? .isSelected : [])
-                        .background(Color("VesperSecondaryBackground"), in: RoundedRectangle(cornerRadius: 20))
+                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20))
                         .contextMenu {
                             if source.kind == .emby {
                                 Button("编辑", systemImage: "pencil") { editingEmby = source }

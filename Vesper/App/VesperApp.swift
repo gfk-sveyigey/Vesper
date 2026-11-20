@@ -15,11 +15,7 @@ struct VesperApp: App {
         FileDeliveryLog.write("App 启动，build=\(build)，文件接收模式=SwiftUI原生")
         let opensInPlace = Bundle.main.object(forInfoDictionaryKey: "LSSupportsOpeningDocumentsInPlace") as? Bool ?? false
         FileDeliveryLog.write("安装包文件交付配置，openInPlace=\(opensInPlace)")
-        // Customize only the text color; leave fonts, backgrounds and materials native.
-        if let titleColor = UIColor(named: "VesperPrimaryText") {
-            UINavigationBar.appearance().largeTitleTextAttributes = [.foregroundColor: titleColor]
-            UINavigationBar.appearance().titleTextAttributes = [.foregroundColor: titleColor]
-        }
+
     }
 
     var body: some Scene {

@@ -415,7 +415,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         HStack(spacing: 16) {
             Text(title)
                 .font(headerTitleFont)
-                .foregroundStyle(Color("VesperPrimaryText"))
+                .foregroundStyle(Color(uiColor: .label))
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
             actions
