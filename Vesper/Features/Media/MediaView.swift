@@ -637,7 +637,7 @@ struct MediaView: View {
 }
 
 enum LocalNetworkPermissionProbe {
-    enum Result: Equatable { case allowed, denied, unknown }
+    enum Result: Equatable, Sendable { case allowed, denied, unknown }
 
     private final class CompletionGate: @unchecked Sendable {
         private let lock = NSLock()
@@ -664,12 +664,14 @@ enum LocalNetworkPermissionProbe {
 
     static func check(_ address: String) async -> Result {
         guard let components = URLComponents(string: address.contains("://") ? address : "http://\(address)"),
-              let host = components.host, let rawPort = components.port ?? (components.scheme == "https" ? 443 : 80),
-              let port = NWEndpoint.Port(rawValue: UInt16(rawPort)) else { return .unknown }
+              let host = components.host else { return .unknown }
+        let rawPort = components.port ?? (components.scheme == "https" ? 443 : 80)
+        guard let portValue = UInt16(exactly: rawPort),
+              let port = NWEndpoint.Port(rawValue: portValue) else { return .unknown }
         let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .tcp)
         return await withCheckedContinuation { continuation in
             let gate = CompletionGate()
-            func finish(_ result: Result) {
+            @Sendable func finish(_ result: Result) {
                 gate.run {
                     connection.cancel()
                     continuation.resume(returning: result)
