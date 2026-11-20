@@ -388,8 +388,8 @@ struct MediaView: View {
         if group.id == EmbyMediaGroup.librariesID {
             let route = EmbyMediaRoute.library(source, id: item.id.localID, title: item.title)
             NavigationLink(value: route) {
-                MediaThumbnail(source: source, item: item, imageOrientation: .landscape,
-                               aspectRatio: size.width / size.height,
+                MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
+                               imageOrientation: .landscape,
                                preloadedData: data, artworkIsPrepared: artwork != nil)
                     .frame(width: size.width, height: size.height)
                     .mediaArtworkBorder()
@@ -401,8 +401,8 @@ struct MediaView: View {
             } preview: {
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 8) {
-                        MediaThumbnail(source: source, item: item, imageOrientation: .landscape,
-                                       aspectRatio: size.width / size.height,
+                        MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
+                                       imageOrientation: .landscape,
                                        cacheOnly: true, preloadedData: data, artworkIsPrepared: artwork != nil)
                             .mediaArtworkBorder()
                         VStack(alignment: .leading, spacing: 3) {
@@ -417,8 +417,8 @@ struct MediaView: View {
         } else {
             let route = EmbyMediaRoute.detail(source, item, origin: .shelf(group.id))
             NavigationLink(value: route) {
-                MediaThumbnail(source: source, item: item, playback: playback, imageOrientation: .portrait,
-                               aspectRatio: size.width / size.height,
+                MediaThumbnail(source: source, item: item, playback: playback,
+                               aspectRatio: size.width / size.height, imageOrientation: .portrait,
                                preloadedData: data, artworkIsPrepared: artwork != nil)
                     .frame(width: size.width, height: size.height)
                     .mediaArtworkBorder()
@@ -1084,8 +1084,8 @@ struct EmbyFeaturedPage: View {
         let images = featuredArtworkIsPrepared
             ? featuredArtwork
             : loadedArtworkID == item.id ? loadedArtwork : nil
-        MediaThumbnail(source: source, item: item, imageOrientation: .portrait,
-                       aspectRatio: EmbyPosterLayout.aspectRatio,
+        MediaThumbnail(source: source, item: item, aspectRatio: EmbyPosterLayout.aspectRatio,
+                       imageOrientation: .portrait,
                        cornerRadius: 0, fixedHeight: size.height,
                        preloadedData: images?.poster ?? artwork,
                        artworkIsPrepared: images?.poster != nil || artworkIsPrepared,
@@ -1242,8 +1242,8 @@ struct EmbySeriesPosterCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: open) {
-                MediaThumbnail(source: source, item: item, imageOrientation: .portrait,
-                               aspectRatio: width / posterHeight,
+                MediaThumbnail(source: source, item: item, aspectRatio: width / posterHeight,
+                               imageOrientation: .portrait,
                                fixedHeight: posterHeight, preloadedData: preloadedData,
                                artworkIsPrepared: artworkIsPrepared)
                     .frame(width: width, height: posterHeight)
