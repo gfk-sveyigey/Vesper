@@ -18,6 +18,7 @@ struct AppNavigationView: View {
     @AppStorage("miniPlayer.enabled") private var miniPlayerEnabled = true
     @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
     @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
+    @AppStorage(ImageCacheDebugSettings.ignoreLocalCacheKey) private var ignoreLocalImageCache = false
     @State private var selection: NavigationTab
     @State private var mediaTabRetapRevision = 0
     @StateObject private var library = SourceLibrary()
@@ -72,6 +73,12 @@ struct AppNavigationView: View {
         }
         .onChange(of: playback.isPresented) { _, presented in
             PlayerOrientationPolicy.update(presented)
+        }
+        .onChange(of: ignoreLocalImageCache) { _, _ in
+            Task {
+                await AppCacheStore.shared.invalidateImageWrites()
+                library.reload()
+            }
         }
         .onChange(of: scenePhase) { _, phase in playback.handleScenePhase(phase) }
         .task { presentNextIncomingVideo() }

@@ -785,6 +785,7 @@ private extension MediaLayoutSettings.Metric {
 
 private struct DebugSettingsView: View {
     @ObservedObject private var layout = MediaLayoutSettings.shared
+    @AppStorage(ImageCacheDebugSettings.ignoreLocalCacheKey) private var ignoreLocalImageCache = false
     @AppStorage(EmbyUserAgentPolicy.enabledKey) private var enabled = false
     @AppStorage(EmbyUserAgentPolicy.nameKey) private var clientName = ""
     @AppStorage(EmbyUserAgentPolicy.versionKey) private var clientVersion = ""
@@ -806,6 +807,11 @@ private struct DebugSettingsView: View {
                 }
             } footer: {
                 Text("客户端名称和版本会同时用于 User-Agent 及 Emby Authorization 请求头。留空或关闭时使用 Vesper 默认值。")
+            }
+            SettingsSection("图片缓存") {
+                Toggle("图片不使用本地缓存", isOn: $ignoreLocalImageCache)
+            } footer: {
+                Text("启用后，图片会直接从来源加载，且不会写入本地图片缓存。")
             }
             SettingsSection("界面设计") {
                 ForEach(Self.interfaceMetrics, id: \.self) { metric in

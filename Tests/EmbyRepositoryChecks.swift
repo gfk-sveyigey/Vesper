@@ -103,8 +103,14 @@ struct EmbyRepositoryChecks {
         precondition(item.primaryImageAspectRatio == 1.78)
         let thumbnail = await repository.thumbnailData(for: item, source: source)
         let movieImage = try JSONDecoder().decode([String: String].self, from: thumbnail ?? Data())
-        precondition(movieImage["image"] == "movie-primary")
+        precondition(movieImage["image"] == "movie-primary-landscape")
         precondition(thumbnail != nil)
+        let ratioNeutralItem = MediaItem(id: MediaID(sourceID: source.id, localID: "ratio-neutral"),
+                                         title: "Neutral Ratio", resource: nil,
+                                         embyItemType: "Movie", primaryImageAspectRatio: 1)
+        let ratioNeutralThumbnail = await repository.thumbnailData(for: ratioNeutralItem, source: source)
+        let ratioNeutralImage = try JSONDecoder().decode([String: String].self, from: ratioNeutralThumbnail ?? Data())
+        precondition(ratioNeutralImage["image"] == "ratio-neutral-portrait")
         precondition(item.id.sourceID == source.id && item.id.localID == "movie")
         precondition(item.resumePosition == 30 && item.duration == 600)
         let details = try await repository.details(for: item, source: source)

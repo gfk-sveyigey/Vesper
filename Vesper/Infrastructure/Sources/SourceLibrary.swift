@@ -365,7 +365,12 @@ final class SourceLibrary: ObservableObject {
         let token = generation
         guard let source = selectedSource, source.kind == .emby else { return }
         let scope = AppCacheStore.scope(for: source)
-        let previous = embyHome?.scope == scope ? embyHome : nil
+        var previous = embyHome?.scope == scope ? embyHome : nil
+        if ImageCacheDebugSettings.ignoresLocalCache, var home = previous {
+            home.artwork = nil
+            home.featuredArtwork = nil
+            previous = home
+        }
         isLoadingEmbyHome = true
         embyHome = fullRendering ? nil : previous
         content = embyHome == nil ? .loading : .loaded([])
@@ -565,7 +570,7 @@ actor AppCacheStore {
     }
 
     nonisolated static func embyArtworkKey(for item: MediaItem, source: MediaSource) -> String {
-        let key = "artwork-v2|\(scope(for: source))|\(item.id.localID)|\(item.imageURL?.absoluteString ?? "")"
+        let key = "artwork|\(scope(for: source))|\(item.id.localID)|\(item.imageURL?.absoluteString ?? "")"
         if item.embyItemType == "Episode" {
             return "episode-preview|\(key)|\(item.previewImageURL?.absoluteString ?? "")"
         }
@@ -589,6 +594,14 @@ actor AppCacheStore {
         migrateIfNeeded()
         return (read("image|\(key)", category: .images), imageGeneration)
     }
+
+    func image(key: String, ignoringLocalCache: Bool) -> (Data?, UUID) {
+        if ignoringLocalCache { return (nil, imageGeneration) }
+        migrateIfNeeded()
+        return (read("image|\(key)", category: .images), imageGeneration)
+    }
+
+    func invalidateImageWrites() { imageGeneration = UUID() }
 
     func saveImage(_ data: Data, key: String, generation: UUID) {
         guard generation == imageGeneration else { return }

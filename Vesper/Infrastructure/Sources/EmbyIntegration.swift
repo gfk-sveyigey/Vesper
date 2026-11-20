@@ -168,6 +168,10 @@ private struct EmbyItemImage: Sendable {
     let height: Int
 }
 
+private enum EmbyImageOrientation: Equatable {
+    case portrait, landscape
+}
+
 enum EmbyBrowseScope: Equatable, Sendable {
     case children, titles, episodes, favorites
     case person(EmbyPerson)
@@ -316,6 +320,7 @@ actor EmbyRepository {
             let id = (value["Id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let image = id.map { id in
                 MediaItem(id: MediaID(sourceID: source.id, localID: id), title: name, resource: nil,
+                          embyItemType: "Person",
                           imageURL: client.imageURL(itemID: id, tag: value["PrimaryImageTag"] as? String, width: 200))
             }
             let role = (value["Role"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? value["Type"] as? String ?? ""
@@ -808,6 +813,7 @@ actor EmbyRepository {
         let logoTypes: Set<String> = ["Logo", "LogoLight", "LogoLightColor"]
         for image in await selectedImages(for: item, source: source, client: client,
                                           preferredTypes: ["Logo", "LogoLight", "LogoLightColor"],
+                                          preferredOrientation: imageOrientation(for: item.primaryImageAspectRatio),
                                           allowedTypes: logoTypes)
             where client.sameOrigin(image) {
             if let data = await fetchThumbnail(image, client: client) { return data }
@@ -830,22 +836,26 @@ actor EmbyRepository {
         }
     }
 
-    func thumbnailData(for item: MediaItem, source: MediaSource, aspectRatio: Double = 2.0 / 3.0) async -> Data? {
+    func thumbnailData(for item: MediaItem, source: MediaSource) async -> Data? {
         guard let client = try? await clientProvider(source) else { return nil }
-        let reportedAspectRatio = item.primaryImageAspectRatio.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        if item.embyItemType == "Person" {
+            guard let imageURL = item.imageURL, client.sameOrigin(imageURL) else { return nil }
+            return await fetchThumbnail(imageURL, client: client)
+        }
+
+        let orientation = imageOrientation(for: item.primaryImageAspectRatio)
         let isPosterItem = ["Movie", "Series"].contains(item.embyItemType ?? "")
         let isEpisode = item.embyItemType == "Episode"
-        let itemAspectRatio = reportedAspectRatio ?? (isEpisode ? 16.0 / 9.0 : 2.0 / 3.0)
         let preferredTypes: [String]
         if isPosterItem {
             preferredTypes = ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
-        } else if isEpisode || itemAspectRatio >= 1 {
+        } else if isEpisode || orientation == .landscape {
             preferredTypes = ["Thumb", "Screenshot", "Backdrop", "Primary", "Thumbnail"]
         } else {
             preferredTypes = ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
         }
         for image in await selectedImages(for: item, source: source, client: client,
-                                          preferredTypes: preferredTypes, targetAspectRatio: itemAspectRatio)
+                                          preferredTypes: preferredTypes, preferredOrientation: orientation)
             where client.sameOrigin(image) {
             guard !Task.isCancelled else { return nil }
             if let data = await fetchThumbnail(image, client: client) { return data }
@@ -853,8 +863,13 @@ actor EmbyRepository {
         return nil
     }
 
+    private func imageOrientation(for aspectRatio: Double?) -> EmbyImageOrientation? {
+        guard let aspectRatio, aspectRatio.isFinite, aspectRatio > 0, aspectRatio != 1 else { return nil }
+        return aspectRatio > 1 ? .landscape : .portrait
+    }
+
     private func selectedImages(for item: MediaItem, source: MediaSource, client: EmbyAPIClient,
-                                preferredTypes: [String], targetAspectRatio: Double = 1,
+                                preferredTypes: [String], preferredOrientation: EmbyImageOrientation? = nil,
                                 allowedTypes: Set<String>? = nil) async -> [URL] {
         let cacheKey = "\(AppCacheStore.scope(for: source))|\(item.id.localID)"
         let images: [EmbyItemImage]
@@ -882,11 +897,13 @@ actor EmbyRepository {
             let leftType = preferredTypes.firstIndex(of: lhs.type) ?? preferredTypes.count
             let rightType = preferredTypes.firstIndex(of: rhs.type) ?? preferredTypes.count
             if leftType != rightType { return leftType < rightType }
-            let leftRatio = Double(lhs.width) / Double(lhs.height)
-            let rightRatio = Double(rhs.width) / Double(rhs.height)
-            let leftScore = abs(log(leftRatio / max(0.1, targetAspectRatio)))
-            let rightScore = abs(log(rightRatio / max(0.1, targetAspectRatio)))
-            if leftScore != rightScore { return leftScore < rightScore }
+            if let preferredOrientation {
+                let leftLandscape = lhs.width > lhs.height
+                let rightLandscape = rhs.width > rhs.height
+                let leftMatches = leftLandscape == (preferredOrientation == .landscape) && lhs.width != lhs.height
+                let rightMatches = rightLandscape == (preferredOrientation == .landscape) && rhs.width != rhs.height
+                if leftMatches != rightMatches { return leftMatches }
+            }
             return lhs.index < rhs.index
         }
         return ranked.compactMap { image in
