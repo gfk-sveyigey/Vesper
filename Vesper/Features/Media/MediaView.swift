@@ -162,8 +162,7 @@ struct MediaView: View {
             } else if let item = route.item {
                 if route.origin == .carousel {
                     let detail = EmbyMediaDetailView(source: route.source, series: item,
-                                                      startsWithCarouselInformationHidden: true,
-                                                      onCarouselDetailReady: { carouselCrossfade.revealDetail() })
+                                                      startsWithCarouselInformationHidden: true)
                         .background {
                             CarouselDetailCrossfade.ReturnObserver(transition: carouselCrossfade,
                                                                    reduceMotion: reduceMotion)
@@ -635,9 +634,9 @@ private final class CarouselDetailCrossfade {
         cover.addSubview(snapshot)
         pushCover = cover
 
-        // Drop the cover even if the navigation destination never appears.
+        // Reveal after navigation has had a chance to mount, without waiting for data.
         Task { [weak self, weak cover] in
-            try? await Task.sleep(for: .seconds(1))
+            await Task.yield()
             guard let cover, self?.pushCover === cover else { return }
             self?.revealDetail()
         }
@@ -1047,6 +1046,8 @@ struct EmbyFeaturedPage: View {
     let artworkIsPrepared: Bool
     let featuredArtwork: EmbyFeaturedArtwork?
     let featuredArtworkIsPrepared: Bool
+    var usesEpisodeArtwork = false
+    var episodeContext = ""
     let showsInformation: Bool
     var seriesFooter: EmbySeriesHeroFooter? = nil
     var seriesFooterOpacity: Double = 1
@@ -1060,22 +1061,32 @@ struct EmbyFeaturedPage: View {
         let images = featuredArtworkIsPrepared
             ? featuredArtwork
             : loadedArtworkID == item.id ? loadedArtwork : nil
+        Group {
+            if usesEpisodeArtwork {
+                MediaCardBackdrop(showsMissingArtwork: loadedArtwork != nil && images?.poster == nil, iconCenterY: 1.0 / 3)
+                    .frame(width: size.width, height: size.height)
+                    .overlay {
+                        EmbyEpisodeArtworkSurface(image: images?.poster.flatMap { UIImage(data: $0) }, size: size)
+                    }
+            } else {
         MediaThumbnail(source: source, item: item, aspectRatio: EmbyPosterLayout.aspectRatio,
-                       imageOrientation: .portrait,
+                       imageOrientation: usesEpisodeArtwork ? .landscape : .portrait,
                        cornerRadius: 0, fixedHeight: size.height,
                        preloadedData: images?.poster ?? artwork,
                        artworkIsPrepared: images?.poster != nil || artworkIsPrepared,
                        mirroredEdgeFraction: mirroredEdgeFraction,
                        showsMissingArtwork: featuredArtworkIsPrepared || loadedArtwork != nil)
+            }
+        }
             .frame(width: size.width, height: size.height)
             .overlay(alignment: .bottom) {
                 ZStack(alignment: .bottom) {
-                    bottomBlur
+                    if !usesEpisodeArtwork { bottomBlur }
 
                     VStack(spacing: 0) {
                         VStack(spacing: 6) {
                             Group {
-                                if let logo = images?.logo, let image = UIImage(data: logo) {
+                                if !usesEpisodeArtwork, let logo = images?.logo, let image = UIImage(data: logo) {
                                     Image(uiImage: image)
                                         .resizable()
                                         .scaledToFit()
@@ -1090,8 +1101,8 @@ struct EmbyFeaturedPage: View {
                             .frame(maxWidth: size.width * 0.68)
                             .frame(height: size.height * 0.14)
                             VStack(spacing: 4) {
-                                Text(verbatim: firstLine)
-                                if !secondLine.isEmpty { Text(verbatim: secondLine) }
+                                Text(verbatim: usesEpisodeArtwork ? episodeContext : firstLine)
+                                if !usesEpisodeArtwork && !secondLine.isEmpty { Text(verbatim: secondLine) }
                             }
                             .font(.subheadline)
                             .lineLimit(1)
@@ -1129,7 +1140,13 @@ struct EmbyFeaturedPage: View {
                     loadedArtwork = nil
                     loadedArtworkID = nil
                 }
-                let images = await MediaThumbnailLoader.shared.featuredArtwork(for: item, source: source)
+                let images: EmbyFeaturedArtwork
+                if usesEpisodeArtwork {
+                    let poster = await MediaThumbnailLoader.shared.load(item, source: source, imageOrientation: .landscape)
+                    images = EmbyFeaturedArtwork(poster: poster, logo: nil)
+                } else {
+                    images = await MediaThumbnailLoader.shared.featuredArtwork(for: item, source: source)
+                }
                 guard !Task.isCancelled else { return }
                 loadedArtwork = images
                 loadedArtworkID = item.id

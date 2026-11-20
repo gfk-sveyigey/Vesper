@@ -25,7 +25,7 @@
 - 次级背景、卡片：`UIColor.secondarySystemBackground`。
 - 主要文字及图标：SwiftUI `.primary` 或 `UIColor.label`；辅助文字使用 `.secondary`。
 - 分隔线和边框：`UIColor.separator`；需要不透明边框时使用 `UIColor.opaqueSeparator`。
-- 剧集观看标记按钮：`UIColor.systemGray5` 背景，`UIColor.label` 前景，以及 `UIColor.opaqueSeparator` 的 1pt 内边框。
+- 剧集观看标记按钮：`UIColor.systemGray5` 背景，`UIColor.label` 前景，以及 `UIColor.label` 的 1pt 内边框（深色模式浅色、浅色模式深色）。
 - 阴影如需适配外观，使用系统颜色，不新增自定义颜色资源。
 
 不再维护自定义文字、背景、分隔线或播放器颜色资源。系统播放器和 PiP 的外观由系统管理。

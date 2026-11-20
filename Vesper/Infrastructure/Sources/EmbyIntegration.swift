@@ -814,7 +814,7 @@ actor EmbyRepository {
                 logoURL = nil
             }
             let played = (value["UserData"] as? [String: Any])?["Played"] as? Bool
-            let item = MediaItem(id: MediaID(sourceID: source.id, localID: id), title: name,
+            var item = MediaItem(id: MediaID(sourceID: source.id, localID: id), title: name,
                                  resource: nil,
                                  subtitle: (value["ProductionYear"] as? NSNumber).map { String($0.intValue) },
                                  isContainer: folder || type == "Series" || type == "Season",
@@ -839,6 +839,7 @@ actor EmbyRepository {
                                  ),
                                  isPlayed: played,
                                  embyPlayedFetchedAt: played == nil ? nil : mappedAt)
+            item.isFavorite = (value["UserData"] as? [String: Any])?["IsFavorite"] as? Bool
             return item
         }
     }
@@ -871,13 +872,6 @@ actor EmbyRepository {
         // The mapped URL includes the server tag and may belong to a parent item.
         if let url = item.embyPresentation?.logoURL, client.sameOrigin(url),
            let data = await fetchThumbnail(url, client: client) { return data }
-        let logoTypes: Set<String> = ["Logo", "LogoLight", "LogoLightColor"]
-        for image in await selectedImages(for: item, source: source, client: client,
-                                          preferredTypes: ["Logo", "LogoLight", "LogoLightColor"],
-                                          allowedTypes: logoTypes)
-            where client.sameOrigin(image) {
-            if let data = await fetchThumbnail(image, client: client) { return data }
-        }
         return nil
     }
 

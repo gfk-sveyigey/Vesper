@@ -33,6 +33,7 @@ struct MediaItem: Identifiable, Hashable, Codable, Sendable {
     var dateCreated: Date? = nil
     var embyPresentation: EmbyPresentation? = nil
 
+    var isFavorite: Bool? = nil
     var isPlayed: Bool? = nil
     var embyPlayedFetchedAt: Date? = nil
 
