@@ -3,7 +3,6 @@ import SwiftUI
 struct HistoryView: View {
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
-    @AppStorage("navigation.icons") private var icons = "{}"
 
     private var groups: [HistorySourceGroup] {
         Dictionary(grouping: playback.history.filter { $0.hiddenFromHistory != true }, by: { $0.source.id }).values.map { entries in

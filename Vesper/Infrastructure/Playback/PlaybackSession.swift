@@ -125,17 +125,13 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
 
     func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem],
               audio: EmbyMediaStreamDetails? = nil, subtitle: EmbyMediaStreamDetails? = nil,
-              streams: [EmbyMediaStreamDetails] = [], audioDisabled: Bool = false) {
+              streams: [EmbyMediaStreamDetails] = []) {
         recordPlaybackHistory()
         externalFile = nil
         self.queue = queue
         self.source = source
-        isMuted = audioDisabled
         isPresented = true
-        let preferredAudio = audioDisabled
-            ? EngineTrack(id: "emby-audio-off", name: "", language: nil, codec: nil)
-            : trackPreference(audio, streams: streams)
-        load(item, source: source, initialAudio: preferredAudio,
+        load(item, source: source, initialAudio: trackPreference(audio, streams: streams),
              initialSubtitle: trackPreference(subtitle, streams: streams))
     }
 

@@ -764,3 +764,138 @@ struct VesperCenteredEmptyContent: View {
             .frame(maxWidth: .infinity, minHeight: height)
     }
 }
+
+/// Temporary, read-only diagnostics. No gesture recognizers, delegate replacement,
+/// scroll-property writes or programmatic scrolling are used here.
+struct VesperTabScrollDiagnostics: UIViewRepresentable {
+    func makeUIView(context: Context) -> ProbeView { ProbeView() }
+    func updateUIView(_ uiView: ProbeView, context: Context) { }
+    static func dismantleUIView(_ uiView: ProbeView, coordinator: ()) { uiView.stop() }
+
+    final class ProbeView: UIView {
+        private var timer: Timer?
+        private weak var tabs: UITabBarController?
+        private var controls: [UIControl] = []
+        private var lastSignature = ""
+        private var lastHighlight = ""
+        private var needsSettledSnapshot = false
+        private var lastChange = Date.distantPast
+        private var eventNumber = 0
+
+        init() {
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+            accessibilityElementsHidden = true
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            stop()
+            guard window != nil else { return }
+            let timer = Timer(timeInterval: 0.2, target: self,
+                              selector: #selector(sample), userInfo: nil, repeats: true)
+            self.timer = timer
+            RunLoop.main.add(timer, forMode: .common)
+            sample()
+        }
+
+        func stop() {
+            timer?.invalidate()
+            timer = nil
+            for control in controls { control.removeTarget(self, action: nil, for: .allEvents) }
+            controls = []
+            tabs = nil
+        }
+
+        private func descendants(_ view: UIView) -> [UIView] {
+            [view] + view.subviews.flatMap { descendants($0) }
+        }
+
+        private func findTabs(_ controller: UIViewController) -> UITabBarController? {
+            if let tabs = controller as? UITabBarController { return tabs }
+            for child in controller.children {
+                if let tabs = findTabs(child) { return tabs }
+            }
+            return nil
+        }
+
+        @objc private func sample() {
+            guard let window, !window.isHidden,
+                  window.windowScene?.activationState == .foregroundActive,
+                  let root = window.rootViewController,
+                  let current = findTabs(root) else { return }
+            let found = descendants(current.tabBar).compactMap { $0 as? UIControl }
+            if tabs !== current || found.map(ObjectIdentifier.init) != controls.map(ObjectIdentifier.init) {
+                for control in controls { control.removeTarget(self, action: nil, for: .allEvents) }
+                tabs = current
+                controls = found
+                for control in controls {
+                    control.addTarget(self, action: #selector(touchDown(_:)), for: .touchDown)
+                    control.addTarget(self, action: #selector(touchUp(_:)), for: .touchUpInside)
+                }
+                snapshot("attached controls=\(controls.count) OS=\(UIDevice.current.systemVersion)")
+            }
+            // Highlight observation is a fallback for tab implementations that
+            // do not send UIControl touch events. Neither mechanism consumes input.
+            let highlight = controls.enumerated().filter { $0.element.isHighlighted }.map { String($0.offset) }.joined(separator: ",")
+            if highlight != lastHighlight {
+                lastHighlight = highlight
+                snapshot("highlight=[\(highlight)]")
+            }
+            guard let selected = current.selectedViewController, selected.isViewLoaded else { return }
+            let scrolls = descendants(selected.view).compactMap { $0 as? UIScrollView }
+            let signature = "\(current.selectedIndex):" + scrolls.map {
+                "\(ObjectIdentifier($0)):\(Int($0.contentOffset.y.rounded())):\($0.isDragging):\($0.isDecelerating)"
+            }.joined(separator: ";")
+            if signature != lastSignature {
+                lastSignature = signature
+                lastChange = .now
+                needsSettledSnapshot = true
+            } else if needsSettledSnapshot, Date.now.timeIntervalSince(lastChange) >= 0.4 {
+                needsSettledSnapshot = false
+                snapshot("scroll/layout settled")
+            }
+        }
+
+        @objc private func touchDown(_ sender: UIControl) { recordTouch("touchDown", sender: sender) }
+        @objc private func touchUp(_ sender: UIControl) { recordTouch("touchUpInside", sender: sender) }
+
+        private func recordTouch(_ name: String, sender: UIControl) {
+            eventNumber += 1
+            let event = eventNumber
+            snapshot("event=\(event) \(name) control=\(controls.firstIndex(of: sender) ?? -1)")
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(350))
+                guard let self, self.window != nil else { return }
+                self.snapshot("event=\(event) +350ms")
+                try? await Task.sleep(for: .milliseconds(650))
+                guard self.window != nil else { return }
+                self.snapshot("event=\(event) +1000ms")
+            }
+        }
+
+        private func snapshot(_ reason: String) {
+            guard let tabs, let selected = tabs.selectedViewController, selected.isViewLoaded else { return }
+            var lines = ["\(reason) selected=\(tabs.selectedIndex) tabDelegate=\(tabs.delegate.map { String(describing: type(of: $0)) } ?? "nil")"]
+            func visit(_ controller: UIViewController, depth: Int) {
+                func identity(_ scroll: UIScrollView?) -> String {
+                    scroll.map { String(describing: ObjectIdentifier($0)) } ?? "nil"
+                }
+                let navigation = (controller as? UINavigationController).map { " stack=\($0.viewControllers.count)" } ?? ""
+                lines.append("controller[\(depth)]=\(type(of: controller))\(navigation) contentTop=\(identity(controller.contentScrollView(for: .top))) contentBottom=\(identity(controller.contentScrollView(for: .bottom)))")
+                for child in controller.children { visit(child, depth: depth + 1) }
+            }
+            visit(selected, depth: 0)
+            for scroll in descendants(selected.view).compactMap({ $0 as? UIScrollView }) {
+                let frame = scroll.convert(scroll.bounds, to: window)
+                let visible = !scroll.isHidden && scroll.alpha > 0.01 && frame.intersects(window?.bounds ?? .zero)
+                lines.append("scroll=\(ObjectIdentifier(scroll)) class=\(type(of: scroll)) visible=\(visible) frame=\(frame) offset=\(scroll.contentOffset) content=\(scroll.contentSize) inset=\(scroll.adjustedContentInset) toTop=\(scroll.scrollsToTop) enabled=\(scroll.isScrollEnabled) dragging=\(scroll.isDragging) decelerating=\(scroll.isDecelerating)")
+            }
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+            for line in lines {
+                AppLog.runtimeEntries.append("\(timestamp) [TabScroll] \(line)")
+            }
+        }
+    }
+}

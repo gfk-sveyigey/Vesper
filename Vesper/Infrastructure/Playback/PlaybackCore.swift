@@ -114,13 +114,7 @@ struct TranscodedPlaybackResource: Sendable {
                 candidate.configure(localConfiguration)
                 if localConfiguration.autoplay { try candidate.play() } else { candidate.pause() }
                 let state = candidate.snapshot
-                if audio?.id == "emby-audio-off" {
-                    var muted = localConfiguration
-                    muted.muted = true
-                    candidate.configure(muted)
-                } else if let selected = match(audio, in: state.audio) {
-                    candidate.selectAudio(selected.id)
-                }
+                if let selected = match(audio, in: state.audio) { candidate.selectAudio(selected.id) }
                 if subtitlesOff { candidate.selectSubtitle(nil) }
                 else if let selected = match(subtitle, in: state.subtitles) { candidate.selectSubtitle(selected.id) }
                 else { candidate.selectSubtitle(nil) }

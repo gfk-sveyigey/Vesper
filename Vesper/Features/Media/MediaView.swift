@@ -105,7 +105,6 @@ struct MediaView: View {
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
     @ObservedObject private var layout = MediaLayoutSettings.shared
-    @AppStorage("navigation.icons") private var icons = "{}"
     @Namespace private var artworkZoom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsEmbyShortcuts = false

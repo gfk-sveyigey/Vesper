@@ -10,7 +10,6 @@ private enum SourcesAlert: Hashable, Identifiable {
 
 struct SourcesView: View {
     @EnvironmentObject private var library: SourceLibrary
-    @AppStorage("navigation.icons") private var icons = "{}"
     @State private var activeAlert: SourcesAlert?
     @State private var isShowingEmbyEditor = false
     @State private var editingEmby: MediaSource?

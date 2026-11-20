@@ -11,7 +11,6 @@ private enum NavigationTab: Hashable {
 struct AppNavigationView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
-    @AppStorage("navigation.icons") private var icons = "{}"
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("search.recent") private var recentSearchesData = "[]"
@@ -116,6 +115,37 @@ struct AppNavigationView: View {
         }
     }
 
+    private func tabIcon(for section: AppSection) -> Image {
+        guard section == .media, let source = library.selectedSource else {
+            return Image(systemName: section.symbol)
+        }
+        switch source.kind {
+        case .photos: return Image(systemName: "play.rectangle.on.rectangle")
+        case .local: return Image(systemName: "folder")
+        case .demo: return Image(systemName: "play.rectangle")
+        case .emby:
+            let customIcon = source.emby?.iconData.flatMap { UIImage(data: $0) }
+            guard let image = customIcon ?? UIImage(named: "EmbyLogo"),
+                  image.size.width > 0, image.size.height > 0 else {
+                return Image(systemName: "server.rack")
+            }
+            // Tab bar images need an intrinsic, point-sized canvas rather than
+            // the full-resolution source image.
+            let size: CGFloat = 25
+            let icon = UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { _ in
+                let bounds = CGRect(x: 0, y: 0, width: size, height: size)
+                UIBezierPath(roundedRect: bounds, cornerRadius: size * 0.23).addClip()
+                let scale = customIcon == nil
+                    ? min(size / image.size.width, size / image.size.height)
+                    : max(size / image.size.width, size / image.size.height)
+                let width = image.size.width * scale
+                let height = image.size.height * scale
+                image.draw(in: CGRect(x: (size - width) / 2, y: (size - height) / 2, width: width, height: height))
+            }
+            return Image(uiImage: icon).renderingMode(.original)
+        }
+    }
+
     private var tabs: some View {
         accessoryContent
             .fullScreenCover(isPresented: $playback.isPresented, onDismiss: {
@@ -152,8 +182,10 @@ struct AppNavigationView: View {
     private var tabContent: some View {
         TabView(selection: $selection) {
             ForEach(visibleSections) { section in
-                Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
+                Tab(value: NavigationTab.section(section)) {
                     sectionPage(section)
+                } label: {
+                    Label { Text(section.title) } icon: { tabIcon(for: section) }
                 }
             }
             Tab("搜索", systemImage: "magnifyingglass", value: NavigationTab.search, role: .search) {
@@ -189,6 +221,7 @@ struct AppNavigationView: View {
                 selection = .section(.settings)
             }
         }
+        .background { VesperTabScrollDiagnostics().frame(width: 0, height: 0) }
         .tabBarMinimizeBehavior(tabBarCanMinimize ? .onScrollDown : .never)
         .tabViewSearchActivation(.searchTabSelection)
         .environmentObject(library)

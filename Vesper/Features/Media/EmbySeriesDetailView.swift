@@ -259,7 +259,6 @@ struct EmbyMediaDetailView: View {
     @State private var metadata: EmbyDetailMetadata?
     @State private var selectedMediaSourceID: String?
     @State private var selectedAudioIndex: Int?
-    @State private var audioShouldBeDisabled = false
     @State private var selectedSubtitleIndex: Int?
     @State private var episodes: [EmbyEpisode] = []
     @State private var seasonNumbers: [Int] = []
@@ -391,21 +390,30 @@ struct EmbyMediaDetailView: View {
                     .accessibilityHidden(true)
             }
             .sharedBackgroundVisibility(.hidden)
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                versionMenu
-                trackMenu(type: "Audio", symbol: "speaker.wave.2")
-                trackMenu(type: "Subtitle", symbol: "captions.bubble")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    playback.setFavorite(!playback.effectiveFavorite(for: item), for: item, source: source) {
-                        favoriteError = $0
+            if hasScrolled {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        versionMenu
+                        trackMenu(type: "Audio", symbol: "speaker.wave.2")
+                        trackMenu(type: "Subtitle", symbol: "captions.bubble")
+                        favoriteButton
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .foregroundStyle(.primary)
                     }
-                } label: {
-                    Image(systemName: playback.effectiveFavorite(for: item) ? "heart.fill" : "heart")
+                    .accessibilityLabel("媒体操作")
+                    .tint(Color(uiColor: .label))
                 }
-                .accessibilityLabel(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏")
-                .disabled(source.emby?.userID == nil)
+            } else {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    versionMenu
+                    trackMenu(type: "Audio", symbol: "speaker.wave.2")
+                    trackMenu(type: "Subtitle", symbol: "captions.bubble")
+                }
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                ToolbarItem(placement: .topBarTrailing) {
+                    favoriteButton
+                }
             }
             if showsCloseButton {
                 ToolbarItem(placement: .topBarLeading) {
@@ -441,7 +449,6 @@ struct EmbyMediaDetailView: View {
             selectedMediaSourceID = nil
             selectedAudioIndex = nil
             selectedSubtitleIndex = nil
-            audioShouldBeDisabled = false
             guard let selected = episodes.first(where: { $0.id == selectedEpisodeID }) else { return }
             do {
                 let details = try await EmbyRepository.shared.detailMetadata(for: selected.item, source: source)
@@ -528,7 +535,21 @@ struct EmbyMediaDetailView: View {
         let audio = selectedVersion?.streams.first { $0.type == "Audio" && $0.id == selectedAudioIndex }
         let subtitle = selectedVersion?.streams.first { $0.type == "Subtitle" && $0.id == selectedSubtitleIndex }
         playback.play(playable, in: source, queue: [playable], audio: audio, subtitle: subtitle,
-                      streams: selectedVersion?.streams ?? [], audioDisabled: audioShouldBeDisabled)
+                      streams: selectedVersion?.streams ?? [])
+    }
+
+    private var favoriteButton: some View {
+        Button {
+            playback.setFavorite(!playback.effectiveFavorite(for: item), for: item, source: source) {
+                favoriteError = $0
+            }
+        } label: {
+            Label(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏",
+                  systemImage: playback.effectiveFavorite(for: item) ? "heart.fill" : "heart")
+        }
+        .tint(Color(uiColor: .label))
+        .foregroundStyle(.primary)
+        .disabled(source.emby?.userID == nil)
     }
 
     private var versionMenu: some View {
@@ -548,6 +569,8 @@ struct EmbyMediaDetailView: View {
         } label: {
             Image(systemName: "doc.on.doc")
         }
+        .tint(Color(uiColor: .label))
+        .foregroundStyle(.primary)
         .accessibilityLabel("媒体版本")
         .disabled(availableVersions.isEmpty || (series.isEmbySeries && versionsEpisodeID != selectedEpisodeID))
     }
@@ -557,21 +580,17 @@ struct EmbyMediaDetailView: View {
         let selection = audio ? selectedAudioIndex : selectedSubtitleIndex
         let tracks = selectedVersion?.streams.filter { $0.type == type } ?? []
         return Menu {
-            Button {
-                if audio {
-                    selectedAudioIndex = nil
-                    audioShouldBeDisabled = true
-                } else {
+            if !audio {
+                Button {
                     selectedSubtitleIndex = nil
+                } label: {
+                    if selection == nil { Label("关闭", systemImage: "checkmark") }
+                    else { Text("关闭") }
                 }
-            } label: {
-                let isOff = audio ? audioShouldBeDisabled : selection == nil
-                if isOff { Label("关闭", systemImage: "checkmark") }
-                else { Text("关闭") }
             }
             ForEach(tracks) { stream in
                 Button {
-                    if audio { selectedAudioIndex = stream.id; audioShouldBeDisabled = false }
+                    if audio { selectedAudioIndex = stream.id }
                     else { selectedSubtitleIndex = stream.id }
                 } label: {
                     if selection == stream.id {
@@ -585,6 +604,8 @@ struct EmbyMediaDetailView: View {
         } label: {
             Image(systemName: symbol)
         }
+        .tint(Color(uiColor: .label))
+        .foregroundStyle(.primary)
         .accessibilityLabel(audio ? "音轨" : "字幕")
         .disabled(selectedVersion == nil || (series.isEmbySeries && versionsEpisodeID != selectedEpisodeID))
     }
@@ -1147,8 +1168,6 @@ struct EmbyMediaDetailView: View {
     private func resetTrackSelection(for version: EmbyMediaVersionDetails) {
         let preferredAudio = EmbyTrackPreferences.selection(version.streams, type: "Audio")
         selectedAudioIndex = preferredAudio ?? version.streams.first(where: { $0.type == "Audio" })?.id
-        audioShouldBeDisabled = preferredAudio == nil
-            && UserDefaults.standard.bool(forKey: EmbyTrackPreferences.disableMissingAudioKey)
         selectedSubtitleIndex = EmbyTrackPreferences.selection(version.streams, type: "Subtitle")
     }
 
@@ -1215,8 +1234,7 @@ struct EmbyMediaDetailView: View {
         let subtitle = selectedVersion.streams.first { $0.type == "Subtitle" && $0.id == selectedSubtitleIndex }
         playback.play(playable, in: source,
                       queue: Array(episodes.dropFirst(episodes.firstIndex(where: { $0.id == selected.id }) ?? 0).map(\.item)),
-                      audio: audio, subtitle: subtitle, streams: selectedVersion.streams,
-                      audioDisabled: audioShouldBeDisabled)
+                      audio: audio, subtitle: subtitle, streams: selectedVersion.streams)
     }
 
     private func toggleSelectedEpisodePlayed() {

@@ -95,9 +95,8 @@ struct EmbyMediaVersionDetails: Hashable, Sendable, Identifiable {
 enum EmbyTrackPreferences {
     static let audioLanguageKey = "emby.audioLanguage"
     static let subtitleLanguageKey = "emby.subtitleLanguage"
-    static let disableMissingAudioKey = "emby.disableMissingAudio"
     static let disableMissingSubtitleKey = "emby.disableMissingSubtitle"
-    static let languages = [("", "未指定"), ("zho", "中文"), ("eng", "英语"), ("jpn", "日语"),
+    static let languages = [("", "未指定"), ("zh-Hans", "简体中文"), ("zh-Hant", "繁体中文"), ("eng", "英语"), ("jpn", "日语"),
                             ("kor", "韩语"), ("fra", "法语"), ("deu", "德语"), ("spa", "西班牙语"),
                             ("ita", "意大利语"), ("por", "葡萄牙语"), ("rus", "俄语"),
                             ("ara", "阿拉伯语"), ("hin", "印地语"), ("tha", "泰语"), ("vie", "越南语")]
@@ -122,15 +121,29 @@ enum EmbyTrackPreferences {
         default: return value
         }
     }
+    static func matches(_ stream: EmbyMediaStreamDetails, language: String) -> Bool {
+        guard normalized(stream.language ?? "") == normalized(language) else { return false }
+        guard language == "zh-Hans" || language == "zh-Hant" else { return true }
+        let code = (stream.language ?? "").lowercased().replacingOccurrences(of: "_", with: "-")
+        let text = [stream.displayTitle, stream.title, stream.displayLanguage].compactMap { $0 }
+            .joined(separator: " ").lowercased()
+        let traditional = code.contains("hant") || code.hasSuffix("-tw") || code.hasSuffix("-hk")
+            || code.hasSuffix("-mo") || text.contains("繁") || text.contains("traditional")
+        let simplified = code.contains("hans") || code.hasSuffix("-cn") || code.hasSuffix("-sg")
+            || text.contains("简") || text.contains("簡") || text.contains("simplified")
+        // Generic chi/zho cannot reliably distinguish scripts: treat as unmatched.
+        return language == "zh-Hant" ? traditional : simplified
+    }
+
     static func selection(_ streams: [EmbyMediaStreamDetails], type: String) -> Int? {
         let tracks = streams.filter { $0.type == type }
         let audio = type == "Audio"
         let language = UserDefaults.standard.string(forKey: audio ? audioLanguageKey : subtitleLanguageKey) ?? ""
         guard !language.isEmpty else { return tracks.first?.id }
-        if let match = tracks.first(where: { normalized($0.language ?? "") == normalized(language) }) {
+        if let match = tracks.first(where: { matches($0, language: language) }) {
             return match.id
         }
-        return UserDefaults.standard.bool(forKey: audio ? disableMissingAudioKey : disableMissingSubtitleKey)
+        return !audio && UserDefaults.standard.bool(forKey: disableMissingSubtitleKey)
             ? nil : tracks.first?.id
     }
 }
@@ -572,7 +585,16 @@ actor EmbyRepository {
         let stored = try await client.get(path)
         guard var data = stored["UserData"] as? [String: Any] else { throw EmbyError.invalidResponse }
         data["PlaybackPositionTicks"] = Int64(seconds * 10_000_000)
-        _ = try await client.send("\(path)/UserData", method: "POST", body: EmbyJSON(data))
+        // Include the documented UserItemDataDto.ItemId, consistently with the route,
+        // rather than depending on its presence in the GET UserData response.
+        data["ItemId"] = item.id.localID
+        do {
+            _ = try await client.send("\(path)/UserData", method: "POST", body: EmbyJSON(data))
+        } catch EmbyError.notFound {
+            throw EmbyOperationFailure(operation: "写入用户播放进度", itemID: item.id.localID,
+                                      sourceID: source.id,
+                                      reason: "条目读取成功，但服务器的 UserData 更新接口返回 HTTP 404；请检查 Emby 版本或反向代理是否允许此 POST 接口。")
+        }
     }
 
     func clearProgress(for item: MediaItem, source: MediaSource) async throws {

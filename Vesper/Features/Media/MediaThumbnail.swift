@@ -165,7 +165,6 @@ struct MediaCardBackdrop: View {
     var showsMissingArtwork = false
     var iconCenterY: CGFloat = 0.5
     var missingArtworkSymbol: String? = nil
-    @AppStorage("navigation.icons") private var navigationIcons = "{}"
 
     var body: some View {
         VesperTheme.mediaCardBackground
@@ -173,7 +172,7 @@ struct MediaCardBackdrop: View {
                 if showsMissingArtwork {
                     GeometryReader { geometry in
                         let size = geometry.size
-                        Image(systemName: missingArtworkSymbol ?? AppSection.media.symbol(configuredIcons: navigationIcons))
+                        Image(systemName: missingArtworkSymbol ?? AppSection.media.symbol)
                             .font(.system(size: min(44, min(size.width, size.height) * 0.28)))
                             .foregroundStyle(.secondary)
                             .position(x: size.width / 2, y: size.height * iconCenterY)

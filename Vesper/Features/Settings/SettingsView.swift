@@ -171,7 +171,6 @@ private struct EmbySettingsView: View {
     @AppStorage(EmbyBrowsingSettings.fullRenderingKey) private var waitsForArtwork = false
     @AppStorage(EmbyTrackPreferences.audioLanguageKey) private var audioLanguage = ""
     @AppStorage(EmbyTrackPreferences.subtitleLanguageKey) private var subtitleLanguage = ""
-    @AppStorage(EmbyTrackPreferences.disableMissingAudioKey) private var disableMissingAudio = false
     @AppStorage(EmbyTrackPreferences.disableMissingSubtitleKey) private var disableMissingSubtitle = false
 
     var body: some View {
@@ -186,7 +185,6 @@ private struct EmbySettingsView: View {
                             .tag(EmbyTrackPreferences.languages[index].0)
                     }
                 }
-                Toggle("无对应语言时关闭音轨", isOn: $disableMissingAudio)
                 Picker("默认字幕语言", selection: $subtitleLanguage) {
                     ForEach(EmbyTrackPreferences.languages.indices, id: \.self) { index in
                         Text(verbatim: EmbyTrackPreferences.languages[index].1)
@@ -195,6 +193,10 @@ private struct EmbySettingsView: View {
                 }
                 Toggle("无对应语言时关闭字幕", isOn: $disableMissingSubtitle)
             }
+        }
+        .task {
+            if ["zho", "chi", "zh"].contains(audioLanguage) { audioLanguage = "zh-Hans" }
+            if ["zho", "chi", "zh"].contains(subtitleLanguage) { subtitleLanguage = "zh-Hans" }
         }
     }
 }
@@ -229,11 +231,6 @@ private struct AppPermissionsView: View {
                     guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
                     UIApplication.shared.open(url)
                 }
-            }
-            SettingsSection {
-                Text("文件和文件夹通过系统文档选择器授权；媒体播放无需单独的麦克风或摄像头权限。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("应用权限")
@@ -476,7 +473,6 @@ private struct AppearanceSettingsView: View {
 
 
 struct TabSettingsView: View {
-    @AppStorage("navigation.icons") private var icons = "{}"
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("navigation.defaultTab") private var defaultTab = "media"
@@ -492,7 +488,7 @@ struct TabSettingsView: View {
     var body: some View {
         SettingsPage {
             Group {
-                SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "调整标签排列顺序和图标。")
+                SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "调整标签排列顺序和显示状态。")
 
                 SettingsSection {
                     ForEach(sections.filter { $0 != .settings }) { section in
@@ -531,37 +527,7 @@ struct TabSettingsView: View {
                 } footer: {
                     Text("关闭后，向下滚动页面时标签栏保持展开。")
                 }
-                Section {
-                    HStack(alignment: .top, spacing: 10) {
-                        ForEach(sections) { section in
-                            Menu {
-                                ForEach(section.iconChoices, id: \.self) { symbol in
-                                    Button { setIcon(symbol, for: section) } label: {
-                                        Label {
-                                            Text(iconTitle(symbol))
-                                        } icon: { Image(systemName: symbol) }
-                                    }
-                                }
-                            } label: {
-                                VStack(spacing: 8) {
-                                    Image(systemName: section.symbol)
-    .font(.system(size: 24, weight: .medium))
-                                        .foregroundStyle(.tint)
-                                    Text(section.title)
-                                        .font(.caption.weight(.medium))
-                                        .foregroundStyle(.primary)
-                                }
-                                .frame(maxWidth: .infinity, minHeight: 88)
-                                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-                                .contentShape(RoundedRectangle(cornerRadius: 16))
-                            }
-                            .accessibilityHint("更换图标")
-                        }
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                }
+
             }
         }
         .contentMargins(.top, 0, for: .scrollContent)
@@ -577,13 +543,12 @@ struct TabSettingsView: View {
         .alert("恢复默认标签设置？", isPresented: $isShowingResetConfirmation) {
             Button("恢复默认", role: .destructive) {
                 order = "media,sources,history,settings"
-                icons = "{}"
                 hidden = ""
                 defaultTab = "media"
             }
             Button("取消", role: .cancel) { }
         } message: {
-            Text("将恢复标签的排列顺序、图标、显示状态和默认标签页。")
+            Text("将恢复标签的排列顺序、显示状态和默认标签页。")
         }
         .sheet(isPresented: $isShowingOrderSettings) {
             NavigationStack {
@@ -605,41 +570,11 @@ struct TabSettingsView: View {
         }
 
     }
-    private func setIcon(_ symbol: String, for section: AppSection) {
-        let data = icons.data(using: .utf8) ?? Data()
-        var values = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
-        values[section.rawValue] = symbol
-        if let data = try? JSONEncoder().encode(values), let saved = String(data: data, encoding: .utf8) {
-            icons = saved
-        }
-    }
-
-    private func iconTitle(_ symbol: String) -> LocalizedStringKey {
-        switch symbol {
-        case "film": "胶片"
-        case "play.rectangle": "播放"
-        case "tv": "电视"
-        case "photo.on.rectangle": "相册"
-        case "externaldrive": "硬盘"
-        case "folder": "文件夹"
-        case "server.rack": "服务器"
-        case "network": "网络"
-        case "clock.arrow.circlepath": "历史"
-        case "clock": "时钟"
-        case "list.bullet": "列表"
-        case "calendar": "日历"
-        case "gearshape": "齿轮"
-        case "gear": "圆形齿轮"
-        case "slider.horizontal.3": "滑块"
-        default: "开关"
-        }
-    }
 
 }
 
 
 private struct TabOrderSettingsView: View {
-    @AppStorage("navigation.icons") private var icons = "{}"
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
 
     private var sections: [AppSection] {
