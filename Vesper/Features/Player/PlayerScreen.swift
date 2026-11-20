@@ -215,11 +215,14 @@ struct PlayerScreen: View {
             transaction.disablesAnimations = true
             withTransaction(transaction) { volumeExpanded = false; volumeDragStart = nil }
         }
-        .task(id: hudRevision) {
-            do { try await Task.sleep(for: .seconds(hudDuration)) } catch { return }
-            guard !Task.isCancelled else { return }
-            hudText = ""
-        }
+        .task(id: hudRevision) { await dismissHUDWhenReady() }
+    }
+
+    @MainActor private func dismissHUDWhenReady() async {
+        let delay: Duration = .seconds(hudDuration)
+        do { try await Task.sleep(for: delay) } catch { return }
+        guard !Task.isCancelled else { return }
+        hudText = ""
     }
 
     private func topControls(availableWidth: CGFloat, landscape: Bool) -> some View {
