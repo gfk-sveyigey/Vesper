@@ -52,6 +52,18 @@ struct PlayerScreen: View {
     private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
 
     var body: some View {
+        observedPlayer
+            .task(id: autoHideRevision) { await autoHideControlsWhenReady() }
+            .task(id: volumeResetRevision) { await resetVolumeWhenReady() }
+            .task(id: hudRevision) { await dismissHUDWhenReady() }
+    }
+
+    private var observedPlayer: some View {
+        presentedPlayer
+            .onAppear(perform: preparePlayerAppearance)
+    }
+
+    private var presentedPlayer: some View {
         GeometryReader { geometry in
             ZStack {
                 Color.black.ignoresSafeArea()
