@@ -23,6 +23,7 @@ MEDIA = {'Id': 'v2', 'Name': 'Version 2', 'RunTimeTicks': 6000000000, 'Container
                            'IsDefault': True}]}
 ITEM = {'Id': 'movie', 'Name': 'Movie', 'Type': 'Movie', 'RunTimeTicks': 6000000000,
         'UserData': {'PlaybackPositionTicks': 300000000}, 'Overview': 'A movie',
+        'ImageTags': {'Primary': 'movie-primary-tag'},
         'SeriesId': 'series', 'SeriesPrimaryImageTag': 'series-tag',
         'MediaSources': [dict(MEDIA, Id='v1', Name='Version 1'), MEDIA]}
 SERIES = {'Id': 'series', 'Name': 'Series', 'Type': 'Series', 'IsFolder': True,
@@ -75,6 +76,9 @@ class Handler(BaseHTTPRequestHandler):
             assert self.headers.get('Authorization', '').startswith('Emby UserId="user"')
             assert self.headers.get('X-Emby-Token') == 'secret'
             self.respond({'image': 'movie-primary'}); return
+        if path.path == '/proxy/emby/Items/movie/Images/Primary':
+            assert parse_qs(path.query)['tag'] == ['movie-primary-tag']
+            self.respond({'image': 'movie-default-primary'}); return
         if path.path == '/proxy/emby/Items/movie/Images/Primary/1':
             self.respond({'image': 'movie-primary-landscape'}); return
         if path.path == '/proxy/emby/Items/ratio-neutral/Images/Primary/0':

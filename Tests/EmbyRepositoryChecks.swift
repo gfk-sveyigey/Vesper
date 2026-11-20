@@ -106,11 +106,11 @@ struct EmbyRepositoryChecks {
         precondition(item.fallbackImageURL?.path == "/proxy/emby/Items/series/Images/Primary")
         let thumbnail = await repository.thumbnailData(for: item, source: source, orientation: .landscape)
         let movieImage = try JSONDecoder().decode([String: String].self, from: thumbnail ?? Data())
-        precondition(movieImage["image"] == "movie-primary-landscape")
+        precondition(movieImage["image"] == "movie-default-primary")
         precondition(thumbnail != nil)
         let portraitThumbnail = await repository.thumbnailData(for: item, source: source, orientation: .portrait)
         let portraitImage = try JSONDecoder().decode([String: String].self, from: portraitThumbnail ?? Data())
-        precondition(portraitImage["image"] == "movie-primary")
+        precondition(portraitImage["image"] == "movie-default-primary")
         let ratioNeutralItem = MediaItem(id: MediaID(sourceID: source.id, localID: "ratio-neutral"),
                                          title: "Neutral Ratio", resource: nil,
                                          embyItemType: "Movie")

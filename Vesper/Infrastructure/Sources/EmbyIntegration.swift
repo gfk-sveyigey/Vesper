@@ -853,6 +853,12 @@ actor EmbyRepository {
         } else {
             preferredTypes = ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
         }
+        if isPosterItem,
+           let primaryURL = item.imageURL ?? client.imageURL(itemID: item.id.localID, tag: nil),
+           client.sameOrigin(primaryURL),
+           let data = await fetchThumbnail(primaryURL, client: client) {
+            return data
+        }
         for image in await selectedImages(for: item, source: source, client: client,
                                           preferredTypes: preferredTypes, preferredOrientation: preferredOrientation)
             where client.sameOrigin(image) {
