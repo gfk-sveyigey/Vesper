@@ -20,8 +20,6 @@ struct PlayerScreen: View {
     @State private var menuPresented = false
     @State private var scrubShowsControls = true
     @State private var scrubPreviews = true
-    @AppStorage("player.subtitle.fontSize") private var subtitleFontSize = 22.0
-    @AppStorage("player.subtitle.background") private var subtitleBackground = true
     @State private var scrubTime: Double = 0
     @State private var scrubStart: Double = 0
     @State private var isScrubbing = false
@@ -118,7 +116,11 @@ struct PlayerScreen: View {
     }
 
     private var presentedPlayer: some View {
-        GeometryReader { geometry in
+        // Read safe-area margins outside the edge-to-edge viewport. Video,
+        // transport and UIKit rotation now share the full-screen midpoint;
+        // only the peripheral controls are inset into the safe area.
+        GeometryReader { safeGeometry in
+            GeometryReader { geometry in
             ZStack {
                 Color.black.ignoresSafeArea()
                 if let view = session.videoView {
@@ -126,14 +128,14 @@ struct PlayerScreen: View {
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
                 }
+                DanmakuOverlay(session: session, document: session.danmaku)
+                    .id(ObjectIdentifier(session.danmaku))
                 PlayerGestureSurface(tapped: handleTap, held: { region, fingers in
                     guard !regionsVisible, !controlsVisible, !menuPresented, panel == nil else { return }
                     performGestureAction(PlayerGesturePreferences.action(.longPress, region, fingers))
                 }, panned: handlePan)
                     .ignoresSafeArea()
                     .accessibilityHidden(true)
-                subtitles
-                    .allowsHitTesting(false)
                 LinearGradient(colors: [.black.opacity(0.6), .clear, .clear, .black.opacity(0.75)],
                                startPoint: .top, endPoint: .bottom)
                     .ignoresSafeArea()
@@ -142,18 +144,18 @@ struct PlayerScreen: View {
                 // Independent placement keeps the transport centered on the
                 // actual video, regardless of header/title/progress height.
                 transportControls
-                    .position(x: (geometry.size.width + geometry.safeAreaInsets.trailing - geometry.safeAreaInsets.leading) / 2,
-                              y: (geometry.size.height + geometry.safeAreaInsets.bottom - geometry.safeAreaInsets.top) / 2)
+                    .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                     .opacity(controlsVisible && session.errorMessage == nil && !session.isLoading ? 1 : 0)
                     .allowsHitTesting(controlsVisible && session.errorMessage == nil && !session.isLoading)
                     .accessibilityHidden(!controlsVisible || session.errorMessage != nil || session.isLoading)
                 VStack {
-                    topControls(availableWidth: geometry.size.width - (geometry.size.width > geometry.size.height ? 24 : 40), landscape: geometry.size.width > geometry.size.height)
+                    topControls(availableWidth: max(0, geometry.size.width - safeGeometry.safeAreaInsets.leading - safeGeometry.safeAreaInsets.trailing - (geometry.size.width > geometry.size.height ? 24 : 40)), landscape: geometry.size.width > geometry.size.height)
                     Spacer(minLength: 0)
                     bottomControls(landscape: geometry.size.width > geometry.size.height)
                 }
                 .padding(.horizontal, geometry.size.width > geometry.size.height ? 12 : 20)
                 .padding(.vertical, 12)
+                .padding(safeGeometry.safeAreaInsets)
                 // Keep the Menu mounted while fading the controls, so a
                 // system menu never loses its presentation anchor mid-use.
                 .opacity(controlsVisible ? 1 : 0)
@@ -176,7 +178,7 @@ struct PlayerScreen: View {
                         .lineLimit(1)
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .glassEffect(.regular, in: Capsule())
-                        .padding(.top, controlsVisible ? 62 : 8)
+                        .padding(.top, safeGeometry.safeAreaInsets.top + (controlsVisible ? 62 : 8))
                         Spacer()
                     }
                     .allowsHitTesting(false)
@@ -186,7 +188,7 @@ struct PlayerScreen: View {
                         Spacer()
                         progressRow
                     }
-                    .padding(.horizontal, 28).padding(.bottom, 12)
+                    .padding(.horizontal, 28).padding(.bottom, safeGeometry.safeAreaInsets.bottom + 12)
                     .allowsHitTesting(false).accessibilityHidden(true)
                 }
                 if regionsVisible { regionOverlay.ignoresSafeArea() }
@@ -194,6 +196,8 @@ struct PlayerScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .foregroundStyle(.white).tint(.white)
+            }
+            .ignoresSafeArea(.container)
         }
         .overlay(alignment: .topLeading) {
             PlayerVolumeBridge(volume: volume)
@@ -575,24 +579,6 @@ struct PlayerScreen: View {
         }
     }
 
-    private var subtitles: some View {
-        VStack {
-            Spacer()
-            if let image = session.subtitleImage {
-                Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 140)
-            }
-            if !session.subtitleText.isEmpty {
-                Text(verbatim: session.subtitleText)
-                    .font(.system(size: subtitleFontSize, weight: .semibold)).multilineTextAlignment(.center)
-                    .foregroundStyle(.white).shadow(color: .black, radius: 2, x: 1, y: 1)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(.black.opacity(subtitleBackground ? 0.45 : 0), in: RoundedRectangle(cornerRadius: 6))
-            }
-        }
-        .padding(.horizontal, 20).padding(.bottom, controlsVisible ? 178 : (isScrubbing ? 68 : 24))
-        .frame(maxWidth: .infinity)
-    }
-
     private func glassButton(_ title: LocalizedStringKey, symbol: String, size: CGFloat = 44, iconSize: CGFloat? = nil,
                              action: @escaping () -> Void) -> some View {
         Button { revealControls(); action() } label: {
@@ -627,14 +613,14 @@ struct PlayerScreen: View {
                             }
                         }
                         SettingsSection {
-                            NavigationLink("弹幕设置") { DanmakuSettingsView() }
-                            NavigationLink("字幕设置") { SubtitleSettingsView() }
+                            NavigationLink("弹幕设置") { PlayerDanmakuSettingsView(document: session.danmaku) }
+                            NavigationLink("字幕设置") { PlayerSubtitleSettingsView(session: session) }
                             NavigationLink("播放手势") { PlayerGestureSettingsView() }
                         }
                     }.contentMargins(.top, 0, for: .scrollContent).navigationTitle("更多设置")
                 case .gestures: PlayerGestureSettingsView()
-                case .danmaku: DanmakuSettingsView()
-                case .subtitles: SubtitleSettingsView()
+                case .danmaku: PlayerDanmakuSettingsView(document: session.danmaku)
+                case .subtitles: PlayerSubtitleSettingsView(session: session)
                 case .synopsis: PlayerMediaInfoView(session: session, showsDetails: false)
                 case .details: PlayerMediaInfoView(session: session, showsDetails: true)
                 case .queue:

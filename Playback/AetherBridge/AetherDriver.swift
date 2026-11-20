@@ -59,13 +59,6 @@ internal import AetherEngine
         if engine.playbackBackend == .native { result.actualDecoder = .hardware }
         result.audio = engine.audioTracks.map { .init(id: String($0.id), name: $0.name, language: $0.language, codec: $0.codec, selected: $0.id == engine.activeAudioTrackIndex) }
         result.subtitles = engine.subtitleTracks.map { .init(id: String($0.id), name: $0.name, language: $0.language, codec: $0.codec, selected: $0.id == engine.activeSubtitleTrackIndex) }
-        let cues = engine.subtitleCues.filter { $0.startTime <= result.time && $0.endTime >= result.time }
-        result.subtitleText = cues.compactMap { cue -> String? in
-            switch cue.body { case .text(let text): text; case .richText(let runs): runs.map(\.text).joined(); case .image: nil }
-        }.joined(separator: "\n")
-        result.subtitleImage = cues.compactMap { cue -> UIImage? in
-            if case .image(let image) = cue.body { return UIImage(cgImage: image.cgImage) }; return nil
-        }.first
         if let pip = nativePiPController { result.pipPossible = pip.isPictureInPicturePossible; result.pipActive = pip.isPictureInPictureActive }
         return result
     }
@@ -80,8 +73,7 @@ internal import AetherEngine
         options.autoplay = configuration.autoplay
         options.preferredDecodePath = configuration.decoder == .software ? .software : .automatic
         options.httpHeaders = configuration.requestHeaders
-        // Prepare AVPlayer renditions at load time; the app keeps drawing its own
-        // overlay inline and hands rendering to AVKit only while PiP is active.
+        // Prepare engine-owned subtitle rendering for inline and PiP playback.
         options.prepareNativeSubtitles = true
         if let limit = configuration.preloadCacheLimitBytes {
             options.sessionCacheByteBudget = limit
@@ -98,10 +90,17 @@ internal import AetherEngine
     }
     public func configure(_ configuration: EngineConfiguration) {
         self.configuration = configuration
+        engine?.setNativeSubtitleRendering(true)
         engine?.backgroundPlaybackEnabled = configuration.backgroundEnabled
         engine?.volume = configuration.muted ? 0 : 1
         engine?.setRate(configuration.rate)
         engine?.currentAVPlayer?.allowsExternalPlayback = true
+        if let item = engine?.currentAVPlayer?.currentItem,
+           let rule = AVTextStyleRule(textMarkupAttributes: [
+               kCMTextMarkupAttribute_RelativeFontSize as String: configuration.subtitleFontSize / 22 * 100
+           ]) {
+            item.textStyleRules = [rule]
+        }
         engine?.videoGravity = configuration.fillsScreen && pip?.isPictureInPictureActive != true ? .resizeAspectFill : .resizeAspect
         pip?.canStartPictureInPictureAutomaticallyFromInline = configuration.automaticPiP
     }
@@ -118,9 +117,8 @@ internal import AetherEngine
     public func selectSubtitle(_ id: String?) { if let id, let index = Int(id) { engine?.selectSubtitleTrack(index: index) } else { engine?.clearSubtitle() } }
     public func setPiPActive(_ active: Bool) {
         engine?.pictureInPictureActive = active
-        // Maps the selected source track to its native ordinal. This is a standing
-        // request, so track changes and subtitles-off keep working during PiP.
-        engine?.setNativeSubtitleRendering(active)
+        // Keep subtitles engine-rendered when returning from PiP too.
+        engine?.setNativeSubtitleRendering(true)
         engine?.videoGravity = active || !configuration.fillsScreen ? .resizeAspect : .resizeAspectFill
     }
     public func startPiP() {

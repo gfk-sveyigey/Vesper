@@ -97,7 +97,7 @@ struct TranscodedPlaybackResource: Sendable {
     /// Stage a paused, muted decoder while the active driver continues playing.
     /// Failure leaves the active player and server session untouched.
     func switchDecoder(to decoder: DecodePreference) async throws -> DecodePreference? {
-        guard decoderPreparation == nil, !isTransitioning,
+        guard engineID != .vlc, decoderPreparation == nil, !isTransitioning,
               let active = driver, let url, snapshot.seekable,
               snapshot.phase == .playing || snapshot.phase == .paused,
               !snapshot.pipActive else {

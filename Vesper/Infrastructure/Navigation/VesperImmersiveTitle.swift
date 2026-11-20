@@ -419,15 +419,15 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                             let outline = context.resolve(
                                 Text(title)
                                     .font(headerTitleFont)
-                                    .foregroundStyle(Color(uiColor: .systemBackground))
+                                    .foregroundStyle(Color(uiColor: .secondaryLabel).opacity(0.65))
                             )
-                            // A half-point contour behind the original accessible Text.
+                            // A soft 0.75-point contour behind the accessible Text.
                             let center = CGPoint(x: size.width / 2, y: size.height / 2)
                             for step in 0..<16 {
                                 let angle = Double(step) * .pi / 8
                                 context.draw(outline, at: CGPoint(
-                                    x: center.x + CGFloat(cos(angle)) * 0.5,
-                                    y: center.y + CGFloat(sin(angle)) * 0.5
+                                    x: center.x + CGFloat(cos(angle)) * 0.75,
+                                    y: center.y + CGFloat(sin(angle)) * 0.75
                                 ))
                             }
                         }

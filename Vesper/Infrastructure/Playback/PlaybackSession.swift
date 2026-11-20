@@ -30,7 +30,12 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var recordWrites: [MediaID: EmbyRecordWrite] = [:]
     private var manuallyUnplayedCurrentItem: MediaID?
     private var lastHistorySave = Date.distantPast
-    @Published private(set) var currentItem: MediaItem?
+    @Published private(set) var currentItem: MediaItem? {
+        didSet {
+            if oldValue?.id != currentItem?.id { danmaku = PlayerDanmaku() }
+        }
+    }
+    @Published private(set) var danmaku = PlayerDanmaku()
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
     @Published private(set) var currentTime: TimeInterval = 0
@@ -51,6 +56,21 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     @Published private(set) var isPictureInPicturePossible = false
     @Published private(set) var isPictureInPictureActive = false
     @Published var playbackNotice: String?
+    @Published private var subtitleSizes: [PlaybackEngine: Double] = [:]
+    var subtitleSize: Double { subtitleSizes[currentEngine] ?? 22 }
+    @Published private(set) var subtitleDelay: Double = 0
+
+    func setSubtitleSize(_ value: Double) {
+        guard value.isFinite else { return }
+        subtitleSizes[currentEngine] = min(40, max(14, value))
+        core.configure(engineConfiguration)
+    }
+
+    func setSubtitleDelay(_ value: Double) {
+        guard currentEngine == .vlc, value.isFinite else { return }
+        subtitleDelay = min(30, max(-30, value))
+        core.configure(engineConfiguration)
+    }
     struct PlaybackTransitionNotice: Equatable {
         let id = UUID()
         let message: String
@@ -185,6 +205,15 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
 
     func setCurrentDecoder(_ decoder: PlaybackDecoder) {
         guard decoder != currentDecoder, currentItem != nil, decoderChange == nil, canControl else { return }
+        // SwiftVLC 1.0.0 has no presented-frame readiness acknowledgement.
+        // A detached paused candidate can open audio without a usable drawable,
+        // so do not use the speculative dual-player path for this bridge.
+        if currentEngine == .vlc, let item = currentItem {
+            load(item, source: source, engine: .vlc, decoder: decoder,
+                 position: currentTime, resume: isPlaying, rate: playbackRate,
+                 reportsDecoderChange: true)
+            return
+        }
         let token = generation
         requestedDecoder = decoder
         decoderChange = Task { [weak self] in
@@ -1332,8 +1361,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         value.rate = playbackRate; value.muted = isMuted; value.fillsScreen = fillsScreen
         value.backgroundEnabled = PlaybackPreferences.backgroundEnabled
         value.automaticPiP = automaticallyStartsPictureInPicture
-        value.subtitleFontSize = UserDefaults.standard.object(forKey: "player.subtitle.fontSize") as? Double ?? 22
-        value.subtitleBackground = UserDefaults.standard.object(forKey: "player.subtitle.background") as? Bool ?? true
+        value.subtitleFontSize = subtitleSize
+        value.subtitleDelay = subtitleDelay
         value.requestHeaders = resource?.headers ?? [:]
         value.externalSubtitles = resource?.externalSubtitles ?? []
         return value

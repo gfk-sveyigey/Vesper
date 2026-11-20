@@ -99,35 +99,43 @@ struct PlaybackSettingsView: View {
 }
 
 struct SubtitleSettingsView: View {
-    @AppStorage("player.subtitle.fontSize") private var fontSize = 22.0
-    @AppStorage("player.subtitle.background") private var showsBackground = true
     var body: some View {
         SettingsPage {
-            Group {
-                SettingsIntroCard(title: "字幕设置", symbol: "captions.bubble", description: "调整字幕字号与背景。")
-                SettingsSection {
-                    SettingsPicker("字幕字号", selection: $fontSize) {
-                        ForEach([18.0, 20, 22, 24, 28, 32], id: \.self) { size in
-                            Text(verbatim: String(format: "%g", size)).tag(size)
-                        }
+            SettingsSection {
+                Text("请在播放界面打开字幕设置。可调整的选项随当前播放引擎及字幕格式变化。")
+            }
+        }
+        .navigationTitle("字幕设置")
+        .toolbarTitleDisplayMode(.inline)
+    }
+}
+
+struct PlayerSubtitleSettingsView: View {
+    @ObservedObject var session: PlaybackSession
+    var body: some View {
+        SettingsPage {
+            SettingsSection {
+                LabeledContent("播放内核", value: session.currentEngine.title)
+            }
+            if session.currentEngine == .vlc {
+                SettingsSection("SwiftVLC 字幕") {
+                    Slider(value: Binding(get: { session.subtitleSize }, set: { session.setSubtitleSize($0) }), in: 14...40, step: 1)
+                    LabeledContent("字幕字号", value: String(format: "%.0f", session.subtitleSize))
+                    Stepper(value: Binding(get: { session.subtitleDelay }, set: { session.setSubtitleDelay($0) }), in: -30...30, step: 0.1) {
+                        LabeledContent("字幕延迟", value: String(format: "%+.1f 秒", session.subtitleDelay))
                     }
-                    Toggle("字幕背景", isOn: $showsBackground)
                 } footer: {
-                    Text("在播放器的字幕菜单中选择视频内的字幕轨道。字号和背景设置应用于文字字幕。")
+                    Text("正值延后，负值提前。延迟适用于内嵌和外挂字幕；字号缩放以 VLC 和字幕格式支持为准，图片字幕不能修改字体。")
                 }
-                SettingsSection {
-                    Text("字幕预览")
-                        .font(.system(size: fontSize, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .shadow(color: .black, radius: 2)
-                        .padding(8)
-                        .background(.black.opacity(showsBackground ? 0.6 : 0), in: RoundedRectangle(cornerRadius: 6))
-                        .frame(maxWidth: .infinity, minHeight: 80)
+            } else {
+                SettingsSection("Aether 字幕") {
+                    Slider(value: Binding(get: { session.subtitleSize }, set: { session.setSubtitleSize($0) }), in: 14...40, step: 1)
+                    LabeledContent("字幕字号", value: String(format: "%.0f", session.subtitleSize))
+                } footer: {
+                    Text("字号仅用于支持样式覆盖的原生文本字幕，软件路径或图片字幕可能不生效。当前引擎没有跨播放路径通用的字幕延迟接口，暂不提供延迟调整。")
                 }
             }
         }
-        .contentMargins(.top, 0, for: .scrollContent)
-        .background(VesperTheme.background)
         .navigationTitle("字幕设置")
         .toolbarTitleDisplayMode(.inline)
     }
@@ -135,14 +143,14 @@ struct SubtitleSettingsView: View {
 
 struct DanmakuSettingsView: View {
     var body: some View {
-        SettingsPage {
-            Group {
-                SettingsIntroCard(title: "弹幕设置", symbol: "text.bubble", description: "管理播放弹幕。")
-                SettingsSection { Text("尚未接入弹幕来源。").foregroundStyle(.secondary) }
+        Form {
+            Section {
+                NavigationLink("自定义弹幕 API") { DanmakuAPISettingsView() }
+            } footer: {
+                Text("在播放界面的弹幕设置中搜索在线弹幕或导入本地 Bilibili XML 文件。弹幕仅用于当前视频，时间偏移可在播放界面调整。")
             }
+            DanmakuPreferenceSections()
         }
-        .contentMargins(.top, 0, for: .scrollContent)
-        .background(VesperTheme.background)
         .navigationTitle("弹幕设置")
         .toolbarTitleDisplayMode(.inline)
     }

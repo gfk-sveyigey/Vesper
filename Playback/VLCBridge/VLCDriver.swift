@@ -151,6 +151,7 @@ internal import SwiftVLC
         try? player.setPlaybackRate(PlaybackRate(configuration.rate))
         player.aspectRatio = configuration.fillsScreen && pip?.isActive != true ? .fill : .default
         player.setSubtitleScale(SubtitleScale(Float(configuration.subtitleFontSize / 22)))
+        try? player.setSubtitleDelay(.seconds(configuration.subtitleDelay))
         if hasInstalledSurface && previous.automaticPiP != configuration.automaticPiP {
             if !configuration.automaticPiP { pip?.stop() }
             installSurface(player)

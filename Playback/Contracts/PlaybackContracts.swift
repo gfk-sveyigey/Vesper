@@ -36,6 +36,7 @@ public struct EngineConfiguration: Sendable {
     public var automaticPiP = false
     public var subtitleFontSize: Double = 22
     public var subtitleBackground = true
+    public var subtitleDelay: Double = 0
     /// Optional Emby compressed-media cache budget, in bytes. VLC converts it to a time buffer.
     public var preloadCacheLimitBytes: Int? = nil
     /// Total bitrate of the selected stream, in bits per second.

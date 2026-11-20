@@ -672,6 +672,10 @@ struct MediaView: View {
             Group {
                 if let source = library.selectedSource, source.kind == .emby {
                     sourceMenuIcon(source, size: 24)
+                } else if let source = library.selectedSource, source.kind == .local || source.kind == .photos {
+                    Image(systemName: sourceSymbol(source))
+                        .foregroundStyle(.primary)
+                        .contentTransition(.symbolEffect(.replace))
                 } else {
                     menuSymbol(sourceSymbol(library.selectedSource), color: .systemBlue, source: library.selectedSource)
                         .contentTransition(.symbolEffect(.replace))
