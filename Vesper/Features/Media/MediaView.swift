@@ -201,7 +201,7 @@ struct MediaView: View {
         let title: LocalizedStringKey = library.selectedSource.map { LocalizedStringKey("\($0.name)") } ?? "媒体"
         return VesperRootScrollView(title: title, extendsContentUnderHeader: showsFeaturedRegion,
                                    showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
-                                   scrollPosition: $mediaScrollPosition,
+                                   // Diagnostic A/B test: leave the native scroll position unbound.
                                    onVerticalOffsetChange: updateMediaScrollOffset,
                                    onVerticalScrollPhaseChange: updateMediaScrollPhase,
                                    onTopPullChange: expandEmbyShortcuts(forTopPull:)) {
