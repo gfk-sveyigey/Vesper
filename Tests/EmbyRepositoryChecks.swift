@@ -100,7 +100,10 @@ struct EmbyRepositoryChecks {
         precondition(items.count == 1 && !items[0].isContainer)
         var item = items[0]
         precondition(item.fallbackImageURL?.path == "/proxy/emby/Items/series/Images/Primary")
+        precondition(item.primaryImageAspectRatio == 1.78)
         let thumbnail = await repository.thumbnailData(for: item, source: source)
+        let movieImage = try JSONDecoder().decode([String: String].self, from: thumbnail ?? Data())
+        precondition(movieImage["image"] == "movie-primary")
         precondition(thumbnail != nil)
         precondition(item.id.sourceID == source.id && item.id.localID == "movie")
         precondition(item.resumePosition == 30 && item.duration == 600)

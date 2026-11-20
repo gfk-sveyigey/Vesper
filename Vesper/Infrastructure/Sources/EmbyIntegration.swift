@@ -834,11 +834,18 @@ actor EmbyRepository {
 
     func thumbnailData(for item: MediaItem, source: MediaSource, aspectRatio: Double = 2.0 / 3.0) async -> Data? {
         guard let client = try? await clientProvider(source) else { return nil }
-        let itemAspectRatio = item.primaryImageAspectRatio.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
-            ?? (item.embyItemType == "Episode" ? 16.0 / 9.0 : 2.0 / 3.0)
-        let preferredTypes = itemAspectRatio >= 1
-            ? ["Thumb", "Screenshot", "Backdrop", "Primary", "Thumbnail"]
-            : ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
+        let reportedAspectRatio = item.primaryImageAspectRatio.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        let isPosterItem = ["Movie", "Series"].contains(item.embyItemType ?? "")
+        let isEpisode = item.embyItemType == "Episode"
+        let itemAspectRatio = reportedAspectRatio ?? (isEpisode ? 16.0 / 9.0 : 2.0 / 3.0)
+        let preferredTypes: [String]
+        if isPosterItem {
+            preferredTypes = ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
+        } else if isEpisode || itemAspectRatio >= 1 {
+            preferredTypes = ["Thumb", "Screenshot", "Backdrop", "Primary", "Thumbnail"]
+        } else {
+            preferredTypes = ["Primary", "Thumbnail", "Thumb", "Backdrop", "Screenshot"]
+        }
         for image in await selectedImages(for: item, source: source, client: client,
                                           preferredTypes: preferredTypes, targetAspectRatio: itemAspectRatio)
             where client.sameOrigin(image) {

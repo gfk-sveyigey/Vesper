@@ -565,7 +565,7 @@ actor AppCacheStore {
     }
 
     nonisolated static func embyArtworkKey(for item: MediaItem, source: MediaSource) -> String {
-        let key = "\(scope(for: source))|\(item.id.localID)|\(item.imageURL?.absoluteString ?? "")"
+        let key = "artwork-v2|\(scope(for: source))|\(item.id.localID)|\(item.imageURL?.absoluteString ?? "")"
         if item.embyItemType == "Episode" {
             return "episode-preview|\(key)|\(item.previewImageURL?.absoluteString ?? "")"
         }

@@ -274,7 +274,7 @@ final class MediaThumbnailLoader {
     }
 
     private func textlessPoster(for item: MediaItem, source: MediaSource) async -> Data? {
-        let key = "featured-textless|\(AppCacheStore.embyArtworkKey(for: item, source: source))"
+        let key = "featured-textless-v2|\(AppCacheStore.embyArtworkKey(for: item, source: source))"
         let (cached, generation) = await AppCacheStore.shared.image(key: key)
         if let cached, UIImage(data: cached) != nil { return cached }
         for url in await EmbyRepository.shared.featuredPosterCandidates(for: item, source: source) {
