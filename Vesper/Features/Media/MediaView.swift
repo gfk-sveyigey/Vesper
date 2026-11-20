@@ -163,8 +163,8 @@ struct MediaView: View {
                 if route.origin == .carousel {
                     let detail = EmbyMediaDetailView(source: route.source, series: item,
                                                       startsWithCarouselInformationHidden: true,
-                                                      initialHeroArtwork: library.embyHome?.featuredArtwork[item.id]
-                                                        ?? EmbyFeaturedArtwork(poster: library.embyHome?.artwork[item.id.localID], logo: nil))
+                                                      initialHeroArtwork: library.embyHome?.featuredArtwork?[item.id]
+                                                        ?? EmbyFeaturedArtwork(poster: library.embyHome?.artwork?[item.id.localID], logo: nil))
                         .background {
                             CarouselDetailCrossfade.ReturnObserver(transition: carouselCrossfade,
                                                                    reduceMotion: reduceMotion)
