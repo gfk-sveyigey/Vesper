@@ -765,19 +765,39 @@ struct VesperCenteredEmptyContent: View {
     }
 }
 
-/// Temporary, read-only diagnostics. No gesture recognizers, delegate replacement,
-/// scroll-property writes or programmatic scrolling are used here.
+/// Temporary diagnostics: a never-recognizing touch observer and read-only
+/// snapshots. No system delegate replacement or scroll-property writes.
 struct VesperTabScrollDiagnostics: UIViewRepresentable {
     func makeUIView(context: Context) -> ProbeView { ProbeView() }
     func updateUIView(_ uiView: ProbeView, context: Context) { }
     static func dismantleUIView(_ uiView: ProbeView, coordinator: ()) { uiView.stop() }
 
-    final class ProbeView: UIView {
+    /// Receives raw touch callbacks, but never recognizes a gesture or prevents
+    /// another recognizer. Native tab recognizers are left entirely in charge.
+    final class TabTouchObserver: UIGestureRecognizer {
+        var onTouch: ((String, UITouch) -> Void)?
+
+        override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+        override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            for touch in touches { onTouch?("began", touch) }
+        }
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+            for touch in touches { onTouch?("ended", touch) }
+            state = .failed
+        }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+            for touch in touches { onTouch?("cancelled", touch) }
+            state = .failed
+        }
+    }
+
+    final class ProbeView: UIView, UIGestureRecognizerDelegate {
         private var timer: Timer?
         private weak var tabs: UITabBarController?
-        private var controls: [UIControl] = []
+        private weak var observedWindow: UIWindow?
+        private var touchObserver: TabTouchObserver?
         private var lastSignature = ""
-        private var lastHighlight = ""
         private var needsSettledSnapshot = false
         private var lastChange = Date.distantPast
         private var eventNumber = 0
@@ -792,7 +812,19 @@ struct VesperTabScrollDiagnostics: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             stop()
-            guard window != nil else { return }
+            guard let window else { return }
+            let observer = TabTouchObserver()
+            observer.cancelsTouchesInView = false
+            observer.delaysTouchesBegan = false
+            observer.delaysTouchesEnded = false
+            observer.requiresExclusiveTouchType = false
+            observer.delegate = self
+            observer.onTouch = { [weak self] phase, touch in
+                self?.recordTouch(phase, touch: touch)
+            }
+            window.addGestureRecognizer(observer)
+            observedWindow = window
+            touchObserver = observer
             let timer = Timer(timeInterval: 0.2, target: self,
                               selector: #selector(sample), userInfo: nil, repeats: true)
             self.timer = timer
@@ -803,8 +835,9 @@ struct VesperTabScrollDiagnostics: UIViewRepresentable {
         func stop() {
             timer?.invalidate()
             timer = nil
-            for control in controls { control.removeTarget(self, action: nil, for: .allEvents) }
-            controls = []
+            if let touchObserver { observedWindow?.removeGestureRecognizer(touchObserver) }
+            touchObserver = nil
+            observedWindow = nil
             tabs = nil
         }
 
@@ -825,23 +858,9 @@ struct VesperTabScrollDiagnostics: UIViewRepresentable {
                   window.windowScene?.activationState == .foregroundActive,
                   let root = window.rootViewController,
                   let current = findTabs(root) else { return }
-            let found = descendants(current.tabBar).compactMap { $0 as? UIControl }
-            if tabs !== current || found.map(ObjectIdentifier.init) != controls.map(ObjectIdentifier.init) {
-                for control in controls { control.removeTarget(self, action: nil, for: .allEvents) }
+            if tabs !== current {
                 tabs = current
-                controls = found
-                for control in controls {
-                    control.addTarget(self, action: #selector(touchDown(_:)), for: .touchDown)
-                    control.addTarget(self, action: #selector(touchUp(_:)), for: .touchUpInside)
-                }
-                snapshot("attached controls=\(controls.count) OS=\(UIDevice.current.systemVersion)")
-            }
-            // Highlight observation is a fallback for tab implementations that
-            // do not send UIControl touch events. Neither mechanism consumes input.
-            let highlight = controls.enumerated().filter { $0.element.isHighlighted }.map { String($0.offset) }.joined(separator: ",")
-            if highlight != lastHighlight {
-                lastHighlight = highlight
-                snapshot("highlight=[\(highlight)]")
+                snapshot("attached passiveTouchObserver OS=\(UIDevice.current.systemVersion)")
             }
             guard let selected = current.selectedViewController, selected.isViewLoaded else { return }
             let scrolls = descendants(selected.view).compactMap { $0 as? UIScrollView }
@@ -858,13 +877,23 @@ struct VesperTabScrollDiagnostics: UIViewRepresentable {
             }
         }
 
-        @objc private func touchDown(_ sender: UIControl) { recordTouch("touchDown", sender: sender) }
-        @objc private func touchUp(_ sender: UIControl) { recordTouch("touchUpInside", sender: sender) }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let bar = tabs?.tabBar, !bar.isHidden else { return false }
+            return touch.view?.isDescendant(of: bar) == true || bar.bounds.contains(touch.location(in: bar))
+        }
 
-        private func recordTouch(_ name: String, sender: UIControl) {
-            eventNumber += 1
+        private func recordTouch(_ phase: String, touch: UITouch) {
+            guard let window else { return }
+            if phase == "began" { eventNumber += 1 }
             let event = eventNumber
-            snapshot("event=\(event) \(name) control=\(controls.firstIndex(of: sender) ?? -1)")
+            var hierarchy: [String] = []
+            var view = touch.view
+            while let current = view, hierarchy.count < 8 {
+                hierarchy.append(String(describing: type(of: current)))
+                view = current.superview
+            }
+            snapshot("event=\(event) touch=\(phase) uptime=\(touch.timestamp) point=\(touch.location(in: window)) hit=\(hierarchy.joined(separator: ">"))")
+            guard phase == "ended" || phase == "cancelled" else { return }
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(350))
                 guard let self, self.window != nil else { return }
@@ -889,10 +918,18 @@ struct VesperTabScrollDiagnostics: UIViewRepresentable {
             visit(selected, depth: 0)
             for scroll in descendants(selected.view).compactMap({ $0 as? UIScrollView }) {
                 let frame = scroll.convert(scroll.bounds, to: window)
-                let visible = !scroll.isHidden && scroll.alpha > 0.01 && frame.intersects(window?.bounds ?? .zero)
+                var ancestorsVisible = true
+                var ancestor: UIView? = scroll
+                while let view = ancestor {
+                    if view.isHidden || view.alpha <= 0.01 { ancestorsVisible = false; break }
+                    ancestor = view.superview
+                }
+                let visible = scroll.window === window && ancestorsVisible && frame.intersects(window?.bounds ?? .zero)
                 lines.append("scroll=\(ObjectIdentifier(scroll)) class=\(type(of: scroll)) visible=\(visible) frame=\(frame) offset=\(scroll.contentOffset) content=\(scroll.contentSize) inset=\(scroll.adjustedContentInset) toTop=\(scroll.scrollsToTop) enabled=\(scroll.isScrollEnabled) dragging=\(scroll.isDragging) decelerating=\(scroll.isDecelerating)")
             }
-            let timestamp = ISO8601DateFormatter().string(from: Date())
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let timestamp = formatter.string(from: Date())
             for line in lines {
                 AppLog.runtimeEntries.append("\(timestamp) [TabScroll] \(line)")
             }
