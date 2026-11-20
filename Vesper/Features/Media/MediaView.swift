@@ -107,9 +107,8 @@ struct MediaView: View {
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @Namespace private var artworkZoom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(MediaScrollDebugSettings.disableBackgroundsKey) private var disableDiagnosticBackgrounds = false
-    @AppStorage(MediaScrollDebugSettings.keepScrollingEnabledKey) private var keepScrollingEnabled = false
-    @AppStorage(MediaScrollDebugSettings.disableMediaScrollHandlingKey) private var disableMediaScrollHandling = false
+    @AppStorage(MediaScrollDebugSettings.removePageBackgroundKey) private var removePageBackground = false
+    @AppStorage(MediaScrollDebugSettings.removeTransitionAnchorKey) private var removeTransitionAnchor = false
     @State private var showsEmbyShortcuts = false
     @State private var mediaScrollPosition = ScrollPosition(edge: .top)
     @State private var mediaScrollOffset: CGFloat = 0
@@ -128,7 +127,7 @@ struct MediaView: View {
                 mediaContent
             }
         }
-        .modifier(MediaDiagnosticBackground(disabled: disableDiagnosticBackgrounds) {
+        .modifier(MediaDiagnosticBackground(disabled: removeTransitionAnchor) {
             CarouselDetailCrossfade.Anchor(transition: carouselCrossfade)
                 .ignoresSafeArea(.container, edges: .top)
         })
@@ -203,8 +202,7 @@ struct MediaView: View {
         let showsFeaturedRegion = library.selectedSource?.kind == .emby && !library.canNavigateBack
         let title: LocalizedStringKey = library.selectedSource.map { LocalizedStringKey("\($0.name)") } ?? "媒体"
         return VesperRootScrollView(title: title, extendsContentUnderHeader: showsFeaturedRegion,
-                                   showsLoading: isLoadingMedia, usesMediaScrollEdges: !disableMediaScrollHandling,
-                                   disablesScrollingWhileLoading: !keepScrollingEnabled,
+                                   showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
                                    scrollPosition: $mediaScrollPosition,
                                    onVerticalOffsetChange: updateMediaScrollOffset,
                                    onVerticalScrollPhaseChange: updateMediaScrollPhase,
@@ -294,7 +292,7 @@ struct MediaView: View {
                 mediaSourceMenu
             }
         }
-        .modifier(MediaDiagnosticBackground(disabled: disableDiagnosticBackgrounds) {
+        .modifier(MediaDiagnosticBackground(disabled: removePageBackground) {
             VesperTheme.background.ignoresSafeArea()
         })
         .modifier(ConditionalMediaRefresh(enabled: library.selectedSource?.kind != .emby) { [library] in
@@ -870,7 +868,6 @@ private struct EmbyFeaturedCarousel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage(MediaScrollDebugSettings.fixedCarouselHeightKey) private var fixedCarouselHeight = false
     @State private var selection: MediaID?
     @State private var incoming: MediaID?
     @State private var direction = 1
@@ -942,16 +939,10 @@ private struct EmbyFeaturedCarousel: View {
             }
         }
 
-        return Group {
-            if fixedCarouselHeight {
-                pages.aspectRatio(EmbyPosterLayout.aspectRatio, contentMode: .fit)
-            } else {
-                EmbyCarouselRevealLayout(headerHeight: headerHeight, progress: hasPosters ? 1 : 0) {
-                    pages
-                }
-            }
+        return EmbyCarouselRevealLayout(headerHeight: headerHeight, progress: hasPosters ? 1 : 0) {
+            pages
         }
-        .animation(reduceMotion || !hasPosters || fixedCarouselHeight ? nil : .easeOut(duration: 0.32), value: hasPosters)
+        .animation(reduceMotion || !hasPosters ? nil : .easeOut(duration: 0.32), value: hasPosters)
         .onChange(of: items.map(\.id), initial: true) { _, ids in
             guard selection.map(ids.contains) != true else { return }
             resetTransition()

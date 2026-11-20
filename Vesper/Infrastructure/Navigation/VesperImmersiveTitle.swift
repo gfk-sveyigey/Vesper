@@ -8,7 +8,6 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let content: Content
     private let extendsContentUnderHeader: Bool
     private let showsLoading: Bool
-    private let disablesScrollingWhileLoading: Bool
     private let usesMediaScrollEdges: Bool
     private let scrollPosition: Binding<ScrollPosition>?
     private let onVerticalScrollPhaseChange: (ScrollPhase, CGFloat) -> Void
@@ -39,7 +38,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var interactionStartedCollapsed = false
 
     init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
-         usesMediaScrollEdges: Bool = false, disablesScrollingWhileLoading: Bool = true,
+         usesMediaScrollEdges: Bool = false,
          scrollPosition: Binding<ScrollPosition>? = nil,
          onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
          onVerticalScrollPhaseChange: @escaping (ScrollPhase, CGFloat) -> Void = { _, _ in },
@@ -48,7 +47,6 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         self.title = title
         self.extendsContentUnderHeader = extendsContentUnderHeader
         self.showsLoading = showsLoading
-        self.disablesScrollingWhileLoading = disablesScrollingWhileLoading
         self.usesMediaScrollEdges = usesMediaScrollEdges
         self.scrollPosition = scrollPosition
         self.onVerticalScrollPhaseChange = onVerticalScrollPhaseChange
@@ -94,7 +92,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             }
             .frame(minHeight: viewportHeight, alignment: .top)
         }
-        .scrollDisabled(showsLoading && disablesScrollingWhileLoading)
+        .scrollDisabled(showsLoading)
         .scrollClipDisabled()
         .scrollBounceBehavior(.always, axes: .vertical)
         .simultaneousGesture(
@@ -768,10 +766,8 @@ struct VesperCenteredEmptyContent: View {
 }
 
 enum MediaScrollDebugSettings {
-    static let disableBackgroundsKey = "debug.mediaScroll.disableBackgrounds"
-    static let keepScrollingEnabledKey = "debug.mediaScroll.keepScrollingEnabled"
-    static let fixedCarouselHeightKey = "debug.mediaScroll.fixedCarouselHeight"
-    static let disableMediaScrollHandlingKey = "debug.mediaScroll.disableMediaScrollHandling"
+    static let removePageBackgroundKey = "debug.mediaScroll.removePageBackground"
+    static let removeTransitionAnchorKey = "debug.mediaScroll.removeTransitionAnchor"
 }
 
 /// Remove the background modifier itself when isolating scroll discovery.
