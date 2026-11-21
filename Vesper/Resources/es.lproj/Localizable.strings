@@ -975,3 +975,15 @@
 "线性" = "Lineal";
 "平滑" = "Suave";
 "缓出" = "Desaceleración";
+
+/* Media header backdrop colors. */
+"毛玻璃颜色（浅色外观）" = "Tinte del cristal (modo claro)";
+"毛玻璃颜色（深色外观）" = "Tinte del cristal (modo oscuro)";
+"Header 毛玻璃颜色叠加强度" = "Opacidad del tinte del encabezado";
+
+/* Media header geometry and edge blur. */
+"Header 固定内容高度" = "Altura fija del contenido del encabezado";
+"顶部边缘模糊最大强度" = "Intensidad máxima del desenfoque superior";
+"顶部边缘模糊颜色叠加强度" = "Intensidad del tinte del desenfoque superior";
+"浅色模式模糊颜色" = "Color del desenfoque en modo claro";
+"深色模式模糊颜色" = "Color del desenfoque en modo oscuro";

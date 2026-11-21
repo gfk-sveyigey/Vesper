@@ -271,6 +271,7 @@ struct EmbyMediaDetailView: View {
     @State private var seasonMovesForward = true
     @State private var openedEpisodeID: MediaID?
     @State private var hasScrolled = false
+    @State private var showsMultifunctionSymbol = false
     @Namespace private var toolbarMorph
     @Namespace private var recommendationZoom
     @State private var busy: Set<MediaID> = []
@@ -373,6 +374,7 @@ struct EmbyMediaDetailView: View {
             } action: { _, hasScrolled in
                 withAnimation(reduceMotion ? nil : .snappy(duration: 0.3)) {
                     self.hasScrolled = hasScrolled
+                    if hasScrolled { showsMultifunctionSymbol = true }
                 }
             }
         }
@@ -394,28 +396,30 @@ struct EmbyMediaDetailView: View {
             .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) {
                 GlassEffectContainer(spacing: 12) {
-                    // The rightmost control never moves or gets replaced: only
-                    // its symbol and tap target change. The other three controls
-                    // converge on its centre instead of morphing a capsule into it.
+                    // All three actions travel to the persistent favorite/menu anchor.
                     ZStack(alignment: .trailing) {
-                        HStack(spacing: 0) {
-                            versionMenu().frame(width: 44, height: 44)
-                            trackMenu(type: "Audio", symbol: "waveform").frame(width: 44, height: 44)
-                            trackMenu(type: "Subtitle", symbol: "captions.bubble").frame(width: 44, height: 44)
-                        }
-                        .frame(width: 132, height: 44)
-                        .glassEffect(.regular, in: .capsule)
-                        .glassEffectID("mediaActions", in: toolbarMorph)
-                        .scaleEffect(hasScrolled ? 0.01 : 1, anchor: .trailing)
-                        .offset(x: hasScrolled ? -22 : -56)
-                        .opacity(hasScrolled ? 0 : 1)
-                        .allowsHitTesting(!hasScrolled)
-                        .accessibilityHidden(hasScrolled)
+                        Capsule()
+                            .fill(.clear)
+                            .frame(width: hasScrolled ? 44 : 132, height: 44)
+                            .glassEffect(.regular, in: .capsule)
+                            .glassEffectID("mediaActions", in: toolbarMorph)
+                            .offset(x: hasScrolled ? 0 : -56)
+                            .opacity(hasScrolled ? 0 : 1)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                        versionMenu().frame(width: 44, height: 44)
+                            .modifier(DetailActionFan(collapsed: hasScrolled, distance: 144))
+                        trackMenu(type: "Audio", symbol: "waveform").frame(width: 44, height: 44)
+                            .modifier(DetailActionFan(collapsed: hasScrolled, distance: 100))
+                        trackMenu(type: "Subtitle", symbol: "captions.bubble").frame(width: 44, height: 44)
+                            .modifier(DetailActionFan(collapsed: hasScrolled, distance: 56))
 
                         ZStack {
-                            Image(systemName: hasScrolled ? "ellipsis"
+                            Image(systemName: showsMultifunctionSymbol ? "ellipsis"
                                   : (playback.effectiveFavorite(for: item) ? "heart.fill" : "heart"))
                                 .contentTransition(.symbolEffect(.replace))
+                                .animation(reduceMotion ? nil : .snappy(duration: 0.3),
+                                           value: playback.effectiveFavorite(for: item))
                                 .accessibilityHidden(true)
                             if hasScrolled {
                                 Menu {
@@ -445,6 +449,16 @@ struct EmbyMediaDetailView: View {
                     .frame(width: hasScrolled ? 44 : 188, height: 44, alignment: .trailing)
                 }
                 .animation(reduceMotion ? nil : .snappy(duration: 0.3), value: hasScrolled)
+                .task(id: hasScrolled) {
+                    guard !hasScrolled else { return }
+                    if !reduceMotion {
+                        do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
+                    }
+                    guard !Task.isCancelled else { return }
+                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.3)) {
+                        showsMultifunctionSymbol = false
+                    }
+                }
                 .tint(Color(uiColor: .label))
                 .foregroundStyle(.primary)
             }
@@ -591,7 +605,7 @@ struct EmbyMediaDetailView: View {
                   systemImage: playback.effectiveFavorite(for: item) ? "heart.fill" : "heart")
         }
         .contentTransition(.symbolEffect(.replace))
-        .animation(reduceMotion ? nil : .default, value: playback.effectiveFavorite(for: item))
+        .animation(reduceMotion ? nil : .snappy(duration: 0.3), value: playback.effectiveFavorite(for: item))
         .tint(Color(uiColor: .label))
         .foregroundStyle(.primary)
         .disabled(source.emby?.userID == nil)
@@ -1465,5 +1479,20 @@ struct EmbyEpisodeArtworkSurface: View {
             .clipped()
             .allowsHitTesting(false)
         }
+    }
+}
+
+/// Each action converges on the same circle rather than shrinking the entire row.
+private struct DetailActionFan: ViewModifier {
+    let collapsed: Bool
+    let distance: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(collapsed ? 0.15 : 1)
+            .offset(x: collapsed ? 0 : -distance)
+            .opacity(collapsed ? 0 : 1)
+            .allowsHitTesting(!collapsed)
+            .accessibilityHidden(collapsed)
     }
 }

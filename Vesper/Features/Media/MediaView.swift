@@ -10,13 +10,13 @@ final class MediaLayoutSettings: ObservableObject {
         case thumbnailHeight, groupSpacing, titlePadding, scrollPadding
         case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding, episodeCardWidth, episodeCardHeight
 
-        case mediaGlassStrength, mediaContentBlur, mediaEdgeStrength, mediaEdgeBodyHeight, mediaEdgeFadeHeight, mediaEdgeFadeCurve
+        case mediaHeaderHeight, mediaGlassStrength, mediaGlassTint, mediaContentBlur, mediaEdgeStrength, mediaEdgeTint
 
         case carouselBlurHeight, carouselBlurFadeHeight, carouselBlurStrength
 
         var usesPercent: Bool {
             switch self {
-            case .mediaGlassStrength, .mediaEdgeStrength, .mediaEdgeBodyHeight, .mediaEdgeFadeHeight, .carouselBlurHeight, .carouselBlurStrength: true
+            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength: true
             default: false
             }
         }
@@ -31,12 +31,12 @@ final class MediaLayoutSettings: ObservableObject {
             case .endPadding: 20
             case .episodeCardWidth: 246
             case .episodeCardHeight: 230
+            case .mediaHeaderHeight: 60
             case .mediaGlassStrength: 65
+            case .mediaGlassTint: 12
             case .mediaContentBlur: 8
             case .mediaEdgeStrength: 100
-            case .mediaEdgeBodyHeight: 55
-            case .mediaEdgeFadeHeight: 45
-            case .mediaEdgeFadeCurve: 1
+            case .mediaEdgeTint: 12
             case .carouselBlurHeight: 40
             case .carouselBlurFadeHeight: 24
             case .carouselBlurStrength: 55
@@ -48,10 +48,9 @@ final class MediaLayoutSettings: ObservableObject {
             case .thumbnailHeight: 0...600
             case .itemWidth, .itemHeight: 24...480
             case .episodeCardWidth, .episodeCardHeight: 120...1200
-            case .mediaGlassStrength, .mediaEdgeStrength, .carouselBlurHeight, .carouselBlurStrength: 0...100
+            case .mediaHeaderHeight: 30...120
+            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength: 0...100
             case .mediaContentBlur: 0...40
-            case .mediaEdgeBodyHeight, .mediaEdgeFadeHeight: 10...100
-            case .mediaEdgeFadeCurve: 0...2
             default: 0...120
             }
         }
@@ -205,7 +204,6 @@ struct MediaView: View {
         let title: LocalizedStringKey = library.selectedSource.map { LocalizedStringKey("\($0.name)") } ?? "媒体"
         return VesperRootScrollView(title: title, extendsContentUnderHeader: showsFeaturedRegion,
                                    showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
-                                   outlinesHeaderTitle: library.selectedSource?.kind == .emby,
                                    scrollPosition: $mediaScrollPosition,
                                    onVerticalOffsetChange: updateMediaScrollOffset,
                                    onVerticalScrollPhaseChange: updateMediaScrollPhase,
@@ -529,7 +527,9 @@ struct MediaView: View {
     private func mediaSourceMenu(localBusy: Bool = false, createLocalFolder: (() -> Void)? = nil) -> some View {
         let source = embyHomeSource
         let isLocal = library.selectedSource?.kind == .local && createLocalFolder != nil
+        let isLocalMedia = library.selectedSource?.kind == .local || library.selectedSource?.kind == .photos
         let isExpanded = (source != nil || isLocal) && showsEmbyShortcuts
+        let iconSize: CGFloat = isLocalMedia ? 26 : 20
 
         return HStack(spacing: 0) {
             if source != nil || isLocal {
@@ -543,7 +543,8 @@ struct MediaView: View {
                     }
                 }
                 .labelStyle(.iconOnly)
-                .font(.system(size: 20, weight: .medium))
+                .font(.system(size: iconSize, weight: .medium))
+                .foregroundStyle(Color(uiColor: .label))
                 .buttonStyle(.plain)
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(width: isExpanded ? 88 : 0, alignment: .trailing)
@@ -552,7 +553,7 @@ struct MediaView: View {
                 .allowsHitTesting(isExpanded)
                 .accessibilityHidden(!isExpanded)
             }
-            sourceMenuButton(localBusy: localBusy, createLocalFolder: createLocalFolder)
+            sourceMenuButton(localBusy: localBusy, createLocalFolder: createLocalFolder, iconSize: iconSize)
         }
         // A single native glass capsule becomes a circle at its collapsed width.
         .glassEffect(.regular.interactive(), in: .capsule)
@@ -663,7 +664,7 @@ struct MediaView: View {
         }
     }
 
-    private func sourceMenuButton(localBusy: Bool, createLocalFolder: (() -> Void)?) -> some View {
+    private func sourceMenuButton(localBusy: Bool, createLocalFolder: (() -> Void)?, iconSize: CGFloat) -> some View {
         Menu {
             if library.selectedSource?.kind == .local, !showsEmbyShortcuts, let createLocalFolder {
                 Section {
@@ -718,6 +719,7 @@ struct MediaView: View {
                     sourceMenuIcon(source, size: 24)
                 } else if let source = library.selectedSource, source.kind == .local || source.kind == .photos {
                     Image(systemName: sourceSymbol(source))
+                        .font(.system(size: iconSize, weight: .medium))
                         .foregroundStyle(.primary)
                         .contentTransition(.symbolEffect(.replace))
                 } else {

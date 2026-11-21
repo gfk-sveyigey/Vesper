@@ -1,4 +1,4 @@
-"""Exercise the production header geometry independently of SwiftUI/UIKit."""
+"""Exercise media header scroll boundaries and backdrop calculations."""
 import os
 from pathlib import Path
 import shutil
@@ -10,36 +10,36 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class MediaHeaderGeometryTests(unittest.TestCase):
-    def test_screen_anchors_and_mutually_exclusive_backdrops(self):
+    def test_scroll_range_glass_visibility_and_edge_strength(self):
         compiler = os.environ.get('SWIFTC') or shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable')
         source = (ROOT / 'Vesper/Infrastructure/Navigation/VesperImmersiveTitle.swift').read_text()
+        media_settings = (ROOT / 'Vesper/Features/Media/MediaView.swift').read_text()
+        self.assertIn('mediaEdgeTint', media_settings)
+        self.assertIn('tintOpacity: Double(layout[.mediaEdgeTint]) / 100', source)
         geometry = source.split('struct MediaHeaderGeometry {', 1)[1].split('/// Each root page', 1)[0]
         main = r'''
-func check(_ offset: CGFloat, _ progress: CGFloat, _ glass: Bool, _ edge: Bool) {
-    let geometry = MediaHeaderGeometry(pageOffset: offset, safeAreaHeight: 60)
-    precondition(abs(geometry.progress - progress) < 0.00001)
-    precondition(geometry.showsGlass(at: progress) == glass)
-    precondition(geometry.showsEdge(at: progress) == edge)
-}
-check(-40, 0, false, false) // Pull down: pin header to the screen, no backdrop.
-check(0, 0, false, false)
-check(15, 0.25, true, false)
-check(30, 0.5, true, false)
-check(60, 1, false, true) // Title top reaches screen top.
-check(500, 1, false, true)
-for offset: CGFloat in [-40, 0, 15, 30, 60, 500] {
-    let geometry = MediaHeaderGeometry(pageOffset: offset, safeAreaHeight: 60)
-    for position: CGFloat in [0, 0.25, 0.75, 1] {
-        precondition(!(geometry.showsGlass(at: position) && geometry.showsEdge(at: position)))
-    }
-}
-precondition(MediaHeaderGeometry(pageOffset: 29, safeAreaHeight: 60).snapTarget == 0)
-precondition(MediaHeaderGeometry(pageOffset: 30, safeAreaHeight: 60).snapTarget == 1)
-precondition(MediaHeaderGeometry(pageOffset: 0, safeAreaHeight: 0).progress.isFinite)
-precondition(MediaHeaderGeometry(pageOffset: 0, safeAreaHeight: 60).showsGlass(at: 0.5))
-precondition(MediaHeaderGeometry(pageOffset: 10, safeAreaHeight: 60).showsGlass(at: 0))
+let open = MediaHeaderGeometry(pageOffset: 0, travel: 60)
+precondition(open.progress == 0 && open.snapTarget == 0)
+precondition(!open.showsGlass(at: 0, pageTop: 80, statusBarBottom: 60))
+precondition(open.showsGlass(at: 0, pageTop: 0, statusBarBottom: 60))
+let middle = MediaHeaderGeometry(pageOffset: 30, travel: 60)
+precondition(middle.progress == 0.5 && middle.snapTarget == 1)
+precondition(middle.showsGlass(at: middle.progress, pageTop: 80, statusBarBottom: 60))
+let collapsed = MediaHeaderGeometry(pageOffset: 60, travel: 60)
+precondition(collapsed.progress == 1)
+precondition(!collapsed.showsGlass(at: 1, pageTop: -20, statusBarBottom: 60))
+precondition(collapsed.progress == MediaHeaderGeometry(pageOffset: 600, travel: 60).progress)
+precondition(open.edgeRegionHeight(statusBarHeight: 60, position: 0) == 120)
+precondition(collapsed.edgeRegionHeight(statusBarHeight: 60, position: 1) == 60)
+precondition(open.edgeBlurProgress(statusBarHeight: 60, position: 0) == 1)
+let half = middle.edgeBlurProgress(statusBarHeight: 60, position: 0.5)
+let end = collapsed.edgeBlurProgress(statusBarHeight: 60, position: 1)
+precondition(half > end && end > 0 && half < 1)
+let quarter = MediaHeaderGeometry(pageOffset: 45, travel: 60).edgeBlurProgress(statusBarHeight: 60, position: 0.75)
+precondition(quarter < half && quarter > end)
+precondition(MediaHeaderGeometry(pageOffset: -30, travel: 60).progress == 0)
 '''
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)

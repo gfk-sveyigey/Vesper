@@ -7,7 +7,12 @@ class PlayerPresentationTests(unittest.TestCase):
         source = (ROOT / 'Vesper/Features/Media/EmbySeriesDetailView.swift').read_text()
         toolbar = source.split('GlassEffectContainer(spacing: 12)', 1)[1].split('.sharedBackgroundVisibility(.hidden)', 1)[0]
         self.assertEqual(toolbar.count('.glassEffectID("detailActionAnchor"'), 1)
-        self.assertIn('.offset(x: hasScrolled ? -22 : -56)', toolbar)
+        for distance in [56, 100, 144]:
+            self.assertIn(f'DetailActionFan(collapsed: hasScrolled, distance: {distance})', toolbar)
+        self.assertIn('@State private var hasScrolled = false', source)
+        self.assertIn('Image(systemName: showsMultifunctionSymbol ? "ellipsis"', toolbar)
+        self.assertIn('.animation(reduceMotion ? nil : .snappy(duration: 0.3),', toolbar)
+        self.assertIn('.task(id: hasScrolled)', toolbar)
         self.assertIn('Section { favoriteButton }', toolbar)
         self.assertIn('versionMenu(inMenu: true)', toolbar)
         # Toolbar icons must not turn into menu text while collapsing.

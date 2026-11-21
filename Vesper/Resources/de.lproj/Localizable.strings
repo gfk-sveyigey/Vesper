@@ -975,3 +975,15 @@
 "线性" = "Linear";
 "平滑" = "Sanft";
 "缓出" = "Abbremsend";
+
+/* Media header backdrop colors. */
+"毛玻璃颜色（浅色外观）" = "Milchglasfarbe (helles Erscheinungsbild)";
+"毛玻璃颜色（深色外观）" = "Milchglasfarbe (dunkles Erscheinungsbild)";
+"Header 毛玻璃颜色叠加强度" = "Deckkraft der Kopfzeilenfarbe";
+
+/* Media header geometry and edge blur. */
+"Header 固定内容高度" = "Feste Höhe des Kopfzeileninhalts";
+"顶部边缘模糊最大强度" = "Maximale Unschärfe am oberen Rand";
+"顶部边缘模糊颜色叠加强度" = "Farbüberlagerung am oberen Rand";
+"浅色模式模糊颜色" = "Unschärfefarbe im hellen Modus";
+"深色模式模糊颜色" = "Unschärfefarbe im dunklen Modus";
