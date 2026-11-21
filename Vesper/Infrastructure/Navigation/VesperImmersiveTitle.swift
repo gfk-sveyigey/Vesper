@@ -45,6 +45,12 @@ struct MediaHeaderGeometry {
         min(max(offset, 0), max(0, maximum))
     }
 
+    func reconciledPosition(current: CGFloat, totalOffset: CGFloat) -> CGFloat? {
+        if current < 1, totalOffset >= travel { return 1 }
+        if current >= 1, totalOffset <= 0 { return 0 }
+        return nil
+    }
+
     func showsGlassWhenNotCollapsed(at position: CGFloat, pageTop: CGFloat, statusBarTop: CGFloat) -> Bool {
         let clampedPosition = min(1, max(0, position))
         guard clampedPosition < 1 else { return false }
@@ -206,7 +212,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     if mediaHeaderPosition != 0 || mediaHeaderSnap != nil {
                         settleMediaHeader(at: 0)
                     }
-                } else if mediaHeaderScroll != nil {
+                } else {
                     updateMediaHeaderScroll(at: metrics.headerOffset)
                 }
                 restoreMediaHeaderAfterScrollToTop(offset: metrics.offset)
@@ -392,18 +398,42 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private func restoreMediaHeaderAfterScrollToTop(offset: CGFloat) {
-        guard offset <= 0.5 else { return }
-        settleMediaHeader(at: 0)
+        guard offset <= 0, mediaHeaderPosition != 0 || mediaHeaderSnap != nil else { return }
+        settleMediaHeaderImmediately(at: 0)
     }
 
     private func updateMediaHeaderScroll(at offset: CGFloat) {
-        guard var scroll = mediaHeaderScroll else { return }
-        mediaHeaderPosition = scroll.updatePosition(
-            at: offset,
-            height: contentHeaderHeight,
-            currentPosition: mediaHeaderPosition
+        var nextPosition = mediaHeaderSnap?.position(at: .now) ?? mediaHeaderPosition
+        if var scroll = mediaHeaderScroll {
+            nextPosition = scroll.updatePosition(
+                at: offset,
+                height: contentHeaderHeight,
+                currentPosition: nextPosition
+            )
+            mediaHeaderScroll = scroll
+        }
+
+        if let corrected = reconciledMediaHeaderPosition(nextPosition, totalOffset: offset) {
+            settleMediaHeaderImmediately(at: corrected)
+        } else if mediaHeaderScroll != nil {
+            mediaHeaderPosition = nextPosition
+        }
+    }
+
+    private func reconciledMediaHeaderPosition(_ position: CGFloat, totalOffset: CGFloat) -> CGFloat? {
+        MediaHeaderGeometry(pageOffset: 0, travel: contentHeaderHeight).reconciledPosition(
+            current: position,
+            totalOffset: totalOffset
         )
-        mediaHeaderScroll = scroll
+    }
+
+    private func settleMediaHeaderImmediately(at position: CGFloat) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            mediaHeaderPosition = position
+            mediaHeaderSnap = nil
+        }
     }
 
     private func finishMediaHeaderScroll(at offset: CGFloat) {
@@ -412,13 +442,14 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         guard let scroll = mediaHeaderScroll else { return }
         mediaHeaderScroll = nil
         let geometry = MediaHeaderGeometry(pageOffset: 0, travel: contentHeaderHeight)
-        snapMediaHeader(to: geometry.snapTarget(
+        let target = geometry.snapTarget(
             for: mediaHeaderPosition,
             expandedThreshold: CGFloat(layout[.mediaSnapThreshold]) / 100,
             collapsedThreshold: CGFloat(layout[.mediaSnapCollapsedThreshold]) / 100,
             preferScrollDirection: layout[.mediaSnapConflict] == 0,
             scrollDirection: scroll.lastDirection
-        ))
+        )
+        snapMediaHeader(to: reconciledMediaHeaderPosition(target, totalOffset: offset) ?? target)
     }
 
     private func snapMediaHeader(to target: CGFloat) {
