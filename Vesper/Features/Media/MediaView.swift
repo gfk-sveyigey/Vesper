@@ -1867,7 +1867,7 @@ private struct EmbySeriesBrowserView: View {
         let details = [kind, genres].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         let yearAndRating = [year, rating.map { "★ \($0)" }].compactMap { $0 }.joined(separator: " · ")
 
-        HStack(spacing: 12) {
+        return HStack(spacing: 12) {
             ZStack {
                 MediaThumbnail(source: source, item: item, imageOrientation: .portrait, fixedHeight: imageHeight)
                     .frame(width: imageWidth, height: imageHeight)
