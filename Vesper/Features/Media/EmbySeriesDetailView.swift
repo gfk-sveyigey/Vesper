@@ -243,7 +243,7 @@ private extension EmbyMediaStreamDetails {
     }
 }
 
-struct EmbyMediaDetailView: View {
+struct MediaDetailView: View {
     let source: MediaSource
     let series: MediaItem
     var showsCloseButton = false
@@ -454,7 +454,7 @@ struct EmbyMediaDetailView: View {
         }
         .navigationDestination(item: $openedEpisodeID) { id in
             if let episode = episodes.first(where: { $0.id == id }) {
-                EmbyMediaDetailView(source: source, series: episode.item, episode: episode, parentSeries: item)
+                MediaDetailView(source: source, series: episode.item, episode: episode, parentSeries: item)
             }
         }
         .navigationDestination(item: $openedRecommendation) { item in
@@ -509,13 +509,13 @@ struct EmbyMediaDetailView: View {
     // A recommendation can open another instance of this view.
     private func recommendationDestination(for item: MediaItem) -> AnyView {
         if item.isEmbySeries {
-            if isEpisode { return AnyView(EmbyMediaDetailView(source: source, series: item)) }
+            if isEpisode { return AnyView(MediaDetailView(source: source, series: item)) }
             return AnyView(
-                EmbyMediaDetailView(source: source, series: item)
+                MediaDetailView(source: source, series: item)
                     .navigationTransition(.zoom(sourceID: item.id, in: recommendationZoom))
             )
         }
-        return AnyView(EmbyMediaDetailView(source: source, series: item))
+        return AnyView(MediaDetailView(source: source, series: item))
     }
 
     private func hero(viewportWidth: CGFloat) -> some View {
@@ -572,8 +572,27 @@ struct EmbyMediaDetailView: View {
         if clearedServerProgress { playable.resumePosition = 0 }
         let audio = selectedVersion?.streams.first { $0.type == "Audio" && $0.id == selectedAudioIndex }
         let subtitle = selectedVersion?.streams.first { $0.type == "Subtitle" && $0.id == selectedSubtitleIndex }
-        playback.play(playable, in: source, queue: [playable], audio: audio, subtitle: subtitle,
-                      streams: selectedVersion?.streams ?? [])
+        let streams = selectedVersion?.streams ?? []
+        guard isEpisode, let parent = parentSeries ?? metadata?.series else {
+            playback.play(playable, in: source, queue: [playable], audio: audio, subtitle: subtitle,
+                          streams: streams)
+            return
+        }
+        Task {
+            let queue: [MediaItem]
+            do {
+                let episodes = try await EmbyRepository.shared.seriesEpisodes(for: parent, source: source)
+                if let index = episodes.firstIndex(where: { $0.id == playable.id }) {
+                    queue = [playable] + episodes.dropFirst(index + 1).map(\.item)
+                } else {
+                    queue = [playable]
+                }
+            } catch {
+                queue = [playable]
+            }
+            playback.play(playable, in: source, queue: queue, audio: audio, subtitle: subtitle,
+                          streams: streams)
+        }
     }
 
     private func toggleFavorite() {
@@ -1246,14 +1265,14 @@ func embyDetailsSheet(source: MediaSource, item: MediaItem, artworkZoom: Namespa
     if item.isEmbySeries {
         return AnyView(
             NavigationStack {
-                EmbyMediaDetailView(source: source, series: item, showsCloseButton: true)
+                MediaDetailView(source: source, series: item, showsCloseButton: true)
             }
             .navigationTransition(.zoom(sourceID: item.id, in: artworkZoom))
         )
     }
     return AnyView(
         NavigationStack {
-            EmbyMediaDetailView(source: source, series: item, showsCloseButton: true)
+            MediaDetailView(source: source, series: item, showsCloseButton: true)
         }
     )
 }

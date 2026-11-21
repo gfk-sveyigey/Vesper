@@ -50,7 +50,7 @@ struct HistoryView: View {
         }
         .onAppear { playback.pruneUnavailableHistory() }
         .navigationDestination(for: HistoryDetailRoute.self) { route in
-            EmbyMediaDetailView(source: route.source, series: route.item)
+            MediaDetailView(source: route.source, series: route.item)
         }
     }
 }

@@ -1003,3 +1003,7 @@
 "平滑阶梯" = "Smooth step";
 "浅色模式模糊颜色" = "Unschärfefarbe im hellen Modus";
 "深色模式模糊颜色" = "Unschärfefarbe im dunklen Modus";
+
+"加快至 %g×" = "Auf %g× beschleunigt";
+
+"减慢至 %g×" = "Auf %g× verlangsamt";

@@ -186,7 +186,7 @@ struct MediaView: View {
                                       artworkZoom: artworkZoom, openDetail: { path.append($0) })
             } else if let item = route.item {
                 if route.origin == .carousel {
-                    let detail = EmbyMediaDetailView(source: route.source, series: item,
+                    let detail = MediaDetailView(source: route.source, series: item,
                                                       startsWithCarouselInformationHidden: true,
                                                       initialHeroArtwork: library.embyHome?.featuredArtwork?[item.id]
                                                         ?? EmbyFeaturedArtwork(poster: library.embyHome?.artwork?[item.id.localID], logo: nil))
@@ -196,10 +196,10 @@ struct MediaView: View {
                         }
                     detail
                 } else if item.isEmbySeries {
-                    EmbyMediaDetailView(source: route.source, series: item)
+                    MediaDetailView(source: route.source, series: item)
                         .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
                 } else {
-                    EmbyMediaDetailView(source: route.source, series: item)
+                    MediaDetailView(source: route.source, series: item)
                 }
             }
         }
@@ -241,6 +241,9 @@ struct MediaView: View {
                 } else if library.selectedSource?.kind == .emby, library.isLoadingEmbyHome, library.embyHome == nil {
                     EmptyView()
                 } else if library.selectedSource?.kind == .emby, !library.canNavigateBack, library.embyHome != nil {
+                    if let source = library.selectedSource {
+                        recentPlaybackGroup(source: source)
+                    }
                     embyMediaGroups
                 } else {
                     switch library.content {
@@ -335,6 +338,45 @@ struct MediaView: View {
             }
         } message: {
             Text("请在系统设置中允许 Vesper 访问本地网络，然后重新选择 Emby 来源。")
+        }
+    }
+
+    @ViewBuilder
+    private func recentPlaybackGroup(source: MediaSource) -> some View {
+        let entries = playback.history
+            .filter { $0.source.id == source.id && $0.hiddenFromHistory != true }
+            .sorted { $0.watchedAt > $1.watchedAt }
+        if !entries.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("最近播放")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.horizontal, CGFloat(layout[.endPadding]))
+                    .padding(.vertical, CGFloat(layout[.titlePadding]))
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: CGFloat(layout[.itemSpacing])) {
+                        ForEach(entries.prefix(20)) { entry in
+                            RecentEmbyPlaybackCard(source: source, entry: entry,
+                                                   open: { item in
+                                                       path.append(EmbyMediaRoute.detail(source, item, origin: .shelf("recent")))
+                                                   },
+                                                   clear: { item in
+                                                       Task { try? await playback.clearProgress(for: item, source: source) }
+                                                   },
+                                                   setPlayed: { item, played in
+                                                       playback.setPlayed(played, for: item, source: source)
+                                                   })
+                        }
+                    }
+                    .padding(.vertical, CGFloat(layout[.itemVerticalPadding]))
+                }
+                .scrollClipDisabled()
+                .scrollIndicators(.hidden)
+                .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
+                .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
+                .padding(.vertical, CGFloat(layout[.scrollPadding]))
+            }
         }
     }
 
@@ -549,7 +591,7 @@ struct MediaView: View {
         let isLocal = library.selectedSource?.kind == .local && createLocalFolder != nil
         let isLocalMedia = library.selectedSource?.kind == .local || library.selectedSource?.kind == .photos
         let isExpanded = (source != nil || isLocal) && showsEmbyShortcuts
-        let iconSize: CGFloat = isLocalMedia ? 26 : 20
+        let iconSize: CGFloat = 20
 
         return HStack(spacing: 0) {
             if source != nil || isLocal {
@@ -1616,6 +1658,129 @@ private struct EmbyFeaturedPageControl: UIViewRepresentable {
     }
 }
 
+private struct RecentEmbyPlaybackCard: View {
+    let source: MediaSource
+    let entry: PlaybackHistoryEntry
+    let open: (MediaItem) -> Void
+    let clear: (MediaItem) -> Void
+    let setPlayed: (MediaItem, Bool) -> Void
+
+    @EnvironmentObject private var playback: PlaybackSession
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var item: MediaItem
+    @State private var poster: MediaItem
+    @State private var title: String
+    @State private var episode: EmbyDetailMetadata?
+
+    init(source: MediaSource, entry: PlaybackHistoryEntry,
+         open: @escaping (MediaItem) -> Void, clear: @escaping (MediaItem) -> Void,
+         setPlayed: @escaping (MediaItem, Bool) -> Void) {
+        self.source = source
+        self.entry = entry
+        self.open = open
+        self.clear = clear
+        self.setPlayed = setPlayed
+        _item = State(initialValue: entry.item)
+        _poster = State(initialValue: entry.item)
+        _title = State(initialValue: entry.title)
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            MediaCardBackdrop()
+            MediaThumbnail(source: source, item: poster, playback: playback,
+                           aspectRatio: 1.5, imageOrientation: .landscape,
+                           usesMediaCardBackdrop: false)
+                .frame(width: 246, height: 164)
+            LinearGradient(colors: [.clear, colorScheme == .dark ? .black.opacity(0.78) : .white.opacity(0.86)],
+                           startPoint: UnitPoint(x: 0.5, y: 0.42), endPoint: .bottom)
+            Rectangle().fill(.ultraThinMaterial)
+                .mask(LinearGradient(colors: [.clear, .black], startPoint: .top,
+                                     endPoint: UnitPoint(x: 0.5, y: 0.42)))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(verbatim: title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1)
+                if let episode {
+                    HStack(spacing: 6) {
+                        MediaPlaybackStatus(position: entry.position, duration: entry.duration,
+                                            played: playback.effectivePlayed(for: item))
+                        Spacer(minLength: 0)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .overlay(alignment: .bottomTrailing) {
+                        episodeMenu(metadata: episode)
+                    }
+                } else {
+                    MediaPlaybackStatus(position: entry.position, duration: entry.duration,
+                                        played: playback.effectivePlayed(for: item))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .overlay(alignment: .bottomTrailing) { episodeMenu(metadata: nil) }
+                }
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 42)
+            .padding(.bottom, 11)
+            .frame(width: 246, height: 164, alignment: .bottomLeading)
+        }
+        .frame(width: 246, height: 164)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.14), lineWidth: 1) }
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onTapGesture { open(item) }
+        .task(id: "\(source.id)|\(entry.mediaID.localID)") {
+            do {
+                let details = try await EmbyRepository.shared.detailMetadata(for: entry.item, source: source)
+                guard !Task.isCancelled else { return }
+                item = details.item
+                if details.item.embyItemType == "Episode", let series = details.series {
+                    let seriesDetails = try? await EmbyRepository.shared.detailMetadata(for: series, source: source)
+                    guard !Task.isCancelled else { return }
+                    poster = seriesDetails?.item ?? series
+                    let count = poster.embyPresentation?.seasonCount
+                        ?? (try? await EmbyRepository.shared.seriesSeasonCount(for: series, source: source)) ?? 1
+                    var parts = [series.title]
+                    if count > 1, let season = details.seasonNumber {
+                        parts.append(VesperLocalization.localized("第\(season)季"))
+                    }
+                    if let number = details.episodeNumber {
+                        parts.append(VesperLocalization.localized("第\(number)集"))
+                    }
+                    title = parts.joined(separator: " · ")
+                    episode = details
+                } else {
+                    poster = details.item
+                    title = details.item.title
+                }
+            } catch { }
+        }
+    }
+
+    private func episodeMenu(metadata: EmbyDetailMetadata?) -> some View {
+        Menu {
+            Button("前往单集", systemImage: "info.circle") { open(item) }
+            if entry.position > 0 {
+                Button("清除播放进度", systemImage: "clock.arrow.circlepath") { clear(item) }
+            }
+            let played = playback.effectivePlayed(for: item)
+            Button(played ? "标记为未观看" : "标记为已观看",
+                   systemImage: played ? "circle" : "checkmark.circle") {
+                setPlayed(item, !played)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 34, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("更多操作")
+    }
+}
+
 private struct EmbyMediaRoute: Hashable {
     enum Origin: Hashable {
         case carousel
@@ -1676,11 +1841,11 @@ struct EmbyPersonWorksView: View {
         guard let item = route.item else { return AnyView(EmptyView()) }
         if item.isEmbySeries {
             return AnyView(
-                EmbyMediaDetailView(source: source, series: item)
+                MediaDetailView(source: source, series: item)
                     .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
             )
         }
-        return AnyView(EmbyMediaDetailView(source: source, series: item))
+        return AnyView(MediaDetailView(source: source, series: item))
     }
 }
 
@@ -1759,7 +1924,7 @@ private struct EmbySeriesBrowserView: View {
                         browserItems
                     }
                 } else {
-                    LazyVStack(spacing: 16) {
+                    LazyVStack(spacing: 0) {
                         browserItems
                     }
                 }
@@ -1847,6 +2012,9 @@ private struct EmbySeriesBrowserView: View {
                     Task { await loadPage() }
                 }
             }
+            if displayLayout == .list, index < items.count - 1 {
+                Divider()
+            }
         }
     }
 
@@ -1895,10 +2063,6 @@ private struct EmbySeriesBrowserView: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-                .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight, alignment: .leading)
         .contentShape(Rectangle())

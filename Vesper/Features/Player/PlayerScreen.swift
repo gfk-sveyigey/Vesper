@@ -440,7 +440,7 @@ struct PlayerScreen: View {
 
     private var playbackOptionsMenu: some View {
         PlayerMenuButton(symbol: "ellipsis", accessibilityTitle: VesperLocalization.string("播放选项"),
-                         makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu()]) },
+                         makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu(), introOutroMenu()]) },
                          visibilityChanged: menuVisibilityChanged)
             .frame(width: 44, height: 44)
             .glassEffect(.regular.interactive(), in: Circle())
@@ -449,6 +449,17 @@ struct PlayerScreen: View {
     private func danmakuMenu() -> UIMenu {
         UIMenu(title: VesperLocalization.string("弹幕"), image: UIImage(systemName: "text.bubble"),
                children: danmakuSourceActions())
+    }
+
+    private func introOutroMenu() -> UIMenu {
+        UIMenu(title: VesperLocalization.string("片头片尾"), image: UIImage(systemName: "forward.end"), children: [
+            menuAction(VesperLocalization.string("自动跳过片头"), selected: EmbySkipSettings.introEnabled) {
+                UserDefaults.standard.set(!EmbySkipSettings.introEnabled, forKey: EmbySkipSettings.introKey)
+            },
+            menuAction(VesperLocalization.string("自动跳过片尾"), selected: EmbySkipSettings.outroEnabled) {
+                UserDefaults.standard.set(!EmbySkipSettings.outroEnabled, forKey: EmbySkipSettings.outroKey)
+            }
+        ])
     }
 
     private func danmakuSourceActions() -> [UIMenuElement] {
@@ -510,7 +521,7 @@ struct PlayerScreen: View {
             landscapeMenu("播放速度", symbol: "speedometer", menu: speedMenu)
             landscapeMenu("音频", symbol: "waveform", menu: audioMenu)
             landscapeMenu("字幕", symbol: "captions.bubble", menu: subtitleMenu)
-            landscapeMenu("弹幕", symbol: "ellipsis", menu: { UIMenu(children: [danmakuMenu()]) })
+            landscapeMenu("播放选项", symbol: "ellipsis", menu: { UIMenu(children: [danmakuMenu(), introOutroMenu()]) })
         }
         .glassEffect(.regular.interactive(), in: Capsule())
         .accessibilityElement(children: .contain)
@@ -771,7 +782,7 @@ struct PlayerScreen: View {
     }
 
     private func performGestureAction(_ action: PlayerGestureAction) {
-        if action != .none && action != .controls && ![.backward, .forward, .brightnessUp, .brightnessDown, .volumeUp, .volumeDown].contains(action) {
+        if action != .none && action != .controls && ![.backward, .forward, .brightnessUp, .brightnessDown, .volumeUp, .volumeDown, .speedUp, .speedDown].contains(action) {
             let message: String
             switch action {
             case .playback: message = VesperLocalization.string(session.isPlaying ? "暂停" : "播放")
@@ -816,6 +827,8 @@ struct PlayerScreen: View {
             let rates: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
             let index = rates.firstIndex(of: session.playbackRate) ?? 2
             session.setPlaybackRate(rates[min(rates.count - 1, max(0, index + (action == .speedUp ? 1 : -1)))])
+            let format = VesperLocalization.string(action == .speedUp ? "加快至 %g×" : "减慢至 %g×")
+            showHUD(String(format: format, Double(session.playbackRate)), symbol: "speedometer")
         case .moreSettings: revealControls(); requestPanel(.more)
         case .subtitles: requestPanel(.subtitles)
         case .danmaku: requestPanel(.danmaku)

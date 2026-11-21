@@ -1243,13 +1243,18 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             seek(to: interval.end, resume: true)
             automaticSkipNotice = AutomaticSkipNotice(kind: .intro)
         }
-        if EmbySkipSettings.outroEnabled, !skippedCredits, currentItem?.embyItemType == "Episode", hasNext,
-           let currentItem, let index = queue.firstIndex(where: { $0.id == currentItem.id }),
-           queue[index + 1].embyItemType == "Episode",
+        if EmbySkipSettings.outroEnabled, !skippedCredits,
+           hasNext || canSeek,
            let start = skipMarkers.creditsStart, start < duration, currentTime >= start {
             skippedCredits = true
-            log("[IntroOutro] 自动跳过片尾，当前位置=\(currentTime)，片尾起点=\(start)，切换下一集")
-            next()
+            if hasNext {
+                log("[IntroOutro] 自动跳过片尾，当前位置=\(currentTime)，片尾起点=\(start)，切换下一集")
+                next()
+            } else {
+                let target = max(0, duration - 1)
+                log("[IntroOutro] 自动跳过片尾，当前位置=\(currentTime)，片尾起点=\(start)，无下一集，目标=\(target)")
+                seek(to: target, resume: true)
+            }
             automaticSkipNotice = AutomaticSkipNotice(kind: .outro)
             return true
         }
