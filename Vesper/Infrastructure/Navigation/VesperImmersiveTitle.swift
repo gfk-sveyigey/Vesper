@@ -12,6 +12,22 @@ struct MediaHeaderGeometry {
         min(1, max(0, position + delta / max(travel, 1)))
     }
 
+    func position(afterScrollDelta delta: CGFloat, from position: CGFloat,
+                  previousScrollOffset: CGFloat, scrollOffset: CGFloat) -> CGFloat {
+        let height = max(travel, 1)
+        guard delta < 0, position >= 1 else {
+            return self.position(afterScrollDelta: delta, from: position)
+        }
+
+        // A collapsed header stays hidden while the page is still below its
+        // original travel range. Only the portion past that boundary expands it.
+        let expansionDistance = min(-delta, max(0, height - scrollOffset))
+        guard previousScrollOffset > height || scrollOffset > height else {
+            return self.position(afterScrollDelta: delta, from: position)
+        }
+        return min(1, max(0, position - expansionDistance / height))
+    }
+
     func snapTarget(for position: CGFloat, expandedThreshold: CGFloat = 0.5,
                     collapsedThreshold: CGFloat = 0.5, preferScrollDirection: Bool = false,
                     scrollDirection: CGFloat = 0) -> CGFloat {
@@ -29,11 +45,11 @@ struct MediaHeaderGeometry {
         min(max(offset, 0), max(0, maximum))
     }
 
-    func showsGlassWhenNotCollapsed(at position: CGFloat, pageTop: CGFloat, statusBarBottom: CGFloat) -> Bool {
+    func showsGlassWhenNotCollapsed(at position: CGFloat, pageTop: CGFloat, statusBarTop: CGFloat) -> Bool {
         let clampedPosition = min(1, max(0, position))
         guard clampedPosition < 1 else { return false }
         guard clampedPosition == 0 else { return true }
-        return pageTop < statusBarBottom
+        return pageTop < statusBarTop
     }
 
     func edgeRegionHeight(statusBarHeight: CGFloat, position: CGFloat) -> CGFloat {
@@ -324,7 +340,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             let geometry = MediaHeaderGeometry(pageOffset: pageTopOffset, travel: contentHeaderHeight)
             let pageTop = -pageTopOffset
             let blurProgress = geometry.curveProgress(position: position, curve: layout[.mediaContentBlurCurve])
-            let showsBackdrop = geometry.showsGlassWhenNotCollapsed(at: position, pageTop: pageTop, statusBarBottom: topInset)
+            let showsBackdrop = geometry.showsGlassWhenNotCollapsed(at: position, pageTop: pageTop, statusBarTop: 0)
 
             ZStack(alignment: .top) {
                 VesperMediaStatusBarBlur(
@@ -353,7 +369,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                             Rectangle()
                                 .fill(Color(uiColor: .label))
                                 .frame(height: 0.5)
-                                .opacity(showsBackdrop ? 0.5 : 0)
+                                .opacity(showsBackdrop ? 0.8 : 0)
                                 .animation(.easeInOut(duration: 0.14), value: showsBackdrop)
                         }
                         .opacity(isCollapsed ? 0 : 1)
@@ -430,10 +446,12 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 
         mutating func updatePosition(at offset: CGFloat, height: CGFloat, currentPosition: CGFloat) -> CGFloat {
             let delta = offset - lastOffset
+            let previousOffset = lastOffset
             lastOffset = offset
             if delta != 0 { lastDirection = delta > 0 ? 1 : -1 }
             return MediaHeaderGeometry(pageOffset: 0, travel: height)
-                .position(afterScrollDelta: delta, from: currentPosition)
+                .position(afterScrollDelta: delta, from: currentPosition,
+                          previousScrollOffset: previousOffset, scrollOffset: offset)
         }
     }
 
