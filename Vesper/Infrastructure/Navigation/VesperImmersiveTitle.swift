@@ -29,12 +29,8 @@ struct MediaHeaderGeometry {
         min(max(offset, 0), max(0, maximum))
     }
 
-    func showsGlass(at position: CGFloat, pageTop: CGFloat, statusBarBottom: CGFloat) -> Bool {
-        let clampedPosition = min(1, max(0, position))
-        let headerBottomBelowStatusBarTop = travel * (1 - clampedPosition) > 0
-        guard headerBottomBelowStatusBarTop else { return false }
-        guard clampedPosition == 0 else { return true }
-        return pageTop < statusBarBottom
+    func showsGlassWhenNotCollapsed(at position: CGFloat, pageTop: CGFloat, statusBarBottom: CGFloat) -> Bool {
+        position > 0 || pageTop < statusBarBottom
     }
 
     func edgeRegionHeight(statusBarHeight: CGFloat, position: CGFloat) -> CGFloat {
@@ -87,6 +83,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @ScaledMetric(relativeTo: .largeTitle) private var mediaTitleScale: CGFloat = 1
     @AppStorage("debug.mediaHeader.lightTint") private var lightTint = "#FFFFFF"
     @AppStorage("debug.mediaHeader.darkTint") private var darkTint = "#000000"
+    @AppStorage("appearance.accent") private var accent = "vesper"
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var mediaHeaderPosition: CGFloat = 0
@@ -155,6 +152,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         ScrollView {
             VStack(spacing: 0) {
                 if !extendsContentUnderHeader {
+                    // Keep the spacer inside the page so its top shares the scroll origin.
                     Color.clear.frame(height: headerHeight)
                         .accessibilityHidden(true)
                 }
@@ -322,9 +320,9 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             let displacement = contentHeaderHeight * position
             let isCollapsed = position >= 1
             let geometry = MediaHeaderGeometry(pageOffset: pageTopOffset, travel: contentHeaderHeight)
-            let pageTop = (extendsContentUnderHeader ? 0 : headerHeight) - pageTopOffset
+            let pageTop = -pageTopOffset
             let blurProgress = geometry.curveProgress(position: position, curve: layout[.mediaContentBlurCurve])
-            let showsBackdrop = geometry.showsGlass(at: position, pageTop: pageTop, statusBarBottom: topInset)
+            let showsBackdrop = geometry.showsGlassWhenNotCollapsed(at: position, pageTop: pageTop, statusBarBottom: topInset)
 
             ZStack(alignment: .top) {
                 VesperMediaStatusBarBlur(
@@ -349,6 +347,15 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                                 .opacity(showsBackdrop ? Double(layout[.mediaGlassTint]) / 100 : 0)
                                 .animation(.easeInOut(duration: 0.14), value: showsBackdrop)
                         }
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(VesperTheme.accent(accent))
+                                .frame(height: 0.5)
+                                .opacity(showsBackdrop ? 0.5 : 0)
+                                .animation(.easeInOut(duration: 0.14), value: showsBackdrop)
+                        }
+                        .opacity(isCollapsed ? 0 : 1)
+                        .animation(nil, value: isCollapsed)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                     headerContent

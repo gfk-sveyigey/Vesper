@@ -999,7 +999,8 @@ actor EmbyRepository {
     /// Single server-artwork entry point. Remote provider posters remain a separate,
     /// explicit carousel policy; ordinary posters always prefer the server default Primary.
     func artworkData(for item: MediaItem, source: MediaSource, purpose: EmbyArtworkPurpose,
-                     orientation: EmbyImageOrientation = .portrait, allowsRemotePrimary: Bool = false) async -> Data? {
+                     orientation: EmbyImageOrientation = .portrait, allowsRemotePrimary: Bool = false,
+                     prefersLandscapeMovieArtwork: Bool = false) async -> Data? {
         switch purpose {
         case .logo:
             return await featuredLogoData(for: item, source: source)
@@ -1008,12 +1009,14 @@ actor EmbyRepository {
                   let url = item.imageURL, client.sameOrigin(url) else { return nil }
             return await fetchThumbnail(url, client: client)
         case .poster, .thumbnail:
-            return await thumbnailData(for: item, source: source, orientation: orientation, allowsRemotePrimary: allowsRemotePrimary)
+            return await thumbnailData(for: item, source: source, orientation: orientation, allowsRemotePrimary: allowsRemotePrimary,
+                                       prefersLandscapeMovieArtwork: prefersLandscapeMovieArtwork)
         }
     }
 
     func thumbnailData(for item: MediaItem, source: MediaSource,
-                       orientation: EmbyImageOrientation, allowsRemotePrimary: Bool = false) async -> Data? {
+                       orientation: EmbyImageOrientation, allowsRemotePrimary: Bool = false,
+                       prefersLandscapeMovieArtwork: Bool = false) async -> Data? {
         guard let client = try? await clientProvider(source) else { return nil }
         if item.embyItemType == "Person" {
             guard let imageURL = item.imageURL, client.sameOrigin(imageURL) else { return nil }
@@ -1031,6 +1034,17 @@ actor EmbyRepository {
                 if let data = await fetchThumbnail(url, client: client) { return data }
             }
             return nil
+        }
+
+        if prefersLandscapeMovieArtwork && item.embyItemType == "Movie" {
+            let types = ["Primary", "Thumb", "Thumbnail", "Backdrop", "Screenshot"]
+            let candidates = await selectedImages(for: item, source: source, client: client,
+                                                  preferredTypes: types, preferredOrientation: .landscape,
+                                                  allowedTypes: Set(types), requiresOrientation: true)
+            for url in candidates where client.sameOrigin(url) {
+                guard !Task.isCancelled else { return nil }
+                if let data = await fetchThumbnail(url, client: client) { return data }
+            }
         }
 
         let preferredOrientation = orientation == .square ? nil : orientation

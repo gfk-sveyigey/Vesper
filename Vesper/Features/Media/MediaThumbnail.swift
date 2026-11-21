@@ -28,6 +28,8 @@ struct MediaThumbnail: View {
     var mirroredEdgeFraction: CGFloat = 0
     var showsMissingArtwork = true
     var usesMediaCardBackdrop = true
+    var prefersLandscapeMovieArtwork = false
+    var bottomArtworkBlur: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var loadedArtwork: LoadedArtwork?
 
@@ -37,7 +39,7 @@ struct MediaThumbnail: View {
     }
 
     private var loadKey: String {
-        "\(AppCacheStore.embyArtworkKey(for: item, source: source)):\(aspectRatio):\(imageOrientation.rawValue):\(cacheOnly):\(ImageCacheDebugSettings.ignoresLocalCache)"
+        "\(AppCacheStore.embyArtworkKey(for: item, source: source)):\(aspectRatio):\(imageOrientation.rawValue):\(cacheOnly):\(prefersLandscapeMovieArtwork && item.embyItemType == "Movie"):\(ImageCacheDebugSettings.ignoresLocalCache)"
     }
 
     var body: some View {
@@ -76,7 +78,8 @@ struct MediaThumbnail: View {
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.begin source=\(source.kind.rawValue) item=\(item.id.localID)") }
             let data = await MediaThumbnailLoader.shared.load(item, source: source, aspectRatio: aspectRatio,
                                                              imageOrientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary,
-                                                             diagnostics: logsQueueDiagnostics, cacheOnly: cacheOnly)
+                                                             diagnostics: logsQueueDiagnostics, cacheOnly: cacheOnly,
+                                                             prefersLandscapeMovieArtwork: prefersLandscapeMovieArtwork)
             guard !Task.isCancelled else {
                 if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.cancelled item=\(item.id.localID)") }
                 return
@@ -120,6 +123,21 @@ struct MediaThumbnail: View {
                 ZStack {
                     if let cover {
                         croppedArtwork(cover, size: geometry.size)
+                            .overlay(alignment: .bottom) {
+                                if bottomArtworkBlur > 0 {
+                                    croppedArtwork(cover, size: geometry.size)
+                                        .padding(bottomArtworkBlur * 2)
+                                        .blur(radius: bottomArtworkBlur)
+                                        .frame(width: geometry.size.width, height: geometry.size.height / 4,
+                                               alignment: .bottom)
+                                        .offset(y: bottomArtworkBlur * 2)
+                                        .frame(height: geometry.size.height / 4)
+                                        .mask {
+                                            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                                        }
+                                        .allowsHitTesting(false)
+                                }
+                            }
                             .id(crossfadesArtwork ? artworkIdentity : nil)
                             .transition(.opacity)
                     }
@@ -337,12 +355,15 @@ final class MediaThumbnailLoader {
 
     func load(_ item: MediaItem, source: MediaSource, aspectRatio: CGFloat = 2.0 / 3.0,
               imageOrientation: EmbyImageOrientation = .portrait,
-              allowsRemotePrimary: Bool = true, diagnostics: Bool = false, cacheOnly: Bool = false) async -> Data? {
+              allowsRemotePrimary: Bool = true, diagnostics: Bool = false, cacheOnly: Bool = false,
+              prefersLandscapeMovieArtwork: Bool = false) async -> Data? {
         guard item.id.sourceID == source.id, !Task.isCancelled else { return nil }
         switch source.kind {
         case .demo: return nil
         case .emby:
-            let key = "\(AppCacheStore.embyArtworkKey(for: item, source: source))|\(imageOrientation.rawValue)"
+            let prefersLandscape = prefersLandscapeMovieArtwork && item.embyItemType == "Movie"
+            let variant = prefersLandscape ? "|movie-landscape" : ""
+            let key = "\(AppCacheStore.embyArtworkKey(for: item, source: source))|\(imageOrientation.rawValue)\(variant)"
             let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
             let (data, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
             if let data, UIImage(data: data) != nil { return data }
@@ -353,7 +374,8 @@ final class MediaThumbnailLoader {
                 defer { pendingEmbyImages[requestKey] = nil }
                 guard let data = await EmbyRepository.shared.artworkData(for: item, source: source,
                             purpose: item.embyItemType == "Person" ? .avatar : imageOrientation == .landscape ? .thumbnail : .poster,
-                            orientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary),
+                            orientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary,
+                            prefersLandscapeMovieArtwork: prefersLandscape),
                       UIImage(data: data) != nil else { return nil }
                 if !ignoresCache {
                     await AppCacheStore.shared.saveImage(data, key: key, generation: generation)

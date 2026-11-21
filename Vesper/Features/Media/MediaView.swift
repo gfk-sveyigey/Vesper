@@ -502,8 +502,12 @@ struct MediaView: View {
 
     private func groupCardSize(_ group: EmbyMediaGroup) -> CGSize {
         let isLibraries = group.id == EmbyMediaGroup.librariesID
-        let width = CGFloat(layout[.itemWidth]) * (isLibraries ? 2.25 : 1)
-        return CGSize(width: width, height: CGFloat(layout[.itemHeight]))
+        let width = CGFloat(layout[.itemWidth])
+        let height = CGFloat(layout[.itemHeight])
+        if isLibraries {
+            return CGSize(width: 246, height: height * 246 / (width * 2.25))
+        }
+        return CGSize(width: width, height: height)
     }
 
     private var embyHomeSource: MediaSource? {
@@ -1665,11 +1669,8 @@ private struct RecentEmbyPlaybackCard: View {
     let setPlayed: (MediaItem, Bool) -> Void
 
     @EnvironmentObject private var playback: PlaybackSession
-    @Environment(\.colorScheme) private var colorScheme
     @State private var item: MediaItem
-    @State private var poster: MediaItem
     @State private var title: String
-    @State private var episode: EmbyDetailMetadata?
 
     init(source: MediaSource, entry: PlaybackHistoryEntry,
          open: @escaping (MediaItem) -> Void, clear: @escaping (MediaItem) -> Void,
@@ -1680,88 +1681,63 @@ private struct RecentEmbyPlaybackCard: View {
         self.clear = clear
         self.setPlayed = setPlayed
         _item = State(initialValue: entry.item)
-        _poster = State(initialValue: entry.item)
         _title = State(initialValue: entry.title)
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            MediaCardBackdrop()
-            MediaThumbnail(source: source, item: poster, playback: playback,
-                           aspectRatio: 1.5, imageOrientation: .landscape,
-                           usesMediaCardBackdrop: false)
-                .frame(width: 246, height: 164)
-            LinearGradient(colors: [.clear, colorScheme == .dark ? .black.opacity(0.78) : .white.opacity(0.86)],
-                           startPoint: UnitPoint(x: 0.5, y: 0.42), endPoint: .bottom)
-            Rectangle().fill(.ultraThinMaterial)
-                .mask(LinearGradient(colors: [.clear, .black], startPoint: .top,
-                                     endPoint: UnitPoint(x: 0.5, y: 0.42)))
-            VStack(alignment: .leading, spacing: 5) {
-                Text(verbatim: title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .lineLimit(1)
-                if let episode {
-                    HStack(spacing: 6) {
-                        MediaPlaybackStatus(position: entry.position, duration: entry.duration,
-                                            played: playback.effectivePlayed(for: item))
-                        Spacer(minLength: 0)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .overlay(alignment: .bottomTrailing) {
-                        episodeMenu(metadata: episode)
-                    }
-                } else {
+        MediaThumbnail(source: source, item: item, aspectRatio: 1.5, imageOrientation: .landscape,
+                       allowsRemotePrimary: false, prefersLandscapeMovieArtwork: true,
+                       bottomArtworkBlur: 4)
+            .frame(width: 246, height: 164)
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
                     MediaPlaybackStatus(position: entry.position, duration: entry.duration,
                                         played: playback.effectivePlayed(for: item))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .overlay(alignment: .bottomTrailing) { episodeMenu(metadata: nil) }
                 }
+                .shadow(color: Color(uiColor: .systemBackground).opacity(0.85), radius: 2)
+                .padding(.leading, 12)
+                .padding(.trailing, 50)
+                .padding(.bottom, 5)
             }
-            .padding(.leading, 12)
-            .padding(.trailing, 42)
-            .padding(.bottom, 11)
-            .frame(width: 246, height: 164, alignment: .bottomLeading)
-        }
-        .frame(width: 246, height: 164)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.14), lineWidth: 1) }
-        .contentShape(RoundedRectangle(cornerRadius: 12))
-        .onTapGesture { open(item) }
-        .task(id: "\(source.id)|\(entry.mediaID.localID)") {
-            do {
-                let details = try await EmbyRepository.shared.detailMetadata(for: entry.item, source: source)
-                guard !Task.isCancelled else { return }
-                item = details.item
-                if details.item.embyItemType == "Episode", let series = details.series {
-                    let seriesDetails = try? await EmbyRepository.shared.detailMetadata(for: series, source: source)
+            .mediaArtworkBorder()
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+            .onTapGesture { open(item) }
+            .overlay(alignment: .bottomTrailing) {
+                episodeMenu.padding(.trailing, 10).padding(.bottom, 10)
+            }
+            .task(id: "\(source.id)|\(entry.mediaID.localID)") {
+                do {
+                    let details = try await EmbyRepository.shared.detailMetadata(for: entry.item, source: source)
                     guard !Task.isCancelled else { return }
-                    poster = seriesDetails?.item ?? series
-                    var seasonCount = poster.embyPresentation?.seasonCount
-                    if seasonCount == nil {
-                        seasonCount = try? await EmbyRepository.shared.seriesSeasonCount(for: series, source: source)
+                    item = details.item
+                    if details.item.embyItemType == "Episode", let series = details.series {
+                        var seasonCount = series.embyPresentation?.seasonCount
+                        if seasonCount == nil {
+                            seasonCount = try? await EmbyRepository.shared.seriesSeasonCount(for: series, source: source)
+                        }
+                        guard !Task.isCancelled else { return }
+                        let count = seasonCount ?? 1
+                        var parts = [series.title]
+                        if count > 1, let season = details.seasonNumber {
+                            parts.append(VesperLocalization.localized("第\(season)季"))
+                        }
+                        if let number = details.episodeNumber {
+                            parts.append(VesperLocalization.localized("第\(number)集"))
+                        }
+                        title = parts.joined(separator: " · ")
+                    } else {
+                        title = details.item.title
                     }
-                    guard !Task.isCancelled else { return }
-                    let count = seasonCount ?? 1
-                    var parts = [series.title]
-                    if count > 1, let season = details.seasonNumber {
-                        parts.append(VesperLocalization.localized("第\(season)季"))
-                    }
-                    if let number = details.episodeNumber {
-                        parts.append(VesperLocalization.localized("第\(number)集"))
-                    }
-                    title = parts.joined(separator: " · ")
-                    episode = details
-                } else {
-                    poster = details.item
-                    title = details.item.title
-                }
-            } catch { }
-        }
+                } catch { }
+            }
     }
 
-    private func episodeMenu(metadata: EmbyDetailMetadata?) -> some View {
+    private var episodeMenu: some View {
         Menu {
             Button("前往单集", systemImage: "info.circle") { open(item) }
             if entry.position > 0 {
@@ -1774,9 +1750,9 @@ private struct RecentEmbyPlaybackCard: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 34, height: 28)
+                .frame(width: 36, height: 30)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
