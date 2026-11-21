@@ -589,7 +589,6 @@ struct MediaView: View {
     private func mediaSourceMenu(localBusy: Bool = false, createLocalFolder: (() -> Void)? = nil) -> some View {
         let source = embyHomeSource
         let isLocal = library.selectedSource?.kind == .local && createLocalFolder != nil
-        let isLocalMedia = library.selectedSource?.kind == .local || library.selectedSource?.kind == .photos
         let isExpanded = (source != nil || isLocal) && showsEmbyShortcuts
         let iconSize: CGFloat = 20
 
@@ -1739,8 +1738,12 @@ private struct RecentEmbyPlaybackCard: View {
                     let seriesDetails = try? await EmbyRepository.shared.detailMetadata(for: series, source: source)
                     guard !Task.isCancelled else { return }
                     poster = seriesDetails?.item ?? series
-                    let count = poster.embyPresentation?.seasonCount
-                        ?? (try? await EmbyRepository.shared.seriesSeasonCount(for: series, source: source)) ?? 1
+                    var seasonCount = poster.embyPresentation?.seasonCount
+                    if seasonCount == nil {
+                        seasonCount = try? await EmbyRepository.shared.seriesSeasonCount(for: series, source: source)
+                    }
+                    guard !Task.isCancelled else { return }
+                    let count = seasonCount ?? 1
                     var parts = [series.title]
                     if count > 1, let season = details.seasonNumber {
                         parts.append(VesperLocalization.localized("第\(season)季"))
