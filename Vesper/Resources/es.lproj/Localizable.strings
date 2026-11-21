@@ -983,7 +983,11 @@
 
 /* Media header geometry and edge blur. */
 "Header 固定内容高度" = "Altura fija del contenido del encabezado";
-"顶部边缘模糊最大强度" = "Intensidad máxima del desenfoque superior";
-"顶部边缘模糊颜色叠加强度" = "Intensidad del tinte del desenfoque superior";
+"顶部边缘模糊顶端强度" = "Intensidad del desenfoque en la parte superior";
+"顶部边缘模糊底端强度" = "Intensidad del desenfoque en la parte inferior";
+"顶部边缘模糊曲线" = "Curva del desenfoque superior";
+"缓入缓出" = "Entrada y salida suaves";
+"缓入" = "Entrada suave";
+"平滑阶梯" = "Transición suave";
 "浅色模式模糊颜色" = "Color del desenfoque en modo claro";
 "深色模式模糊颜色" = "Color del desenfoque en modo oscuro";

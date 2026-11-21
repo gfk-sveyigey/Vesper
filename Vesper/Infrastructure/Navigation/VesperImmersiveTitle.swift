@@ -8,19 +8,35 @@ struct MediaHeaderGeometry {
     var progress: CGFloat { min(1, max(0, pageOffset / max(travel, 1))) }
     var snapTarget: CGFloat { progress < 0.5 ? 0 : 1 }
 
+    func position(afterScrollDelta delta: CGFloat, from position: CGFloat) -> CGFloat {
+        min(1, max(0, position + delta / max(travel, 1)))
+    }
+
+    func snapTarget(for position: CGFloat) -> CGFloat {
+        position < 0.5 ? 0 : 1
+    }
+
     func showsGlass(at position: CGFloat, pageTop: CGFloat, statusBarBottom: CGFloat) -> Bool {
-        position > 0 && position < 1 || (position == 0 && pageTop < statusBarBottom)
+        let clampedPosition = min(1, max(0, position))
+        let headerBottomBelowStatusBarTop = travel * (1 - clampedPosition) > 0
+        guard headerBottomBelowStatusBarTop else { return false }
+        guard clampedPosition == 0 else { return true }
+        return pageTop < statusBarBottom
     }
 
     func edgeRegionHeight(statusBarHeight: CGFloat, position: CGFloat) -> CGFloat {
         max(0, statusBarHeight + travel - travel * position)
     }
 
-    func edgeBlurProgress(statusBarHeight: CGFloat, position: CGFloat) -> CGFloat {
-        let headerHeight = statusBarHeight + travel
-        let regionHeight = edgeRegionHeight(statusBarHeight: statusBarHeight, position: position)
-        let ratio = min(1, max(0, regionHeight / max(headerHeight, 1)))
-        return ratio * ratio * (3 - 2 * ratio)
+    func edgeBlurProgress(position: CGFloat, curve: Int) -> CGFloat {
+        let ratio = min(1, max(0, position))
+        switch curve {
+        case 0: return ratio
+        case 2: return ratio * ratio
+        case 3: return 1 - (1 - ratio) * (1 - ratio)
+        case 4: return ratio * ratio * (3 - 2 * ratio)
+        default: return ratio * ratio * (3 - 2 * ratio)
+        }
     }
 }
 
@@ -147,12 +163,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     }
                 } else if mediaHeaderScroll != nil {
                     updateMediaHeaderScroll(at: metrics.headerOffset)
-                } else {
-                    if mediaHeaderSnap == nil {
-                        mediaHeaderPosition = MediaHeaderGeometry(pageOffset: metrics.headerOffset, travel: contentHeaderHeight).progress
-                    }
-                    restoreMediaHeaderAfterScrollToTop(offset: metrics.offset)
                 }
+                restoreMediaHeaderAfterScrollToTop(offset: metrics.offset)
             } else {
                 updateHeader(at: scrollOffset)
             }
@@ -181,7 +193,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 let position = mediaHeaderSnap?.position(at: .now) ?? mediaHeaderPosition
                 mediaHeaderPosition = position
                 mediaHeaderSnap = nil
-                mediaHeaderScroll = MediaHeaderScroll()
+                mediaHeaderScroll = MediaHeaderScroll(lastOffset: offset)
             }
             updateMediaHeaderScroll(at: offset)
         case .decelerating:
@@ -288,20 +300,22 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 VesperMediaStatusBarBlur(
                     displacement: displacement,
                     fixedHeight: contentHeaderHeight,
-                    maximumStrength: Double(layout[.mediaEdgeStrength]) / 100,
-                    tintOpacity: Double(layout[.mediaEdgeTint]) / 100,
-                    lightTint: lightTint,
-                    darkTint: darkTint
+                    topStrength: Double(layout[.mediaEdgeTopStrength]) / 100,
+                    bottomStrength: Double(layout[.mediaEdgeBottomStrength]) / 100,
+                    curve: layout[.mediaEdgeCurve]
                 )
                 ZStack(alignment: .top) {
                     VesperFadingBackdropBlur(style: .systemMaterial,
                         strength: Double(layout[.mediaGlassStrength]) / 100,
                         visibility: showsBackdrop ? 1 : 0, fadesAtBottom: false)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: headerHeight, alignment: .top)
+                        .animation(.easeInOut(duration: 0.14), value: showsBackdrop)
                         .overlay {
                             VesperTheme.accent(colorScheme == .dark ? darkTint : lightTint)
                                 .opacity(showsBackdrop ? Double(layout[.mediaGlassTint]) / 100 : 0)
+                                .animation(.easeInOut(duration: 0.14), value: showsBackdrop)
                         }
-                        .animation(.easeInOut(duration: 0.14), value: showsBackdrop)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                     headerContent
@@ -320,15 +334,17 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private func restoreMediaHeaderAfterScrollToTop(offset: CGFloat) {
-        guard !isInteracting, abs(offset) <= 0.5,
-              let position = scrollPosition?.wrappedValue,
-              !position.isPositionedByUser, position.edge == .top else { return }
+        guard abs(offset) <= 0.5 else { return }
         settleMediaHeader(at: 0)
     }
 
     private func updateMediaHeaderScroll(at offset: CGFloat) {
-        guard let scroll = mediaHeaderScroll else { return }
-        mediaHeaderPosition = scroll.position(at: offset, height: contentHeaderHeight)
+        guard var scroll = mediaHeaderScroll else { return }
+        mediaHeaderPosition = scroll.updatePosition(
+            at: offset,
+            height: contentHeaderHeight,
+            currentPosition: mediaHeaderPosition
+        )
         mediaHeaderScroll = scroll
     }
 
@@ -337,7 +353,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         updateMediaHeaderScroll(at: offset)
         guard let scroll = mediaHeaderScroll else { return }
         mediaHeaderScroll = nil
-        snapMediaHeader(to: scroll.destination(at: offset, height: contentHeaderHeight))
+        snapMediaHeader(to: scroll.destination(from: mediaHeaderPosition, height: contentHeaderHeight))
     }
 
     private func snapMediaHeader(to target: CGFloat) {
@@ -354,13 +370,17 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private struct MediaHeaderScroll {
-        func position(at offset: CGFloat, height: CGFloat) -> CGFloat {
-            // Page and header share their origin until the safe-area travel ends.
-            MediaHeaderGeometry(pageOffset: offset, travel: height).progress
+        var lastOffset: CGFloat
+
+        mutating func updatePosition(at offset: CGFloat, height: CGFloat, currentPosition: CGFloat) -> CGFloat {
+            let delta = offset - lastOffset
+            lastOffset = offset
+            return MediaHeaderGeometry(pageOffset: 0, travel: height)
+                .position(afterScrollDelta: delta, from: currentPosition)
         }
 
-        func destination(at offset: CGFloat, height: CGFloat) -> CGFloat {
-            MediaHeaderGeometry(pageOffset: offset, travel: height).snapTarget
+        func destination(from position: CGFloat, height: CGFloat) -> CGFloat {
+            MediaHeaderGeometry(pageOffset: 0, travel: height).snapTarget(for: position)
         }
     }
 
@@ -581,31 +601,30 @@ struct VesperMediaStatusBarBlur: View {
     var isVisible = true
     var displacement: CGFloat = 0
     var fixedHeight: CGFloat?
-    var maximumStrength: Double = 1
-    var tintOpacity: Double = 0
-    var lightTint = "#FFFFFF"
-    var darkTint = "#000000"
+    var topStrength: Double = 1
+    var bottomStrength: Double = 0
+    var curve = 1
     @Environment(\.vesperWindowTopInset) private var topInset
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let geometry = MediaHeaderGeometry(pageOffset: displacement, travel: fixedHeight ?? topInset)
         let regionHeight = fixedHeight == nil
             ? topInset
             : geometry.edgeRegionHeight(statusBarHeight: topInset, position: geometry.progress)
-        let eased = fixedHeight == nil
+        let progress = fixedHeight == nil
             ? 1
-            : geometry.edgeBlurProgress(statusBarHeight: topInset, position: geometry.progress)
+            : geometry.edgeBlurProgress(position: geometry.progress, curve: curve)
+        let strength = topStrength + (bottomStrength - topStrength) * progress
         if regionHeight > 0 {
             VesperFadingBackdropBlur(style: .regular,
-                                     strength: maximumStrength * Double(eased),
+                                     strength: strength,
                                      visibility: isVisible ? 1 : 0,
                                      fadesAtBottom: false)
                 .overlay {
-                    VesperTheme.accent(colorScheme == .dark ? darkTint : lightTint)
-                        .opacity(isVisible ? tintOpacity * eased : 0)
+                    Color(uiColor: .systemBackground)
+                        .opacity(isVisible ? 0.12 : 0)
                 }
-                .animation(.easeInOut(duration: 0.18), value: eased)
+                .animation(.easeInOut(duration: 0.18), value: progress)
                 .opacity(isVisible ? 1 : 0)
                 .frame(height: regionHeight)
                 .clipped()

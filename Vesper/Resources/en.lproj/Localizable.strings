@@ -983,7 +983,11 @@
 
 /* Media header geometry and edge blur. */
 "Header 固定内容高度" = "Fixed header content height";
-"顶部边缘模糊最大强度" = "Maximum top-edge blur strength";
-"顶部边缘模糊颜色叠加强度" = "Top-edge blur tint opacity";
+"顶部边缘模糊顶端强度" = "Top-edge blur strength";
+"顶部边缘模糊底端强度" = "Bottom-edge blur strength";
+"顶部边缘模糊曲线" = "Top-edge blur curve";
+"缓入缓出" = "Ease in and out";
+"缓入" = "Ease in";
+"平滑阶梯" = "Smooth step";
 "浅色模式模糊颜色" = "Blur color in light mode";
 "深色模式模糊颜色" = "Blur color in dark mode";

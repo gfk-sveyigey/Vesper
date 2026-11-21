@@ -942,8 +942,9 @@ private extension MediaLayoutSettings.Metric {
         case .mediaGlassStrength: "Header 下层毛玻璃强度"
         case .mediaGlassTint: "Header 毛玻璃颜色叠加强度"
         case .mediaContentBlur: "Header 自身最大模糊"
-        case .mediaEdgeStrength: "顶部边缘模糊最大强度"
-        case .mediaEdgeTint: "顶部边缘模糊颜色叠加强度"
+        case .mediaEdgeTopStrength: "顶部边缘模糊顶端强度"
+        case .mediaEdgeBottomStrength: "顶部边缘模糊底端强度"
+        case .mediaEdgeCurve: "顶部边缘模糊曲线"
         case .carouselBlurHeight: "底部模糊主体高度"
         case .carouselBlurFadeHeight: "上沿渐隐高度"
         case .carouselBlurStrength: "毛玻璃效果强度"
@@ -992,13 +993,23 @@ private struct DebugSettingsView: View {
                 }
             }
             SettingsSection("媒体页导航栏") {
-                ForEach(Self.headerMetrics, id: \.self) { metric in layoutStepper(metric) }
-                headerTintPicker("浅色模式模糊颜色", value: $lightTint)
-                headerTintPicker("深色模式模糊颜色", value: $darkTint)
+                ForEach(Self.headerMetrics, id: \.self) { metric in
+                    if metric == .mediaEdgeCurve {
+                        SettingsPicker("顶部边缘模糊曲线", selection: Binding(
+                            get: { layout[.mediaEdgeCurve] }, set: { layout[.mediaEdgeCurve] = $0 }
+                        )) {
+                            Text("线性").tag(0)
+                            Text("缓入缓出").tag(1)
+                            Text("缓入").tag(2)
+                            Text("缓出").tag(3)
+                            Text("平滑阶梯").tag(4)
+                        }
+                    } else {
+                        layoutStepper(metric)
+                    }
+                }
                 Button("恢复默认值", systemImage: "arrow.counterclockwise") {
                     layout.reset(Self.headerMetrics)
-                    lightTint = "#FFFFFF"
-                    darkTint = "#000000"
                 }
             }
             SettingsSection("轮播图底部模糊") {
@@ -1013,7 +1024,8 @@ private struct DebugSettingsView: View {
     }
 
     private static let headerMetrics: [MediaLayoutSettings.Metric] = [
-        .mediaHeaderHeight, .mediaGlassStrength, .mediaGlassTint, .mediaContentBlur, .mediaEdgeStrength, .mediaEdgeTint
+        .mediaHeaderHeight, .mediaGlassStrength, .mediaGlassTint, .mediaContentBlur,
+        .mediaEdgeTopStrength, .mediaEdgeBottomStrength, .mediaEdgeCurve
     ]
 
     private static let carouselBlurMetrics: [MediaLayoutSettings.Metric] = [
@@ -1022,16 +1034,6 @@ private struct DebugSettingsView: View {
 
     private static let interfaceMetrics = MediaLayoutSettings.Metric.allCases.filter {
         !headerMetrics.contains($0) && !carouselBlurMetrics.contains($0)
-    }
-
-    private func headerTintPicker(_ title: LocalizedStringKey, value: Binding<String>) -> some View {
-        ColorPicker(selection: Binding(
-            get: { VesperTheme.accent(value.wrappedValue) },
-            set: { color in
-                if let hex = VesperTheme.accentIdentifier(for: color) { value.wrappedValue = hex }
-            }
-        ), supportsOpacity: false) { Text(title) }
-        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
     }
 
     private func layoutStepper(_ metric: MediaLayoutSettings.Metric) -> some View {

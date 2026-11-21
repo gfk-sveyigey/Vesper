@@ -983,7 +983,11 @@
 
 /* Media header geometry and edge blur. */
 "Header 固定内容高度" = "Hauteur fixe du contenu de l’en-tête";
-"顶部边缘模糊最大强度" = "Intensité maximale du flou supérieur";
-"顶部边缘模糊颜色叠加强度" = "Intensité de la teinte du flou supérieur";
+"顶部边缘模糊顶端强度" = "Intensité du flou en haut";
+"顶部边缘模糊底端强度" = "Intensité du flou en bas";
+"顶部边缘模糊曲线" = "Courbe du flou supérieur";
+"缓入缓出" = "Accélération et décélération douces";
+"缓入" = "Accélération douce";
+"平滑阶梯" = "Transition progressive";
 "浅色模式模糊颜色" = "Couleur du flou en mode clair";
 "深色模式模糊颜色" = "Couleur du flou en mode sombre";

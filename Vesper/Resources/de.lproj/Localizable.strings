@@ -983,7 +983,11 @@
 
 /* Media header geometry and edge blur. */
 "Header 固定内容高度" = "Feste Höhe des Kopfzeileninhalts";
-"顶部边缘模糊最大强度" = "Maximale Unschärfe am oberen Rand";
-"顶部边缘模糊颜色叠加强度" = "Farbüberlagerung am oberen Rand";
+"顶部边缘模糊顶端强度" = "Unschärfestärke am oberen Rand";
+"顶部边缘模糊底端强度" = "Unschärfestärke am unteren Rand";
+"顶部边缘模糊曲线" = "Unschärfekurve am oberen Rand";
+"缓入缓出" = "Ease in and out";
+"缓入" = "Ease in";
+"平滑阶梯" = "Smooth step";
 "浅色模式模糊颜色" = "Unschärfefarbe im hellen Modus";
 "深色模式模糊颜色" = "Unschärfefarbe im dunklen Modus";

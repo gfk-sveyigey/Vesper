@@ -10,13 +10,14 @@ final class MediaLayoutSettings: ObservableObject {
         case thumbnailHeight, groupSpacing, titlePadding, scrollPadding
         case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding, episodeCardWidth, episodeCardHeight
 
-        case mediaHeaderHeight, mediaGlassStrength, mediaGlassTint, mediaContentBlur, mediaEdgeStrength, mediaEdgeTint
+        case mediaHeaderHeight, mediaGlassStrength, mediaGlassTint, mediaContentBlur
+        case mediaEdgeTopStrength, mediaEdgeBottomStrength, mediaEdgeCurve
 
         case carouselBlurHeight, carouselBlurFadeHeight, carouselBlurStrength
 
         var usesPercent: Bool {
             switch self {
-            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength: true
+            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeTopStrength, .mediaEdgeBottomStrength, .carouselBlurHeight, .carouselBlurStrength: true
             default: false
             }
         }
@@ -35,8 +36,9 @@ final class MediaLayoutSettings: ObservableObject {
             case .mediaGlassStrength: 65
             case .mediaGlassTint: 12
             case .mediaContentBlur: 8
-            case .mediaEdgeStrength: 100
-            case .mediaEdgeTint: 12
+            case .mediaEdgeTopStrength: 100
+            case .mediaEdgeBottomStrength: 0
+            case .mediaEdgeCurve: 1
             case .carouselBlurHeight: 40
             case .carouselBlurFadeHeight: 24
             case .carouselBlurStrength: 55
@@ -49,7 +51,8 @@ final class MediaLayoutSettings: ObservableObject {
             case .itemWidth, .itemHeight: 24...480
             case .episodeCardWidth, .episodeCardHeight: 120...1200
             case .mediaHeaderHeight: 30...120
-            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength: 0...100
+            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeTopStrength, .mediaEdgeBottomStrength, .carouselBlurHeight, .carouselBlurStrength: 0...100
+            case .mediaEdgeCurve: 0...4
             case .mediaContentBlur: 0...40
             default: 0...120
             }
