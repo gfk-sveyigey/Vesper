@@ -969,6 +969,11 @@
 /* Media header position and edge blur. */
 "Header 下层毛玻璃强度" = "Stärke der Hintergrundunschärfe";
 "Header 自身最大模糊" = "Maximale Unschärfe des Kopfzeileninhalts";
+"Header 自身模糊曲线" = "Unschärfekurve der Kopfzeile";
+"Header 自身透明度曲线" = "Transparenzkurve des Headers";
+"Header 吸附阈值" = "Einrastschwelle der Kopfzeile";
+"Header 吸附动画时长" = "Einrastdauer der Kopfzeile";
+"Header 吸附动画曲线" = "Animationskurve beim Einrasten";
 "主体高度（相对状态栏）" = "Unschärfehöhe (relativ zur Statusleiste)";
 "下沿渐隐高度（相对状态栏）" = "Ausblendhöhe (relativ zur Statusleiste)";
 "下沿渐隐曲线" = "Untere Ausblendkurve";
@@ -985,6 +990,7 @@
 "Header 固定内容高度" = "Feste Höhe des Kopfzeileninhalts";
 "顶部边缘模糊顶端强度" = "Unschärfestärke am oberen Rand";
 "顶部边缘模糊底端强度" = "Unschärfestärke am unteren Rand";
+"顶部边缘模糊颜色叠加强度" = "Farbüberlagerung am oberen Rand";
 "顶部边缘模糊曲线" = "Unschärfekurve am oberen Rand";
 "缓入缓出" = "Ease in and out";
 "缓入" = "Ease in";

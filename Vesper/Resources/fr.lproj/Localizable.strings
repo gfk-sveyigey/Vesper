@@ -969,6 +969,11 @@
 /* Media header position and edge blur. */
 "Header 下层毛玻璃强度" = "Intensité du flou derrière l’en-tête";
 "Header 自身最大模糊" = "Flou maximal du contenu de l’en-tête";
+"Header 自身模糊曲线" = "Courbe de flou de l’en-tête";
+"Header 自身透明度曲线" = "Courbe d’opacité de l’en-tête";
+"Header 吸附阈值" = "Seuil d’ancrage de l’en-tête";
+"Header 吸附动画时长" = "Durée de l’ancrage de l’en-tête";
+"Header 吸附动画曲线" = "Courbe d’animation de l’ancrage";
 "主体高度（相对状态栏）" = "Hauteur du flou (par rapport à la barre d’état)";
 "下沿渐隐高度（相对状态栏）" = "Hauteur du fondu (par rapport à la barre d’état)";
 "下沿渐隐曲线" = "Courbe du fondu inférieur";
@@ -985,6 +990,7 @@
 "Header 固定内容高度" = "Hauteur fixe du contenu de l’en-tête";
 "顶部边缘模糊顶端强度" = "Intensité du flou en haut";
 "顶部边缘模糊底端强度" = "Intensité du flou en bas";
+"顶部边缘模糊颜色叠加强度" = "Intensité de la teinte du bord supérieur";
 "顶部边缘模糊曲线" = "Courbe du flou supérieur";
 "缓入缓出" = "Accélération et décélération douces";
 "缓入" = "Accélération douce";
