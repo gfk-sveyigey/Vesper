@@ -938,11 +938,12 @@ private extension MediaLayoutSettings.Metric {
         case .endPadding: "媒体库滚动区域左右内缩"
         case .episodeCardWidth: "剧集卡片宽度"
         case .episodeCardHeight: "剧集卡片高度"
-        case .statusBarEdgeBlur: "状态栏边缘模糊最大强度"
-        case .headerBackdropBlur: "Header 毛玻璃效果强度"
-        case .headerForegroundBlur: "Header 模糊效果最大强度"
-        case .headerAnimationMinimumDistance: "Header 触发动画最小移动距离"
-        case .headerTitleSize: "Header 大标题字号"
+        case .mediaGlassStrength: "Header 下层毛玻璃强度"
+        case .mediaContentBlur: "Header 自身最大模糊"
+        case .mediaEdgeStrength: "状态栏边缘模糊最大强度"
+        case .mediaEdgeBodyHeight: "主体高度（相对状态栏）"
+        case .mediaEdgeFadeHeight: "下沿渐隐高度（相对状态栏）"
+        case .mediaEdgeFadeCurve: "下沿渐隐曲线"
         case .carouselBlurHeight: "底部模糊主体高度"
         case .carouselBlurFadeHeight: "上沿渐隐高度"
         case .carouselBlurStrength: "毛玻璃效果强度"
@@ -990,7 +991,17 @@ private struct DebugSettingsView: View {
             }
             SettingsSection("媒体页导航栏") {
                 ForEach(Self.headerMetrics, id: \.self) { metric in
-                    layoutStepper(metric)
+                    if metric == .mediaEdgeFadeCurve {
+                        SettingsPicker("下沿渐隐曲线", selection: Binding(
+                            get: { layout[.mediaEdgeFadeCurve] }, set: { layout[.mediaEdgeFadeCurve] = $0 }
+                        )) {
+                            Text("线性").tag(0)
+                            Text("平滑").tag(1)
+                            Text("缓出").tag(2)
+                        }
+                    } else {
+                        layoutStepper(metric)
+                    }
                 }
                 Button("恢复默认值", systemImage: "arrow.counterclockwise") {
                     layout.reset(Self.headerMetrics)
@@ -1008,8 +1019,8 @@ private struct DebugSettingsView: View {
     }
 
     private static let headerMetrics: [MediaLayoutSettings.Metric] = [
-        .statusBarEdgeBlur, .headerBackdropBlur, .headerForegroundBlur,
-        .headerAnimationMinimumDistance, .headerTitleSize
+        .mediaGlassStrength, .mediaContentBlur, .mediaEdgeStrength,
+        .mediaEdgeBodyHeight, .mediaEdgeFadeHeight, .mediaEdgeFadeCurve
     ]
 
     private static let carouselBlurMetrics: [MediaLayoutSettings.Metric] = [

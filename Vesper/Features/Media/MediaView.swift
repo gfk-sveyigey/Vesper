@@ -10,13 +10,13 @@ final class MediaLayoutSettings: ObservableObject {
         case thumbnailHeight, groupSpacing, titlePadding, scrollPadding
         case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding, episodeCardWidth, episodeCardHeight
 
-        case statusBarEdgeBlur, headerBackdropBlur, headerForegroundBlur, headerAnimationMinimumDistance, headerTitleSize
+        case mediaGlassStrength, mediaContentBlur, mediaEdgeStrength, mediaEdgeBodyHeight, mediaEdgeFadeHeight, mediaEdgeFadeCurve
 
         case carouselBlurHeight, carouselBlurFadeHeight, carouselBlurStrength
 
         var usesPercent: Bool {
             switch self {
-            case .statusBarEdgeBlur, .headerBackdropBlur, .carouselBlurHeight, .carouselBlurStrength: true
+            case .mediaGlassStrength, .mediaEdgeStrength, .mediaEdgeBodyHeight, .mediaEdgeFadeHeight, .carouselBlurHeight, .carouselBlurStrength: true
             default: false
             }
         }
@@ -31,11 +31,12 @@ final class MediaLayoutSettings: ObservableObject {
             case .endPadding: 20
             case .episodeCardWidth: 246
             case .episodeCardHeight: 230
-            case .statusBarEdgeBlur: 100
-            case .headerBackdropBlur: 65
-            case .headerForegroundBlur: 8
-            case .headerAnimationMinimumDistance: 5
-            case .headerTitleSize: 34
+            case .mediaGlassStrength: 65
+            case .mediaContentBlur: 8
+            case .mediaEdgeStrength: 100
+            case .mediaEdgeBodyHeight: 55
+            case .mediaEdgeFadeHeight: 45
+            case .mediaEdgeFadeCurve: 1
             case .carouselBlurHeight: 40
             case .carouselBlurFadeHeight: 24
             case .carouselBlurStrength: 55
@@ -47,10 +48,10 @@ final class MediaLayoutSettings: ObservableObject {
             case .thumbnailHeight: 0...600
             case .itemWidth, .itemHeight: 24...480
             case .episodeCardWidth, .episodeCardHeight: 120...1200
-            case .statusBarEdgeBlur, .headerBackdropBlur, .carouselBlurHeight, .carouselBlurStrength: 0...100
-            case .headerForegroundBlur: 0...40
-            case .headerAnimationMinimumDistance: 1...60
-            case .headerTitleSize: 18...44
+            case .mediaGlassStrength, .mediaEdgeStrength, .carouselBlurHeight, .carouselBlurStrength: 0...100
+            case .mediaContentBlur: 0...40
+            case .mediaEdgeBodyHeight, .mediaEdgeFadeHeight: 10...100
+            case .mediaEdgeFadeCurve: 0...2
             default: 0...120
             }
         }

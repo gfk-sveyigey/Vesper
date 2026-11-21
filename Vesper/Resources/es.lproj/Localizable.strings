@@ -965,3 +965,13 @@
 "图标库格式无效，或没有可用的图标。" = "La biblioteca no tiene un formato válido o no contiene iconos utilizables.";
 "图标库或图片下载失败，请检查链接与网络后重试。" = "No se pudo descargar la biblioteca o la imagen. Comprueba la URL y la conexión e inténtalo de nuevo.";
 "无法读取此图标，请选择其他图标。" = "No se puede abrir este icono. Elige otro.";
+
+/* Media header position and edge blur. */
+"Header 下层毛玻璃强度" = "Intensidad del desenfoque del fondo";
+"Header 自身最大模糊" = "Desenfoque máximo del encabezado";
+"主体高度（相对状态栏）" = "Altura del desenfoque (respecto a la barra de estado)";
+"下沿渐隐高度（相对状态栏）" = "Altura del degradado (respecto a la barra de estado)";
+"下沿渐隐曲线" = "Curva del degradado inferior";
+"线性" = "Lineal";
+"平滑" = "Suave";
+"缓出" = "Desaceleración";

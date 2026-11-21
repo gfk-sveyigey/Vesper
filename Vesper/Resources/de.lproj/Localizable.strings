@@ -965,3 +965,13 @@
 "图标库格式无效，或没有可用的图标。" = "Das Bibliotheksformat ist ungültig oder enthält keine verwendbaren Symbole.";
 "图标库或图片下载失败，请检查链接与网络后重试。" = "Bibliothek oder Bild konnte nicht geladen werden. Prüfe URL und Verbindung und versuche es erneut.";
 "无法读取此图标，请选择其他图标。" = "Dieses Symbol kann nicht geöffnet werden. Wähle ein anderes.";
+
+/* Media header position and edge blur. */
+"Header 下层毛玻璃强度" = "Stärke der Hintergrundunschärfe";
+"Header 自身最大模糊" = "Maximale Unschärfe des Kopfzeileninhalts";
+"主体高度（相对状态栏）" = "Unschärfehöhe (relativ zur Statusleiste)";
+"下沿渐隐高度（相对状态栏）" = "Ausblendhöhe (relativ zur Statusleiste)";
+"下沿渐隐曲线" = "Untere Ausblendkurve";
+"线性" = "Linear";
+"平滑" = "Sanft";
+"缓出" = "Abbremsend";

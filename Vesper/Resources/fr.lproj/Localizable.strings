@@ -965,3 +965,13 @@
 "图标库格式无效，或没有可用的图标。" = "Le format de la bibliothèque est invalide ou aucune icône n’est utilisable.";
 "图标库或图片下载失败，请检查链接与网络后重试。" = "Impossible de télécharger la bibliothèque ou l’image. Vérifiez l’URL et la connexion, puis réessayez.";
 "无法读取此图标，请选择其他图标。" = "Impossible d’ouvrir cette icône. Choisissez-en une autre.";
+
+/* Media header position and edge blur. */
+"Header 下层毛玻璃强度" = "Intensité du flou derrière l’en-tête";
+"Header 自身最大模糊" = "Flou maximal du contenu de l’en-tête";
+"主体高度（相对状态栏）" = "Hauteur du flou (par rapport à la barre d’état)";
+"下沿渐隐高度（相对状态栏）" = "Hauteur du fondu (par rapport à la barre d’état)";
+"下沿渐隐曲线" = "Courbe du fondu inférieur";
+"线性" = "Linéaire";
+"平滑" = "Lisse";
+"缓出" = "Décélération";
