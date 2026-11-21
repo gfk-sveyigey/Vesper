@@ -63,13 +63,14 @@ private struct EmbyIconLibraryEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State var link: EmbyIconLibraryLink
     let save: (EmbyIconLibraryLink) -> Void
+    private var isNew: Bool { link.name.isEmpty && link.address.isEmpty }
     @State private var saving = false
     @State private var error: String?
     @State private var operation: Task<Void, Never>?
     var body: some View {
         NavigationStack {
             SettingsPage {
-                SettingsIntroCard(title: "图标库", symbol: "square.grid.2x2",
+                SettingsIntroCard(title: isNew ? "添加图标库" : "编辑图标库", symbol: "square.grid.2x2",
                                   description: "添加在线图标库，为 Emby 来源选择图标。")
                 SettingsSection {
                     TextField("名称", text: $link.name)
@@ -82,12 +83,16 @@ private struct EmbyIconLibraryEditor: View {
                 if saving { ProgressView().frame(maxWidth: .infinity) }
                 if let error { Text(verbatim: error).foregroundStyle(.red) }
             }
-            .navigationTitle("图标库").toolbarTitleDisplayMode(.inline)
+            .navigationTitle(isNew ? "添加图标库" : "编辑图标库").toolbarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { validateAndSave() }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("关闭")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { validateAndSave() } label: { Image(systemName: "checkmark") }
                         .disabled(saving || link.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel("保存")
                 }
             }
         }
@@ -125,6 +130,7 @@ struct EmbyLibraryIconPicker: View {
     @State private var loading = false
     @State private var revision = 0
     @State private var pendingIcon: EmbyLibraryIcon?
+    @State private var showingLibrarySettings = false
     private var link: EmbyIconLibraryLink? { store.links.first { $0.id == libraryID } }
     private var requestKey: String { "\(link?.address ?? "")|\(revision)" }
     private var icons: [EmbyLibraryIcon] {
@@ -139,11 +145,6 @@ struct EmbyLibraryIconPicker: View {
                     if store.links.isEmpty {
                         ContentUnavailableView("尚未添加图标库", systemImage: "square.grid.2x2")
                     } else {
-                        Picker("图标库", selection: $libraryID) {
-                            ForEach(store.links) { link in
-                                Text(verbatim: link.name).tag(Optional(link.id))
-                            }
-                        }.pickerStyle(.menu)
                         if loading { ProgressView().frame(maxWidth: .infinity) }
                         if let error {
                             Text(verbatim: error).foregroundStyle(.red)
@@ -166,17 +167,47 @@ struct EmbyLibraryIconPicker: View {
                             .disabled(pendingIcon != nil)
                         }
                     }
-                    NavigationLink("管理图标库") { EmbyIconLibrarySettingsView() }
                 }.padding()
             }
             .navigationTitle("从图标库选择").toolbarTitleDisplayMode(.inline)
             .searchable(text: $search)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("刷新", systemImage: "arrow.clockwise") { revision += 1 }
-                        .disabled(link == nil || loading)
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("关闭")
                 }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Menu {
+                        ForEach(store.links) { library in
+                            Button {
+                                libraryID = library.id
+                            } label: {
+                                if library.id == libraryID {
+                                    Label(verbatim: library.name, systemImage: "checkmark")
+                                } else {
+                                    Text(verbatim: library.name)
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "square.stack.3d.up")
+                    }
+                    .accessibilityLabel("选择图标库")
+
+                    Button { showingLibrarySettings = true } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("管理图标库")
+
+                    Button { revision += 1 } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(link == nil || loading)
+                    .accessibilityLabel("刷新")
+                }
+            }
+            .sheet(isPresented: $showingLibrarySettings) {
+                NavigationStack { EmbyIconLibrarySettingsView() }
             }
             .onAppear { repairSelection() }
             .onChange(of: store.links) { _, _ in repairSelection() }

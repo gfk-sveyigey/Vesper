@@ -57,8 +57,8 @@ struct MediaHeaderGeometry {
     }
 
     func edgeTopStrength(minimum: Double, maximum: Double, heightCurve: Int) -> Double {
-        let heightProgress = Double(curveProgress(position: 1 - progress, curve: heightCurve))
-        return minimum + (max(minimum, maximum) - minimum) * heightProgress
+        let collapseProgress = Double(curveProgress(position: progress, curve: heightCurve))
+        return minimum + (max(minimum, maximum) - minimum) * collapseProgress
     }
 
     func edgeBlurSamples(top: Double, bottom: Double, curve: Int) -> [Double] {

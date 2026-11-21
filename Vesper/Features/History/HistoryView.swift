@@ -98,6 +98,7 @@ private struct HistoryMediaCard: View {
                            artworkIsPrepared: source.kind == .emby && posterItem == nil,
                            usesMediaCardBackdrop: false)
                 .frame(width: 132, height: 198)
+                .mediaArtworkBorder()
         }
         .contentShape(Rectangle())
         .clipped()

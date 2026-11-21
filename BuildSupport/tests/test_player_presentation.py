@@ -9,6 +9,8 @@ class PlayerPresentationTests(unittest.TestCase):
         self.assertEqual(toolbar.count('.glassEffectID("detailActionAnchor"'), 1)
         self.assertIn('.glassEffectTransition(.matchedGeometry)', toolbar)
         self.assertIn('if !hasScrolled {', toolbar)
+        self.assertIn('HStack(spacing: 0) {', toolbar)
+        self.assertIn('.padding(.trailing, 12)', toolbar)
         self.assertNotIn('DetailActionFan', source)
         self.assertIn('@State private var hasScrolled = false', source)
         self.assertIn('Image(systemName: hasScrolled ? "ellipsis"', toolbar)

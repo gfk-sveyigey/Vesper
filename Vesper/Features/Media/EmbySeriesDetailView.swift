@@ -394,7 +394,7 @@ struct EmbyMediaDetailView: View {
             .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) {
                 GlassEffectContainer(spacing: 20) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 0) {
                         if !hasScrolled {
                             HStack(spacing: 0) {
                                 versionMenu().frame(width: 44, height: 44)
@@ -404,6 +404,7 @@ struct EmbyMediaDetailView: View {
                             .glassEffect(.regular, in: .capsule)
                             .glassEffectID("mediaActions", in: toolbarMorph)
                             .glassEffectTransition(.matchedGeometry)
+                            .padding(.trailing, 12)
                         }
 
                         ZStack {

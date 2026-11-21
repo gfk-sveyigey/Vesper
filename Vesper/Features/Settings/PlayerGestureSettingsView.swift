@@ -27,6 +27,7 @@ struct PlayerGestureSettingsView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("恢复默认", systemImage: "arrow.counterclockwise") { confirmingReset = true }
                     .labelStyle(.iconOnly)
+                    .tint(nil)
             }
         }
         .alert("恢复默认手势？", isPresented: $confirmingReset) {

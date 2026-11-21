@@ -70,8 +70,8 @@ precondition(open.edgeRegionHeight(statusBarHeight: 60, position: 0) == 120)
 precondition(collapsed.edgeRegionHeight(statusBarHeight: 60, position: 1) == 60)
 precondition(open.curveProgress(position: 0, curve: 1) == 0)
 for curve in 0...4 {
-    precondition(open.edgeTopStrength(minimum: 0.25, maximum: 0.75, heightCurve: curve) == 0.75)
-    precondition(collapsed.edgeTopStrength(minimum: 0.25, maximum: 0.75, heightCurve: curve) == 0.25)
+    precondition(open.edgeTopStrength(minimum: 0.25, maximum: 0.75, heightCurve: curve) == 0.25)
+    precondition(collapsed.edgeTopStrength(minimum: 0.25, maximum: 0.75, heightCurve: curve) == 0.75)
 }
 precondition(middle.edgeTopStrength(minimum: 0.25, maximum: 0.75, heightCurve: 0) == 0.5)
 precondition(middle.edgeTopStrength(minimum: 0.25, maximum: 0.75, heightCurve: 2) == 0.375)

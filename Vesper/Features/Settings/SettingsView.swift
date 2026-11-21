@@ -298,7 +298,11 @@ private struct EmbySkipDatabasesView: View {
                 ToolbarItem(placement: .principal) {
                     Text("片头片尾数据库").font(.headline)
                 }
-                ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "checkmark") }
+                        .accessibilityLabel("完成")
+                        .tint(nil)
+                }
             }
             .onChange(of: databases) { _, value in EmbySkipSettings.save(value) }
             .sheet(isPresented: $adding) {
@@ -341,13 +345,22 @@ private struct EmbySkipDatabaseEditor: View {
             }
             .navigationTitle("数据库设置")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("取消")
+                        .tint(nil)
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
+                    Button {
                         database.name = database.name.trimmingCharacters(in: .whitespacesAndNewlines)
                         database.address = database.address.trimmingCharacters(in: .whitespacesAndNewlines)
                         save(database); dismiss()
-                    }.disabled(!valid || database.isBuiltin)
+                    } label: {
+                        Image(systemName: "checkmark")
+                    }
+                    .accessibilityLabel("保存")
+                    .tint(nil)
+                    .disabled(!valid || database.isBuiltin)
                 }
             }
         }
@@ -480,11 +493,13 @@ private struct RuntimeLogsView: View {
                     Image(systemName: "square.and.arrow.up")
                 }
                 .accessibilityLabel("导出日志")
+                .tint(nil)
                 .disabled(store.entries.isEmpty)
                 Button(role: .destructive) { isShowingClearConfirmation = true } label: {
                     Image(systemName: "trash")
                 }
                 .accessibilityLabel("清空日志")
+                .tint(nil)
                 .disabled(store.entries.isEmpty)
             }
         }
@@ -693,6 +708,7 @@ struct TabSettingsView: View {
                     isShowingResetConfirmation = true
                 }
                 .labelStyle(.iconOnly)
+                .tint(nil)
             }
         }
         .alert("恢复默认标签设置？", isPresented: $isShowingResetConfirmation) {
@@ -1129,19 +1145,30 @@ private struct CacheManagementView: View {
             .toolbar {
                 if selecting {
                     ToolbarItemGroup(placement: .topBarLeading) {
-                        Button("完成", systemImage: "checkmark") {
+                        Button {
                             selecting = false
                             selected.removeAll()
+                        } label: {
+                            Image(systemName: "checkmark")
                         }
-                        .labelStyle(.iconOnly)
-                        Button("全选") { selected = Set(AppCacheCategory.allCases) }
+                        .accessibilityLabel("完成")
+                        .tint(nil)
+                        Button { selected = Set(AppCacheCategory.allCases) } label: {
+                            Image(systemName: "checkmark.circle")
+                        }
+                        .accessibilityLabel("全选")
+                        .tint(nil)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("清理") {
+                    Button(role: .destructive) {
                         confirmation = categoriesToClear
                         showsConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
                     }
+                    .accessibilityLabel("清理")
+                    .tint(nil)
                     .disabled(clearing || categoriesToClear.isEmpty)
                 }
             }
