@@ -270,25 +270,22 @@ struct MediaView: View {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: CGFloat(layout[.itemSpacing])), count: 3),
                                       spacing: CGFloat(layout[.itemVerticalPadding]) * 2) {
                                 ForEach(items) { item in
-                                    Button {
-                                        guard let source = library.selectedSource else { return }
-                                        if item.isContainer { library.open(item) }
-                                        else { playback.play(item, in: source, queue: items.filter { !$0.isContainer }) }
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            if let source = library.selectedSource {
-                                                MediaThumbnail(source: source, item: item, playback: playback,
-                                                               imageOrientation: .portrait,
-                                                               fixedHeight: layout.thumbnailHeight)
-                                                    .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
-                                                    .modifier(DeviceMediaCardBackground(enabled: source.kind == .local || source.kind == .photos))
-                                            }
+                                    if let source = library.selectedSource {
+                                        Button {
+                                            if item.isContainer { library.open(item) }
+                                            else { playback.play(item, in: source, queue: items.filter { !$0.isContainer }) }
+                                        } label: {
+                                            MediaThumbnail(source: source, item: item, playback: playback,
+                                                           imageOrientation: .portrait,
+                                                           fixedHeight: layout.thumbnailHeight)
+                                                .modifier(DeviceMediaCardBackground(enabled: source.kind == .local || source.kind == .photos))
+                                                .contentShape(Rectangle())
                                         }
-                                        .contentShape(Rectangle())
+                                        .buttonStyle(.plain)
+                                        .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
+                                        .disabled(!source.capabilities.contains(.playback))
+                                        .accessibilityLabel(Text(verbatim: item.title))
                                     }
-                                    .buttonStyle(.plain)
-                                    .disabled(library.selectedSource?.capabilities.contains(.playback) != true)
-                                    .accessibilityLabel(Text(verbatim: item.title))
                                 }
                             }
                             .padding(.horizontal, CGFloat(layout[.endPadding]))
@@ -748,6 +745,16 @@ struct MediaView: View {
         }
     }
 
+    private func routeMenuItem(_ source: MediaSource, address: String, title: String) -> some View {
+        Button {
+            library.switchEmbyRoute(source.id, address: address)
+        } label: {
+            Label { Text(verbatim: title) } icon: {
+                menuSymbol("network", source: source, address: address)
+            }
+        }
+    }
+
     private func sourceMenuButton(localBusy: Bool, createLocalFolder: (() -> Void)?, iconSize: CGFloat) -> some View {
         Menu {
             if library.selectedSource?.kind == .local, !showsEmbyShortcuts, let createLocalFolder {
@@ -761,7 +768,7 @@ struct MediaView: View {
                 Section { favoritesButton(source) }
             }
             Section {
-                ForEach(library.sources) { source in
+                ForEach(library.orderedSources) { source in
                     Button {
                         selectSource(source)
                     } label: {
@@ -778,23 +785,20 @@ struct MediaView: View {
                     .accessibilityAddTraits(source.id == library.selectedID ? .isSelected : [])
                 }
             }
-            if let source = library.selectedSource, let configuration = source.emby {
+            if let source = library.selectedSource, let configuration = source.emby,
+               !configuration.backupRoutes.isEmpty {
                 Section {
                     Menu {
-                        ForEach(EmbyRouteOptions.unique([configuration.serverAddress] + (configuration.alternateAddresses ?? [])), id: \.self) { address in
-                            Button {
-                                library.switchEmbyRoute(source.id, address: address)
-                            } label: {
-                                Label { Text(verbatim: address) } icon: {
-                                    menuSymbol("network",
-                                               source: source, address: address)
-                                }
-                            }
+                        routeMenuItem(source, address: configuration.primaryRoute,
+                                      title: VesperLocalization.localized("主线路"))
+                        ForEach(Array(configuration.backupRoutes.enumerated()), id: \.element) { index, address in
+                            let title = configuration.alternateRouteNames?[EmbyRouteOptions.key(address)]
+                                ?? VesperLocalization.localized("备用线路 \(index + 1)")
+                            routeMenuItem(source, address: address, title: title)
                         }
                     } label: {
                         Label { Text("切换线路") } icon: { menuSymbol("network", source: source) }
                     }
-                    .disabled((configuration.alternateAddresses ?? []).isEmpty)
                 }
             }
         } label: {
@@ -1704,13 +1708,13 @@ private struct RecentEmbyPlaybackCard: View {
     var body: some View {
         cardArtwork
             .onTapGesture { open(item) }
+            .overlay(alignment: .bottomTrailing) {
+                episodeMenu.padding(.trailing, 10).padding(.bottom, 10)
+            }
             .contextMenu {
                 playbackActions
             } preview: {
                 cardArtwork
-            }
-            .overlay(alignment: .bottomTrailing) {
-                episodeMenu.padding(.trailing, 10).padding(.bottom, 10)
             }
             .task(id: "\(source.id)|\(entry.mediaID.localID)") {
                 do {

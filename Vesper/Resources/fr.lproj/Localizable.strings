@@ -1011,3 +1011,7 @@
 "加快至 %g×" = "Lecture accélérée à %g×";
 
 "减慢至 %g×" = "Lecture ralentie à %g×";
+
+"主线路" = "Connexion principale";
+"线路名称" = "Nom de la connexion";
+"备用线路 %lld" = "Connexion secondaire %lld";

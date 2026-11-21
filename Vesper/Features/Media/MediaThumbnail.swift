@@ -184,7 +184,6 @@ struct DeviceMediaCardBackground: ViewModifier {
     var enabled = true
     func body(content: Content) -> some View {
         content
-            .padding(enabled ? 6 : 0)
             .background {
                 if enabled {
                     RoundedRectangle(cornerRadius: 16)

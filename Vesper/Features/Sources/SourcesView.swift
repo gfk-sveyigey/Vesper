@@ -15,19 +15,13 @@ struct SourcesView: View {
     @State private var isShowingEmbyEditor = false
     @State private var editingEmby: MediaSource?
 
-    private var orderedSources: [MediaSource] {
-        library.sources.filter { $0.kind == .photos }
-            + library.sources.filter { $0.kind == .local }
-            + library.sources.filter { $0.kind != .photos && $0.kind != .local }
-    }
-
     var body: some View {
         VesperRootScrollView(title: "来源") {
             if library.sources.isEmpty {
                 VesperCenteredEmptyContent(message: "未配置来源", symbol: AppSection.sources.symbol)
             } else {
                 VStack(spacing: 16) {
-                    ForEach(orderedSources) { source in
+                    ForEach(library.orderedSources) { source in
                         Button { selectSource(source) } label: {
                             HStack(spacing: 12) {
                                 if source.kind == .emby {

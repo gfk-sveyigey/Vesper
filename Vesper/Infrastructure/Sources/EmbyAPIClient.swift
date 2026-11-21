@@ -16,6 +16,15 @@ struct EmbySourceConfiguration: Codable, Equatable, Sendable {
     var customHeaders: [String: String] = [:]
     // Optional fields keep configurations created by older builds decodable.
     var alternateAddresses: [String]? = nil
+    var primaryRouteAddress: String? = nil
+    var alternateRouteNames: [String: String]? = nil
+
+    var primaryRoute: String { primaryRouteAddress ?? serverAddress }
+
+    var backupRoutes: [String] {
+        EmbyRouteOptions.unique([serverAddress] + (alternateAddresses ?? []))
+            .filter { EmbyRouteOptions.key($0) != EmbyRouteOptions.key(primaryRoute) }
+    }
     var syncPlaybackProgress: Bool? = nil
     var syncWatchedState: Bool? = nil
     var allowServerTranscoding: Bool? = nil

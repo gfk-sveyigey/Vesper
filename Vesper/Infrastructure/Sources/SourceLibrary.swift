@@ -151,6 +151,13 @@ final class SourceLibrary: ObservableObject {
         var selectedID: UUID?
     }
     @Published private(set) var sources: [MediaSource]
+
+    /// Shared display order for source lists and selection menus.
+    var orderedSources: [MediaSource] {
+        sources.filter { $0.kind == .photos }
+            + sources.filter { $0.kind == .local }
+            + sources.filter { $0.kind != .photos && $0.kind != .local }
+    }
     @Published private(set) var selectedID: UUID?
     @Published private(set) var refreshGeneration = 0
     @Published private(set) var content: ContentState = .unselected
@@ -366,6 +373,7 @@ final class SourceLibrary: ObservableObject {
             return
         }
         let oldAddress = configuration.serverAddress
+        configuration.primaryRouteAddress = configuration.primaryRoute
         configuration.serverAddress = address
         configuration.alternateAddresses = EmbyRouteOptions.unique([oldAddress] + (configuration.alternateAddresses ?? []))
             .filter { EmbyRouteOptions.key($0) != EmbyRouteOptions.key(address) }

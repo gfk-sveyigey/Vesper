@@ -112,6 +112,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                                     .map(mediaItem)
                                 playback.play(mediaItem(entry), in: source, queue: queue)
                             } label: { row(entry) }
+                            .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
                             .disabled(!VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)))
                         }
                     }
@@ -128,7 +129,8 @@ struct LocalFilesView<SourceMenu: View>: View {
             if entry.isDirectory {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(VesperTheme.mediaCardBackground)
-                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                    .frame(height: layout.thumbnailHeight)
+                    .aspectRatio(layout.thumbnailHeight == nil ? 2.0 / 3.0 : nil, contentMode: .fit)
                     .overlay {
                         VStack(spacing: 12) {
                             Image(systemName: "folder.fill")
@@ -144,12 +146,12 @@ struct LocalFilesView<SourceMenu: View>: View {
             } else if VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
                 MediaThumbnail(source: source, item: mediaItem(entry), playback: playback,
                                imageOrientation: .portrait, fixedHeight: layout.thumbnailHeight)
-                    .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
                     .modifier(DeviceMediaCardBackground())
             } else {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(VesperTheme.mediaCardBackground)
-                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                    .frame(height: layout.thumbnailHeight)
+                    .aspectRatio(layout.thumbnailHeight == nil ? 2.0 / 3.0 : nil, contentMode: .fit)
                     .overlay {
                         Image(systemName: "doc")
                             .font(.largeTitle).foregroundStyle(.secondary)

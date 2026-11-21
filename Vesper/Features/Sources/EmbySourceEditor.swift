@@ -16,6 +16,12 @@ struct EmbySourceEditor: View {
     @State private var password = ""
     @State private var showPassword = false
     @State private var alternateAddress = ""
+    @State private var alternateRouteName = ""
+    @State private var alternateRouteNames: [String: String] = [:]
+
+    private var trimmedAlternateRouteName: String {
+        alternateRouteName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     @State private var alternateAddresses: [String] = []
     @State private var fetchAlternateAddresses = false
     @State private var syncProgress = true
@@ -76,6 +82,16 @@ struct EmbySourceEditor: View {
 
     private var identityFields: some View {
         HStack(spacing: 16) {
+            VStack(spacing: 0) {
+                fieldRow("名称") { TextField("", text: $title) }
+                    .padding(.vertical, 11)
+                Divider()
+                fieldRow("备注") { TextField("", text: $note, axis: .vertical).lineLimit(1...3) }
+                    .padding(.vertical, 11)
+            }
+            .padding(.horizontal, 16)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+
             Menu {
                 Button("从照片选择", systemImage: "photo") { showingPhotoPicker = true }
                 Button("从图标库选择", systemImage: "square.grid.2x2") { showingIconLibrary = true }
@@ -93,16 +109,6 @@ struct EmbySourceEditor: View {
                     }
             }
             .buttonStyle(.plain)
-
-            VStack(spacing: 0) {
-                fieldRow("名称") { TextField("", text: $title) }
-                    .padding(.vertical, 11)
-                Divider()
-                fieldRow("备注") { TextField("", text: $note, axis: .vertical).lineLimit(1...3) }
-                    .padding(.vertical, 11)
-            }
-            .padding(.horizontal, 16)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
         }
         .padding(.top, 12)
     }
@@ -151,13 +157,28 @@ struct EmbySourceEditor: View {
             }
             Section("备用线路") {
                 Toggle("从服务器获取", isOn: $fetchAlternateAddresses)
-                ForEach(alternateAddresses, id: \.self) { Text($0).lineLimit(1) }
-                    .onDelete { alternateAddresses.remove(atOffsets: $0) }
+                ForEach(alternateAddresses, id: \.self) { address in
+                    VStack(alignment: .leading) {
+                        TextField("线路名称", text: Binding(
+                            get: { alternateRouteNames[EmbyRouteOptions.key(address)] ?? "" },
+                            set: { alternateRouteNames[EmbyRouteOptions.key(address)] = $0 }
+                        ))
+                        Text(verbatim: address).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                .onDelete { offsets in
+                    for index in offsets {
+                        alternateRouteNames.removeValue(forKey: EmbyRouteOptions.key(alternateAddresses[index]))
+                    }
+                    alternateAddresses.remove(atOffsets: offsets)
+                }
+                TextField("线路名称", text: $alternateRouteName)
                 HStack {
                     TextField("添加线路地址", text: $alternateAddress)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                     Button("添加") { addAlternateAddress() }
-                        .disabled(alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(trimmedAlternateRouteName.isEmpty ||
+                                  alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             Section("高级功能") {
@@ -197,12 +218,13 @@ struct EmbySourceEditor: View {
         note = configuration.note
         username = configuration.username
         iconData = configuration.iconData
-        alternateAddresses = configuration.alternateAddresses ?? []
+        alternateAddresses = configuration.backupRoutes
+        alternateRouteNames = configuration.alternateRouteNames ?? [:]
         fetchAlternateAddresses = configuration.fetchAlternateAddresses ?? false
         syncProgress = configuration.syncPlaybackProgress ?? true
         allowTranscoding = configuration.allowServerTranscoding ?? true
         strmDirectPlayback = configuration.strmDirectPlayback ?? false
-        if let components = URLComponents(string: configuration.serverAddress) {
+        if let components = URLComponents(string: configuration.primaryRoute) {
             schemeIsHTTPS = components.scheme?.lowercased() != "http"
             host = components.host ?? ""
             port = components.port.map(String.init) ?? ""
@@ -242,7 +264,20 @@ struct EmbySourceEditor: View {
             customHeaders: source.flatMap { library.embyConfiguration(for: $0.id)?.customHeaders } ?? [:])
         configuration.serverID = source?.emby?.serverID
         configuration.userID = source?.emby?.userID
-        configuration.alternateAddresses = alternateAddresses
+        let primaryKey = EmbyRouteOptions.key(trimmedAddress)
+        let backups = EmbyRouteOptions.unique(alternateAddresses).filter { EmbyRouteOptions.key($0) != primaryKey }
+        let previousAddress = source.flatMap { library.embyConfiguration(for: $0.id)?.serverAddress }
+        if let previousAddress, let active = backups.first(where: {
+            EmbyRouteOptions.key($0) == EmbyRouteOptions.key(previousAddress)
+        }) {
+            configuration.serverAddress = active
+            configuration.primaryRouteAddress = trimmedAddress
+        }
+        configuration.alternateAddresses = ([trimmedAddress] + backups)
+            .filter { EmbyRouteOptions.key($0) != EmbyRouteOptions.key(configuration.serverAddress) }
+        configuration.alternateRouteNames = alternateRouteNames
+            .mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.value.isEmpty }
         configuration.fetchAlternateAddresses = fetchAlternateAddresses
         configuration.syncPlaybackProgress = syncProgress
         configuration.syncWatchedState = syncProgress
@@ -275,14 +310,16 @@ struct EmbySourceEditor: View {
 
     private func addAlternateAddress() {
         let value = alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return }
+        guard !value.isEmpty, !trimmedAlternateRouteName.isEmpty else { return }
         do {
             _ = try EmbyAPIClient(configuration: .init(title: "", note: "", serverAddress: value, username: ""), token: nil, deviceID: "validation")
         } catch { errorMessage = error.localizedDescription; return }
         guard EmbyRouteOptions.key(value) != EmbyRouteOptions.key(serverAddress),
               !alternateAddresses.contains(where: { EmbyRouteOptions.key($0) == EmbyRouteOptions.key(value) }) else { return }
         alternateAddresses.append(value)
+        alternateRouteNames[EmbyRouteOptions.key(value)] = trimmedAlternateRouteName
         alternateAddress = ""
+        alternateRouteName = ""
     }
 }
 

@@ -255,6 +255,7 @@ struct MediaDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var playback: PlaybackSession
+    @AppStorage("appearance.accent") private var accent = "vesper"
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var metadata: EmbyDetailMetadata?
     @State private var selectedMediaSourceID: String?
@@ -602,12 +603,22 @@ struct MediaDetailView: View {
 
     private var favoriteButton: some View {
         Button(action: toggleFavorite) {
-            Label(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏",
-                  systemImage: playback.effectiveFavorite(for: item) ? "heart.fill" : "heart")
+            Label {
+                Text(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏")
+            } icon: {
+                let symbol = playback.effectiveFavorite(for: item) ? "heart.fill" : "heart"
+                let image = UIImage(systemName: symbol)?
+                    .withTintColor(UIColor(VesperTheme.accent(accent)), renderingMode: .alwaysOriginal)
+                if let image {
+                    Image(uiImage: image).renderingMode(.original)
+                } else {
+                    Image(systemName: symbol).foregroundStyle(VesperTheme.accent(accent))
+                }
+            }
         }
         .contentTransition(.symbolEffect(.replace))
         .animation(reduceMotion ? nil : .snappy(duration: 0.3), value: playback.effectiveFavorite(for: item))
-        .tint(Color(uiColor: .label))
+        .tint(VesperTheme.accent(accent))
         .foregroundStyle(.primary)
         .disabled(source.emby?.userID == nil)
     }
