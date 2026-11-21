@@ -398,23 +398,18 @@ struct PlayerScreen: View {
     }
 
     private var progressBar: some View {
-        GeometryReader { geometry in
+        let segments = progressBufferRanges.compactMap { range -> ClosedRange<CGFloat>? in
+            guard range.lowerBound.isFinite, range.upperBound.isFinite else { return nil }
+            let start = fraction(range.lowerBound)
+            let end = fraction(range.upperBound)
+            return start < end ? start...end : nil
+        }
+        return GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.25)).frame(height: isScrubbing ? 12 : 8)
                 Capsule().fill(.white.opacity(0.35))
-                    .frame(width: geometry.size.width, height: isScrubbing ? 12 : 8)
-                    .mask(alignment: .leading) {
-                        ZStack(alignment: .leading) {
-                            ForEach(progressBufferRanges, id: \.self) { range in
-                                let start = fraction(range.lowerBound)
-                                let end = fraction(range.upperBound)
-                                Rectangle()
-                                    .frame(width: geometry.size.width * (end - start))
-                                    .offset(x: geometry.size.width * start)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    }
+                    .frame(height: isScrubbing ? 12 : 8)
+                    .mask { PlayerBufferMask(segments: segments) }
                 Capsule().fill(.white)
                     .frame(height: isScrubbing ? 12 : 8)
                     .frame(maxWidth: .infinity)
@@ -953,7 +948,7 @@ struct PlayerScreen: View {
     }
 
     private func fraction(_ time: Double) -> CGFloat {
-        guard session.duration > 0 else { return 0 }
+        guard time.isFinite, session.duration.isFinite, session.duration > 0 else { return 0 }
         return CGFloat(min(1, max(0, time / session.duration)))
     }
     private func revealControls() { setControlsVisible(true) }
@@ -1288,5 +1283,20 @@ final class PlayerVideoSurfaceController: UIViewController {
         case .linear: CAMediaTimingFunction(name: .linear)
         default: CAMediaTimingFunction(name: .easeInEaseOut)
         }
+    }
+}
+
+private struct PlayerBufferMask: Shape {
+    let segments: [ClosedRange<CGFloat>]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard rect.width.isFinite, rect.height.isFinite, !rect.isEmpty else { return path }
+        for segment in segments where segment.lowerBound < segment.upperBound {
+            let x = rect.minX + rect.width * segment.lowerBound
+            let width = rect.width * (segment.upperBound - segment.lowerBound)
+            path.addRect(CGRect(x: x, y: rect.minY, width: width, height: rect.height))
+        }
+        return path
     }
 }

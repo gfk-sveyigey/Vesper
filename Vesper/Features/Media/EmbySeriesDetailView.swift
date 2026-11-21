@@ -376,7 +376,7 @@ struct MediaDetailView: View {
             }
         }
         .overlay(alignment: .top) {
-            VesperMediaStatusBarBlur(isVisible: hasScrolled)
+            if hasScrolled { VesperMediaStatusBarBlur() }
         }
         .ignoresSafeArea(.container, edges: .top)
         .background(VesperTheme.background.ignoresSafeArea())
@@ -1132,9 +1132,12 @@ struct MediaDetailView: View {
             let images = initialEpisodes.map { ($0.item, EmbyImageOrientation.landscape) }
                 + similar.map { ($0, EmbyImageOrientation.portrait) }
                 + (metadata?.credits.compactMap(\.image) ?? []).map { ($0, EmbyImageOrientation.square) }
-            preparedArtwork = await prepareDetailArtwork(images)
-            screenshots = await previewImages
+            let artwork = await prepareDetailArtwork(images)
             guard !Task.isCancelled else { return }
+            let previews = await previewImages
+            guard !Task.isCancelled else { return }
+            preparedArtwork = artwork
+            screenshots = previews
             detailDataReady = true
             if startsWithCarouselInformationHidden {
                 await Task.yield()

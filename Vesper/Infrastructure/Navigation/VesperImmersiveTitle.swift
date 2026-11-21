@@ -114,6 +114,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var mediaHeaderScroll: MediaHeaderScroll?
     @State private var mediaHeaderSnap: MediaHeaderSnap?
     @State private var hidesMediaGlassForCollapse = false
+    @State private var followsProjectedMediaHeaderSnap = false
     @ScaledMetric(relativeTo: .largeTitle) private var titleLineHeight: CGFloat = 41
     @State private var pageTopOffset: CGFloat = 0
     @State private var scrollOffset: CGFloat = 0
@@ -226,7 +227,10 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             let offset = context.geometry.contentOffset.y + context.geometry.contentInsets.top
             if usesMediaScrollEdges {
                 let metrics = ScrollMetrics(geometry: context.geometry, includesTopInset: true)
-                updateMediaHeaderPhase(from: oldPhase, to: newPhase, offset: metrics.headerOffset)
+                let projectedOffset = oldPhase == .interacting && newPhase == .decelerating
+                    ? metrics.projectedHeaderOffset(velocity: context.velocity) : nil
+                updateMediaHeaderPhase(from: oldPhase, to: newPhase, offset: metrics.headerOffset,
+                                       projectedOffset: projectedOffset)
             } else {
                 updateLegacyHeaderPhase(from: oldPhase, to: newPhase)
             }
@@ -234,11 +238,14 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         }
     }
 
-    private func updateMediaHeaderPhase(from oldPhase: ScrollPhase, to phase: ScrollPhase, offset: CGFloat) {
+    private func updateMediaHeaderPhase(from oldPhase: ScrollPhase, to phase: ScrollPhase, offset: CGFloat,
+                                        projectedOffset: CGFloat?) {
         isInteracting = phase == .interacting
+        followsProjectedMediaHeaderSnap = false
         guard !contentFitsViewport else { return }
         if oldPhase == .interacting && (phase == .decelerating || phase == .idle) {
-            finishMediaHeaderScroll(at: offset)
+            finishMediaHeaderScroll(at: offset, projectedOffset: projectedOffset)
+            followsProjectedMediaHeaderSnap = projectedOffset != nil
         }
         switch phase {
         case .tracking:
@@ -256,6 +263,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             updateMediaHeaderScroll(at: offset)
         case .idle:
             finishMediaHeaderScroll(at: offset)
+            updateMediaHeaderScroll(at: offset)
             restoreMediaHeaderAfterScrollToTop(offset: offset)
         @unknown default:
             finishMediaHeaderScroll(at: offset)
@@ -396,11 +404,14 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private func restoreMediaHeaderAfterScrollToTop(offset: CGFloat) {
-        guard offset <= 0, mediaHeaderPosition != 0 || mediaHeaderSnap != nil else { return }
+        guard !followsProjectedMediaHeaderSnap, offset <= 0,
+              mediaHeaderPosition != 0 || mediaHeaderSnap != nil else { return }
         settleMediaHeaderImmediately(at: 0)
     }
 
     private func updateMediaHeaderScroll(at offset: CGFloat) {
+        // Intermediate inertia offsets must not override the release decision.
+        guard !followsProjectedMediaHeaderSnap else { return }
         var nextPosition = mediaHeaderSnap?.position(at: .now) ?? mediaHeaderPosition
         if var scroll = mediaHeaderScroll {
             nextPosition = scroll.updatePosition(
@@ -435,20 +446,23 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         }
     }
 
-    private func finishMediaHeaderScroll(at offset: CGFloat) {
+    private func finishMediaHeaderScroll(at offset: CGFloat, projectedOffset: CGFloat? = nil) {
         guard mediaHeaderScroll != nil else { return }
         updateMediaHeaderScroll(at: offset)
-        guard let scroll = mediaHeaderScroll else { return }
+        guard var scroll = mediaHeaderScroll else { return }
         mediaHeaderScroll = nil
+        let landingOffset = projectedOffset ?? offset
+        let landingPosition = scroll.updatePosition(at: landingOffset, height: contentHeaderHeight,
+                                                    currentPosition: mediaHeaderPosition)
         let geometry = MediaHeaderGeometry(pageOffset: 0, travel: contentHeaderHeight)
         let target = geometry.snapTarget(
-            for: mediaHeaderPosition,
+            for: landingPosition,
             expandedThreshold: CGFloat(layout[.mediaSnapThreshold]) / 100,
             collapsedThreshold: CGFloat(layout[.mediaSnapCollapsedThreshold]) / 100,
             preferScrollDirection: layout[.mediaSnapConflict] == 0,
             scrollDirection: scroll.lastDirection
         )
-        snapMediaHeader(to: reconciledMediaHeaderPosition(target, totalOffset: offset) ?? target)
+        snapMediaHeader(to: reconciledMediaHeaderPosition(target, totalOffset: landingOffset) ?? target)
     }
 
     private func snapMediaHeader(to target: CGFloat) {
@@ -608,6 +622,15 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             // Header travel follows real content scrolling, not either edge's rubber-band.
             MediaHeaderGeometry(pageOffset: 0, travel: 1)
                 .boundedScrollOffset(offset, maximum: contentHeight - viewportHeight)
+        }
+
+        func projectedHeaderOffset(velocity: CGVector?) -> CGFloat? {
+            guard let speed = velocity?.dy, speed.isFinite else { return nil }
+            // Project points/second using UIKit's normal per-millisecond decay.
+            let rate = UIScrollView.DecelerationRate.normal.rawValue
+            let distance = speed / 1000 * rate / (1 - rate)
+            return MediaHeaderGeometry(pageOffset: 0, travel: 1)
+                .boundedScrollOffset(headerOffset + distance, maximum: contentHeight - viewportHeight)
         }
     }
 
