@@ -46,6 +46,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     @Published private(set) var playbackRate: Float = 1
     @Published private(set) var fillsScreen = false
     @Published private(set) var bufferedTime: TimeInterval = 0
+    @Published private(set) var bufferedRanges: [ClosedRange<Double>] = []
     @Published private(set) var isSeeking = false
     @Published private(set) var audioTracks: [PlaybackTrack] = []
     @Published private(set) var subtitleTracks: [PlaybackTrack] = []
@@ -1409,6 +1410,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         audioTracks = []
         subtitleTracks = []
         bufferedTime = 0
+        bufferedRanges = []
         isSeeking = false
         isPlaying = false
         UIApplication.shared.isIdleTimerDisabled = false
@@ -1454,6 +1456,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             duration = engineDuration > 0 ? engineDuration : (resource?.duration ?? 0)
         }
         bufferedTime = state.buffered.isFinite ? max(currentTime, state.buffered) : currentTime
+        if bufferedRanges != state.bufferedRanges { bufferedRanges = state.bufferedRanges }
         if case .failed(let message) = state.phase { errorMessage = message; isLoading = false }
         if state.phase == .ended {
             currentTime = duration; saveProgress(); recordPlaybackHistory()

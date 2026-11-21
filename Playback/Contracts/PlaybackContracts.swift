@@ -72,6 +72,8 @@ public struct EngineExternalSubtitle: Sendable {
     public var time: Double = 0
     public var duration: Double = 0
     public var buffered: Double = 0
+    /// Cached media ranges on the timeline. Empty means the engine only exposes a frontier.
+    public var bufferedRanges: [ClosedRange<Double>] = []
     public var seekable = false
     public var actualDecoder: DecodePreference?
     public var audio: [EngineTrack] = []

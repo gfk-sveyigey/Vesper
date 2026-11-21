@@ -402,10 +402,18 @@ struct PlayerScreen: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.25)).frame(height: isScrubbing ? 12 : 8)
                 Capsule().fill(.white.opacity(0.35))
-                    .frame(height: isScrubbing ? 12 : 8)
-                    .frame(maxWidth: .infinity)
+                    .frame(width: geometry.size.width, height: isScrubbing ? 12 : 8)
                     .mask(alignment: .leading) {
-                        Rectangle().frame(width: geometry.size.width * fraction(session.bufferedTime))
+                        ZStack(alignment: .leading) {
+                            ForEach(progressBufferRanges, id: \.self) { range in
+                                let start = fraction(range.lowerBound)
+                                let end = fraction(range.upperBound)
+                                Rectangle()
+                                    .frame(width: geometry.size.width * (end - start))
+                                    .offset(x: geometry.size.width * start)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     }
                 Capsule().fill(.white)
                     .frame(height: isScrubbing ? 12 : 8)
@@ -938,6 +946,12 @@ struct PlayerScreen: View {
     private func skipSymbol(backward: Bool) -> String {
         "\(backward ? "gobackward" : "goforward").\(Int(PlayerGesturePreferences.skipInterval))"
     }
+    private var progressBufferRanges: [ClosedRange<Double>] {
+        if !session.bufferedRanges.isEmpty { return session.bufferedRanges }
+        guard session.bufferedTime > session.currentTime else { return [] }
+        return [session.currentTime...session.bufferedTime]
+    }
+
     private func fraction(_ time: Double) -> CGFloat {
         guard session.duration > 0 else { return 0 }
         return CGFloat(min(1, max(0, time / session.duration)))

@@ -929,6 +929,7 @@
 "Header 大标题字号" = "Schriftgröße des großen Titels";
 "底部模糊主体高度" = "Höhe der unteren Unschärfe";
 "上沿渐隐高度" = "Höhe des oberen Übergangs";
+"轮播图底部颜色叠加强度" = "Deckkraft der unteren Farbtönung";
 "毛玻璃效果强度" = "Stärke des Glaseffekts";
 "Emby 服务器地址无效。" = "Die Emby-Serveradresse ist ungültig.";
 "Emby 服务器返回的数据无法识别。" = "Die Antwort des Emby-Servers konnte nicht gelesen werden.";
@@ -967,6 +968,9 @@
 "无法读取此图标，请选择其他图标。" = "Dieses Symbol kann nicht geöffnet werden. Wähle ein anderes.";
 
 /* Media header position and edge blur. */
+"毛玻璃底边框宽度" = "Breite der unteren Kante";
+"毛玻璃底边框模糊强度" = "Unschärfe der unteren Kante";
+"毛玻璃底边框不透明度" = "Deckkraft der unteren Kante";
 "Header 下层毛玻璃强度" = "Stärke der Hintergrundunschärfe";
 "Header 自身最大模糊" = "Maximale Unschärfe des Kopfzeileninhalts";
 "Header 自身模糊曲线" = "Unschärfekurve der Kopfzeile";

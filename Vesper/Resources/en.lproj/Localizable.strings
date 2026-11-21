@@ -929,6 +929,7 @@
 "Header 大标题字号" = "Large header title size";
 "底部模糊主体高度" = "Bottom blur height";
 "上沿渐隐高度" = "Top fade height";
+"轮播图底部颜色叠加强度" = "Bottom tint opacity";
 "毛玻璃效果强度" = "Glass effect intensity";
 "Emby 服务器地址无效。" = "The Emby server address is invalid.";
 "Emby 服务器返回的数据无法识别。" = "The Emby server returned an unrecognized response.";
@@ -967,6 +968,9 @@
 "无法读取此图标，请选择其他图标。" = "This icon can’t be opened. Choose another one.";
 
 /* Media header position and edge blur. */
+"毛玻璃底边框宽度" = "Glass bottom border width";
+"毛玻璃底边框模糊强度" = "Glass bottom border blur";
+"毛玻璃底边框不透明度" = "Glass bottom border opacity";
 "Header 下层毛玻璃强度" = "Header backdrop strength";
 "Header 自身最大模糊" = "Maximum header content blur";
 "Header 自身模糊曲线" = "Header blur curve";

@@ -271,7 +271,6 @@ struct MediaDetailView: View {
     @State private var seasonMovesForward = true
     @State private var openedEpisodeID: MediaID?
     @State private var hasScrolled = false
-    @Namespace private var toolbarMorph
     @Namespace private var recommendationZoom
     @State private var busy: Set<MediaID> = []
     @State private var openedRecommendation: MediaItem?
@@ -393,54 +392,54 @@ struct MediaDetailView: View {
             }
             .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) {
-                GlassEffectContainer(spacing: 20) {
+                // Keep both controls inside stable toolbar bounds for layout and hit testing.
+                ZStack(alignment: .trailing) {
+                    // The 132 pt group shares the 44 pt button's center when collapsed.
                     HStack(spacing: 0) {
-                        if !hasScrolled {
-                            HStack(spacing: 0) {
-                                versionMenu().frame(width: 44, height: 44)
-                                trackMenu(type: "Audio", symbol: "waveform").frame(width: 44, height: 44)
-                                trackMenu(type: "Subtitle", symbol: "captions.bubble").frame(width: 44, height: 44)
-                            }
-                            .glassEffect(.regular, in: .capsule)
-                            .glassEffectID("mediaActions", in: toolbarMorph)
-                            .glassEffectTransition(.matchedGeometry)
-                            .padding(.trailing, 12)
-                        }
-
-                        ZStack {
-                            Image(systemName: hasScrolled ? "ellipsis"
-                                  : (playback.effectiveFavorite(for: item) ? "heart.fill" : "heart"))
-                                .contentTransition(.symbolEffect(.replace))
-                                .animation(reduceMotion ? nil : .snappy(duration: 0.3),
-                                           value: playback.effectiveFavorite(for: item))
-                                .accessibilityHidden(true)
-                            if hasScrolled {
-                                Menu {
-                                    Section {
-                                        versionMenu(inMenu: true)
-                                        trackMenu(type: "Audio", symbol: "waveform", inMenu: true)
-                                        trackMenu(type: "Subtitle", symbol: "captions.bubble", inMenu: true)
-                                    }
-                                    Section { favoriteButton }
-                                } label: {
-                                    Color.clear.frame(width: 44, height: 44).contentShape(Circle())
-                                }
-                                .accessibilityLabel("媒体操作")
-                            } else {
-                                Button(action: toggleFavorite) {
-                                    Color.clear.frame(width: 44, height: 44).contentShape(Circle())
-                                }
-                                .accessibilityLabel(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏")
-                                .disabled(source.emby?.userID == nil)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .frame(width: 44, height: 44)
-                        .glassEffect(.regular, in: .circle)
-                        .glassEffectID("detailActionAnchor", in: toolbarMorph)
+                        versionMenu().frame(width: 44, height: 44)
+                        trackMenu(type: "Audio", symbol: "waveform").frame(width: 44, height: 44)
+                        trackMenu(type: "Subtitle", symbol: "captions.bubble").frame(width: 44, height: 44)
                     }
+                    .fixedSize()
+                    .glassEffect(.regular, in: .capsule)
+                    .scaleEffect(hasScrolled ? 1.0 / 3.0 : 1)
+                    .offset(x: hasScrolled ? 44 : -56)
+                    .opacity(hasScrolled ? 0 : 1)
+                    .allowsHitTesting(!hasScrolled)
+                    .accessibilityHidden(hasScrolled)
+                    ZStack {
+                        Image(systemName: hasScrolled ? "ellipsis"
+                              : (playback.effectiveFavorite(for: item) ? "heart.fill" : "heart"))
+                            .contentTransition(.symbolEffect(.replace))
+                            .animation(reduceMotion ? nil : .snappy(duration: 0.3),
+                                       value: playback.effectiveFavorite(for: item))
+                            .accessibilityHidden(true)
+                        if hasScrolled {
+                            Menu {
+                                Section {
+                                    versionMenu(inMenu: true)
+                                    trackMenu(type: "Audio", symbol: "waveform", inMenu: true)
+                                    trackMenu(type: "Subtitle", symbol: "captions.bubble", inMenu: true)
+                                }
+                                Section { favoriteButton }
+                            } label: {
+                                Color.clear.frame(width: 44, height: 44).contentShape(Circle())
+                            }
+                            .accessibilityLabel("媒体操作")
+                        } else {
+                            Button(action: toggleFavorite) {
+                                Color.clear.frame(width: 44, height: 44).contentShape(Circle())
+                            }
+                            .accessibilityLabel(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏")
+                            .disabled(source.emby?.userID == nil)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular, in: .circle)
                 }
-                .animation(reduceMotion ? nil : .default, value: hasScrolled)
+                .frame(width: 188, alignment: .trailing)
+                .animation(reduceMotion ? nil : .snappy(duration: 0.3), value: hasScrolled)
                 .foregroundStyle(.primary)
             }
             .sharedBackgroundVisibility(.hidden)

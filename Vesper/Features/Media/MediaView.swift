@@ -9,18 +9,20 @@ final class MediaLayoutSettings: ObservableObject {
     enum Metric: String, CaseIterable {
         case thumbnailHeight, groupSpacing, titlePadding, scrollPadding
         case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding, episodeCardWidth, episodeCardHeight
+        case browserListTop, browserListLeading, browserListBottom, browserListTrailing
         case browserListRowHeight, browserListImageTop, browserListImageLeading, browserListImageBottom, browserListImageTrailing
 
         case mediaHeaderHeight, mediaGlassStrength, mediaGlassTint, mediaContentBlur
+        case mediaGlassBorderWidth, mediaGlassBorderBlur, mediaGlassBorderOpacity
         case mediaContentOpacityCurve, mediaContentBlurCurve
         case mediaSnapThreshold, mediaSnapCollapsedThreshold, mediaSnapConflict, mediaSnapDuration, mediaSnapCurve
         case mediaEdgeTopStrength, mediaEdgeTopMaxStrength, mediaEdgeHeightCurve, mediaEdgeBottomStrength, mediaEdgeTint, mediaEdgeCurve
 
-        case carouselBlurHeight, carouselBlurFadeHeight, carouselBlurStrength
+        case carouselBlurHeight, carouselBlurFadeHeight, carouselBlurStrength, carouselBlurTint
 
         var usesPercent: Bool {
             switch self {
-            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength: true
+            case .mediaGlassStrength, .mediaGlassTint, .mediaGlassBorderOpacity, .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength, .carouselBlurTint: true
             default: false
             }
         }
@@ -35,11 +37,16 @@ final class MediaLayoutSettings: ObservableObject {
             case .endPadding: 20
             case .episodeCardWidth: 246
             case .episodeCardHeight: 230
+            case .browserListTop, .browserListBottom: 12
+            case .browserListLeading, .browserListTrailing: 20
             case .browserListRowHeight: 132
             case .browserListImageTop, .browserListImageLeading, .browserListImageBottom, .browserListImageTrailing: 8
             case .mediaHeaderHeight: 60
             case .mediaGlassStrength: 65
             case .mediaGlassTint: 12
+            case .mediaGlassBorderWidth: 10
+            case .mediaGlassBorderBlur: 0
+            case .mediaGlassBorderOpacity: 80
             case .mediaContentBlur: 8
             case .mediaContentOpacityCurve, .mediaContentBlurCurve: 0
             case .mediaSnapThreshold, .mediaSnapCollapsedThreshold: 50
@@ -53,6 +60,7 @@ final class MediaLayoutSettings: ObservableObject {
             case .carouselBlurHeight: 40
             case .carouselBlurFadeHeight: 24
             case .carouselBlurStrength: 55
+            case .carouselBlurTint: 14
             }
         }
 
@@ -64,13 +72,15 @@ final class MediaLayoutSettings: ObservableObject {
             case .browserListImageTop, .browserListImageLeading, .browserListImageBottom, .browserListImageTrailing: 0...60
             case .episodeCardWidth, .episodeCardHeight: 120...1200
             case .mediaHeaderHeight: 30...120
-            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength: 0...100
+            case .mediaGlassStrength, .mediaGlassTint, .mediaGlassBorderOpacity, .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength, .carouselBlurTint: 0...100
             case .mediaContentOpacityCurve, .mediaContentBlurCurve, .mediaEdgeCurve, .mediaEdgeHeightCurve: 0...4
             case .mediaSnapThreshold, .mediaSnapCollapsedThreshold: 5...95
             case .mediaSnapConflict: 0...1
             case .mediaSnapDuration: 100...1000
             case .mediaSnapCurve: 0...4
             case .mediaContentBlur: 0...40
+            case .mediaGlassBorderWidth: 0...40
+            case .mediaGlassBorderBlur: 0...10
             default: 0...120
             }
         }
@@ -96,6 +106,9 @@ final class MediaLayoutSettings: ObservableObject {
         }
     }
 
+    // Store one integer tick per 0.05 pt.
+    var mediaGlassBorderWidth: CGFloat { CGFloat(self[.mediaGlassBorderWidth]) / 20 }
+
     var thumbnailHeight: CGFloat? {
         let value = self[.thumbnailHeight]
         return value == 0 ? nil : CGFloat(value)
@@ -107,7 +120,8 @@ final class MediaLayoutSettings: ObservableObject {
     var carouselBlur: CarouselPosterBlur {
         CarouselPosterBlur(heightFraction: CGFloat(self[.carouselBlurHeight]) / 100,
                            fadeHeight: CGFloat(self[.carouselBlurFadeHeight]),
-                           strength: Double(self[.carouselBlurStrength]) / 100)
+                           strength: Double(self[.carouselBlurStrength]) / 100,
+                           tintOpacity: Double(self[.carouselBlurTint]) / 100)
     }
 
     func reset(_ metrics: [Metric]) {
@@ -507,7 +521,8 @@ struct MediaView: View {
         let width = CGFloat(layout[.itemWidth])
         let height = CGFloat(layout[.itemHeight])
         if isLibraries {
-            return CGSize(width: 246, height: height * 246 / (width * 2.25))
+            let libraryWidth: CGFloat = 246
+            return CGSize(width: libraryWidth, height: libraryWidth * 9 / 16)
         }
         return CGSize(width: width, height: height)
     }
@@ -1289,6 +1304,7 @@ struct CarouselPosterBlur {
     let heightFraction: CGFloat
     let fadeHeight: CGFloat
     let strength: Double
+    let tintOpacity: Double
 }
 
 struct EmbyFeaturedPage: View {
@@ -1427,12 +1443,11 @@ struct EmbyFeaturedPage: View {
         let fadeEnd = totalHeight > 0 ? fadeHeight / totalHeight : 0
         let strength = blur.strength
         let tint = colorScheme == .dark ? Color.black : Color.white
-        let tintOpacity = (colorScheme == .dark ? 0.18 : 0.14) * strength / 0.55
 
         return Rectangle()
             .fill(.regularMaterial)
             .opacity(strength)
-            .overlay(tint.opacity(tintOpacity))
+            .overlay(tint.opacity(blur.tintOpacity))
             .mask {
                 if fadeEnd > 0 {
                     LinearGradient(stops: blurMaskStops(fadeEnd: fadeEnd), startPoint: .top, endPoint: .bottom)
@@ -1687,28 +1702,13 @@ private struct RecentEmbyPlaybackCard: View {
     }
 
     var body: some View {
-        MediaThumbnail(source: source, item: item, aspectRatio: 1.5, imageOrientation: .landscape,
-                       allowsRemotePrimary: false, prefersLandscapeMovieArtwork: true,
-                       bottomArtworkBlur: 4)
-            .frame(width: 246, height: 164)
-            .overlay(alignment: .bottomLeading) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(verbatim: title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .lineLimit(1)
-                    MediaPlaybackStatus(position: entry.position, duration: entry.duration,
-                                        played: playback.effectivePlayed(for: item))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .shadow(color: Color(uiColor: .systemBackground).opacity(0.85), radius: 2)
-                .padding(.leading, 12)
-                .padding(.trailing, 50)
-                .padding(.bottom, 5)
-            }
-            .mediaArtworkBorder()
-            .contentShape(RoundedRectangle(cornerRadius: 12))
+        cardArtwork
             .onTapGesture { open(item) }
+            .contextMenu {
+                playbackActions
+            } preview: {
+                cardArtwork
+            }
             .overlay(alignment: .bottomTrailing) {
                 episodeMenu.padding(.trailing, 10).padding(.bottom, 10)
             }
@@ -1739,17 +1739,46 @@ private struct RecentEmbyPlaybackCard: View {
             }
     }
 
+    private var cardArtwork: some View {
+        MediaThumbnail(source: source, item: item, aspectRatio: 1.5, imageOrientation: .landscape,
+                       allowsRemotePrimary: false, prefersLandscapeMovieArtwork: true,
+                       bottomArtworkBlur: 4)
+            .frame(width: 246, height: 164)
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                    MediaPlaybackStatus(position: entry.position, duration: entry.duration,
+                                        played: playback.effectivePlayed(for: item))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .shadow(color: Color(uiColor: .systemBackground).opacity(0.85), radius: 2)
+                .padding(.leading, 12)
+                .padding(.trailing, 50)
+                .padding(.bottom, 5)
+            }
+            .mediaArtworkBorder()
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private var playbackActions: some View {
+        Button(item.embyItemType == "Episode" ? "前往单集" : "详情", systemImage: "info.circle") { open(item) }
+        if entry.position > 0 {
+            Button("清除播放进度", systemImage: "clock.arrow.circlepath") { clear(item) }
+        }
+        let played = playback.effectivePlayed(for: item)
+        Button(played ? "标记为未观看" : "标记为已观看",
+               systemImage: played ? "circle" : "checkmark.circle") {
+            setPlayed(item, !played)
+        }
+    }
+
     private var episodeMenu: some View {
         Menu {
-            Button("前往单集", systemImage: "info.circle") { open(item) }
-            if entry.position > 0 {
-                Button("清除播放进度", systemImage: "clock.arrow.circlepath") { clear(item) }
-            }
-            let played = playback.effectivePlayed(for: item)
-            Button(played ? "标记为未观看" : "标记为已观看",
-                   systemImage: played ? "circle" : "checkmark.circle") {
-                setPlayed(item, !played)
-            }
+            playbackActions
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 18, weight: .semibold))
@@ -1904,14 +1933,18 @@ private struct EmbySeriesBrowserView: View {
                     LazyVGrid(columns: columns, spacing: CGFloat(layout[.itemVerticalPadding]) * 2) {
                         browserItems
                     }
+                    .padding(.horizontal, CGFloat(layout[.endPadding]))
+                    .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
                 } else {
                     LazyVStack(spacing: 0) {
                         browserItems
                     }
+                    .padding(.top, CGFloat(layout[.browserListTop]))
+                    .padding(.leading, CGFloat(layout[.browserListLeading]))
+                    .padding(.bottom, CGFloat(layout[.browserListBottom]))
+                    .padding(.trailing, CGFloat(layout[.browserListTrailing]))
                 }
             }
-            .padding(.horizontal, CGFloat(layout[.endPadding]))
-            .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
             if isLoading && didLoadFirstPage { ProgressView().padding() }
             if reachedEnd && items.isEmpty {
                 Text(emptyMessage).foregroundStyle(.secondary).padding()
@@ -1994,10 +2027,22 @@ private struct EmbySeriesBrowserView: View {
                 }
             }
             if displayLayout == .list, index < items.count - 1 {
-                Divider()
+                Divider().padding(.leading, libraryListArtworkWidth + libraryListColumnSpacing)
             }
         }
     }
+
+    private var libraryListImageHeight: CGFloat {
+        max(24, CGFloat(layout[.browserListRowHeight] - layout[.browserListImageTop] - layout[.browserListImageBottom]))
+    }
+
+    private var libraryListImageWidth: CGFloat { libraryListImageHeight * 2 / 3 }
+
+    private var libraryListArtworkWidth: CGFloat {
+        libraryListImageWidth + CGFloat(layout[.browserListImageLeading]) + CGFloat(layout[.browserListImageTrailing])
+    }
+
+    private let libraryListColumnSpacing: CGFloat = 12
 
     private func libraryRow(_ item: MediaItem, route: EmbyMediaRoute) -> some View {
         let rowHeight = CGFloat(layout[.browserListRowHeight])
@@ -2005,8 +2050,8 @@ private struct EmbySeriesBrowserView: View {
         let imageLeading = CGFloat(layout[.browserListImageLeading])
         let imageBottom = CGFloat(layout[.browserListImageBottom])
         let imageTrailing = CGFloat(layout[.browserListImageTrailing])
-        let imageHeight = max(24, rowHeight - imageTop - imageBottom)
-        let imageWidth = imageHeight * 2 / 3
+        let imageHeight = libraryListImageHeight
+        let imageWidth = libraryListImageWidth
         let kind = item.embyItemType == "Movie" ? "电影" : "剧集"
         let genres = item.embyPresentation?.genres.prefix(3).joined(separator: " · ")
         let year = item.subtitle ?? item.embyPresentation?.premiereDate.map {
@@ -2016,7 +2061,7 @@ private struct EmbySeriesBrowserView: View {
         let details = [kind, genres].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         let yearAndRating = [year, rating.map { "★ \($0)" }].compactMap { $0 }.joined(separator: " · ")
 
-        return HStack(spacing: 12) {
+        return HStack(spacing: libraryListColumnSpacing) {
             ZStack {
                 MediaThumbnail(source: source, item: item, imageOrientation: .portrait, fixedHeight: imageHeight)
                     .frame(width: imageWidth, height: imageHeight)
@@ -2027,7 +2072,7 @@ private struct EmbySeriesBrowserView: View {
                     .padding(.bottom, imageBottom)
                     .padding(.trailing, imageTrailing)
             }
-            .frame(width: imageWidth + imageLeading + imageTrailing, height: rowHeight)
+            .frame(width: libraryListArtworkWidth, height: rowHeight)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(verbatim: item.title)

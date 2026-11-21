@@ -1010,6 +1010,10 @@ private extension MediaLayoutSettings.Metric {
         case .endPadding: "媒体库滚动区域左右内缩"
         case .episodeCardWidth: "剧集卡片宽度"
         case .episodeCardHeight: "剧集卡片高度"
+        case .browserListTop: "媒体库列表上边距"
+        case .browserListLeading: "媒体库列表左边距"
+        case .browserListBottom: "媒体库列表下边距"
+        case .browserListTrailing: "媒体库列表右边距"
         case .browserListRowHeight: "媒体库列表布局行高"
         case .browserListImageTop: "列表布局图片上间距"
         case .browserListImageLeading: "列表布局图片左间距"
@@ -1018,6 +1022,9 @@ private extension MediaLayoutSettings.Metric {
         case .mediaHeaderHeight: "Header 固定内容高度"
         case .mediaGlassStrength: "Header 下层毛玻璃强度"
         case .mediaGlassTint: "Header 毛玻璃颜色叠加强度"
+        case .mediaGlassBorderWidth: "毛玻璃底边框宽度"
+        case .mediaGlassBorderBlur: "毛玻璃底边框模糊强度"
+        case .mediaGlassBorderOpacity: "毛玻璃底边框不透明度"
         case .mediaContentBlur: "Header 自身最大模糊"
         case .mediaContentBlurCurve: "Header 自身模糊曲线"
         case .mediaContentOpacityCurve: "Header 自身透明度曲线"
@@ -1035,6 +1042,7 @@ private extension MediaLayoutSettings.Metric {
         case .carouselBlurHeight: "底部模糊主体高度"
         case .carouselBlurFadeHeight: "上沿渐隐高度"
         case .carouselBlurStrength: "毛玻璃效果强度"
+        case .carouselBlurTint: "轮播图底部颜色叠加强度"
         }
     }
 }
@@ -1118,7 +1126,8 @@ private struct DebugSettingsView: View {
     }
 
     private static let headerMetrics: [MediaLayoutSettings.Metric] = [
-        .mediaHeaderHeight, .mediaGlassStrength, .mediaGlassTint, .mediaContentBlur,
+        .mediaHeaderHeight, .mediaGlassStrength, .mediaGlassTint,
+        .mediaGlassBorderWidth, .mediaGlassBorderBlur, .mediaGlassBorderOpacity, .mediaContentBlur,
         .mediaContentBlurCurve, .mediaContentOpacityCurve,
         .mediaSnapThreshold, .mediaSnapCollapsedThreshold, .mediaSnapConflict, .mediaSnapDuration, .mediaSnapCurve,
         .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength, .mediaEdgeHeightCurve,
@@ -1126,7 +1135,7 @@ private struct DebugSettingsView: View {
     ]
 
     private static let carouselBlurMetrics: [MediaLayoutSettings.Metric] = [
-        .carouselBlurHeight, .carouselBlurFadeHeight, .carouselBlurStrength
+        .carouselBlurHeight, .carouselBlurFadeHeight, .carouselBlurStrength, .carouselBlurTint
     ]
 
     private static let interfaceMetrics = MediaLayoutSettings.Metric.allCases.filter {
@@ -1138,6 +1147,9 @@ private struct DebugSettingsView: View {
         let displayValue: Text
         if metric == .thumbnailHeight && value == 0 {
             displayValue = Text("自动")
+        } else if metric == .mediaGlassBorderWidth {
+            let width = Double(layout.mediaGlassBorderWidth)
+            displayValue = Text("\(width, format: .number.precision(.fractionLength(2))) pt")
         } else if metric == .mediaSnapDuration {
             displayValue = Text("\(value) ms")
         } else if metric.usesPercent || metric == .mediaSnapThreshold || metric == .mediaSnapCollapsedThreshold {

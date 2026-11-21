@@ -113,6 +113,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var mediaHeaderPosition: CGFloat = 0
     @State private var mediaHeaderScroll: MediaHeaderScroll?
     @State private var mediaHeaderSnap: MediaHeaderSnap?
+    @State private var hidesMediaGlassForCollapse = false
     @ScaledMetric(relativeTo: .largeTitle) private var titleLineHeight: CGFloat = 41
     @State private var pageTopOffset: CGFloat = 0
     @State private var scrollOffset: CGFloat = 0
@@ -225,7 +226,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             let offset = context.geometry.contentOffset.y + context.geometry.contentInsets.top
             if usesMediaScrollEdges {
                 let metrics = ScrollMetrics(geometry: context.geometry, includesTopInset: true)
-                updateMediaHeaderPhase(to: newPhase, offset: metrics.headerOffset)
+                updateMediaHeaderPhase(from: oldPhase, to: newPhase, offset: metrics.headerOffset)
             } else {
                 updateLegacyHeaderPhase(from: oldPhase, to: newPhase)
             }
@@ -233,9 +234,12 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         }
     }
 
-    private func updateMediaHeaderPhase(to phase: ScrollPhase, offset: CGFloat) {
+    private func updateMediaHeaderPhase(from oldPhase: ScrollPhase, to phase: ScrollPhase, offset: CGFloat) {
         isInteracting = phase == .interacting
         guard !contentFitsViewport else { return }
+        if oldPhase == .interacting && (phase == .decelerating || phase == .idle) {
+            finishMediaHeaderScroll(at: offset)
+        }
         switch phase {
         case .tracking:
             finishMediaHeaderScroll(at: offset)
@@ -244,6 +248,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 let position = mediaHeaderSnap?.position(at: .now) ?? mediaHeaderPosition
                 mediaHeaderPosition = position
                 mediaHeaderSnap = nil
+                hidesMediaGlassForCollapse = false
                 mediaHeaderScroll = MediaHeaderScroll(lastOffset: offset)
             }
             updateMediaHeaderScroll(at: offset)
@@ -349,16 +354,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             let showsBackdrop = geometry.showsGlassWhenNotCollapsed(at: position, pageTop: pageTop, statusBarTop: 0)
 
             ZStack(alignment: .top) {
-                VesperMediaStatusBarBlur(
-                    displacement: displacement,
-                    fixedHeight: contentHeaderHeight,
-                    topStrength: Double(layout[.mediaEdgeTopStrength]) / 100,
-                    maximumTopStrength: Double(layout[.mediaEdgeTopMaxStrength]) / 100,
-                    heightCurve: layout[.mediaEdgeHeightCurve],
-                    bottomStrength: Double(layout[.mediaEdgeBottomStrength]) / 100,
-                    tintStrength: Double(layout[.mediaEdgeTint]) / 100,
-                    curve: layout[.mediaEdgeCurve]
-                )
+                VesperMediaStatusBarBlur(displacement: displacement, fixedHeight: contentHeaderHeight)
                 ZStack(alignment: .top) {
                     VesperFadingBackdropBlur(style: .systemMaterial,
                         strength: Double(layout[.mediaGlassStrength]) / 100,
@@ -374,12 +370,14 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                         .overlay(alignment: .bottom) {
                             Rectangle()
                                 .fill(Color(uiColor: .label))
-                                .frame(height: 0.5)
-                                .opacity(showsBackdrop ? 0.8 : 0)
+                                .frame(height: layout.mediaGlassBorderWidth)
+                                .blur(radius: CGFloat(layout[.mediaGlassBorderBlur]))
+                                .opacity(showsBackdrop ? Double(layout[.mediaGlassBorderOpacity]) / 100 : 0)
                                 .animation(.easeInOut(duration: 0.14), value: showsBackdrop)
                         }
-                        .opacity(isCollapsed ? 0 : 1)
+                        .opacity(isCollapsed || hidesMediaGlassForCollapse ? 0 : 1)
                         .animation(nil, value: isCollapsed)
+                        .animation(nil, value: hidesMediaGlassForCollapse)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                     headerContent
@@ -433,6 +431,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         withTransaction(transaction) {
             mediaHeaderPosition = position
             mediaHeaderSnap = nil
+            hidesMediaGlassForCollapse = position >= 1
         }
     }
 
@@ -453,6 +452,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private func snapMediaHeader(to target: CGFloat) {
+        // The backdrop disappears at release, while the foreground still snaps.
+        hidesMediaGlassForCollapse = target >= 1
         guard !reduceMotion, mediaHeaderPosition != target else {
             settleMediaHeader(at: target)
             return
@@ -469,6 +470,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private func settleMediaHeader(at position: CGFloat) {
         mediaHeaderPosition = position
         mediaHeaderSnap = nil
+        hidesMediaGlassForCollapse = position >= 1
     }
 
     private struct MediaHeaderScroll {
@@ -706,39 +708,32 @@ struct VesperMediaStatusBarBlur: View {
     var isVisible = true
     var displacement: CGFloat = 0
     var fixedHeight: CGFloat?
-    var topStrength: Double = 1
-    var maximumTopStrength: Double = 1
-    var heightCurve = 1
-    var bottomStrength: Double = 0
-    var tintStrength: Double = 0.12
-    var curve = 1
+    @ObservedObject private var layout = MediaLayoutSettings.shared
     @Environment(\.vesperWindowTopInset) private var topInset
 
     var body: some View {
-        let geometry = MediaHeaderGeometry(pageOffset: displacement, travel: fixedHeight ?? topInset)
-        let regionHeight = fixedHeight == nil
-            ? topInset
-            : geometry.edgeRegionHeight(statusBarHeight: topInset, position: geometry.progress)
+        // The detail page covers only the status bar, matching the collapsed tab header.
+        let travel = fixedHeight ?? 1
+        let geometry = MediaHeaderGeometry(pageOffset: fixedHeight == nil ? travel : displacement, travel: travel)
+        let regionHeight = geometry.edgeRegionHeight(statusBarHeight: topInset, position: geometry.progress)
         if regionHeight > 0 {
-            Group {
-                if fixedHeight != nil {
-                    let resolvedTop = geometry.edgeTopStrength(
-                        minimum: topStrength, maximum: maximumTopStrength, heightCurve: heightCurve
+            let resolvedTop = geometry.edgeTopStrength(
+                minimum: Double(layout[.mediaEdgeTopStrength]) / 100,
+                maximum: Double(layout[.mediaEdgeTopMaxStrength]) / 100,
+                heightCurve: layout[.mediaEdgeHeightCurve]
+            )
+            let bottomStrength = Double(layout[.mediaEdgeBottomStrength]) / 100
+            let tintStrength = Double(layout[.mediaEdgeTint]) / 100
+            let samples = geometry.edgeBlurSamples(top: resolvedTop, bottom: bottomStrength, curve: layout[.mediaEdgeCurve])
+            let peak = max(resolvedTop, bottomStrength)
+            VesperBackdropBlur(style: .regular, strength: peak,
+                               verticalMask: samples.map { peak > 0 ? $0 / peak : 0 })
+                .overlay {
+                    LinearGradient(
+                        colors: samples.map { Color(uiColor: .systemBackground).opacity(tintStrength * $0) },
+                        startPoint: .top, endPoint: .bottom
                     )
-                    let samples = geometry.edgeBlurSamples(top: resolvedTop, bottom: bottomStrength, curve: curve)
-                    let peak = max(resolvedTop, bottomStrength)
-                    VesperBackdropBlur(style: .regular, strength: peak,
-                                       verticalMask: samples.map { peak > 0 ? $0 / peak : 0 })
-                        .overlay {
-                            LinearGradient(
-                                colors: samples.map { Color(uiColor: .systemBackground).opacity(tintStrength * $0) },
-                                startPoint: .top, endPoint: .bottom
-                            )
-                        }
-                } else {
-                    VesperBackdropBlur(style: .regular, strength: topStrength)
                 }
-            }
                 .opacity(isVisible ? 1 : 0)
                 .frame(height: regionHeight)
                 .clipped()

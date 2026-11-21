@@ -68,9 +68,8 @@ internal import AetherEngine
         }
         result.time = engine.clock.currentTime
         result.duration = engine.duration
-        result.buffered = engine.currentAVPlayer?.currentItem?.loadedTimeRanges.compactMap {
-            CMTimeRangeGetEnd($0.timeRangeValue).seconds
-        }.max() ?? result.time
+        result.buffered = engine.bufferedPosition
+        result.bufferedRanges = engine.residentRanges
         result.seekable = result.duration > 0
         if let decoder = engine.activeVideoDecoder {
             if decoder.contains("(SW)") { result.actualDecoder = .software }

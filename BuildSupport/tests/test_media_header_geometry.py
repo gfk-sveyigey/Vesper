@@ -20,7 +20,7 @@ class MediaHeaderGeometryTests(unittest.TestCase):
         self.assertIn('mediaEdgeBottomStrength', media_settings)
         self.assertIn('mediaEdgeTint', media_settings)
         self.assertIn('Color(uiColor: .systemBackground)', source)
-        self.assertIn('tintStrength: Double(layout[.mediaEdgeTint]) / 100', source)
+        self.assertIn('let tintStrength = Double(layout[.mediaEdgeTint]) / 100', source)
         self.assertIn('opacity(tintStrength * $0)', source)
         self.assertIn('curve: layout[.mediaEdgeCurve]', source)
         self.assertIn('curveProgress(position: position, curve: layout[.mediaContentBlurCurve])', source)

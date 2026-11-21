@@ -155,6 +155,9 @@ struct TranscodedPlaybackResource: Sendable {
                 self.snapshot = candidate.snapshot
                 self.snapshot.time += self.timelineOffset
                 self.snapshot.buffered += self.timelineOffset
+                self.snapshot.bufferedRanges = self.snapshot.bufferedRanges.map { range in
+                    (range.lowerBound + self.timelineOffset)...(range.upperBound + self.timelineOffset)
+                }
                 if self.originalDuration > 0 { self.snapshot.duration = self.originalDuration }
                 self.onChange?()
                 self.poll(generation: generation)
@@ -297,6 +300,9 @@ struct TranscodedPlaybackResource: Sendable {
                 if self.timelineOffset > 0 || self.originalDuration > 0 {
                     self.snapshot.time += self.timelineOffset
                     self.snapshot.buffered += self.timelineOffset
+                    self.snapshot.bufferedRanges = self.snapshot.bufferedRanges.map { range in
+                        (range.lowerBound + self.timelineOffset)...(range.upperBound + self.timelineOffset)
+                    }
                     self.snapshot.duration = self.originalDuration
                 }
                 if case .failed(let message) = self.snapshot.phase {
