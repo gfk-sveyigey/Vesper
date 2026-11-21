@@ -739,8 +739,11 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         let previousEntry = history.first { $0.mediaID == item.id }
         let previousEdit = playedEdits[item.id]
         let previousPlayed = effectivePlayed(for: item)
+        let shouldClearProgress = !played && !item.isContainer && !item.isEmbySeries
         recordPlayed(played, for: item, source: source)
-        submitPlayed(played, for: item, source: source) { [weak self] message in
+        submitPlayed(played, for: item, source: source, onSuccess: { [weak self] in
+            if shouldClearProgress { self?.clearSavedProgress(for: item) }
+        }) { [weak self] message in
             guard let self else { return }
             self.playedEdits[item.id] = previousEdit
             self.history.removeAll { $0.mediaID == item.id }
@@ -756,8 +759,12 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     private func submitPlayed(_ played: Bool, for item: MediaItem, source: MediaSource,
+                              onSuccess: (() -> Void)? = nil,
                               onFailure: ((String) -> Void)? = nil) {
-        guard source.kind == .emby, source.emby?.userID != nil else { return }
+        guard source.kind == .emby, source.emby?.userID != nil else {
+            onSuccess?()
+            return
+        }
         let editID = UUID()
         playedEdits[item.id] = PlayedEdit(id: editID, played: played)
         let write = enqueueEmbyRecordWrite(.setPlayed(played), for: item, source: source)
@@ -766,6 +773,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 try await write.value
                 guard playedEdits[item.id]?.id == editID else { return }
                 playedEdits[item.id]?.syncedAt = Date()
+                onSuccess?()
             } catch {
                 log("Emby 观看标记同步失败：\(error.localizedDescription)")
                 if playedEdits[item.id]?.id == editID {

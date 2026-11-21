@@ -229,7 +229,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                 let metrics = ScrollMetrics(geometry: context.geometry, includesTopInset: true)
                 let projectedOffset = oldPhase == .interacting && newPhase == .decelerating
                     ? metrics.projectedHeaderOffset(velocity: context.velocity) : nil
-                // Upward swipes use the projected landing; downward swipes use release geometry.
+                // Only upward swipes use a projected landing.
                 let landingOffset = (context.velocity?.dy ?? 0) > 0 ? projectedOffset : nil
                 updateMediaHeaderPhase(from: oldPhase, to: newPhase, offset: metrics.headerOffset,
                                        projectedOffset: landingOffset)
@@ -246,8 +246,11 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         followsReleasedMediaHeaderSnap = false
         guard !contentFitsViewport else { return }
         if oldPhase == .interacting && (phase == .decelerating || phase == .idle) {
-            finishMediaHeaderScroll(at: offset, projectedOffset: projectedOffset)
-            followsReleasedMediaHeaderSnap = phase == .decelerating
+            updateMediaHeaderScroll(at: offset)
+            if (mediaHeaderScroll?.lastDirection ?? 0) > 0 {
+                finishMediaHeaderScroll(at: offset, projectedOffset: projectedOffset)
+                followsReleasedMediaHeaderSnap = phase == .decelerating
+            }
         }
         switch phase {
         case .tracking:
@@ -453,6 +456,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         updateMediaHeaderScroll(at: offset)
         guard var scroll = mediaHeaderScroll else { return }
         mediaHeaderScroll = nil
+        // Downward scrolling never snaps, including when inertia reaches idle.
+        guard scroll.lastDirection > 0 else { return }
         let landingOffset = projectedOffset ?? offset
         let landingPosition = scroll.updatePosition(at: landingOffset, height: contentHeaderHeight,
                                                     currentPosition: mediaHeaderPosition)
