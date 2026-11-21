@@ -971,7 +971,11 @@
 "Header 自身最大模糊" = "Desenfoque máximo del encabezado";
 "Header 自身模糊曲线" = "Curva de desenfoque del encabezado";
 "Header 自身透明度曲线" = "Curva de opacidad del encabezado";
-"Header 吸附阈值" = "Umbral de ajuste del encabezado";
+"Header 展开吸附阈值" = "Umbral de ajuste al expandir";
+"Header 收起吸附阈值" = "Umbral de ajuste al contraer";
+"Header 吸附冲突处理" = "Resolución de conflictos de ajuste";
+"根据滚动方向" = "Dirección de desplazamiento";
+"根据距离" = "Posición más cercana";
 "Header 吸附动画时长" = "Duración del ajuste del encabezado";
 "Header 吸附动画曲线" = "Curva de ajuste del encabezado";
 "主体高度（相对状态栏）" = "Altura del desenfoque (respecto a la barra de estado)";
@@ -988,7 +992,9 @@
 
 /* Media header geometry and edge blur. */
 "Header 固定内容高度" = "Altura fija del contenido del encabezado";
-"顶部边缘模糊顶端强度" = "Intensidad del desenfoque en la parte superior";
+"顶部边缘模糊顶端强度最小值" = "Desenfoque mínimo en el borde superior";
+"顶部边缘模糊顶端强度最大值" = "Desenfoque máximo en el borde superior";
+"顶部边缘模糊高度曲线" = "Curva de desenfoque según la altura";
 "顶部边缘模糊底端强度" = "Intensidad del desenfoque en la parte inferior";
 "顶部边缘模糊颜色叠加强度" = "Intensidad del tinte del borde superior";
 "顶部边缘模糊曲线" = "Curva del desenfoque superior";

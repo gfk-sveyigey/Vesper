@@ -944,10 +944,14 @@ private extension MediaLayoutSettings.Metric {
         case .mediaContentBlur: "Header 自身最大模糊"
         case .mediaContentBlurCurve: "Header 自身模糊曲线"
         case .mediaContentOpacityCurve: "Header 自身透明度曲线"
-        case .mediaSnapThreshold: "Header 吸附阈值"
+        case .mediaSnapThreshold: "Header 展开吸附阈值"
+        case .mediaSnapCollapsedThreshold: "Header 收起吸附阈值"
+        case .mediaSnapConflict: "Header 吸附冲突处理"
         case .mediaSnapDuration: "Header 吸附动画时长"
         case .mediaSnapCurve: "Header 吸附动画曲线"
-        case .mediaEdgeTopStrength: "顶部边缘模糊顶端强度"
+        case .mediaEdgeTopStrength: "顶部边缘模糊顶端强度最小值"
+        case .mediaEdgeTopMaxStrength: "顶部边缘模糊顶端强度最大值"
+        case .mediaEdgeHeightCurve: "顶部边缘模糊高度曲线"
         case .mediaEdgeBottomStrength: "顶部边缘模糊底端强度"
         case .mediaEdgeTint: "顶部边缘模糊颜色叠加强度"
         case .mediaEdgeCurve: "顶部边缘模糊曲线"
@@ -1000,7 +1004,14 @@ private struct DebugSettingsView: View {
             }
             SettingsSection("媒体页导航栏") {
                 ForEach(Self.headerMetrics, id: \.self) { metric in
-                    if metric == .mediaEdgeCurve || metric == .mediaContentOpacityCurve || metric == .mediaContentBlurCurve || metric == .mediaSnapCurve {
+                    if metric == .mediaSnapConflict {
+                        SettingsPicker(metric.label, selection: Binding(
+                            get: { layout[metric] }, set: { layout[metric] = $0 }
+                        )) {
+                            Text("根据滚动方向").tag(0)
+                            Text("根据距离").tag(1)
+                        }
+                    } else if metric == .mediaEdgeCurve || metric == .mediaEdgeHeightCurve || metric == .mediaContentOpacityCurve || metric == .mediaContentBlurCurve || metric == .mediaSnapCurve {
                         SettingsPicker(metric.label, selection: Binding(
                             get: { layout[metric] }, set: { layout[metric] = $0 }
                         )) {
@@ -1032,8 +1043,9 @@ private struct DebugSettingsView: View {
     private static let headerMetrics: [MediaLayoutSettings.Metric] = [
         .mediaHeaderHeight, .mediaGlassStrength, .mediaGlassTint, .mediaContentBlur,
         .mediaContentBlurCurve, .mediaContentOpacityCurve,
-        .mediaSnapThreshold, .mediaSnapDuration, .mediaSnapCurve,
-        .mediaEdgeTopStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .mediaEdgeCurve
+        .mediaSnapThreshold, .mediaSnapCollapsedThreshold, .mediaSnapConflict, .mediaSnapDuration, .mediaSnapCurve,
+        .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength, .mediaEdgeHeightCurve,
+        .mediaEdgeBottomStrength, .mediaEdgeTint, .mediaEdgeCurve
     ]
 
     private static let carouselBlurMetrics: [MediaLayoutSettings.Metric] = [
@@ -1051,7 +1063,7 @@ private struct DebugSettingsView: View {
             displayValue = Text("自动")
         } else if metric == .mediaSnapDuration {
             displayValue = Text("\(value) ms")
-        } else if metric.usesPercent || metric == .mediaSnapThreshold {
+        } else if metric.usesPercent || metric == .mediaSnapThreshold || metric == .mediaSnapCollapsedThreshold {
             displayValue = Text(Double(value) / 100, format: .percent)
         } else {
             displayValue = Text("\(value) pt")

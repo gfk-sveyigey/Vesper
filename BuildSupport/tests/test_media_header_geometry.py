@@ -27,7 +27,8 @@ class MediaHeaderGeometryTests(unittest.TestCase):
         self.assertIn('headerOpacity(position: position, curve: layout[.mediaContentOpacityCurve])', source)
         self.assertIn('Double(layout[.mediaSnapDuration]) / 1000', source)
         self.assertIn('curve: layout[.mediaSnapCurve]', source)
-        self.assertIn('let threshold = CGFloat(layout[.mediaSnapThreshold]) / 100', source)
+        self.assertIn('expandedThreshold: CGFloat(layout[.mediaSnapThreshold]) / 100', source)
+        self.assertIn('collapsedThreshold: CGFloat(layout[.mediaSnapCollapsedThreshold]) / 100', source)
         geometry = source.split('struct MediaHeaderGeometry {', 1)[1].split('/// Each root page', 1)[0]
         main = r'''
 let open = MediaHeaderGeometry(pageOffset: 0, travel: 60)
@@ -37,9 +38,15 @@ precondition(!open.showsGlass(at: 0, pageTop: 60, statusBarBottom: 60))
 precondition(open.showsGlass(at: 0, pageTop: 0, statusBarBottom: 60))
 let middle = MediaHeaderGeometry(pageOffset: 30, travel: 60)
 precondition(middle.progress == 0.5 && middle.snapTarget == 1)
-precondition(open.snapTarget(for: 0.4, threshold: 0.3, startingTarget: 0) == 1)
-precondition(open.snapTarget(for: 0.8, threshold: 0.3, startingTarget: 1) == 1)
-precondition(open.snapTarget(for: 0.7, threshold: 0.3, startingTarget: 1) == 0)
+precondition(open.snapTarget(for: 0.6, expandedThreshold: 0.7, collapsedThreshold: 0.2) == 0)
+precondition(open.snapTarget(for: 0.4, expandedThreshold: 0.2, collapsedThreshold: 0.7) == 1)
+precondition(open.snapTarget(for: 0.6, expandedThreshold: 0.7, collapsedThreshold: 0.7) == 1)
+precondition(open.snapTarget(for: 0.6, expandedThreshold: 0.7, collapsedThreshold: 0.7,
+                             preferScrollDirection: true, scrollDirection: -1) == 0)
+precondition(open.snapTarget(for: 0.4, expandedThreshold: 0.7, collapsedThreshold: 0.7,
+                             preferScrollDirection: true, scrollDirection: 1) == 1)
+precondition(open.snapTarget(for: 0.4, expandedThreshold: 0.2, collapsedThreshold: 0.2,
+                             preferScrollDirection: true, scrollDirection: 1) == 0)
 precondition(open.headerOpacity(position: 0, curve: 2) == 1)
 let nextPositionAfterOpenSnap = open.position(afterScrollDelta: 1, from: 0)
 precondition(abs(nextPositionAfterOpenSnap - (1.0 / 60.0)) < 0.00001)
@@ -62,6 +69,14 @@ precondition(collapsed.progress == MediaHeaderGeometry(pageOffset: 600, travel: 
 precondition(open.edgeRegionHeight(statusBarHeight: 60, position: 0) == 120)
 precondition(collapsed.edgeRegionHeight(statusBarHeight: 60, position: 1) == 60)
 precondition(open.curveProgress(position: 0, curve: 1) == 0)
+for curve in 0...4 {
+    precondition(open.edgeTopStrength(minimum: 0.25, maximum: 0.75, heightCurve: curve) == 0.75)
+    precondition(collapsed.edgeTopStrength(minimum: 0.25, maximum: 0.75, heightCurve: curve) == 0.25)
+}
+precondition(middle.edgeTopStrength(minimum: 0.25, maximum: 0.75, heightCurve: 0) == 0.5)
+precondition(middle.edgeTopStrength(minimum: 0.25, maximum: 0.75, heightCurve: 2) == 0.375)
+precondition(middle.edgeTopStrength(minimum: 0.25, maximum: 0.75, heightCurve: 3) == 0.625)
+precondition(middle.edgeTopStrength(minimum: 0.75, maximum: 0.25, heightCurve: 0) == 0.75)
 let middleEase = middle.curveProgress(position: 0.5, curve: 1)
 let endEase = collapsed.curveProgress(position: 1, curve: 1)
 precondition(middleEase > 0 && endEase == 1)

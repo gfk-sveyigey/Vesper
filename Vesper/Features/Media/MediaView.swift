@@ -12,14 +12,14 @@ final class MediaLayoutSettings: ObservableObject {
 
         case mediaHeaderHeight, mediaGlassStrength, mediaGlassTint, mediaContentBlur
         case mediaContentOpacityCurve, mediaContentBlurCurve
-        case mediaSnapThreshold, mediaSnapDuration, mediaSnapCurve
-        case mediaEdgeTopStrength, mediaEdgeBottomStrength, mediaEdgeTint, mediaEdgeCurve
+        case mediaSnapThreshold, mediaSnapCollapsedThreshold, mediaSnapConflict, mediaSnapDuration, mediaSnapCurve
+        case mediaEdgeTopStrength, mediaEdgeTopMaxStrength, mediaEdgeHeightCurve, mediaEdgeBottomStrength, mediaEdgeTint, mediaEdgeCurve
 
         case carouselBlurHeight, carouselBlurFadeHeight, carouselBlurStrength
 
         var usesPercent: Bool {
             switch self {
-            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeTopStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength: true
+            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength: true
             default: false
             }
         }
@@ -39,13 +39,14 @@ final class MediaLayoutSettings: ObservableObject {
             case .mediaGlassTint: 12
             case .mediaContentBlur: 8
             case .mediaContentOpacityCurve, .mediaContentBlurCurve: 0
-            case .mediaSnapThreshold: 50
+            case .mediaSnapThreshold, .mediaSnapCollapsedThreshold: 50
+            case .mediaSnapConflict: 1
             case .mediaSnapDuration: 300
             case .mediaSnapCurve: 3
-            case .mediaEdgeTopStrength: 100
+            case .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength: 100
             case .mediaEdgeBottomStrength: 0
             case .mediaEdgeTint: 12
-            case .mediaEdgeCurve: 1
+            case .mediaEdgeCurve, .mediaEdgeHeightCurve: 1
             case .carouselBlurHeight: 40
             case .carouselBlurFadeHeight: 24
             case .carouselBlurStrength: 55
@@ -58,9 +59,10 @@ final class MediaLayoutSettings: ObservableObject {
             case .itemWidth, .itemHeight: 24...480
             case .episodeCardWidth, .episodeCardHeight: 120...1200
             case .mediaHeaderHeight: 30...120
-            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeTopStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength: 0...100
-            case .mediaContentOpacityCurve, .mediaContentBlurCurve, .mediaEdgeCurve: 0...4
-            case .mediaSnapThreshold: 5...95
+            case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength: 0...100
+            case .mediaContentOpacityCurve, .mediaContentBlurCurve, .mediaEdgeCurve, .mediaEdgeHeightCurve: 0...4
+            case .mediaSnapThreshold, .mediaSnapCollapsedThreshold: 5...95
+            case .mediaSnapConflict: 0...1
             case .mediaSnapDuration: 100...1000
             case .mediaSnapCurve: 0...4
             case .mediaContentBlur: 0...40
@@ -548,8 +550,8 @@ struct MediaView: View {
             if source != nil || isLocal {
                 HStack(spacing: 0) {
                     if let source {
-                        refreshButton.frame(width: 44, height: 44)
-                        favoritesButton(source).frame(width: 44, height: 44)
+                        refreshButton(inMenu: false).frame(width: 44, height: 44)
+                        favoritesButton(source, inMenu: false).frame(width: 44, height: 44)
                     } else if let createLocalFolder {
                         localImportButton(busy: localBusy).frame(width: 44, height: 44)
                         localFolderButton(busy: localBusy, action: createLocalFolder).frame(width: 44, height: 44)
@@ -557,7 +559,7 @@ struct MediaView: View {
                 }
                 .labelStyle(.iconOnly)
                 .font(.system(size: iconSize, weight: .medium))
-                .foregroundStyle(Color(uiColor: .label))
+                .foregroundStyle(.primary)
                 .buttonStyle(.plain)
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(width: isExpanded ? 88 : 0, alignment: .trailing)
@@ -578,7 +580,6 @@ struct MediaView: View {
             Label { Text("导入视频") } icon: {
                 Image(systemName: "document.badge.plus")
                     .renderingMode(.template)
-                    .foregroundStyle(Color(uiColor: .label))
             }
         }.disabled(busy)
     }
@@ -588,23 +589,26 @@ struct MediaView: View {
             Label { Text("新建文件夹") } icon: {
                 Image(systemName: "folder.badge.plus")
                     .renderingMode(.template)
-                    .foregroundStyle(Color(uiColor: .label))
             }
         }.disabled(busy)
     }
 
-    private var refreshButton: some View {
+    private func refreshButton(inMenu: Bool = true) -> some View {
         Button { library.reload() } label: {
             Label { Text("刷新页面") } icon: {
-                menuSymbol("arrow.clockwise", source: library.selectedSource)
+                if inMenu { menuSymbol("arrow.clockwise", source: library.selectedSource) }
+                else { Image(systemName: "arrow.clockwise") }
             }
         }
         .disabled(library.isLoadingEmbyHome)
     }
 
-    private func favoritesButton(_ source: MediaSource) -> some View {
+    private func favoritesButton(_ source: MediaSource, inMenu: Bool = true) -> some View {
         Button { path.append(EmbyMediaRoute.favorites(source)) } label: {
-            Label { Text("收藏媒体") } icon: { menuSymbol("heart", source: source) }
+            Label { Text("收藏媒体") } icon: {
+                if inMenu { menuSymbol("heart", source: source) }
+                else { Image(systemName: "heart") }
+            }
         }
     }
 
@@ -635,11 +639,11 @@ struct MediaView: View {
         return icon.map { Image(uiImage: $0).renderingMode(.original) } ?? Image(systemName: name)
     }
 
-    private func sourceMenuIcon(_ source: MediaSource, size: CGFloat) -> Image {
+    private func sourceMenuIcon(_ source: MediaSource, size: CGFloat, inMenu: Bool = true) -> Image {
         let configuredIcon = source.emby?.iconData.flatMap { UIImage(data: $0) }
         let image = configuredIcon ?? UIImage(named: "EmbyLogo")
         guard let image, image.size.width > 0, image.size.height > 0 else {
-            return menuSymbol(sourceSymbol(source), source: source)
+            return inMenu ? menuSymbol(sourceSymbol(source), source: source) : Image(systemName: sourceSymbol(source))
         }
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
@@ -686,7 +690,7 @@ struct MediaView: View {
                 }
             }
             if let source = embyHomeSource, !showsEmbyShortcuts {
-                Section { refreshButton }
+                Section { refreshButton() }
                 Section { favoritesButton(source) }
             }
             Section {
@@ -729,19 +733,20 @@ struct MediaView: View {
         } label: {
             Group {
                 if let source = library.selectedSource, source.kind == .emby {
-                    sourceMenuIcon(source, size: 24)
+                    sourceMenuIcon(source, size: 24, inMenu: false)
                 } else if let source = library.selectedSource, source.kind == .local || source.kind == .photos {
                     Image(systemName: sourceSymbol(source))
                         .font(.system(size: iconSize, weight: .medium))
                         .foregroundStyle(.primary)
                         .contentTransition(.symbolEffect(.replace))
                 } else {
-                    menuSymbol(sourceSymbol(library.selectedSource), source: library.selectedSource)
+                    Image(systemName: sourceSymbol(library.selectedSource))
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
             .frame(width: 44, height: 44)
             .contentShape(Circle())
+            .foregroundStyle(.primary)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("选择媒体来源")

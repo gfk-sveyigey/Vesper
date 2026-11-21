@@ -5,14 +5,15 @@ ROOT = Path(__file__).resolve().parents[2]
 class PlayerPresentationTests(unittest.TestCase):
     def test_detail_anchor_and_menu_groups(self):
         source = (ROOT / 'Vesper/Features/Media/EmbySeriesDetailView.swift').read_text()
-        toolbar = source.split('GlassEffectContainer(spacing: 12)', 1)[1].split('.sharedBackgroundVisibility(.hidden)', 1)[0]
+        toolbar = source.split('GlassEffectContainer(', 1)[1].split('.sharedBackgroundVisibility(.hidden)', 1)[0]
         self.assertEqual(toolbar.count('.glassEffectID("detailActionAnchor"'), 1)
-        for distance in [56, 100, 144]:
-            self.assertIn(f'DetailActionFan(collapsed: hasScrolled, distance: {distance})', toolbar)
+        self.assertIn('.glassEffectTransition(.matchedGeometry)', toolbar)
+        self.assertIn('if !hasScrolled {', toolbar)
+        self.assertNotIn('DetailActionFan', source)
         self.assertIn('@State private var hasScrolled = false', source)
-        self.assertIn('Image(systemName: showsMultifunctionSymbol ? "ellipsis"', toolbar)
-        self.assertIn('.animation(reduceMotion ? nil : .snappy(duration: 0.3),', toolbar)
-        self.assertIn('.task(id: hasScrolled)', toolbar)
+        self.assertIn('Image(systemName: hasScrolled ? "ellipsis"', toolbar)
+        self.assertIn('.contentTransition(.symbolEffect(.replace))', toolbar)
+        self.assertIn('.animation(reduceMotion ? nil : .default, value: hasScrolled)', toolbar)
         self.assertIn('Section { favoriteButton }', toolbar)
         self.assertIn('versionMenu(inMenu: true)', toolbar)
         # Toolbar icons must not turn into menu text while collapsing.

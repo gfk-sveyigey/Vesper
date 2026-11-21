@@ -971,7 +971,11 @@
 "Header 自身最大模糊" = "Maximum header content blur";
 "Header 自身模糊曲线" = "Header blur curve";
 "Header 自身透明度曲线" = "Header opacity curve";
-"Header 吸附阈值" = "Header snap threshold";
+"Header 展开吸附阈值" = "Expanded snap threshold";
+"Header 收起吸附阈值" = "Collapsed snap threshold";
+"Header 吸附冲突处理" = "Snap conflict resolution";
+"根据滚动方向" = "Scroll direction";
+"根据距离" = "Nearest position";
 "Header 吸附动画时长" = "Header snap duration";
 "Header 吸附动画曲线" = "Header snap curve";
 "主体高度（相对状态栏）" = "Solid blur height (relative to status bar)";
@@ -988,7 +992,9 @@
 
 /* Media header geometry and edge blur. */
 "Header 固定内容高度" = "Fixed header content height";
-"顶部边缘模糊顶端强度" = "Top-edge blur strength";
+"顶部边缘模糊顶端强度最小值" = "Minimum blur at the top edge";
+"顶部边缘模糊顶端强度最大值" = "Maximum blur at the top edge";
+"顶部边缘模糊高度曲线" = "Edge blur height response";
 "顶部边缘模糊底端强度" = "Bottom-edge blur strength";
 "顶部边缘模糊颜色叠加强度" = "Top-edge tint strength";
 "顶部边缘模糊曲线" = "Top-edge blur curve";

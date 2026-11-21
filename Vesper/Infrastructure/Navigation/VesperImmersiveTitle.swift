@@ -12,10 +12,17 @@ struct MediaHeaderGeometry {
         min(1, max(0, position + delta / max(travel, 1)))
     }
 
-    func snapTarget(for position: CGFloat, threshold: CGFloat = 0.5, startingTarget: CGFloat? = nil) -> CGFloat {
-        // Measure the same travel from either endpoint.
-        if startingTarget == 1 { return position > 1 - threshold ? 1 : 0 }
-        return position < threshold ? 0 : 1
+    func snapTarget(for position: CGFloat, expandedThreshold: CGFloat = 0.5,
+                    collapsedThreshold: CGFloat = 0.5, preferScrollDirection: Bool = false,
+                    scrollDirection: CGFloat = 0) -> CGFloat {
+        let canExpand = position <= expandedThreshold
+        let canCollapse = 1 - position <= collapsedThreshold
+        if canExpand != canCollapse { return canExpand ? 0 : 1 }
+        if canExpand && preferScrollDirection && scrollDirection != 0 {
+            return scrollDirection > 0 ? 1 : 0
+        }
+        // Also choose the nearest endpoint when neither threshold is reached.
+        return position < 0.5 ? 0 : 1
     }
 
     func boundedScrollOffset(_ offset: CGFloat, maximum: CGFloat) -> CGFloat {
@@ -47,6 +54,11 @@ struct MediaHeaderGeometry {
 
     func headerOpacity(position: CGFloat, curve: Int) -> CGFloat {
         1 - curveProgress(position: position, curve: curve)
+    }
+
+    func edgeTopStrength(minimum: Double, maximum: Double, heightCurve: Int) -> Double {
+        let heightProgress = Double(curveProgress(position: 1 - progress, curve: heightCurve))
+        return minimum + (max(minimum, maximum) - minimum) * heightProgress
     }
 
     func edgeBlurSamples(top: Double, bottom: Double, curve: Int) -> [Double] {
@@ -208,13 +220,9 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         case .interacting, .animating:
             if mediaHeaderScroll == nil || phase == .animating {
                 let position = mediaHeaderSnap?.position(at: .now) ?? mediaHeaderPosition
-                let startingTarget = mediaHeaderSnap?.target ?? (position < 0.5 ? 0 : 1)
                 mediaHeaderPosition = position
                 mediaHeaderSnap = nil
-                mediaHeaderScroll = MediaHeaderScroll(
-                    lastOffset: offset,
-                    startingTarget: startingTarget
-                )
+                mediaHeaderScroll = MediaHeaderScroll(lastOffset: offset)
             }
             updateMediaHeaderScroll(at: offset)
         case .decelerating:
@@ -323,6 +331,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                     displacement: displacement,
                     fixedHeight: contentHeaderHeight,
                     topStrength: Double(layout[.mediaEdgeTopStrength]) / 100,
+                    maximumTopStrength: Double(layout[.mediaEdgeTopMaxStrength]) / 100,
+                    heightCurve: layout[.mediaEdgeHeightCurve],
                     bottomStrength: Double(layout[.mediaEdgeBottomStrength]) / 100,
                     tintStrength: Double(layout[.mediaEdgeTint]) / 100,
                     curve: layout[.mediaEdgeCurve]
@@ -376,10 +386,13 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         updateMediaHeaderScroll(at: offset)
         guard let scroll = mediaHeaderScroll else { return }
         mediaHeaderScroll = nil
-        let threshold = CGFloat(layout[.mediaSnapThreshold]) / 100
         let geometry = MediaHeaderGeometry(pageOffset: 0, travel: contentHeaderHeight)
         snapMediaHeader(to: geometry.snapTarget(
-            for: mediaHeaderPosition, threshold: threshold, startingTarget: scroll.startingTarget
+            for: mediaHeaderPosition,
+            expandedThreshold: CGFloat(layout[.mediaSnapThreshold]) / 100,
+            collapsedThreshold: CGFloat(layout[.mediaSnapCollapsedThreshold]) / 100,
+            preferScrollDirection: layout[.mediaSnapConflict] == 0,
+            scrollDirection: scroll.lastDirection
         ))
     }
 
@@ -404,11 +417,12 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 
     private struct MediaHeaderScroll {
         var lastOffset: CGFloat
-        let startingTarget: CGFloat
+        var lastDirection: CGFloat = 0
 
         mutating func updatePosition(at offset: CGFloat, height: CGFloat, currentPosition: CGFloat) -> CGFloat {
             let delta = offset - lastOffset
             lastOffset = offset
+            if delta != 0 { lastDirection = delta > 0 ? 1 : -1 }
             return MediaHeaderGeometry(pageOffset: 0, travel: height)
                 .position(afterScrollDelta: delta, from: currentPosition)
         }
@@ -457,7 +471,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
             Spacer(minLength: 0)
             actions
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, usesMediaScrollEdges ? 15 : 20)
         .frame(height: contentHeaderHeight, alignment: usesMediaScrollEdges ? .top : .center)
         .padding(.top, topInset)
         .frame(maxWidth: .infinity)
@@ -635,6 +649,8 @@ struct VesperMediaStatusBarBlur: View {
     var displacement: CGFloat = 0
     var fixedHeight: CGFloat?
     var topStrength: Double = 1
+    var maximumTopStrength: Double = 1
+    var heightCurve = 1
     var bottomStrength: Double = 0
     var tintStrength: Double = 0.12
     var curve = 1
@@ -645,11 +661,14 @@ struct VesperMediaStatusBarBlur: View {
         let regionHeight = fixedHeight == nil
             ? topInset
             : geometry.edgeRegionHeight(statusBarHeight: topInset, position: geometry.progress)
-        let samples = geometry.edgeBlurSamples(top: topStrength, bottom: bottomStrength, curve: curve)
-        let peak = max(topStrength, bottomStrength)
         if regionHeight > 0 {
             Group {
                 if fixedHeight != nil {
+                    let resolvedTop = geometry.edgeTopStrength(
+                        minimum: topStrength, maximum: maximumTopStrength, heightCurve: heightCurve
+                    )
+                    let samples = geometry.edgeBlurSamples(top: resolvedTop, bottom: bottomStrength, curve: curve)
+                    let peak = max(resolvedTop, bottomStrength)
                     VesperBackdropBlur(style: .regular, strength: peak,
                                        verticalMask: samples.map { peak > 0 ? $0 / peak : 0 })
                         .overlay {

@@ -971,7 +971,11 @@
 "Header 自身最大模糊" = "Flou maximal du contenu de l’en-tête";
 "Header 自身模糊曲线" = "Courbe de flou de l’en-tête";
 "Header 自身透明度曲线" = "Courbe d’opacité de l’en-tête";
-"Header 吸附阈值" = "Seuil d’ancrage de l’en-tête";
+"Header 展开吸附阈值" = "Seuil d’ancrage déployé";
+"Header 收起吸附阈值" = "Seuil d’ancrage replié";
+"Header 吸附冲突处理" = "Résolution des conflits d’ancrage";
+"根据滚动方向" = "Sens du défilement";
+"根据距离" = "Position la plus proche";
 "Header 吸附动画时长" = "Durée de l’ancrage de l’en-tête";
 "Header 吸附动画曲线" = "Courbe d’animation de l’ancrage";
 "主体高度（相对状态栏）" = "Hauteur du flou (par rapport à la barre d’état)";
@@ -988,7 +992,9 @@
 
 /* Media header geometry and edge blur. */
 "Header 固定内容高度" = "Hauteur fixe du contenu de l’en-tête";
-"顶部边缘模糊顶端强度" = "Intensité du flou en haut";
+"顶部边缘模糊顶端强度最小值" = "Flou minimal en haut de la zone";
+"顶部边缘模糊顶端强度最大值" = "Flou maximal en haut de la zone";
+"顶部边缘模糊高度曲线" = "Courbe de flou selon la hauteur";
 "顶部边缘模糊底端强度" = "Intensité du flou en bas";
 "顶部边缘模糊颜色叠加强度" = "Intensité de la teinte du bord supérieur";
 "顶部边缘模糊曲线" = "Courbe du flou supérieur";
