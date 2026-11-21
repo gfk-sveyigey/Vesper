@@ -182,10 +182,11 @@ struct EmbyLibraryIconPicker: View {
                             Button {
                                 libraryID = library.id
                             } label: {
-                                if library.id == libraryID {
-                                    Label(verbatim: library.name, systemImage: "checkmark")
-                                } else {
+                                HStack {
                                     Text(verbatim: library.name)
+                                    if library.id == libraryID {
+                                        Image(systemName: "checkmark")
+                                    }
                                 }
                             }
                         }
