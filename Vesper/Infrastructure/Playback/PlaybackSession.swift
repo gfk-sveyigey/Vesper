@@ -1220,6 +1220,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             let markers = await EmbySkipLookup.shared.markers(for: target, source: source, duration: knownDuration)
             guard !Task.isCancelled, let self, self.generation == token, self.skipLookupIdentity == identity else { return }
             self.skipMarkers = markers
+            self.log("[IntroOutro] 播放器应用标记，片头段数=\(markers.intros.count)，片尾起点=\(markers.creditsStart.map { String($0) } ?? "无")，时长=\(knownDuration)")
             self.skipLookupTask = nil
         }
     }
@@ -1238,6 +1239,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
            let interval = skipMarkers.intros.first(where: { currentTime >= $0.start && currentTime < $0.end && !skippedIntroEnds.contains($0.end) }),
            interval.end < duration {
             skippedIntroEnds.insert(interval.end)
+            log("[IntroOutro] 自动跳过片头，当前位置=\(currentTime)，区间=\(interval.start)-\(interval.end)，目标=\(interval.end)")
             seek(to: interval.end, resume: true)
             automaticSkipNotice = AutomaticSkipNotice(kind: .intro)
         }
@@ -1246,6 +1248,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
            queue[index + 1].embyItemType == "Episode",
            let start = skipMarkers.creditsStart, start < duration, currentTime >= start {
             skippedCredits = true
+            log("[IntroOutro] 自动跳过片尾，当前位置=\(currentTime)，片尾起点=\(start)，切换下一集")
             next()
             automaticSkipNotice = AutomaticSkipNotice(kind: .outro)
             return true

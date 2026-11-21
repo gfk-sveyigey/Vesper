@@ -28,7 +28,33 @@ enum PlayerOrientationPolicy {
     }
 }
 
+@MainActor
 final class VesperAppDelegate: NSObject, UIApplicationDelegate {
+    // Keep SwiftUI in charge of scene/window creation; forward document events
+    // through the delegate that the app actually registers.
+    private let fileDelivery = VesperFileDeliveryDelegate()
+
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        fileDelivery.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+
+    func application(_ application: UIApplication, open url: URL,
+                     options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        fileDelivery.application(application, open: url, options: options)
+    }
+
+    func application(_ application: UIApplication, continue userActivity: NSUserActivity,
+                     restorationHandler: @escaping ([any UIUserActivityRestoring]?) -> Void) -> Bool {
+        fileDelivery.application(application, continue: userActivity, restorationHandler: restorationHandler)
+    }
+
+    func application(_ application: UIApplication,
+                     configurationForConnecting connectingSceneSession: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        fileDelivery.application(application, configurationForConnecting: connectingSceneSession, options: options)
+    }
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         PlayerOrientationPolicy.allowsLandscape ? .allButUpsideDown : .portrait
     }

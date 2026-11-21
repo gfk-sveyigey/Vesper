@@ -854,22 +854,78 @@ private struct AppIconChoices: View {
 }
 
 private struct PlaybackLicensesView: View {
-    private var notices: String {
-        ["PlaybackNotices", "AetherEngine-LICENSE", "SwiftVLC-LICENSE"].compactMap { name in
-            Bundle.main.url(forResource: name, withExtension: "txt")
-                .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-        }.joined(separator: "\n\n")
-    }
+    @State private var selectedDocument: LicenseDocument?
+
+    private let documents = [
+        LicenseDocument(title: "播放框架与依赖声明", resource: "PlaybackNotices"),
+        LicenseDocument(title: "AetherEngine", resource: "AetherEngine-LICENSE"),
+        LicenseDocument(title: "SwiftVLC", resource: "SwiftVLC-LICENSE")
+    ]
 
     var body: some View {
         SettingsPage {
             SettingsIntroCard(title: "开源许可", symbol: "doc.plaintext", description: "查看第三方组件许可。")
             SettingsSection {
-                Text(verbatim: notices)
-                    .font(.footnote)
-                    .textSelection(.enabled)
+                ForEach(documents) { document in
+                    Button {
+                        selectedDocument = document
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(document.title)
+                                .foregroundStyle(Color(uiColor: .label))
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                                .accessibilityHidden(true)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
+        .sheet(item: $selectedDocument) { document in
+            LicenseDocumentSheet(document: document)
+        }
+    }
+}
+
+private struct LicenseDocument: Identifiable {
+    let title: String
+    let resource: String
+    var id: String { resource }
+    var contents: String {
+        Bundle.main.url(forResource: resource, withExtension: "txt")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "许可内容暂不可用。"
+    }
+}
+
+private struct LicenseDocumentSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let document: LicenseDocument
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(verbatim: document.contents)
+                    .font(.footnote.monospaced())
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle(document.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("关闭")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 
@@ -954,6 +1010,11 @@ private extension MediaLayoutSettings.Metric {
         case .endPadding: "媒体库滚动区域左右内缩"
         case .episodeCardWidth: "剧集卡片宽度"
         case .episodeCardHeight: "剧集卡片高度"
+        case .browserListRowHeight: "媒体库列表布局行高"
+        case .browserListImageTop: "列表布局图片上间距"
+        case .browserListImageLeading: "列表布局图片左间距"
+        case .browserListImageBottom: "列表布局图片下间距"
+        case .browserListImageTrailing: "列表布局图片右间距"
         case .mediaHeaderHeight: "Header 固定内容高度"
         case .mediaGlassStrength: "Header 下层毛玻璃强度"
         case .mediaGlassTint: "Header 毛玻璃颜色叠加强度"

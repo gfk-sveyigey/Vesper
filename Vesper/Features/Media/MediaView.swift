@@ -9,6 +9,7 @@ final class MediaLayoutSettings: ObservableObject {
     enum Metric: String, CaseIterable {
         case thumbnailHeight, groupSpacing, titlePadding, scrollPadding
         case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding, episodeCardWidth, episodeCardHeight
+        case browserListRowHeight, browserListImageTop, browserListImageLeading, browserListImageBottom, browserListImageTrailing
 
         case mediaHeaderHeight, mediaGlassStrength, mediaGlassTint, mediaContentBlur
         case mediaContentOpacityCurve, mediaContentBlurCurve
@@ -34,6 +35,8 @@ final class MediaLayoutSettings: ObservableObject {
             case .endPadding: 20
             case .episodeCardWidth: 246
             case .episodeCardHeight: 230
+            case .browserListRowHeight: 132
+            case .browserListImageTop, .browserListImageLeading, .browserListImageBottom, .browserListImageTrailing: 8
             case .mediaHeaderHeight: 60
             case .mediaGlassStrength: 65
             case .mediaGlassTint: 12
@@ -57,6 +60,8 @@ final class MediaLayoutSettings: ObservableObject {
             switch self {
             case .thumbnailHeight: 0...600
             case .itemWidth, .itemHeight: 24...480
+            case .browserListRowHeight: 60...320
+            case .browserListImageTop, .browserListImageLeading, .browserListImageBottom, .browserListImageTrailing: 0...60
             case .episodeCardWidth, .episodeCardHeight: 120...1200
             case .mediaHeaderHeight: 30...120
             case .mediaGlassStrength, .mediaGlassTint, .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength: 0...100
@@ -1846,26 +1851,48 @@ private struct EmbySeriesBrowserView: View {
     }
 
     private func libraryRow(_ item: MediaItem, route: EmbyMediaRoute) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            MediaThumbnail(source: source, item: item, imageOrientation: .portrait, fixedHeight: 114)
-                .frame(width: 76)
-                .mediaArtworkBorder()
-                .matchedTransitionSource(id: route, in: artworkZoom)
-            VStack(alignment: .leading, spacing: 6) {
+        let rowHeight = CGFloat(layout[.browserListRowHeight])
+        let imageTop = CGFloat(layout[.browserListImageTop])
+        let imageLeading = CGFloat(layout[.browserListImageLeading])
+        let imageBottom = CGFloat(layout[.browserListImageBottom])
+        let imageTrailing = CGFloat(layout[.browserListImageTrailing])
+        let imageHeight = max(24, rowHeight - imageTop - imageBottom)
+        let imageWidth = imageHeight * 2 / 3
+        let kind = item.embyItemType == "Movie" ? "电影" : "剧集"
+        let genres = item.embyPresentation?.genres.prefix(3).joined(separator: " · ")
+        let year = item.subtitle ?? item.embyPresentation?.premiereDate.map {
+            String(Calendar.current.component(.year, from: $0))
+        } ?? "—"
+        let rating = item.embyPresentation?.communityRating.map { String(format: "%.1f", $0) }
+        let details = [kind, genres].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        let yearAndRating = [year, rating.map { "★ \($0)" }].compactMap { $0 }.joined(separator: " · ")
+
+        HStack(spacing: 12) {
+            ZStack {
+                MediaThumbnail(source: source, item: item, imageOrientation: .portrait, fixedHeight: imageHeight)
+                    .frame(width: imageWidth, height: imageHeight)
+                    .mediaArtworkBorder()
+                    .matchedTransitionSource(id: route, in: artworkZoom)
+                    .padding(.top, imageTop)
+                    .padding(.leading, imageLeading)
+                    .padding(.bottom, imageBottom)
+                    .padding(.trailing, imageTrailing)
+            }
+            .frame(width: imageWidth + imageLeading + imageTrailing, height: rowHeight)
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text(verbatim: item.title)
                     .font(.headline)
                     .foregroundStyle(.primary)
-                    .lineLimit(2)
-                if let subtitle = item.subtitle, !subtitle.isEmpty {
-                    Text(verbatim: subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                }
-                if let genres = item.embyPresentation?.genres, !genres.isEmpty {
-                    Text(verbatim: genres.prefix(3).joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-                if let overview = item.embyPresentation?.overview, !overview.isEmpty {
-                    Text(verbatim: overview).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                }
+                    .lineLimit(1)
+                Text(verbatim: details)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text(verbatim: yearAndRating)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "chevron.right")
@@ -1873,7 +1900,7 @@ private struct EmbySeriesBrowserView: View {
                 .foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight, alignment: .leading)
         .contentShape(Rectangle())
     }
 

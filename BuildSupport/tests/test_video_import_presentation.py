@@ -90,3 +90,11 @@ import Foundation
         self.assertIn('incomingVideos.acknowledgePresented(file.id)', source)
         self.assertIn('.task(id: incomingPresentationRequest)', source)
         self.assertIn('controller.children.contains { hasPresentation(in: $0) }', source)
+
+    def test_registered_app_delegate_forwards_document_callbacks(self):
+        source = (ROOT / 'Vesper/Features/Player/PlayerInteraction.swift').read_text()
+        delegate = source.split('final class VesperAppDelegate:', 1)[1].split('enum PlayerGestureRegion:', 1)[0]
+        self.assertIn('private let fileDelivery = VesperFileDeliveryDelegate()', delegate)
+        self.assertIn('fileDelivery.application(application, didFinishLaunchingWithOptions: launchOptions)', delegate)
+        self.assertIn('fileDelivery.application(application, open: url, options: options)', delegate)
+        self.assertIn('fileDelivery.application(application, configurationForConnecting: connectingSceneSession, options: options)', delegate)
