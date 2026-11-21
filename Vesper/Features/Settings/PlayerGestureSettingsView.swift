@@ -165,6 +165,7 @@ private struct GesturePairSettingsView: View {
     @State private var revision = 0
     var body: some View {
         SettingsPage {
+            SettingsIntroCard(title: "组合手势设置", symbol: "hand.draw", description: "选择需要联动设置的成对手势。")
             ForEach(1...2, id: \.self) { fingers in
                 SettingsSection(fingers == 1 ? "单指" : "双指") {
                     ForEach(PlayerGesturePair.allCases.filter { !($0.needsTwoFingers && fingers == 1) }) { pair in
@@ -183,7 +184,6 @@ private struct GesturePairSettingsView: View {
         .contentMargins(.top, 0, for: .scrollContent)
         .scrollContentBackground(.hidden).background(VesperTheme.background)
         .navigationTitle("组合手势设置").toolbarTitleDisplayMode(.inline)
-        .scrollDisabled(true)
     }
 }
 
@@ -194,6 +194,7 @@ private struct GestureRegionSettingsView: View {
 
     var body: some View {
         SettingsPage {
+            SettingsIntroCard(title: "区域范围设置", symbol: "rectangle.split.3x1", description: "调整手势区域的分界位置。")
             VStack(spacing: 1) {
                 preview([0, split2, 1])
                 preview([0, splitFirst, splitSecond, 1])
@@ -215,7 +216,6 @@ private struct GestureRegionSettingsView: View {
             }
         }
         .navigationTitle("区域范围设置").toolbarTitleDisplayMode(.inline)
-        .scrollDisabled(true)
     }
 
     private func preview(_ edges: [Double]) -> some View {

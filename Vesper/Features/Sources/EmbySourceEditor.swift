@@ -23,6 +23,9 @@ struct EmbySourceEditor: View {
     @State private var strmDirectPlayback = false
     @State private var iconData: Data?
     @State private var selectedIcon: PhotosPickerItem?
+    @State private var showingPhotoPicker = false
+    @State private var showingIconLibrary = false
+    @State private var iconSelectionRevision = 0
     @State private var showingMoreSettings = false
     @State private var saving = false
     @State private var errorMessage: String?
@@ -50,14 +53,38 @@ struct EmbySourceEditor: View {
             if oldValue == .host && newValue != .host { parseFullAddressIfNeeded() }
         }
         .onChange(of: selectedIcon) { _, item in
-            Task { iconData = try? await item?.loadTransferable(type: Data.self) }
+            iconSelectionRevision += 1
+            let revision = iconSelectionRevision
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   UIImage(data: data) != nil, revision == iconSelectionRevision {
+                    iconData = data
+                }
+            }
+        }
+        .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedIcon, matching: .images)
+        .sheet(isPresented: $showingIconLibrary) {
+            EmbyLibraryIconPicker { data in
+                iconSelectionRevision += 1
+                selectedIcon = nil
+                iconData = data
+            }
         }
         .interactiveDismissDisabled(saving)
     }
 
     private var identityFields: some View {
         HStack(spacing: 16) {
-            PhotosPicker(selection: $selectedIcon, matching: .images) {
+            Menu {
+                Button("从照片选择", systemImage: "photo") { showingPhotoPicker = true }
+                Button("从图标库选择", systemImage: "square.grid.2x2") { showingIconLibrary = true }
+                Button("使用默认图标", systemImage: "arrow.counterclockwise") {
+                    iconSelectionRevision += 1
+                    iconData = nil
+                    selectedIcon = nil
+                }
+            } label: {
                 sourceIcon
                     .overlay(alignment: .bottomTrailing) {
                         Image(systemName: "pencil.circle.fill")
@@ -66,12 +93,6 @@ struct EmbySourceEditor: View {
                     }
             }
             .buttonStyle(.plain)
-            .contextMenu {
-                Button("使用默认图标", systemImage: "arrow.counterclockwise") {
-                    iconData = nil
-                    selectedIcon = nil
-                }
-            }
 
             VStack(spacing: 0) {
                 fieldRow("名称") { TextField("", text: $title) }
@@ -154,7 +175,7 @@ struct EmbySourceEditor: View {
 
     private var sourceIcon: some View {
         Group {
-            if let iconData, let image = UIImage(data: iconData) { Image(uiImage: image).resizable().scaledToFill() }
+            if let iconData, let image = UIImage(data: iconData) { Image(uiImage: image).renderingMode(.original).resizable().scaledToFill() }
             else { Image("EmbyLogo").resizable().scaledToFit().padding(4) }
         }
         .frame(width: 64, height: 64)

@@ -374,7 +374,7 @@ struct PlayerScreen: View {
                     if let subtitle = session.currentItem?.subtitle, !subtitle.isEmpty {
                         Text(verbatim: subtitle).font(.caption).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
                     }
-                    Text(verbatim: session.currentItem?.title ?? String(localized: "未在播放"))
+                    Text(verbatim: session.currentItem?.title ?? VesperLocalization.string("未在播放"))
                         .font(landscape ? .headline : .title3.weight(.semibold))
                         .lineLimit(1).truncationMode(.middle)
                 }
@@ -440,10 +440,15 @@ struct PlayerScreen: View {
 
     private var playbackOptionsMenu: some View {
         PlayerMenuButton(symbol: "ellipsis", accessibilityTitle: VesperLocalization.string("播放选项"),
-                         makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu()] + danmakuSourceActions()) },
+                         makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu()]) },
                          visibilityChanged: menuVisibilityChanged)
             .frame(width: 44, height: 44)
             .glassEffect(.regular.interactive(), in: Circle())
+    }
+
+    private func danmakuMenu() -> UIMenu {
+        UIMenu(title: VesperLocalization.string("弹幕"), image: UIImage(systemName: "text.bubble"),
+               children: danmakuSourceActions())
     }
 
     private func danmakuSourceActions() -> [UIMenuElement] {
@@ -469,7 +474,7 @@ struct PlayerScreen: View {
                 showHUD(VesperLocalization.string("弹幕已导入"), symbol: "text.bubble")
             } catch {
                 if (error as NSError).code != CocoaError.userCancelled.rawValue {
-                    session.playbackNotice = "弹幕导入失败：" + error.localizedDescription
+                    session.playbackNotice = VesperLocalization.string("弹幕导入失败：") + error.localizedDescription
                 }
             }
         }
@@ -505,7 +510,7 @@ struct PlayerScreen: View {
             landscapeMenu("播放速度", symbol: "speedometer", menu: speedMenu)
             landscapeMenu("音频", symbol: "waveform", menu: audioMenu)
             landscapeMenu("字幕", symbol: "captions.bubble", menu: subtitleMenu)
-            landscapeMenu("弹幕来源", symbol: "ellipsis", menu: { UIMenu(children: danmakuSourceActions()) })
+            landscapeMenu("弹幕", symbol: "ellipsis", menu: { UIMenu(children: [danmakuMenu()]) })
         }
         .glassEffect(.regular.interactive(), in: Capsule())
         .accessibilityElement(children: .contain)
@@ -1070,6 +1075,7 @@ struct PlayerVideoSurface: UIViewControllerRepresentable {
 final class PlayerVideoSurfaceController: UIViewController {
     private weak var renderingView: UIView?
     private var mountingConstraints: [NSLayoutConstraint] = []
+    private var rotationDisplayLink: CADisplayLink?
     private var rotationRevision = 0
     private typealias LayerGeometry = (layer: CALayer, bounds: CGRect, position: CGPoint)
     private var rotationFrames: [LayerGeometry] = []
@@ -1089,6 +1095,7 @@ final class PlayerVideoSurfaceController: UIViewController {
     func mount(_ renderingView: UIView?) {
         loadViewIfNeeded()
         if self.renderingView === renderingView, renderingView == nil || renderingView?.superview === view { return }
+        stopRotationSynchronization()
         NSLayoutConstraint.deactivate(mountingConstraints)
         mountingConstraints = []
         if self.renderingView?.superview === view { self.renderingView?.removeFromSuperview() }
@@ -1112,13 +1119,13 @@ final class PlayerVideoSurfaceController: UIViewController {
         super.viewWillTransition(to: size, with: coordinator)
         guard let renderingView, renderingView.superview === view,
               view.window != nil, coordinator.isAnimated, !UIAccessibility.isReduceMotionEnabled else { return }
-        rotationRevision += 1
-        let revision = rotationRevision
-        let frames = videoLayers(in: renderingView.layer).map { layer in
+        let frames = videoGeometryLayers(in: renderingView.layer).map { layer in
             let visible = layer.presentation() ?? layer
             return (layer: layer, bounds: visible.bounds, position: visible.position)
         }
-        guard !frames.isEmpty else { return }
+        // Capture presentation geometry before cancelling an in-flight turn.
+        stopRotationSynchronization()
+        let revision = rotationRevision
         rotationFrames = frames
         // Both engines disable implicit actions when laying out their video
         // layers. UIKit animates the hosting view, but those layers otherwise
@@ -1130,17 +1137,15 @@ final class PlayerVideoSurfaceController: UIViewController {
             self.rotationStarted = CACurrentMediaTime()
             self.rotationDuration = context.transitionDuration
             self.rotationTiming = self.timingFunction(context.completionCurve)
+            let link = CADisplayLink(target: RotationGeometryTick(owner: self), selector: #selector(RotationGeometryTick.tick(_:)))
+            self.rotationDisplayLink = link
+            link.add(to: .main, forMode: .common)
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
             self.synchronizeVideoGeometry()
         }, completion: { [weak self] _ in
             guard let self, self.rotationRevision == revision else { return }
-            self.rotationDuration = 0
-            self.rotationFrames = []
-            for frame in frames {
-                frame.layer.removeAnimation(forKey: Self.boundsAnimation)
-                frame.layer.removeAnimation(forKey: Self.positionAnimation)
-            }
+            self.stopRotationSynchronization()
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
         })
@@ -1157,6 +1162,9 @@ final class PlayerVideoSurfaceController: UIViewController {
         guard rotationDuration > 0, CACurrentMediaTime() - rotationStarted < rotationDuration,
               let renderingView, renderingView.superview === view else { return }
         renderingView.layoutIfNeeded()
+        // Engine layout can run independently of the host's layout callback.
+        // Check each display tick, including intermediate container layers.
+        // Animating only the final drawable leaves its parent free to jump.
         for frame in rotationFrames {
             guard contains(frame.layer, in: renderingView.layer) else { continue }
             let boundsKey = Self.boundsAnimation
@@ -1186,10 +1194,57 @@ final class PlayerVideoSurfaceController: UIViewController {
         animation.timingFunction = rotationTiming
     }
 
-    private func videoLayers(in layer: CALayer) -> [CALayer] {
-        let isVideo = layer is AVPlayerLayer || layer is AVSampleBufferDisplayLayer
-            || layer is CAMetalLayer || layer is CAEAGLLayer
-        return (isVideo ? [layer] : []) + (layer.sublayers ?? []).flatMap { videoLayers(in: $0) }
+    private func videoGeometryLayers(in root: CALayer) -> [CALayer] {
+        func branch(_ layer: CALayer) -> [CALayer] {
+            let descendants = (layer.sublayers ?? []).flatMap { branch($0) }
+            let isVideo = layer is AVPlayerLayer || layer is AVSampleBufferDisplayLayer
+                || layer is CAMetalLayer || layer is CAEAGLLayer
+            return isVideo || !descendants.isEmpty ? [layer] + descendants : []
+        }
+        // The outer rendering view is already animated by UIKit constraints.
+        // Include every internal ancestor of a drawable, not just the leaf.
+        if root is AVPlayerLayer || root is AVSampleBufferDisplayLayer
+            || root is CAMetalLayer || root is CAEAGLLayer {
+            return branch(root)
+        }
+        return (root.sublayers ?? []).flatMap { branch($0) }
+    }
+
+    fileprivate func rotationGeometryTick(_ link: CADisplayLink) {
+        guard rotationDuration > 0, CACurrentMediaTime() - rotationStarted < rotationDuration else {
+            if rotationDisplayLink === link { stopRotationSynchronization() }
+            else { link.invalidate() }
+            return
+        }
+        synchronizeVideoGeometry()
+    }
+
+    private func stopRotationSynchronization() {
+        // Also cancel coordinator callbacks queued for an unmounted surface.
+        rotationRevision += 1
+        rotationDisplayLink?.invalidate()
+        rotationDisplayLink = nil
+        rotationDuration = 0
+        for frame in rotationFrames {
+            frame.layer.removeAnimation(forKey: Self.boundsAnimation)
+            frame.layer.removeAnimation(forKey: Self.positionAnimation)
+        }
+        rotationFrames = []
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        stopRotationSynchronization()
+    }
+
+    /// A display link must not retain the player controller after dismissal.
+    @MainActor private final class RotationGeometryTick: NSObject {
+        weak var owner: PlayerVideoSurfaceController?
+        init(owner: PlayerVideoSurfaceController) { self.owner = owner }
+        @objc func tick(_ link: CADisplayLink) {
+            guard let owner else { link.invalidate(); return }
+            owner.rotationGeometryTick(link)
+        }
     }
     private func contains(_ layer: CALayer, in root: CALayer) -> Bool {
         var candidate: CALayer? = layer

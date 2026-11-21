@@ -161,6 +161,21 @@ struct MediaThumbnail: View {
     }
 }
 
+/// Visible card surface for device media; keep Emby poster layouts unchanged.
+struct DeviceMediaCardBackground: ViewModifier {
+    var enabled = true
+    func body(content: Content) -> some View {
+        content
+            .padding(enabled ? 6 : 0)
+            .background {
+                if enabled {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(VesperTheme.mediaCardBackground)
+                }
+            }
+    }
+}
+
 struct MediaCardBackdrop: View {
     var showsMissingArtwork = false
     var iconCenterY: CGFloat = 0.5

@@ -15,10 +15,10 @@ actor LocalFileStore {
         case invalidName, outsideRoot, conflict, invalidMove
         var errorDescription: String? {
             switch self {
-            case .invalidName: String(localized: "名称不能为空，且不能包含斜杠或冒号。")
-            case .outsideRoot: String(localized: "无法访问本地来源以外的位置或符号链接。")
-            case .conflict: String(localized: "目标位置已有同名文件或文件夹。")
-            case .invalidMove: String(localized: "不能移动到原位置、文件夹自身或其子文件夹。")
+            case .invalidName: VesperLocalization.string("名称不能为空，且不能包含斜杠或冒号。")
+            case .outsideRoot: VesperLocalization.string("无法访问本地来源以外的位置或符号链接。")
+            case .conflict: VesperLocalization.string("目标位置已有同名文件或文件夹。")
+            case .invalidMove: VesperLocalization.string("不能移动到原位置、文件夹自身或其子文件夹。")
             }
         }
     }

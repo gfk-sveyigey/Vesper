@@ -48,7 +48,7 @@ struct DanmakuPreferenceSections: View {
                     HStack {
                         Label("弹幕 API", systemImage: "network")
                         Spacer()
-                        Text("\(sources.sources.count) 个")
+                        Text(String(format: VesperLocalization.string("%lld 个"), sources.sources.count))
                             .foregroundStyle(.secondary).monospacedDigit()
                     }
                 }

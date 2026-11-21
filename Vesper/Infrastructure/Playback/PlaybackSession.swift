@@ -424,7 +424,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         configurePictureInPicture()
         if core.engineID != .aether {
             guard core.snapshot.pipPossible else {
-                playbackNotice = String(localized: "当前视频暂不支持画中画。")
+                playbackNotice = VesperLocalization.string("当前视频暂不支持画中画。")
                 return
             }
             core.startPiP()
@@ -451,7 +451,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             guard !Task.isCancelled, self.generation == token else { return }
             self.core.setPiPActive(false)
             self.configurePictureInPicture()
-            self.playbackNotice = String(localized: "当前视频暂不支持画中画。")
+            self.playbackNotice = VesperLocalization.string("当前视频暂不支持画中画。")
         }
     }
 

@@ -93,12 +93,13 @@ struct PlayerDanmakuSettingsView: View {
     @ObservedObject var document: PlayerDanmaku
     var body: some View {
         SettingsPage {
+            SettingsIntroCard(title: "弹幕设置", symbol: "text.bubble", description: "调整当前弹幕的时间偏移与显示偏好。")
             SettingsSection("当前视频弹幕") {
                 if let filename = document.filename {
                     Text(filename)
-                    Text("\(document.comments.count) 条弹幕").foregroundStyle(.secondary)
+                    Text(String(format: VesperLocalization.string("%lld 条弹幕"), document.comments.count)).foregroundStyle(.secondary)
                     Stepper(value: $document.offset, in: -600...600, step: 0.5) {
-                        Text("时间偏移：\(document.offset, specifier: "%.1f") 秒")
+                        Text(String(format: VesperLocalization.string("时间偏移：%.1f 秒"), document.offset))
                     }
                     Button("移除当前弹幕", role: .destructive) {
                         document.comments = []; document.filename = nil; document.offset = 0

@@ -89,15 +89,15 @@ enum EmbyError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidAddress: "Emby 服务器地址无效。"
-        case .invalidResponse: "Emby 服务器返回的数据无法识别。"
-        case .invalidHeader: "自定义 UA 或请求头无效，或试图覆盖 Vesper 管理的认证请求头。"
-        case .insecureRemoteHTTP: "远程 Emby 服务器必须使用 HTTPS；HTTP 仅允许局域网地址。"
-        case .authentication: "Emby 登录失败，请检查服务器、用户名和密码。"
-        case .forbidden: "当前 Emby 用户没有访问此内容的权限。"
-        case .notFound: "Emby 媒体不存在或已被移除。"
-        case .server(let status): "Emby 请求失败（HTTP \(status)）。"
-        case .missingAccount: "Emby 登录状态已失效，请重新登录。"
+        case .invalidAddress: VesperLocalization.string("Emby 服务器地址无效。")
+        case .invalidResponse: VesperLocalization.string("Emby 服务器返回的数据无法识别。")
+        case .invalidHeader: VesperLocalization.string("自定义 UA 或请求头无效，或试图覆盖 Vesper 管理的认证请求头。")
+        case .insecureRemoteHTTP: VesperLocalization.string("远程 Emby 服务器必须使用 HTTPS；HTTP 仅允许局域网地址。")
+        case .authentication: VesperLocalization.string("Emby 登录失败，请检查服务器、用户名和密码。")
+        case .forbidden: VesperLocalization.string("当前 Emby 用户没有访问此内容的权限。")
+        case .notFound: VesperLocalization.string("Emby 媒体不存在或已被移除。")
+        case .server(let status): String(format: VesperLocalization.string("Emby 请求失败（HTTP %d）。"), status)
+        case .missingAccount: VesperLocalization.string("Emby 登录状态已失效，请重新登录。")
         }
     }
 }

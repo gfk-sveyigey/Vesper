@@ -3,7 +3,7 @@ import SwiftUI
 struct HistoryView: View {
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
-    @State private var openedDetail: HistoryDetailRoute?
+    @Binding var path: NavigationPath
 
     private var groups: [HistorySourceGroup] {
         Dictionary(grouping: playback.history.filter { $0.hiddenFromHistory != true }, by: { $0.source.id }).values.map { entries in
@@ -33,7 +33,7 @@ struct HistoryView: View {
                                     ForEach(group.entries) { entry in
                                         let source = library.sources.first(where: { $0.id == group.id }) ?? group.source
                                         HistoryMediaCard(source: source, entry: entry, queue: group.entries.map(\.item)) { item in
-                                            openedDetail = HistoryDetailRoute(source: source, item: item)
+                                            path.append(HistoryDetailRoute(source: source, item: item))
                                         }
                                     }
                                 }
@@ -49,7 +49,7 @@ struct HistoryView: View {
             }
         }
         .onAppear { playback.pruneUnavailableHistory() }
-        .navigationDestination(item: $openedDetail) { route in
+        .navigationDestination(for: HistoryDetailRoute.self) { route in
             EmbyMediaDetailView(source: route.source, series: route.item)
         }
     }
@@ -124,9 +124,9 @@ private struct HistoryMediaCard: View {
                     let multipleSeasons = (seasonCount ?? 0) > 1 || (metadata.seasonNumber ?? 0) > 1
                     var episodeParts: [String] = []
                     if let season = metadata.seasonNumber, multipleSeasons || season == 0 {
-                        episodeParts.append(season == 0 ? String(localized: "特别篇") : String(localized: "第\(season)季"))
+                        episodeParts.append(season == 0 ? VesperLocalization.string("特别篇") : VesperLocalization.localized("第\(season)季"))
                     }
-                    if let episode = metadata.episodeNumber { episodeParts.append(String(localized: "第\(episode)集")) }
+                    if let episode = metadata.episodeNumber { episodeParts.append(VesperLocalization.localized("第\(episode)集")) }
                     var lines = [series.title]
                     if !episodeParts.isEmpty { lines.append(episodeParts.joined(separator: " · ")) }
                     let episodeTitle = metadata.item.title.trimmingCharacters(in: .whitespacesAndNewlines)

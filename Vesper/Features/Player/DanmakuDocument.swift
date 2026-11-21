@@ -14,8 +14,8 @@ enum DanmakuImportError: LocalizedError {
     case invalid, tooLarge
     var errorDescription: String? {
         switch self {
-        case .invalid: "无法读取弹幕。请选择包含有效弹幕的 Bilibili XML 文件。"
-        case .tooLarge: "弹幕文件过大，最多支持 16 MB、50000 条弹幕。"
+        case .invalid: VesperLocalization.string("无法读取弹幕。请选择包含有效弹幕的 Bilibili XML 文件。")
+        case .tooLarge: VesperLocalization.string("弹幕文件过大，最多支持 16 MB、50000 条弹幕。")
         }
     }
 }

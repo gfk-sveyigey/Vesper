@@ -259,6 +259,7 @@ try:
     with tempfile.TemporaryDirectory(prefix='vesper-emby-checks-') as temp:
         binary = str(Path(temp) / 'checks')
         subprocess.run([os.environ.get('SWIFTC', 'swiftc'), '-swift-version', '6', '-strict-concurrency=complete',
+                        str(ROOT / 'Vesper/Infrastructure/Theme/VesperLocalization.swift'),
                         str(ROOT / 'Vesper/Infrastructure/Sources/EmbyAPIClient.swift'),
                         str(ROOT / 'Tests/EmbyAPIClientChecks.swift'), '-o', binary], check=True)
         subprocess.run([binary, 'http://127.0.0.1:' + str(server.server_port)], check=True)
@@ -278,7 +279,8 @@ try:
         models += source[source.index('struct PlaybackVideoDetails'):source.index('struct PlaybackQueueInfo')]
         models += "\n@MainActor final class EmbyAccountStore { static let shared = EmbyAccountStore(); func client(for source: MediaSource) throws -> EmbyAPIClient { fatalError(\"Test must inject client\") } }\n"
         contracts = Path(temp) / 'Models.swift'; contracts.write_text('import Foundation\n' + models)
-        units = [str(ROOT / 'Vesper/Infrastructure/Sources/EmbyAPIClient.swift'), str(contracts)]
+        units = [str(ROOT / 'Vesper/Infrastructure/Theme/VesperLocalization.swift'),
+                        str(ROOT / 'Vesper/Infrastructure/Sources/EmbyAPIClient.swift'), str(contracts)]
         for name in ['Sources/EmbyIntegration.swift', 'Playback/EmbyPlaybackSession.swift']:
             unit = Path(temp) / Path(name).name
             unit.write_text((ROOT / 'Vesper/Infrastructure' / name).read_text().replace('import PlaybackContracts', ''))

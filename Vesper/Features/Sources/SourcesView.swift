@@ -9,6 +9,7 @@ private enum SourcesAlert: Hashable, Identifiable {
 }
 
 struct SourcesView: View {
+    var headerVisibilityChanged: (Bool) -> Void = { _ in }
     @EnvironmentObject private var library: SourceLibrary
     @State private var activeAlert: SourcesAlert?
     @State private var isShowingEmbyEditor = false
@@ -55,7 +56,7 @@ struct SourcesView: View {
                             if source.kind == .emby {
                                 Button("编辑", systemImage: "pencil") { editingEmby = source }
                             }
-                            Button("删除", role: .destructive) { library.remove(source.id) }
+                            Button("删除", systemImage: "trash", role: .destructive) { library.remove(source.id) }
                         }
                         .accessibilityAction(named: Text("删除")) { library.remove(source.id) }
                     }
@@ -80,6 +81,9 @@ struct SourcesView: View {
                       },
                       secondaryButton: .cancel(Text("取消")))
             }
+        }
+        .onChange(of: isShowingEmbyEditor || editingEmby != nil, initial: true) { _, presentsEditor in
+            headerVisibilityChanged(!presentsEditor)
         }
         .sheet(isPresented: $isShowingEmbyEditor) { EmbySourceEditor(source: nil) }
         .sheet(item: $editingEmby) { source in EmbySourceEditor(source: source) }
@@ -113,7 +117,7 @@ struct SourcesView: View {
                 Label("Emby", image: "EmbyLogo")
             }
         } label: {
-            Image(systemName: "folder.badge.plus")
+            Image(systemName: "plus")
                 .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())

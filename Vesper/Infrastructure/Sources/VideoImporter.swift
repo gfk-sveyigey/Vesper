@@ -120,8 +120,8 @@ actor VideoImporter {
         case unsupported, unreadable
         var errorDescription: String? {
             switch self {
-            case .unsupported: "请选择支持的视频文件。"
-            case .unreadable: "无法读取此视频，请先将文件下载到本机后重试。"
+            case .unsupported: VesperLocalization.string("请选择支持的视频文件。")
+            case .unreadable: VesperLocalization.string("无法读取此视频，请先将文件下载到本机后重试。")
             }
         }
     }

@@ -43,7 +43,7 @@ catch DanmakuImportError.tooLarge {} catch { fatalError("Wrong count error") }
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             (folder / 'main.swift').write_text(main)
-            subprocess.run([compiler, str(ROOT / 'Vesper/Features/Player/DanmakuDocument.swift'),
+            subprocess.run([compiler, str(ROOT / 'Vesper/Infrastructure/Theme/VesperLocalization.swift'), str(ROOT / 'Vesper/Features/Player/DanmakuDocument.swift'),
                             str(folder / 'main.swift'), '-o', str(folder / 'test')], check=True,
                            capture_output=True, text=True)
             subprocess.run([str(folder / 'test')], check=True, capture_output=True, text=True)
@@ -58,7 +58,7 @@ class DanmakuAPITests(unittest.TestCase):
             folder = Path(directory)
             (folder / 'main.swift').write_text((ROOT / 'Tests/Fixtures/DanmakuAPIChecks.swift').read_text())
             sources = ROOT / 'Vesper/Features/Player'
-            subprocess.run([compiler, '-swift-version', '6', str(sources / 'DanmakuDocument.swift'),
+            subprocess.run([compiler, '-swift-version', '6', str(ROOT / 'Vesper/Infrastructure/Theme/VesperLocalization.swift'), str(sources / 'DanmakuDocument.swift'),
                             str(sources / 'DanmakuAPI.swift'), str(folder / 'main.swift'),
                             '-o', str(folder / 'test')], check=True, capture_output=True, text=True)
             subprocess.run([str(folder / 'test')], check=True, capture_output=True, text=True)

@@ -51,9 +51,9 @@ enum PlaybackFailure: LocalizedError {
     case missingFile, unavailableAsset, demo
     var errorDescription: String? {
         switch self {
-        case .missingFile: "视频文件不存在或无法访问。"
-        case .unavailableAsset: "无法读取相册视频，请检查照片权限和网络连接。"
-        case .demo: "演示内容无法播放。"
+        case .missingFile: VesperLocalization.string("视频文件不存在或无法访问。")
+        case .unavailableAsset: VesperLocalization.string("无法读取相册视频，请检查照片权限和网络连接。")
+        case .demo: VesperLocalization.string("演示内容无法播放。")
         }
     }
 }

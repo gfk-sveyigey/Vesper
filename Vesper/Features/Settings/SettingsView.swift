@@ -184,6 +184,10 @@ private struct EmbySettingsView: View {
 
     var body: some View {
         SettingsPage {
+            SettingsIntroCard(title: "Emby 设置", symbol: "server.rack", description: "管理播放缓存、自动跳过与默认音轨。")
+            SettingsSection("来源图标") {
+                NavigationLink("图标库") { EmbyIconLibrarySettingsView() }
+            }
             SettingsSection("跳过片头片尾") {
                 Toggle("自动跳过片头", isOn: $skipIntro)
                 Toggle("自动跳过片尾", isOn: $skipOutro)
@@ -259,6 +263,7 @@ private struct EmbySkipDatabasesView: View {
     var body: some View {
         NavigationStack {
             SettingsPage {
+                SettingsIntroCard(title: "片头片尾数据库", symbol: "externaldrive", description: "按优先顺序管理片头片尾数据来源。")
                 SettingsSection {
                     ForEach($databases) { $database in
                         VStack(alignment: .leading, spacing: 6) {
@@ -324,6 +329,7 @@ private struct EmbySkipDatabaseEditor: View {
     var body: some View {
         NavigationStack {
             Form {
+                SettingsIntroCard(title: "数据库设置", symbol: "externaldrive.badge.plus", description: "配置数据库名称、接口地址与数据格式。")
                 TextField("名称", text: $database.name)
                 TextField("API 基础地址", text: $database.address)
                     .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -355,6 +361,7 @@ private struct AppPermissionsView: View {
 
     var body: some View {
         SettingsPage {
+            SettingsIntroCard(title: "应用权限", symbol: "hand.raised", description: "查看权限状态，管理照片与本地网络访问。")
             SettingsSection {
                 LabeledContent("照片图库", value: photoStatusText)
                 if photoStatus == .notDetermined {
@@ -389,12 +396,12 @@ private struct AppPermissionsView: View {
 
     private var photoStatusText: String {
         switch photoStatus {
-        case .authorized: "已允许"
-        case .limited: "受限访问"
-        case .denied: "未允许"
-        case .restricted: "受系统限制"
-        case .notDetermined: "尚未请求"
-        @unknown default: "未知"
+        case .authorized: VesperLocalization.string("已允许")
+        case .limited: VesperLocalization.string("受限访问")
+        case .denied: VesperLocalization.string("未允许")
+        case .restricted: VesperLocalization.string("受系统限制")
+        case .notDetermined: VesperLocalization.string("尚未请求")
+        @unknown default: VesperLocalization.string("未知")
         }
     }
 
@@ -732,6 +739,7 @@ private struct TabOrderSettingsView: View {
 
     var body: some View {
         SettingsPage {
+            SettingsIntroCard(title: "标签顺序", symbol: "arrow.up.arrow.down", description: "拖动排列标签页的顺序。")
             SettingsSection {
                 ForEach(sections) { section in
                     Label(section.title, systemImage: section.symbol)
@@ -1025,12 +1033,12 @@ private struct DebugSettingsView: View {
         return Stepper(value: Binding(get: { layout[metric] }, set: { layout[metric] = $0 }),
                        in: metric.range) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(metric.label)
+                Text(LocalizedStringKey(metric.label))
                 displayValue.font(.footnote).monospacedDigit().foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
         }
-        .accessibilityLabel(Text(metric.label))
+        .accessibilityLabel(Text(LocalizedStringKey(metric.label)))
         .accessibilityValue(displayValue)
     }
 }
@@ -1038,12 +1046,12 @@ private struct DebugSettingsView: View {
 private extension AppCacheCategory {
     var label: String {
         switch self {
-        case .library: String(localized: "媒体库信息")
-        case .images: String(localized: "图片")
-        case .videos: String(localized: "视频")
-        case .subtitles: String(localized: "字幕")
-        case .danmaku: String(localized: "弹幕")
-        case .other: String(localized: "其他")
+        case .library: VesperLocalization.string("媒体库信息")
+        case .images: VesperLocalization.string("图片")
+        case .videos: VesperLocalization.string("视频")
+        case .subtitles: VesperLocalization.string("字幕")
+        case .danmaku: VesperLocalization.string("弹幕")
+        case .other: VesperLocalization.string("其他")
         }
     }
 
@@ -1124,6 +1132,22 @@ private struct CacheManagementView: View {
     }
 }
 
+/// UITableView headers need measuring again once their actual width is known.
+private final class IntroCardTableView: UITableView {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let header = tableHeaderView, bounds.width > 0 else { return }
+        let size = header.systemLayoutSizeFitting(
+            CGSize(width: bounds.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
+        let target = CGSize(width: bounds.width, height: ceil(size.height))
+        if header.frame.size != target {
+            header.frame.size = target
+            tableHeaderView = header
+        }
+    }
+}
+
 private struct CacheCategoryList: UIViewRepresentable {
     let sizes: [AppCacheCategory: Int64]
     @Binding var selecting: Bool
@@ -1133,13 +1157,27 @@ private struct CacheCategoryList: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> UITableView {
-        let table = UITableView(frame: .zero, style: .insetGrouped)
+        let table = IntroCardTableView(frame: .zero, style: .insetGrouped)
         table.allowsSelectionDuringEditing = true
         table.allowsMultipleSelectionDuringEditing = true
         table.estimatedRowHeight = 52
         table.rowHeight = UITableView.automaticDimension
         table.dataSource = context.coordinator
         table.delegate = context.coordinator
+        let header = UIView()
+        let card = UIHostingConfiguration {
+            SettingsIntroCard(title: "缓存管理", symbol: "internaldrive",
+                              description: "查看各类缓存占用，按需释放存储空间。")
+        }.margins(.all, 0).makeContentView()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(card)
+        NSLayoutConstraint.activate([
+            card.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 20),
+            card.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -20),
+            card.topAnchor.constraint(equalTo: header.topAnchor, constant: 12),
+            card.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -12)
+        ])
+        table.tableHeaderView = header
         return table
     }
 
@@ -1174,7 +1212,7 @@ private struct CacheCategoryList: UIViewRepresentable {
             var content = UIListContentConfiguration.valueCell()
             content.image = UIImage(systemName: category.symbol)
             content.imageProperties.tintColor = tableView.tintColor
-            content.text = category.label
+            content.text = VesperLocalization.string(category.label)
             content.secondaryText = view.sizes[category].map {
                 ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
             } ?? "—"

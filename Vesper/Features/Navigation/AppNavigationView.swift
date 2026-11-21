@@ -23,12 +23,15 @@ struct AppNavigationView: View {
     @StateObject private var playback = PlaybackSession()
     @State private var mediaPath = NavigationPath()
     @State private var sourcesPath = NavigationPath()
+    @State private var sourcesHeaderVisible = true
     @State private var historyPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
     @State private var searchQuery = ""
     @State private var pickedVideoAccess: IncomingFileAccess?
     @State private var videoPickerDismissed = true
     @State private var previewVideo: IncomingVideo?
+    @State private var importPresentationHost = VideoImportPresentationProbeController()
+    @State private var playerPresentationDismissed = true
     @State private var playAfterPreviewDismiss: IncomingVideo?
     @State private var acknowledgedNonVideoCount = 0
     @State private var importNotice: String?
@@ -69,7 +72,14 @@ struct AppNavigationView: View {
                     .accessibilityHidden(true)
             }
         }
+        .background {
+            VideoImportPresentationProbe(controller: importPresentationHost)
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .onChange(of: playback.isPresented) { _, presented in
+            if presented { playerPresentationDismissed = false }
             PlayerOrientationPolicy.update(presented)
         }
         .onChange(of: ignoreLocalImageCache) { _, _ in
@@ -78,8 +88,11 @@ struct AppNavigationView: View {
                 library.reload()
             }
         }
-        .onChange(of: scenePhase) { _, phase in playback.handleScenePhase(phase) }
-        .task { presentNextIncomingVideo() }
+        .onChange(of: scenePhase) { _, phase in
+            playback.handleScenePhase(phase)
+            if phase == .active { presentNextIncomingVideo() }
+        }
+        .task(id: incomingPresentationRequest) { await retryIncomingPresentation() }
         .onChange(of: incomingVideos.videos.map(\.id)) { _, _ in presentNextIncomingVideo() }
         .onChange(of: incomingVideos.nonVideoCount) { _, _ in presentNextIncomingVideo() }
         .onChange(of: isShowingImportNotice) { _, showing in
@@ -106,6 +119,10 @@ struct AppNavigationView: View {
                 previewVideo = nil
             } saved: { _ in
                 library.registerImportedVideos(name: VesperLocalization.string("本地视频"))
+            }
+            .onAppear {
+                incomingVideos.acknowledgePresented(file.id)
+                FileDeliveryLog.write("视频导入面板已显示")
             }
         }
         .alert("视频导入", isPresented: $isShowingImportNotice) {
@@ -156,6 +173,7 @@ struct AppNavigationView: View {
         accessoryContent
             .fullScreenCover(isPresented: $playback.isPresented, onDismiss: {
                 PlayerOrientationPolicy.update(false)
+                playerPresentationDismissed = true
                 presentNextIncomingVideo()
             }) {
                 PlayerScreen(session: playback)
@@ -254,7 +272,7 @@ struct AppNavigationView: View {
     }
 
     private func presentNextIncomingVideo() {
-        guard videoPickerDismissed, !incomingVideos.isSelectingVideo, previewVideo == nil, !isShowingImportNotice, playAfterPreviewDismiss == nil else { return }
+        guard scenePhase == .active, videoPickerDismissed, !incomingVideos.isSelectingVideo, previewVideo == nil, !isShowingImportNotice, playAfterPreviewDismiss == nil else { return }
         let hasNotice = incomingVideos.nonVideoCount > acknowledgedNonVideoCount
         guard hasNotice || !incomingVideos.videos.isEmpty else { return }
         // Dismiss the existing full-screen UI before presenting the preview.
@@ -263,12 +281,56 @@ struct AppNavigationView: View {
             playback.isPresented = false
             return
         }
+        guard playerPresentationDismissed, importPresentationHost.canPresent else { return }
         if hasNotice {
             acknowledgedNonVideoCount = incomingVideos.nonVideoCount
-            importNotice = String(localized: "此文件不是视频文件。")
+            importNotice = VesperLocalization.string("此文件不是视频文件。")
             isShowingImportNotice = true
         } else {
-            previewVideo = incomingVideos.takeNext()
+            previewVideo = incomingVideos.videos.first
+        }
+    }
+
+    private var incomingPresentationRequest: VideoImportPresentationRequest {
+        .init(active: scenePhase == .active,
+              nextID: incomingVideos.videos.first?.id,
+              nonVideoCount: incomingVideos.nonVideoCount,
+              previewID: previewVideo?.id,
+              selecting: incomingVideos.isSelectingVideo,
+              pickerDismissed: videoPickerDismissed,
+              noticeVisible: isShowingImportNotice,
+              playerVisible: playback.isPresented,
+              playerDismissed: playerPresentationDismissed,
+              awaitingPlay: playAfterPreviewDismiss != nil)
+    }
+
+    /// Retry only while there is an actual pending import. This also handles
+    /// sheets owned by child pages, whose dismissal the root cannot observe.
+    private func retryIncomingPresentation() async {
+        guard scenePhase == .active else { return }
+        if let reserved = previewVideo,
+           incomingVideos.videos.contains(where: { $0.id == reserved.id }) {
+            // onAppear normally acknowledges immediately. If SwiftUI rejected
+            // the request because another presenter won the race, release the
+            // reservation and retry without removing the queued file.
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            guard scenePhase == .active, previewVideo?.id == reserved.id,
+                  incomingVideos.videos.contains(where: { $0.id == reserved.id }) else { return }
+            FileDeliveryLog.write("导入面板尚未显示，保留文件并等待重新展示")
+            previewVideo = nil
+            return
+        }
+        // Explicit new-file/foreground events may dismiss the current player.
+        // A retry alone must not immediately close Direct Play just chosen
+        // from the previous sheet merely because more files remain queued.
+        guard previewVideo == nil, !isShowingImportNotice, !playback.isPresented,
+              playAfterPreviewDismiss == nil, !incomingVideos.isSelectingVideo,
+              videoPickerDismissed else { return }
+        while !Task.isCancelled,
+              !incomingVideos.videos.isEmpty || incomingVideos.nonVideoCount > acknowledgedNonVideoCount {
+            presentNextIncomingVideo()
+            if previewVideo != nil || isShowingImportNotice { return }
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
         }
     }
 
@@ -299,10 +361,12 @@ struct AppNavigationView: View {
             }
                 .modifier(VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty))
         case .sources:
-            NavigationStack(path: $sourcesPath) { SourcesView() }
-                .modifier(VesperNavigationHeaderLayer(isRoot: sourcesPath.isEmpty))
+            NavigationStack(path: $sourcesPath) {
+                SourcesView { sourcesHeaderVisible = $0 }
+            }
+                .modifier(VesperNavigationHeaderLayer(isRoot: sourcesPath.isEmpty && sourcesHeaderVisible))
         case .history:
-            NavigationStack(path: $historyPath) { HistoryView() }
+            NavigationStack(path: $historyPath) { HistoryView(path: $historyPath) }
                 .modifier(VesperNavigationHeaderLayer(isRoot: historyPath.isEmpty))
         case .settings:
             NavigationStack(path: $settingsPath) {
@@ -329,7 +393,7 @@ private struct MiniPlayerAccessory: View {
                     Image(systemName: "play.rectangle")
                         .font(isCompact ? .body : .title2)
                         .frame(width: isCompact ? 24 : 36, height: isCompact ? 24 : 36)
-                    Text(verbatim: session.currentItem?.title ?? String(localized: "未在播放"))
+                    Text(verbatim: session.currentItem?.title ?? VesperLocalization.string("未在播放"))
                         .font(isCompact ? .footnote.weight(.medium) : .subheadline.weight(.medium))
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -355,5 +419,48 @@ private struct MiniPlayerAccessory: View {
         }
         .padding(.horizontal, isCompact ? 8 : 16)
         .padding(.vertical, isCompact ? 4 : 8)
+    }
+}
+
+
+// A probe in the same window as the tab root avoids presenting while another
+// page's sheet/alert or a UIKit transition already occupies that presenter.
+private struct VideoImportPresentationRequest: Hashable {
+    let active: Bool
+    let nextID: UUID?
+    let nonVideoCount: Int
+    let previewID: UUID?
+    let selecting: Bool
+    let pickerDismissed: Bool
+    let noticeVisible: Bool
+    let playerVisible: Bool
+    let playerDismissed: Bool
+    let awaitingPlay: Bool
+}
+
+private struct VideoImportPresentationProbe: UIViewControllerRepresentable {
+    let controller: VideoImportPresentationProbeController
+    func makeUIViewController(context: Context) -> VideoImportPresentationProbeController { controller }
+    func updateUIViewController(_ uiViewController: VideoImportPresentationProbeController, context: Context) {}
+}
+
+private final class VideoImportPresentationProbeController: UIViewController {
+    override func loadView() {
+        view = UIView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+    }
+
+    var canPresent: Bool {
+        guard let window = viewIfLoaded?.window,
+              window.windowScene?.activationState == .foregroundActive,
+              let root = window.rootViewController else { return false }
+        return !hasPresentation(in: root)
+    }
+
+    private func hasPresentation(in controller: UIViewController) -> Bool {
+        controller.presentedViewController != nil || controller.isBeingPresented
+            || controller.isBeingDismissed || controller.transitionCoordinator != nil
+            || controller.children.contains { hasPresentation(in: $0) }
     }
 }

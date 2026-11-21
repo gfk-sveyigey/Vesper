@@ -30,7 +30,7 @@ struct DanmakuAPISettingsView: View {
                 HStack {
                     Text("已添加的 API").font(.headline)
                     Spacer()
-                    Text("\(enabledCount) / \(store.sources.count) 已启用")
+                    Text(String(format: VesperLocalization.string("%lld / %lld 已启用"), enabledCount, store.sources.count))
                         .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                 }
                 if store.sources.isEmpty {
@@ -225,7 +225,7 @@ struct DanmakuAPISearchView: View {
                 let result = try await DanmakuAPI.search(source: source, keyword: query)
                 try Task.checkCancellation()
                 works = result
-                if result.isEmpty { status = "未找到匹配的作品。" }
+                if result.isEmpty { status = VesperLocalization.string("未找到匹配的作品。") }
             } catch { if !Task.isCancelled { status = error.localizedDescription } }
         }
     }
@@ -273,7 +273,7 @@ private struct DanmakuAPIEpisodesView: View {
                 let result = try await DanmakuAPI.episodes(source: source, id: work.id)
                 try Task.checkCancellation()
                 episodes = result
-                if result.isEmpty { status = "该作品暂无剧集。" }
+                if result.isEmpty { status = VesperLocalization.string("该作品暂无剧集。") }
             } catch { if !Task.isCancelled { status = error.localizedDescription } }
         }
         .onDisappear { operation?.cancel() }
@@ -317,6 +317,7 @@ private struct DanmakuAPIEditor: View {
     }
     var body: some View {
         SettingsPage {
+            SettingsIntroCard(title: "弹幕 API", symbol: "network", description: "配置在线弹幕服务的名称与接口地址。")
             SettingsSection("基本信息") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("名称").font(.caption).foregroundStyle(.secondary)

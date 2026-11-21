@@ -245,6 +245,7 @@ struct MediaView: View {
                                                                imageOrientation: .portrait,
                                                                fixedHeight: layout.thumbnailHeight)
                                                     .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
+                                                    .modifier(DeviceMediaCardBackground(enabled: source.kind == .local || source.kind == .photos))
                                             }
                                         }
                                         .contentShape(Rectangle())
@@ -560,7 +561,9 @@ struct MediaView: View {
     private func localImportButton(busy: Bool) -> some View {
         Button { incomingVideos.selectVideo() } label: {
             Label { Text("导入视频") } icon: {
-                menuSymbol("document.badge.plus", source: library.selectedSource)
+                Image(systemName: "document.badge.plus")
+                    .renderingMode(.template)
+                    .foregroundStyle(Color(uiColor: .label))
             }
         }.disabled(busy)
     }
@@ -568,7 +571,9 @@ struct MediaView: View {
     private func localFolderButton(busy: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label { Text("新建文件夹") } icon: {
-                menuSymbol("folder.badge.plus", source: library.selectedSource)
+                Image(systemName: "folder.badge.plus")
+                    .renderingMode(.template)
+                    .foregroundStyle(Color(uiColor: .label))
             }
         }.disabled(busy)
     }
@@ -1381,9 +1386,9 @@ struct EmbyFeaturedPage: View {
     private var firstLine: String {
         let kind: String
         switch item.embyItemType {
-        case "Series": kind = String(localized: "剧集")
-        case "Movie": kind = String(localized: "电影")
-        default: kind = String(localized: "视频")
+        case "Series": kind = VesperLocalization.string("剧集")
+        case "Movie": kind = VesperLocalization.string("电影")
+        default: kind = VesperLocalization.string("视频")
         }
         let genres = (item.embyPresentation?.genres ?? [])
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
@@ -1397,9 +1402,9 @@ struct EmbyFeaturedPage: View {
         }
         let status: String?
         switch metadata?.status {
-        case "Continuing": status = String(localized: "连载中")
-        case "Ended": status = String(localized: "已完结")
-        case "Upcoming": status = String(localized: "即将播出")
+        case "Continuing": status = VesperLocalization.string("连载中")
+        case "Ended": status = VesperLocalization.string("已完结")
+        case "Upcoming": status = VesperLocalization.string("即将播出")
         default: status = metadata?.status
         }
         let score = metadata?.communityRating.flatMap { rating -> String? in
@@ -1496,18 +1501,18 @@ struct EmbySeriesPosterCard: View {
     }
 
     private var categoryLine: String {
-        ([String(localized: "剧集")] + (item.embyPresentation?.genres ?? []).prefix(3))
+        ([VesperLocalization.string("剧集")] + (item.embyPresentation?.genres ?? []).prefix(3))
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: " · ")
     }
 
     private var startLabel: String {
-        guard let episode = firstEpisode else { return String(localized: "开始播放") }
+        guard let episode = firstEpisode else { return VesperLocalization.string("开始播放") }
         let number = String(format: "%02d", episode.number ?? 0)
         if (item.embyPresentation?.seasonCount ?? Set(episodes.map(\.season)).count) <= 1 {
-            return String(localized: "开始播放 E\(number)")
+            return VesperLocalization.localized("开始播放 E\(number)")
         }
-        return String(localized: "开始播放 S\(String(format: "%02d", episode.season))E\(number)")
+        return VesperLocalization.localized("开始播放 S\(String(format: "%02d", episode.season))E\(number)")
     }
 
     @ViewBuilder
@@ -1603,7 +1608,7 @@ private struct EmbyMediaRoute: Hashable {
     var opensLibrary: Bool { item == nil && !opensFavorites }
 
     static func favorites(_ source: MediaSource) -> Self {
-        Self(source: source, title: String(localized: "收藏媒体"), itemID: "", item: nil, origin: .favorites)
+        Self(source: source, title: VesperLocalization.string("收藏媒体"), itemID: "", item: nil, origin: .favorites)
     }
 
     static func library(_ source: MediaSource, id: String, title: String) -> Self {

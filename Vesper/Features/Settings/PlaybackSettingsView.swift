@@ -101,6 +101,7 @@ struct PlaybackSettingsView: View {
 struct SubtitleSettingsView: View {
     var body: some View {
         SettingsPage {
+            SettingsIntroCard(title: "字幕设置", symbol: "captions.bubble", description: "字幕选项可在播放时按当前内核调整。")
             SettingsSection {
                 Text("请在播放界面打开字幕设置。可调整的选项随当前播放引擎及字幕格式变化。")
             }
@@ -114,6 +115,7 @@ struct PlayerSubtitleSettingsView: View {
     @ObservedObject var session: PlaybackSession
     var body: some View {
         SettingsPage {
+            SettingsIntroCard(title: "字幕设置", symbol: "captions.bubble", description: "调整当前内核支持的字幕显示与同步选项。")
             SettingsSection {
                 LabeledContent("播放内核", value: session.currentEngine.title)
             }
@@ -122,7 +124,7 @@ struct PlayerSubtitleSettingsView: View {
                     Slider(value: Binding(get: { session.subtitleSize }, set: { session.setSubtitleSize($0) }), in: 14...40, step: 1)
                     LabeledContent("字幕字号", value: String(format: "%.0f", session.subtitleSize))
                     Stepper(value: Binding(get: { session.subtitleDelay }, set: { session.setSubtitleDelay($0) }), in: -30...30, step: 0.1) {
-                        LabeledContent("字幕延迟", value: String(format: "%+.1f 秒", session.subtitleDelay))
+                        LabeledContent("字幕延迟", value: String(format: VesperLocalization.string("%+.1f 秒"), session.subtitleDelay))
                     }
                 } footer: {
                     Text("正值延后，负值提前。延迟适用于内嵌和外挂字幕；字号缩放以 VLC 和字幕格式支持为准，图片字幕不能修改字体。")

@@ -14,8 +14,8 @@ struct EmbyPreviewFacts: View {
             return String(year)
         }
         let kind: String? = switch item.embyItemType {
-        case "Series": String(localized: "剧集")
-        case "Movie": String(localized: "电影")
+        case "Series": VesperLocalization.string("剧集")
+        case "Movie": VesperLocalization.string("电影")
         default: nil
         }
         let tags = ([kind].compactMap { $0 } + (metadata?.genres ?? []).prefix(3))
@@ -54,7 +54,7 @@ struct EmbySeriesHeroFooter: View {
             if selectedEpisode != nil || showsItemActions {
                 HStack(spacing: 10) {
                     Button(action: showsItemActions ? playItem : playSelectedEpisode) {
-                        Label(selectedEpisode.map(selectedEpisodeLabel) ?? String(localized: "开始播放"), systemImage: "play.fill")
+                        Label(selectedEpisode.map(selectedEpisodeLabel) ?? VesperLocalization.string("开始播放"), systemImage: "play.fill")
                             .font(.system(size: 16, weight: .semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
@@ -116,17 +116,17 @@ struct EmbySeriesHeroFooter: View {
         if let runtime { facts.append(runtime) }
         if let season {
             if seasonCount > 1 {
-                facts.append(String(localized: "\(embySeasonName(season))/共\(seasonCount)季"))
+                facts.append(VesperLocalization.localized("\(embySeasonName(season))/共\(seasonCount)季"))
             }
-            facts.append(String(localized: "\(episodes.count)集"))
+            facts.append(VesperLocalization.localized("\(episodes.count)集"))
         }
         return facts
     }
 
     private func selectedEpisodeLabel(_ episode: EmbyEpisode) -> String {
         let number = String(format: "%02d", episode.number ?? 0)
-        if seriesSeasonCount <= 1 { return String(localized: "开始播放 E\(number)") }
-        return String(localized: "开始播放 S\(String(format: "%02d", episode.season))E\(number)")
+        if seriesSeasonCount <= 1 { return VesperLocalization.localized("开始播放 E\(number)") }
+        return VesperLocalization.localized("开始播放 S\(String(format: "%02d", episode.season))E\(number)")
     }
 }
 
@@ -153,7 +153,7 @@ private struct SeriesHeroWatchButtonStyle: ButtonStyle {
 }
 
 private func embySeasonName(_ number: Int) -> String {
-    number == 0 ? String(localized: "特别篇") : String(localized: "第\(number)季")
+    number == 0 ? VesperLocalization.string("特别篇") : VesperLocalization.localized("第\(number)季")
 }
 
 private struct EmbyMediaStreamRow: View {
@@ -324,11 +324,11 @@ struct EmbyMediaDetailView: View {
 
     private var episodeTitle: String {
         let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return title.isEmpty ? episodeNumberLabel ?? String(localized: "单集") : title
+        return title.isEmpty ? episodeNumberLabel ?? VesperLocalization.string("单集") : title
     }
 
     private var episodeNumberLabel: String? {
-        (metadata?.episodeNumber ?? episode?.number).map { String(localized: "第\($0)集") }
+        (metadata?.episodeNumber ?? episode?.number).map { VesperLocalization.localized("第\($0)集") }
     }
 
     var body: some View {
@@ -371,7 +371,7 @@ struct EmbyMediaDetailView: View {
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top > 0.5
             } action: { _, hasScrolled in
-                withAnimation(reduceMotion ? nil : .default) {
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.3)) {
                     self.hasScrolled = hasScrolled
                 }
             }
@@ -394,40 +394,55 @@ struct EmbyMediaDetailView: View {
             .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) {
                 GlassEffectContainer(spacing: 12) {
-                    HStack(spacing: 12) {
-                        if hasScrolled {
-                            Menu {
-                                versionMenu
-                                trackMenu(type: "Audio", symbol: "waveform")
-                                trackMenu(type: "Subtitle", symbol: "captions.bubble")
-                                favoriteButton
-                            } label: {
-                                Image(systemName: "ellipsis")
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .frame(width: 44, height: 44)
-                            .accessibilityLabel("媒体操作")
-                            .glassEffect(.regular, in: .circle)
-                            .glassEffectID("mediaActions", in: toolbarMorph)
-                            .glassEffectTransition(.matchedGeometry)
-                        } else {
-                            HStack(spacing: 0) {
-                                versionMenu.frame(width: 44, height: 44)
-                                trackMenu(type: "Audio", symbol: "waveform").frame(width: 44, height: 44)
-                                trackMenu(type: "Subtitle", symbol: "captions.bubble").frame(width: 44, height: 44)
-                            }
-                            .glassEffect(.regular, in: .capsule)
-                            .glassEffectID("mediaActions", in: toolbarMorph)
-                            .glassEffectTransition(.matchedGeometry)
-                            favoriteButton.frame(width: 44, height: 44)
-                                .labelStyle(.iconOnly)
-                                .glassEffect(.regular, in: .capsule)
-                                .glassEffectID("favorite", in: toolbarMorph)
-                                .glassEffectTransition(.matchedGeometry)
+                    // The rightmost control never moves or gets replaced: only
+                    // its symbol and tap target change. The other three controls
+                    // converge on its centre instead of morphing a capsule into it.
+                    ZStack(alignment: .trailing) {
+                        HStack(spacing: 0) {
+                            versionMenu().frame(width: 44, height: 44)
+                            trackMenu(type: "Audio", symbol: "waveform").frame(width: 44, height: 44)
+                            trackMenu(type: "Subtitle", symbol: "captions.bubble").frame(width: 44, height: 44)
                         }
+                        .frame(width: 132, height: 44)
+                        .glassEffect(.regular, in: .capsule)
+                        .glassEffectID("mediaActions", in: toolbarMorph)
+                        .scaleEffect(hasScrolled ? 0.01 : 1, anchor: .trailing)
+                        .offset(x: hasScrolled ? -22 : -56)
+                        .opacity(hasScrolled ? 0 : 1)
+                        .allowsHitTesting(!hasScrolled)
+                        .accessibilityHidden(hasScrolled)
+
+                        ZStack {
+                            Image(systemName: hasScrolled ? "ellipsis"
+                                  : (playback.effectiveFavorite(for: item) ? "heart.fill" : "heart"))
+                                .contentTransition(.symbolEffect(.replace))
+                                .accessibilityHidden(true)
+                            if hasScrolled {
+                                Menu {
+                                    Section {
+                                        versionMenu(inMenu: true)
+                                        trackMenu(type: "Audio", symbol: "waveform", inMenu: true)
+                                        trackMenu(type: "Subtitle", symbol: "captions.bubble", inMenu: true)
+                                    }
+                                    Section { favoriteButton }
+                                } label: {
+                                    Color.clear.frame(width: 44, height: 44).contentShape(Circle())
+                                }
+                                .accessibilityLabel("媒体操作")
+                            } else {
+                                Button(action: toggleFavorite) {
+                                    Color.clear.frame(width: 44, height: 44).contentShape(Circle())
+                                }
+                                .accessibilityLabel(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏")
+                                .disabled(source.emby?.userID == nil)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: 44, height: 44)
+                        .glassEffect(.regular, in: .circle)
+                        .glassEffectID("detailActionAnchor", in: toolbarMorph)
                     }
+                    .frame(width: hasScrolled ? 44 : 188, height: 44, alignment: .trailing)
                 }
                 .animation(reduceMotion ? nil : .snappy(duration: 0.3), value: hasScrolled)
                 .tint(Color(uiColor: .label))
@@ -564,12 +579,14 @@ struct EmbyMediaDetailView: View {
                       streams: selectedVersion?.streams ?? [])
     }
 
+    private func toggleFavorite() {
+        playback.setFavorite(!playback.effectiveFavorite(for: item), for: item, source: source) {
+            favoriteError = $0
+        }
+    }
+
     private var favoriteButton: some View {
-        Button {
-            playback.setFavorite(!playback.effectiveFavorite(for: item), for: item, source: source) {
-                favoriteError = $0
-            }
-        } label: {
+        Button(action: toggleFavorite) {
             Label(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏",
                   systemImage: playback.effectiveFavorite(for: item) ? "heart.fill" : "heart")
         }
@@ -580,7 +597,7 @@ struct EmbyMediaDetailView: View {
         .disabled(source.emby?.userID == nil)
     }
 
-    private var versionMenu: some View {
+    private func versionMenu(inMenu: Bool = false) -> some View {
         Menu {
             Picker("媒体版本", selection: Binding(
                 get: { selectedVersion?.id ?? "" },
@@ -595,7 +612,7 @@ struct EmbyMediaDetailView: View {
                 }
             }
         } label: {
-            if hasScrolled { Label("版本", systemImage: "rectangle.stack").labelStyle(.titleAndIcon) }
+            if inMenu { Label("版本", systemImage: "rectangle.stack").labelStyle(.titleAndIcon) }
             else { Image(systemName: "rectangle.stack") }
         }
         .tint(Color(uiColor: .label))
@@ -604,7 +621,7 @@ struct EmbyMediaDetailView: View {
         .disabled(availableVersions.isEmpty || (series.isEmbySeries && versionsEpisodeID != selectedEpisodeID))
     }
 
-    private func trackMenu(type: String, symbol: String) -> some View {
+    private func trackMenu(type: String, symbol: String, inMenu: Bool = false) -> some View {
         let audio = type == "Audio"
         let tracks = selectedVersion?.streams.filter { $0.type == type } ?? []
         return Menu {
@@ -622,7 +639,7 @@ struct EmbyMediaDetailView: View {
                 }
             }
         } label: {
-            if hasScrolled { Label(audio ? "音频" : "字幕", systemImage: symbol).labelStyle(.titleAndIcon) }
+            if inMenu { Label(audio ? "音频" : "字幕", systemImage: symbol).labelStyle(.titleAndIcon) }
             else { Image(systemName: symbol) }
         }
         .tint(Color(uiColor: .label))
@@ -1250,7 +1267,7 @@ func embyDetailsSheet(source: MediaSource, item: MediaItem, artworkZoom: Namespa
 
 extension EmbyEpisode {
     var numberLabel: String {
-        number.map { String(localized: "第\($0)集") } ?? String(localized: "单集")
+        number.map { VesperLocalization.localized("第\($0)集") } ?? VesperLocalization.string("单集")
     }
 
     var displayTitle: String {

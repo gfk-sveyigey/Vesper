@@ -30,10 +30,10 @@ enum DanmakuAPIError: LocalizedError {
     case invalidAddress, response, http(Int), empty
     var errorDescription: String? {
         switch self {
-        case .invalidAddress: "请输入有效的 HTTPS API 基础地址，可包含路径前缀，不包含查询参数。"
-        case .response: "弹幕 API 返回的数据无效或接口不兼容。"
-        case .http(let status): "弹幕 API 请求失败（HTTP \(status)）。"
-        case .empty: "该剧集暂无可显示的弹幕。"
+        case .invalidAddress: VesperLocalization.string("请输入有效的 HTTPS API 基础地址，可包含路径前缀，不包含查询参数。")
+        case .response: VesperLocalization.string("弹幕 API 返回的数据无效或接口不兼容。")
+        case .http(let status): String(format: VesperLocalization.string("弹幕 API 请求失败（HTTP %d）。"), status)
+        case .empty: VesperLocalization.string("该剧集暂无可显示的弹幕。")
         }
     }
 }

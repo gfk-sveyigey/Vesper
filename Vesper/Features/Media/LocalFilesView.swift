@@ -130,13 +130,22 @@ struct LocalFilesView<SourceMenu: View>: View {
                     .fill(VesperTheme.mediaCardBackground)
                     .aspectRatio(2.0 / 3.0, contentMode: .fit)
                     .overlay {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 48)).foregroundStyle(.tint)
+                        VStack(spacing: 12) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 48)).foregroundStyle(.tint)
+                            Text(verbatim: entry.name)
+                                .font(.headline).foregroundStyle(.primary)
+                                .lineLimit(2).truncationMode(.tail)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .padding(12)
                     }
             } else if VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
                 MediaThumbnail(source: source, item: mediaItem(entry), playback: playback,
                                imageOrientation: .portrait, fixedHeight: layout.thumbnailHeight)
                     .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
+                    .modifier(DeviceMediaCardBackground())
             } else {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(VesperTheme.mediaCardBackground)
@@ -146,7 +155,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                             .font(.largeTitle).foregroundStyle(.secondary)
                     }
             }
-            if entry.isDirectory || !VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
+            if !entry.isDirectory && !VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
                 Text(verbatim: entry.name)
                     .font(.headline).foregroundStyle(.primary)
                     .lineLimit(1).truncationMode(.tail)
