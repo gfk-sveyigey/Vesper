@@ -375,6 +375,7 @@ struct MediaView: View {
                 .scrollIndicators(.hidden)
                 .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
                 .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
+                .id(library.refreshGeneration)
                 .padding(.vertical, CGFloat(layout[.scrollPadding]))
             }
         }
@@ -411,6 +412,7 @@ struct MediaView: View {
                             .scrollIndicators(.hidden)
                             .contentMargins(.horizontal, CGFloat(layout[.endPadding]), for: .scrollContent)
                             .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
+                            .id(library.refreshGeneration)
                             .padding(.vertical, CGFloat(layout[.scrollPadding]))
                         }
                     }

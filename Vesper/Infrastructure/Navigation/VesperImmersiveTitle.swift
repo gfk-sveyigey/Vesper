@@ -30,7 +30,10 @@ struct MediaHeaderGeometry {
     }
 
     func showsGlassWhenNotCollapsed(at position: CGFloat, pageTop: CGFloat, statusBarBottom: CGFloat) -> Bool {
-        position > 0 || pageTop < statusBarBottom
+        let clampedPosition = min(1, max(0, position))
+        guard clampedPosition < 1 else { return false }
+        guard clampedPosition == 0 else { return true }
+        return pageTop < statusBarBottom
     }
 
     func edgeRegionHeight(statusBarHeight: CGFloat, position: CGFloat) -> CGFloat {
@@ -83,7 +86,6 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @ScaledMetric(relativeTo: .largeTitle) private var mediaTitleScale: CGFloat = 1
     @AppStorage("debug.mediaHeader.lightTint") private var lightTint = "#FFFFFF"
     @AppStorage("debug.mediaHeader.darkTint") private var darkTint = "#000000"
-    @AppStorage("appearance.accent") private var accent = "vesper"
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var mediaHeaderPosition: CGFloat = 0
@@ -349,7 +351,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
                         }
                         .overlay(alignment: .bottom) {
                             Rectangle()
-                                .fill(VesperTheme.accent(accent))
+                                .fill(Color(uiColor: .label))
                                 .frame(height: 0.5)
                                 .opacity(showsBackdrop ? 0.5 : 0)
                                 .animation(.easeInOut(duration: 0.14), value: showsBackdrop)

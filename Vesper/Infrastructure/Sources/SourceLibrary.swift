@@ -152,6 +152,7 @@ final class SourceLibrary: ObservableObject {
     }
     @Published private(set) var sources: [MediaSource]
     @Published private(set) var selectedID: UUID?
+    @Published private(set) var refreshGeneration = 0
     @Published private(set) var content: ContentState = .unselected
     @Published private(set) var storageFailed = false
     enum ConnectionStatus: Equatable { case normal, checking, verified, failed }
@@ -545,6 +546,7 @@ final class SourceLibrary: ObservableObject {
     }
 
     func reload() {
+        refreshGeneration += 1
         if selectedSource?.kind == .emby, let parentID = currentEmbyParentID {
             loadEmbyItems(parentID: parentID)
             return
