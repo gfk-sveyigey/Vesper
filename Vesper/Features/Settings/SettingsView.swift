@@ -1033,12 +1033,12 @@ private struct DebugSettingsView: View {
         return Stepper(value: Binding(get: { layout[metric] }, set: { layout[metric] = $0 }),
                        in: metric.range) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(LocalizedStringKey(metric.label))
+                Text(metric.label)
                 displayValue.font(.footnote).monospacedDigit().foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
         }
-        .accessibilityLabel(Text(LocalizedStringKey(metric.label)))
+        .accessibilityLabel(Text(metric.label))
         .accessibilityValue(displayValue)
     }
 }
