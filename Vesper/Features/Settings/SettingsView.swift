@@ -99,6 +99,7 @@ struct AppLockScreen: View {
     @State private var failures = 0
     @State private var showPassword = false
     @State private var biometricType = AppLock.shared.biometricType
+    @State private var automaticAttemptPurpose: AppLock.AuthenticationPurpose?
 
     private var passwordOnly: Bool {
         [.createPassword, .resetPassword, .disableProtection].contains(appLock.authenticationRequest)
@@ -137,7 +138,8 @@ struct AppLockScreen: View {
             } else if failures == 0 {
                 Text(verbatim: String(format: VesperLocalization.string("需要 %@"), biometricType.title))
             }
-            if !passwordOnly, biometricEnabled, biometricType != .none, failures < 2 {
+            if !passwordOnly, biometricEnabled, biometricType != .none, failures < 2,
+               !(biometricPriority && failures == 0), !appLock.isBiometricAuthenticationInProgress {
                 Button {
                     Task { await authenticate() }
                 } label: {
@@ -162,7 +164,12 @@ struct AppLockScreen: View {
             showPassword = false
             biometricType = appLock.biometricType
             if !passwordOnly, biometricEnabled, biometricPriority, biometricType != .none {
-                await authenticate()
+                if automaticAttemptPurpose != appLock.authenticationRequest {
+                    automaticAttemptPurpose = appLock.authenticationRequest
+                    await authenticate()
+                }
+            } else if appLock.authenticationRequest == nil {
+                automaticAttemptPurpose = nil
             }
         }
     }
@@ -207,7 +214,7 @@ struct AppLockScreen: View {
     }
 
     private func authenticate() async {
-        guard !isAuthenticating else { return }
+        guard !isAuthenticating, !appLock.isBiometricAuthenticationInProgress else { return }
         let purpose = appLock.authenticationRequest
         isAuthenticating = true
         let success = await appLock.authenticateBiometrically(reason: biometricReason)

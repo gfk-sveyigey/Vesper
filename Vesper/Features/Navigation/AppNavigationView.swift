@@ -81,7 +81,7 @@ struct AppNavigationView: View {
             }
         }
         .overlay {
-            if appLock.authenticationRequest != nil {
+            if appLock.authenticationRequest != nil, !playback.isPresented {
                 AppLockScreen()
                     .environmentObject(appLock)
                     .transition(.identity)

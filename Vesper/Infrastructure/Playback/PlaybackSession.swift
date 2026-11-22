@@ -74,6 +74,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     // Preserve write order, including deletes, without encoding the full history
     // on the main actor while video and controls are rendering.
     private let historyPersistenceQueue = DispatchQueue(label: "app.vesper.playback.history", qos: .utility)
+    private var didDiagnoseHistoryPersistence = false
     @Published private(set) var currentItem: MediaItem? {
         didSet {
             if oldValue?.id != currentItem?.id { danmaku = PlayerDanmaku() }
@@ -995,10 +996,30 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     private func persistHistory() {
-        let entries = history
-        historyPersistenceQueue.async {
-            if let data = try? JSONEncoder().encode(entries) {
+        let diagnose = !didDiagnoseHistoryPersistence
+        didDiagnoseHistoryPersistence = true
+        if diagnose { log("[History] 首次提交后台历史写入，条数=\(history.count)") }
+        Self.enqueueHistoryPersistence(history, on: historyPersistenceQueue, diagnose: diagnose)
+    }
+
+    // Create the GCD work item outside MainActor isolation. It must never carry
+    // a main-executor precondition into the background persistence queue.
+    nonisolated private static func enqueueHistoryPersistence(
+        _ entries: [PlaybackHistoryEntry], on queue: DispatchQueue, diagnose: Bool
+    ) {
+        queue.async { @Sendable in
+            do {
+                let data = try JSONEncoder().encode(entries)
                 UserDefaults.standard.set(data, forKey: "player.history.v1")
+                if diagnose {
+                    Task { @MainActor in
+                        AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [Playback] [History] 首次后台历史写入完成")
+                    }
+                }
+            } catch {
+                Task { @MainActor in
+                    AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [Playback] [History] 历史记录编码失败：\(error.localizedDescription)")
+                }
             }
         }
     }

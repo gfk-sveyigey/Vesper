@@ -159,7 +159,10 @@ final class AppLock: ObservableObject {
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else { return false }
         isBiometricAuthenticationInProgress = true
-        defer { isBiometricAuthenticationInProgress = false }
+        defer {
+            isBiometricAuthenticationInProgress = false
+            NotificationCenter.default.post(name: .appLockBiometricAttemptFinished, object: nil)
+        }
         do {
             return try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
                                                      localizedReason: VesperLocalization.string(reason))
@@ -248,6 +251,10 @@ final class AppLock: ObservableObject {
     }
 }
 
+private extension Notification.Name {
+    static let appLockBiometricAttemptFinished = Notification.Name("appLock.biometricAttemptFinished")
+}
+
 /// Window-level shielding also covers sheets and the full-screen player in app-switcher snapshots.
 struct AppPrivacyBlurHost: UIViewRepresentable {
     func makeUIView(context: Context) -> PrivacyBlurObserverView { PrivacyBlurObserverView(frame: .zero) }
@@ -262,6 +269,8 @@ struct AppPrivacyBlurHost: UIViewRepresentable {
                 name: UIApplication.willResignActiveNotification, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(reveal),
                 name: UIApplication.didBecomeActiveNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(biometricAttemptFinished),
+                name: .appLockBiometricAttemptFinished, object: nil)
         }
 
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -290,6 +299,11 @@ struct AppPrivacyBlurHost: UIViewRepresentable {
         @objc private func reveal() {
             shield?.removeFromSuperview()
             shield = nil
+        }
+
+        @objc private func biometricAttemptFinished() {
+            guard UIApplication.shared.applicationState != .active else { return }
+            obscure()
         }
 
         override func didMoveToWindow() {
