@@ -16,6 +16,19 @@ struct EmbyRepositoryChecks {
         let client = try EmbyAPIClient(configuration: configuration, token: "secret", deviceID: "stable-device")
         let repository = EmbyRepository(clientProvider: { _ in client })
         let source = MediaSource(id: UUID(), name: configuration.title, kind: .emby, behavior: .empty, emby: configuration)
+        let blankSearch = try await repository.search(for: source, query: "  ")
+        precondition(blankSearch.items.isEmpty && !blankSearch.hasMore)
+        let firstSearch = try await repository.search(for: source, query: "  晚风 & café /?  ", limit: 2)
+        precondition(firstSearch.items.map(\.id.localID) == ["movie"])
+        precondition(firstSearch.nextIndex == 2 && firstSearch.hasMore) // Count raw rows, including discarded types.
+        let lastSearch = try await repository.search(for: source, query: "晚风 & café /?", startIndex: firstSearch.nextIndex, limit: 2)
+        precondition(lastSearch.items.map(\.id.localID) == ["series"])
+        precondition(lastSearch.nextIndex == 3 && !lastSearch.hasMore)
+        do {
+            _ = try await repository.search(for: source, query: "invalid-response")
+            preconditionFailure("A malformed search response must not look like no results")
+        } catch EmbyError.invalidResponse { }
+
         for type in ["Movie", "Series", "Episode"] {
             let target = MediaItem(id: MediaID(sourceID: source.id, localID: "action-" + type),
                                    title: type, resource: nil, embyItemType: type)

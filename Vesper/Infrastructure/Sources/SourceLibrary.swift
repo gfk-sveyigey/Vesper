@@ -115,6 +115,7 @@ struct DemoSourceAdapter: SourceAdapter {
             let assets = PHAsset.fetchAssets(with: .video, options: options)
             var items: [MediaItem] = []
             for index in 0..<assets.count {
+                try Task.checkCancellation()
                 let asset = assets.object(at: index)
                 let name = PHAssetResource.assetResources(for: asset).first?.originalFilename ?? asset.localIdentifier
                 items.append(MediaItem(id: MediaID(sourceID: source.id, localID: asset.localIdentifier), title: name, resource: nil))

@@ -37,7 +37,19 @@ class LocalizationTests(unittest.TestCase):
                 self.assertIn('SettingsIntroCard(', block, view)
         source = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text()
         self.assertIn('class IntroCardTableView', source)
-        self.assertIn('if !isPresented {', source)
+        card = source.split('struct SettingsIntroCard: View {', 1)[1].split('/// Match the standard', 1)[0]
+        self.assertNotIn('\\.isPresented', card)
+        self.assertIn('@Environment(\\.settingsIntroCardsHidden)', card)
+        self.assertIn('if !introCardsHidden {', card)
+        # Navigation pages must opt out only at actual sheet entry points.
+        key = source.split('private struct SettingsIntroCardsHiddenKey:', 1)[1].split('extension EnvironmentValues', 1)[0]
+        self.assertIn('static let defaultValue = false', key)
+        player = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
+        panel = player.split('.sheet(item: $panel,', 1)[1].split('.alert(', 1)[0]
+        self.assertIn('.environment(\\.settingsIntroCardsHidden, true)', panel)
+        icons = (ROOT / 'Vesper/Features/Sources/EmbyIconLibraryViews.swift').read_text()
+        library_sheet = icons.split('.sheet(isPresented: $showingLibrarySettings)', 1)[1].split('.onAppear', 1)[0]
+        self.assertIn('.environment(\\.settingsIntroCardsHidden, true)', library_sheet)
 
     def test_sheet_settings_have_no_intro_cards(self):
         sheets = {

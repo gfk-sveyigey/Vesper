@@ -208,6 +208,7 @@ struct EmbyLibraryIconPicker: View {
             }
             .sheet(isPresented: $showingLibrarySettings) {
                 NavigationStack { EmbyIconLibrarySettingsView() }
+                    .environment(\.settingsIntroCardsHidden, true)
             }
             .onAppear { repairSelection() }
             .onChange(of: store.links) { _, _ in repairSelection() }

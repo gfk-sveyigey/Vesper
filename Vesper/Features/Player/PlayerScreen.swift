@@ -226,6 +226,7 @@ struct PlayerScreen: View {
         .interactiveDismissDisabled(true)
         .sheet(item: $panel, onDismiss: revealControls) { selected in
             panelContent(selected)
+                .environment(\.settingsIntroCardsHidden, true)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .preferredColorScheme(.dark)

@@ -945,15 +945,28 @@ private struct TabOrderDetent: CustomPresentationDetent {
     }
 }
 
+// Navigation destinations can also inherit SwiftUI's isPresented = true.
+// Mark actual sheet entry points explicitly instead of using it to infer a sheet.
+private struct SettingsIntroCardsHiddenKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var settingsIntroCardsHidden: Bool {
+        get { self[SettingsIntroCardsHiddenKey.self] }
+        set { self[SettingsIntroCardsHiddenKey.self] = newValue }
+    }
+}
+
 /// Introductory card shared by secondary settings pages.
 struct SettingsIntroCard: View {
-    @Environment(\.isPresented) private var isPresented
+    @Environment(\.settingsIntroCardsHidden) private var introCardsHidden
     let title: LocalizedStringKey
     let symbol: String
     let description: LocalizedStringKey
     @ScaledMetric(relativeTo: .largeTitle) private var iconSize = 28.0
     var body: some View {
-        if !isPresented {
+        if !introCardsHidden {
             HStack(alignment: .center, spacing: 16) {
                 Image(systemName: symbol)
                     .font(.system(size: iconSize)).foregroundStyle(.white)

@@ -41,6 +41,22 @@ actor LocalFileStore {
         }
     }
 
+    /// Preserve relative paths and never follow symbolic links outside this source.
+    func matchingFiles(root: URL, query: String) throws -> [LocalFileEntry] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        var pending = [""]
+        var matches: [LocalFileEntry] = []
+        while let directory = pending.popLast() {
+            try Task.checkCancellation()
+            for entry in try entries(root: root, directory: directory) {
+                if entry.isDirectory { pending.append(entry.path) }
+                else if entry.name.localizedStandardContains(query) { matches.append(entry) }
+            }
+        }
+        return matches.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
     func createFolder(root: URL, directory: String, name: String) throws {
         try access(root) { base in
             let parent = try checked(directory, root: base)

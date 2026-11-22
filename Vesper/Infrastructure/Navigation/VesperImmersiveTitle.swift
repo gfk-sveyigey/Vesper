@@ -91,6 +91,7 @@ struct MediaHeaderGeometry {
 }
 
 /// Each root page owns its header state; detail navigation stays native.
+/// All tab roots default to the same configurable header and app-owned blur.
 struct VesperRootScrollView<Actions: View, Content: View>: View {
     let title: LocalizedStringKey
     private let actions: Actions
@@ -131,7 +132,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var interactionStartedCollapsed = false
 
     init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
-         usesMediaScrollEdges: Bool = false,
+         usesMediaScrollEdges: Bool = true,
          scrollPosition: Binding<ScrollPosition>? = nil,
          onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
          onVerticalScrollPhaseChange: @escaping (ScrollPhase, CGFloat) -> Void = { _, _ in },
@@ -309,9 +310,8 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
 
     var body: some View {
         positionedScrollView
-            .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
-            .scrollEdgeEffectHidden(true, for: .top)
-            .scrollEdgeEffectHidden(usesMediaScrollEdges, for: .bottom)
+            // All tab roots use the shared header's app-owned blur effects.
+            .scrollEdgeEffectHidden(true, for: [.top, .bottom])
             .ignoresSafeArea(.container, edges: .top)
             .overlay {
                 if showsLoading {

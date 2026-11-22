@@ -130,6 +130,18 @@ class Handler(BaseHTTPRequestHandler):
             ]}); return
         if path.path == '/proxy/emby/Users/user/Items':
             query = parse_qs(path.query)
+            if 'SearchTerm' in query:
+                assert query['Recursive'] == ['true'] and 'ParentId' not in query
+                assert query['EnableTotalRecordCount'] == ['true']
+                assert set(query['IncludeItemTypes'][0].split(',')) == {'Movie', 'Series', 'Episode', 'Video', 'MusicVideo', 'Trailer'}
+                if query['SearchTerm'] == ['invalid-response']:
+                    self.respond({'Unexpected': []}); return
+                assert query['SearchTerm'] == ['晚风 & café /?']
+                assert query['Limit'] == ['2']
+                if query['StartIndex'] == ['0']:
+                    self.respond({'Items': [ITEM, {'Id': 'book', 'Name': 'Book', 'Type': 'Book'}], 'TotalRecordCount': 3}); return
+                assert query['StartIndex'] == ['2']
+                self.respond({'Items': [SERIES], 'TotalRecordCount': 3}); return
             if 'PersonIds' in query or 'Person' in query:
                 assert 'ParentId' not in query and 'Filters' not in query
                 assert query['Recursive'] == ['true'] and query['Limit'] == ['21']

@@ -279,6 +279,12 @@ enum EmbyPlaybackRecordChange: Sendable {
     case setFavorite(Bool)
 }
 
+struct EmbySearchPage: Sendable {
+    let items: [MediaItem]
+    let nextIndex: Int
+    let hasMore: Bool
+}
+
 actor EmbyRepository {
     static let shared = EmbyRepository()
     private let clientProvider: @MainActor @Sendable (MediaSource) throws -> EmbyAPIClient
@@ -299,6 +305,31 @@ actor EmbyRepository {
             response = try await client.get("Items", query: ["Recursive": "true", "IncludeItemTypes": "Movie,Series,Episode,Folder", "Limit": "100", "SortBy": "SortName"])
         }
         return map(response["Items"] as? [[String: Any]] ?? [], source: source, client: client)
+    }
+
+    /// Search the whole selected server, independently of the currently open library.
+    func search(for source: MediaSource, query text: String, startIndex: Int = 0,
+                limit: Int = 40) async throws -> EmbySearchPage {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return EmbySearchPage(items: [], nextIndex: 0, hasMore: false) }
+        let client = try await clientProvider(source)
+        let start = max(0, startIndex)
+        let count = min(100, max(1, limit))
+        let path = source.emby?.userID.map { "Users/\($0)/Items" } ?? "Items"
+        let response = try await client.get(path, query: [
+            "SearchTerm": text, "Recursive": "true",
+            "IncludeItemTypes": "Movie,Series,Episode,Video,MusicVideo,Trailer",
+            "StartIndex": String(start), "Limit": String(count),
+            "EnableImages": "true", "EnableTotalRecordCount": "true",
+            "Fields": "Overview,DateCreated,ProductionYear,RunTimeTicks,UserData,Genres,PremiereDate,Status,OfficialRating,CommunityRating,Studios,SeasonCount"
+        ])
+        try Task.checkCancellation()
+        guard let values = response["Items"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
+        // Advance by raw server rows, even when unsupported rows are discarded by map().
+        let next = start + values.count
+        let total = response["TotalRecordCount"] as? Int
+        let more = !values.isEmpty && (total.map { next < $0 } ?? (values.count >= count))
+        return EmbySearchPage(items: map(values, source: source, client: client), nextIndex: next, hasMore: more)
     }
 
     func mediaLibraries(for source: MediaSource) async throws -> [MediaItem] {

@@ -1066,3 +1066,9 @@
 "观看时长" = "Tiempo de reproducción";
 "Trakt 暂未提供此账号的观看统计。" = "Trakt aún no ofrece estadísticas de visualización para esta cuenta.";
 "无法加载 Trakt 账号信息，请稍后重试。" = "No se pudo cargar tu cuenta de Trakt. Inténtalo más tarde.";
+
+/* Media search */
+"正在搜索" = "Buscando…";
+"搜索失败" = "Error de búsqueda";
+"请先在来源标签页选择一个媒体来源。" = "Primero elige una fuente multimedia en la pestaña Fuentes.";
+"无法读取当前来源，请检查访问权限后重试。" = "No se pudo leer esta fuente. Comprueba los permisos de acceso y vuelve a intentarlo.";
