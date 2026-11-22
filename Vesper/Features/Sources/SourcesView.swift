@@ -237,6 +237,22 @@ private extension MediaSource {
     }
 }
 
+private enum SourceLatencyPalette {
+    typealias LatencyColorStop = (milliseconds: Int, red: Double, green: Double, blue: Double)
+    static let light: [LatencyColorStop] = [
+        (500, 0.08, 0.45, 0.24),
+        (1000, 0.34, 0.43, 0.08),
+        (2000, 0.65, 0.32, 0.04),
+        (5000, 0.73, 0.15, 0.18),
+    ]
+    static let dark: [LatencyColorStop] = [
+        (500, 0.31, 0.85, 0.52),
+        (1000, 0.70, 0.86, 0.27),
+        (2000, 1.00, 0.64, 0.26),
+        (5000, 1.00, 0.38, 0.41),
+    ]
+}
+
 private struct SourceListRow<Actions: View>: View {
     @EnvironmentObject private var playback: PlaybackSession
     @EnvironmentObject private var library: SourceLibrary
@@ -275,23 +291,9 @@ private struct SourceListRow<Actions: View>: View {
         return configuration.alternateRouteNames?[EmbyRouteOptions.key(current)] ?? URLComponents(string: current)?.host ?? current
     }
 
-    private typealias LatencyColorStop = (milliseconds: Int, red: Double, green: Double, blue: Double)
-    private static let lightLatencyColors: [LatencyColorStop] = [
-        (500, 0.08, 0.45, 0.24),
-        (1000, 0.34, 0.43, 0.08),
-        (2000, 0.65, 0.32, 0.04),
-        (5000, 0.73, 0.15, 0.18),
-    ]
-    private static let darkLatencyColors: [LatencyColorStop] = [
-        (500, 0.31, 0.85, 0.52),
-        (1000, 0.70, 0.86, 0.27),
-        (2000, 1.00, 0.64, 0.26),
-        (5000, 1.00, 0.38, 0.41),
-    ]
-
     private var latencyColor: Color {
         guard let latency else { return .secondary }
-        let stops = colorScheme == .dark ? Self.darkLatencyColors : Self.lightLatencyColors
+        let stops = colorScheme == .dark ? SourceLatencyPalette.dark : SourceLatencyPalette.light
         for (lower, upper) in zip(stops, stops.dropFirst()) where latency <= upper.milliseconds {
             let fraction = Double(max(latency, lower.milliseconds) - lower.milliseconds)
                 / Double(upper.milliseconds - lower.milliseconds)
