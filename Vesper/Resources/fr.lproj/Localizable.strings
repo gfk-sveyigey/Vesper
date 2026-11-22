@@ -1137,3 +1137,7 @@
 "移除来源" = "Supprimer la source";
 "刷新线路" = "Actualiser les routes";
 "无法刷新线路" = "Impossible d’actualiser les routes";
+"调整来源顺序" = "Réorganiser les sources";
+"测试延迟" = "Tester la latence";
+"测试中" = "Test en cours…";
+"测试失败" = "Échec du test";

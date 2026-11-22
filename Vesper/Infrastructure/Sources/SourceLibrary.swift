@@ -153,11 +153,14 @@ final class SourceLibrary: ObservableObject {
     }
     @Published private(set) var sources: [MediaSource]
 
-    /// Shared display order for source lists and selection menus.
-    var orderedSources: [MediaSource] {
-        sources.filter { $0.kind == .photos }
-            + sources.filter { $0.kind == .local }
-            + sources.filter { $0.kind != .photos && $0.kind != .local }
+    func moveSources(from offsets: IndexSet, to destination: Int) {
+        guard !offsets.isEmpty, offsets.allSatisfy({ sources.indices.contains($0) }),
+              (0...sources.count).contains(destination) else { return }
+        let moved = offsets.map { sources[$0] }
+        var ordered = sources.enumerated().filter { !offsets.contains($0.offset) }.map(\.element)
+        ordered.insert(contentsOf: moved, at: destination - offsets.filter { $0 < destination }.count)
+        sources = ordered
+        persist()
     }
     @Published private(set) var selectedID: UUID?
     @Published private(set) var refreshGeneration = 0
@@ -166,6 +169,7 @@ final class SourceLibrary: ObservableObject {
     enum ConnectionStatus: Equatable { case normal, checking, verified, failed }
     @Published private var connectionStatuses: [UUID: [String: ConnectionStatus]] = [:]
     @Published private(set) var routeLatencies: [UUID: Int] = [:]
+    var isTestingRouteLatency: Bool { !connectionChecks.isEmpty }
     private var connectionChecks: [UUID: Task<Void, Never>] = [:]
     private var connectionGenerations: [UUID: UUID] = [:]
 
@@ -186,21 +190,21 @@ final class SourceLibrary: ObservableObject {
         routeLatencies[id] = nil
         connectionChecks[id] = Task { [weak self] in
             let result: ConnectionStatus
-            let milliseconds: Int?
             do {
-                let verification = try await EmbyAccountStore.shared.verifyConnection(for: source)
-                let duration = verification.latency.components
-                milliseconds = max(1, Int(duration.seconds * 1_000 + duration.attoseconds / 1_000_000_000_000_000))
+                try await EmbyAccountStore.shared.verifyConnection(for: source) { duration in
+                    guard let self, !Task.isCancelled, self.connectionGenerations[id] == generation else { return }
+                    let components = duration.components
+                    self.routeLatencies[id] = max(1, Int(components.seconds * 1_000
+                        + components.attoseconds / 1_000_000_000_000_000))
+                }
                 result = .verified
             } catch {
-                milliseconds = nil
                 result = .failed
             }
             guard let self, !Task.isCancelled, self.connectionGenerations[id] == generation,
                   self.sources.first(where: { $0.id == id })?.emby?.serverAddress == configuration.serverAddress else { return }
-            self.routeLatencies[id] = milliseconds
-            self.connectionStatuses[id, default: [:]][key] = result
             self.connectionChecks[id] = nil
+            self.connectionStatuses[id, default: [:]][key] = result
         }
     }
 
@@ -239,6 +243,13 @@ final class SourceLibrary: ObservableObject {
         selectedID = saved?.selectedID
         if !sources.contains(where: { $0.id == selectedID }) { selectedID = nil }
         reload()
+        testRouteLatencies()
+    }
+
+    func testRouteLatencies() {
+        for source in sources where source.kind == .emby {
+            verifyEmbyConnection(source.id)
+        }
     }
 
     func addDeviceSource(kind: MediaSource.Kind, name: String, bookmark: Data? = nil) {
@@ -271,8 +282,9 @@ final class SourceLibrary: ObservableObject {
 
     func select(_ id: UUID) {
         guard sources.contains(where: { $0.id == id }) else { return }
+        let didSwitchSource = selectedID != id
         selectedID = id
-        verifyEmbyConnection(id)
+        if didSwitchSource { verifyEmbyConnection(id) }
         embyParentStack.removeAll()
         currentEmbyParentID = nil
         hasMoreEmbyItems = false
@@ -348,7 +360,7 @@ final class SourceLibrary: ObservableObject {
             preparedAccount = account
         } else {
             guard validated.username == original?.emby?.username else { throw EmbyError.authentication }
-            serverName = try await accounts.verifyConnection(for: candidate).serverName
+            serverName = try await accounts.verifyConnection(for: candidate)
             preparedAccount = nil
         }
         if validated.title.isEmpty {
@@ -382,8 +394,14 @@ final class SourceLibrary: ObservableObject {
         if let index { sources[index] = candidate }
         else { sources.append(candidate) }
         if selectedID == nil { selectedID = sourceID }
+        connectionChecks.removeValue(forKey: sourceID)?.cancel()
+        connectionGenerations[sourceID] = nil
         connectionStatuses[sourceID] = nil
-        verifyEmbyConnection(sourceID)
+        routeLatencies[sourceID] = nil
+        if let oldAddress = original?.emby?.serverAddress,
+           EmbyRouteOptions.key(oldAddress) != EmbyRouteOptions.key(validated.serverAddress) {
+            verifyEmbyConnection(sourceID)
+        }
         persist()
         if selectedID == sourceID { reload() }
     }
@@ -422,8 +440,10 @@ final class SourceLibrary: ObservableObject {
         configuration.replaceServerRoutes(routes)
         sources[index].emby = configuration
         persist()
-        verifyEmbyConnection(id)
-        if selectedID == id, oldAddress != configuration.serverAddress { reload() }
+        if oldAddress != configuration.serverAddress {
+            verifyEmbyConnection(id)
+            if selectedID == id { reload() }
+        }
     }
 
     func configure(_ id: UUID, behavior: DemoSourceBehavior) {

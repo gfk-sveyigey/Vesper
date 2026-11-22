@@ -735,10 +735,7 @@ struct MediaView: View {
     }
 
     private func selectSource(_ source: MediaSource) {
-        guard source.id != library.selectedID else {
-            library.verifyEmbyConnection(source.id)
-            return
-        }
+        guard source.id != library.selectedID else { return }
         guard source.kind == .emby, let address = source.emby?.serverAddress,
               LocalNetworkPermissionProbe.isLocalAddress(address) else {
             library.select(source.id)
@@ -776,7 +773,7 @@ struct MediaView: View {
                 Section { favoritesButton(source) }
             }
             Section {
-                ForEach(library.orderedSources) { source in
+                ForEach(library.sources) { source in
                     Button {
                         selectSource(source)
                     } label: {

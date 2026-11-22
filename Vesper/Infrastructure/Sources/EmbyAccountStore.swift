@@ -41,9 +41,9 @@ final class EmbyAccountStore {
 
     /// Check identity without account credentials before sending a token to this route.
     @discardableResult
-    func verifyConnection(for source: MediaSource) async throws -> (serverName: String?, latency: Duration) {
+    func verifyConnection(for source: MediaSource, onLatency: (Duration) -> Void = { _ in }) async throws -> String? {
         guard var configuration = source.emby, let expectedServerID = configuration.serverID,
-              !expectedServerID.isEmpty, let account = account(sourceID: source.id) else {
+              !expectedServerID.isEmpty else {
             throw EmbyError.missingAccount
         }
         configuration.customHeaders = [:]
@@ -54,10 +54,13 @@ final class EmbyAccountStore {
         guard info["Id"] as? String == expectedServerID else { throw EmbyError.invalidResponse }
         let name = (info["ServerName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         try Task.checkCancellation()
+        // Publish the round trip as soon as the route's server identity is confirmed.
+        onLatency(latency)
+        guard let account = account(sourceID: source.id) else { throw EmbyError.missingAccount }
         // A saved guest account has no login session to validate.
         guard let userID = account.userID, !userID.isEmpty else {
             guard configuration.userID == nil, configuration.username.isEmpty else { throw EmbyError.authentication }
-            return (name, latency)
+            return name
         }
         guard let token = account.token, !token.isEmpty, configuration.userID == userID else {
             throw EmbyError.authentication
@@ -67,7 +70,7 @@ final class EmbyAccountStore {
         let client = try EmbyAPIClient(configuration: configuration, token: token, deviceID: account.deviceID)
         let user = try await client.get("Users/\(userID)")
         guard user["Id"] as? String == userID else { throw EmbyError.authentication }
-        return (name, latency)
+        return name
     }
 
     func customHeaders(sourceID: UUID) -> [String: String] { account(sourceID: sourceID)?.customHeaders ?? [:] }

@@ -1137,3 +1137,7 @@
 "移除来源" = "Quelle entfernen";
 "刷新线路" = "Verbindungen aktualisieren";
 "无法刷新线路" = "Verbindungen konnten nicht aktualisiert werden";
+"调整来源顺序" = "Quellen sortieren";
+"测试延迟" = "Latenz testen";
+"测试中" = "Test läuft…";
+"测试失败" = "Test fehlgeschlagen";

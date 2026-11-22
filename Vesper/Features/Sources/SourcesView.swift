@@ -18,10 +18,12 @@ struct SourcesView: View {
 
     var headerVisibilityChanged: (Bool) -> Void = { _ in }
     @EnvironmentObject private var library: SourceLibrary
+    @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var activeAlert: SourcesAlert?
     @State private var isShowingEmbyEditor = false
     @State private var editingEmby: EditorRequest?
     @State private var refreshingRoutes: Set<UUID> = []
+    @State private var showingOrder = false
 
     var body: some View {
         VesperRootScrollView(title: "来源") {
@@ -29,12 +31,11 @@ struct SourcesView: View {
                 VesperCenteredEmptyContent(message: "未配置来源", symbol: AppSection.sources.symbol)
             } else {
                 VStack(spacing: 0) {
-                    ForEach(library.orderedSources) { source in
+                    ForEach(library.sources) { source in
                         SourceListRow(source: source, isSelected: source.id == library.selectedID,
-                                      latency: library.routeLatencies[source.id]) {
+                                      latency: library.routeLatencies[source.id], select: {
                             selectSource(source)
-                        }
-                        .contextMenu {
+                        }) {
                             if let configuration = source.emby {
                                 Button("编辑来源", systemImage: "pencil") {
                                     editingEmby = EditorRequest(source: source, entry: .general)
@@ -68,12 +69,27 @@ struct SourcesView: View {
                             Button("移除来源", systemImage: "trash", role: .destructive) { library.remove(source.id) }
                         }
                         .accessibilityAction(named: Text("移除来源")) { library.remove(source.id) }
+                        if source.id != library.sources.last?.id {
+                            Divider().padding(.leading, iconInset)
+                        }
                     }
                     if library.storageFailed { Text("来源设置保存失败").foregroundStyle(.red) }
                 }
+                .padding(.horizontal, 20)
             }
         } actions: {
-            addMenu
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    Button { showingOrder = true } label: { actionIcon("arrow.up.arrow.down") }
+                        .accessibilityLabel("调整来源顺序")
+                        .disabled(library.sources.count < 2)
+                    Button { library.testRouteLatencies() } label: { actionIcon("arrow.clockwise") }
+                        .accessibilityLabel("测试延迟")
+                        .disabled(library.isTestingRouteLatency || !library.sources.contains { $0.kind == .emby })
+                    addMenu
+                }
+                .buttonStyle(.plain)
+            }
         }
         .alert(item: $activeAlert) { alert in
             switch alert {
@@ -93,13 +109,27 @@ struct SourcesView: View {
                       secondaryButton: .cancel(Text("取消")))
             }
         }
-        .onChange(of: isShowingEmbyEditor || editingEmby != nil, initial: true) { _, presentsEditor in
+        .onChange(of: isShowingEmbyEditor || editingEmby != nil || showingOrder, initial: true) { _, presentsEditor in
             headerVisibilityChanged(!presentsEditor)
         }
         .sheet(isPresented: $isShowingEmbyEditor) { EmbySourceEditor(source: nil) }
         .sheet(item: $editingEmby) { request in
             EmbySourceEditor(source: request.source, entry: request.entry)
         }
+        .sheet(isPresented: $showingOrder) { SourceOrderSheet() }
+    }
+
+    private var iconInset: CGFloat {
+        let side = max(0, layout[.sourceListRowHeight] - layout[.sourceListIconTop] - layout[.sourceListIconBottom])
+        return CGFloat(side + layout[.sourceListIconLeading] + layout[.sourceListIconTrailing]) + 12
+    }
+
+    private func actionIcon(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 17, weight: .medium))
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+            .glassEffect(.regular.interactive(), in: .circle)
     }
 
     private func selectSource(_ source: MediaSource) {
@@ -142,11 +172,7 @@ struct SourcesView: View {
                 Label("Emby", image: "EmbyLogo")
             }
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 17, weight: .medium))
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
-                .glassEffect(.regular.interactive(), in: .circle)
+            actionIcon("plus")
         }
         .buttonStyle(.plain)
         .accessibilityLabel("添加来源")
@@ -175,7 +201,44 @@ struct SourcesView: View {
     }
 }
 
-private struct SourceListRow: View {
+private struct SourceOrderSheet: View {
+    @EnvironmentObject private var library: SourceLibrary
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            SettingsPage {
+                SettingsSection {
+                    ForEach(library.sources) { source in
+                        Text(verbatim: source.localizedSourceName)
+                    }
+                    .onMove(perform: library.moveSources)
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("调整来源顺序")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭", systemImage: "xmark") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private extension MediaSource {
+    var localizedSourceName: String {
+        switch kind {
+        case .local: VesperLocalization.string("本地视频")
+        case .photos: VesperLocalization.string("相册视频")
+        default: name
+        }
+    }
+}
+
+private struct SourceListRow<Actions: View>: View {
+    @EnvironmentObject private var playback: PlaybackSession
     @EnvironmentObject private var library: SourceLibrary
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var layout = MediaLayoutSettings.shared
@@ -184,7 +247,17 @@ private struct SourceListRow: View {
     let isSelected: Bool
     let latency: Int?
     let select: () -> Void
+    let actions: Actions
     @State private var summary: EmbySourceSummary?
+
+    init(source: MediaSource, isSelected: Bool, latency: Int?, select: @escaping () -> Void,
+         @ViewBuilder actions: () -> Actions) {
+        self.source = source
+        self.isSelected = isSelected
+        self.latency = latency
+        self.select = select
+        self.actions = actions()
+    }
 
     private var rowHeight: CGFloat { CGFloat(layout[.sourceListRowHeight]) }
     private var iconTop: CGFloat { CGFloat(layout[.sourceListIconTop]) }
@@ -192,14 +265,6 @@ private struct SourceListRow: View {
     private var iconBottom: CGFloat { CGFloat(layout[.sourceListIconBottom]) }
     private var iconTrailing: CGFloat { CGFloat(layout[.sourceListIconTrailing]) }
     private var iconSide: CGFloat { max(0, rowHeight - iconTop - iconBottom) }
-
-    private var title: String {
-        switch source.kind {
-        case .local: VesperLocalization.string("本地视频")
-        case .photos: VesperLocalization.string("相册视频")
-        default: source.name
-        }
-    }
 
     private var routeTitle: String? {
         guard let configuration = source.emby else { return nil }
@@ -212,16 +277,16 @@ private struct SourceListRow: View {
 
     private typealias LatencyColorStop = (milliseconds: Int, red: Double, green: Double, blue: Double)
     private static let lightLatencyColors: [LatencyColorStop] = [
-        (30, 0.08, 0.45, 0.24),
-        (100, 0.34, 0.43, 0.08),
-        (200, 0.65, 0.32, 0.04),
-        (400, 0.73, 0.15, 0.18),
+        (500, 0.08, 0.45, 0.24),
+        (1000, 0.34, 0.43, 0.08),
+        (2000, 0.65, 0.32, 0.04),
+        (5000, 0.73, 0.15, 0.18),
     ]
     private static let darkLatencyColors: [LatencyColorStop] = [
-        (30, 0.31, 0.85, 0.52),
-        (100, 0.70, 0.86, 0.27),
-        (200, 1.00, 0.64, 0.26),
-        (400, 1.00, 0.38, 0.41),
+        (500, 0.31, 0.85, 0.52),
+        (1000, 0.70, 0.86, 0.27),
+        (2000, 1.00, 0.64, 0.26),
+        (5000, 1.00, 0.38, 0.41),
     ]
 
     private var latencyColor: Color {
@@ -242,6 +307,26 @@ private struct SourceListRow: View {
 
     var body: some View {
         Button(action: select) {
+            rowContent
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .contextMenu {
+            actions
+        } preview: {
+            rowContent
+                .padding(12)
+                .frame(width: 320)
+                .background(Color(uiColor: .systemBackground))
+        }
+        .task(id: source.emby?.serverAddress) {
+            guard source.kind == .emby else { summary = nil; return }
+            let updatedSummary = try? await EmbyRepository.shared.sourceSummary(for: source)
+            if !Task.isCancelled { summary = updatedSummary }
+        }
+    }
+
+    private var rowContent: some View {
             HStack(spacing: 0) {
                 icon
                     .frame(width: iconSide, height: iconSide)
@@ -251,18 +336,20 @@ private struct SourceListRow: View {
                     .padding(.trailing, iconTrailing)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 0) {
-                        Text(verbatim: title)
+                    HStack(spacing: 4) {
+                        Text(verbatim: source.localizedSourceName)
+                            .font(.body.weight(.medium))
                         if let routeTitle {
-                            Text(verbatim: " · \(routeTitle)").foregroundStyle(.secondary)
-                            Text(verbatim: " · ").foregroundStyle(.secondary)
-                            Text(verbatim: latency.map { "\($0) ms" } ?? "—")
+                            Text("·").foregroundStyle(.secondary).font(.caption)
+                            Text(verbatim: routeTitle).foregroundStyle(.secondary).font(.caption)
+                            Text("·").foregroundStyle(.secondary).font(.caption)
+                            latencyLabel
+                                .font(.caption)
                                 .monospacedDigit()
                                 .foregroundStyle(latencyColor)
                                 .fixedSize(horizontal: true, vertical: false)
                         }
                     }
-                    .font(.body.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -271,7 +358,7 @@ private struct SourceListRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
 
-                    Text(verbatim: lastPlayedLine)
+                    lastPlayedLine
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -291,16 +378,13 @@ private struct SourceListRow: View {
             .frame(maxWidth: .infinity)
             .frame(height: rowHeight, alignment: .center)
             .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .task(id: source.emby?.serverAddress) {
-            guard source.kind == .emby else { summary = nil; return }
-            if library.connectionStatus(for: source) != .checking {
-                library.verifyEmbyConnection(source.id)
-            }
-            let updatedSummary = try? await EmbyRepository.shared.sourceSummary(for: source)
-            if !Task.isCancelled { summary = updatedSummary }
+    }
+
+    private var latencyLabel: Text {
+        if let latency { return Text(verbatim: "\(latency) ms") }
+        switch library.connectionStatus(for: source) {
+        case .checking: return Text("测试中")
+        case .normal, .verified, .failed: return Text("测试失败")
         }
     }
 
@@ -322,13 +406,15 @@ private struct SourceListRow: View {
     }
 
     private var countLine: String {
-        guard source.kind == .emby else { return "—" }
+        guard source.kind == .emby else { return " " }
         guard let summary else { return "\(VesperLocalization.string("电影")) — · \(VesperLocalization.string("剧集")) —" }
         return "\(VesperLocalization.string("电影")) \(summary.movieCount) · \(VesperLocalization.string("剧集")) \(summary.seriesCount)"
     }
 
-    private var lastPlayedLine: String {
-        guard let date = summary?.lastPlayed else { return "\(VesperLocalization.string("上次播放")) —" }
-        return "\(VesperLocalization.string("上次播放")) \(date.formatted(date: .abbreviated, time: .shortened))"
+    private var lastPlayedLine: Text {
+        let localDate = playback.history.lazy.filter { $0.source.id == source.id }.map(\.watchedAt).max()
+        let date = [localDate, summary?.lastPlayed].compactMap { $0 }.max()
+        guard let date else { return Text("—") }
+        return Text(verbatim: date.formatted(.relative(presentation: .numeric)))
     }
 }

@@ -1137,3 +1137,7 @@
 "移除来源" = "Remove source";
 "刷新线路" = "Refresh routes";
 "无法刷新线路" = "Couldn’t refresh routes";
+"调整来源顺序" = "Reorder sources";
+"测试延迟" = "Test latency";
+"测试中" = "Testing…";
+"测试失败" = "Test failed";
