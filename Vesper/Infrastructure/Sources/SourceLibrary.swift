@@ -378,11 +378,10 @@ final class SourceLibrary: ObservableObject {
             verifyEmbyConnection(id)
             return
         }
-        let oldAddress = configuration.serverAddress
+        let orderedRoutes = [configuration.primaryRoute] + configuration.backupRoutes
         configuration.primaryRouteAddress = configuration.primaryRoute
         configuration.serverAddress = address
-        configuration.alternateAddresses = EmbyRouteOptions.unique([oldAddress] + (configuration.alternateAddresses ?? []))
-            .filter { EmbyRouteOptions.key($0) != EmbyRouteOptions.key(address) }
+        configuration.alternateAddresses = EmbyRouteOptions.unique(orderedRoutes)
         sources[index].emby = configuration
         verifyEmbyConnection(id)
         persist()

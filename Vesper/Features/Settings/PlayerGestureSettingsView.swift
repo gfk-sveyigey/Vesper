@@ -104,8 +104,8 @@ struct PlayerGestureSettingsView: View {
         return SettingsSection {
             (Text(fingers == 1 ? "单指" : "双指") + Text(" ") + Text(pair?.title ?? kind.title))
                 .font(.headline)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
             SettingsPicker("区域划分", selection: layoutBinding(kind, fingers)) {
                 Text("单区域").tag(1); Text("双区域").tag(2); Text("三区域").tag(3)
             }

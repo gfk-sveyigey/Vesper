@@ -273,6 +273,7 @@ struct MediaDetailView: View {
     @State private var openedEpisodeID: MediaID?
     @State private var hasScrolled = false
     @Namespace private var recommendationZoom
+    @Namespace private var detailToolbarGlass
     @State private var busy: Set<MediaID> = []
     @State private var openedRecommendation: MediaItem?
     @State private var openedPerson: EmbyPerson?
@@ -301,6 +302,8 @@ struct MediaDetailView: View {
         }
         return metadata?.mediaVersions ?? []
     }
+    @State private var showingVersionSelection = false
+
     private var selectedVersion: EmbyMediaVersionDetails? {
         availableVersions.first(where: { $0.id == selectedMediaSourceID })
             ?? availableVersions.first(where: { $0.id == item.embyMediaSourceID })
@@ -393,55 +396,7 @@ struct MediaDetailView: View {
             }
             .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) {
-                // Keep both controls inside stable toolbar bounds for layout and hit testing.
-                ZStack(alignment: .trailing) {
-                    // The 132 pt group shares the 44 pt button's center when collapsed.
-                    HStack(spacing: 0) {
-                        versionMenu().frame(width: 44, height: 44)
-                        trackMenu(type: "Audio", symbol: "waveform").frame(width: 44, height: 44)
-                        trackMenu(type: "Subtitle", symbol: "captions.bubble").frame(width: 44, height: 44)
-                    }
-                    .fixedSize()
-                    .glassEffect(.regular, in: .capsule)
-                    .scaleEffect(hasScrolled ? 1.0 / 3.0 : 1)
-                    .offset(x: hasScrolled ? 44 : -56)
-                    .opacity(hasScrolled ? 0 : 1)
-                    .allowsHitTesting(!hasScrolled)
-                    .accessibilityHidden(hasScrolled)
-                    ZStack {
-                        Image(systemName: hasScrolled ? "ellipsis"
-                              : (playback.effectiveFavorite(for: item) ? "heart.fill" : "heart"))
-                            .contentTransition(.symbolEffect(.replace))
-                            .animation(reduceMotion ? nil : .snappy(duration: 0.3),
-                                       value: playback.effectiveFavorite(for: item))
-                            .accessibilityHidden(true)
-                        if hasScrolled {
-                            Menu {
-                                Section {
-                                    versionMenu(inMenu: true)
-                                    trackMenu(type: "Audio", symbol: "waveform", inMenu: true)
-                                    trackMenu(type: "Subtitle", symbol: "captions.bubble", inMenu: true)
-                                }
-                                Section { favoriteButton }
-                            } label: {
-                                Color.clear.frame(width: 44, height: 44).contentShape(Circle())
-                            }
-                            .accessibilityLabel("媒体操作")
-                        } else {
-                            Button(action: toggleFavorite) {
-                                Color.clear.frame(width: 44, height: 44).contentShape(Circle())
-                            }
-                            .accessibilityLabel(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏")
-                            .disabled(source.emby?.userID == nil)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .frame(width: 44, height: 44)
-                    .glassEffect(.regular, in: .circle)
-                }
-                .frame(width: 188, alignment: .trailing)
-                .animation(reduceMotion ? nil : .snappy(duration: 0.3), value: hasScrolled)
-                .foregroundStyle(.primary)
+                detailToolbar
             }
             .sharedBackgroundVisibility(.hidden)
             if showsCloseButton {
@@ -462,6 +417,9 @@ struct MediaDetailView: View {
         }
         .navigationDestination(item: $openedPerson) { person in
             EmbyPersonWorksView(source: source, person: person)
+        }
+        .sheet(isPresented: $showingVersionSelection) {
+            versionSelectionSheet
         }
         .alert("无法更新收藏", isPresented: Binding(
             get: { favoriteError != nil }, set: { if !$0 { favoriteError = nil } }
@@ -595,6 +553,82 @@ struct MediaDetailView: View {
         }
     }
 
+    private var detailToolbar: some View {
+        // Only these empty glass surfaces participate in the system's geometry
+        // transition. Menu hosts stay at their expanded coordinates, including
+        // while UIKit restores their labels after dismissing a menu.
+        ZStack(alignment: .trailing) {
+            GlassEffectContainer(spacing: 12) {
+                HStack(spacing: 12) {
+                    if !hasScrolled {
+                        Color.clear
+                            .frame(width: 132, height: 44)
+                            .glassEffect(.regular, in: .capsule)
+                            .glassEffectID("tracks", in: detailToolbarGlass)
+                            .glassEffectTransition(.matchedGeometry)
+                    }
+                    Color.clear
+                        .frame(width: 44, height: 44)
+                        .glassEffect(.regular, in: .circle)
+                        .glassEffectID("primary", in: detailToolbarGlass)
+                        .glassEffectTransition(.matchedGeometry)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+
+            HStack(spacing: 0) {
+                versionMenu().frame(width: 44, height: 44)
+                trackMenu(type: "Audio", symbol: "waveform").frame(width: 44, height: 44)
+                trackMenu(type: "Subtitle", symbol: "captions.bubble").frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 132, height: 44)
+            // Reveal towards the left and retract towards the stationary primary
+            // button, without scaling or translating the underlying menus.
+            .mask(alignment: .trailing) {
+                Rectangle().frame(width: hasScrolled ? 0 : 132)
+            }
+            .opacity(hasScrolled ? 0 : 1)
+            .offset(x: -56)
+            .allowsHitTesting(!hasScrolled)
+            .accessibilityHidden(hasScrolled)
+
+            ZStack {
+                Image(systemName: hasScrolled ? "ellipsis"
+                      : (playback.effectiveFavorite(for: item) ? "heart.fill" : "heart"))
+                    .contentTransition(.symbolEffect(.replace))
+                    .animation(reduceMotion ? nil : .snappy(duration: 0.3),
+                               value: playback.effectiveFavorite(for: item))
+                    .accessibilityHidden(true)
+                if hasScrolled {
+                    Menu {
+                        Section {
+                            versionMenu(inMenu: true)
+                            trackMenu(type: "Audio", symbol: "waveform", inMenu: true)
+                            trackMenu(type: "Subtitle", symbol: "captions.bubble", inMenu: true)
+                        }
+                        Section { favoriteButton }
+                    } label: {
+                        Color.clear.frame(width: 44, height: 44).contentShape(Circle())
+                    }
+                    .accessibilityLabel("媒体操作")
+                } else {
+                    Button(action: toggleFavorite) {
+                        Color.clear.frame(width: 44, height: 44).contentShape(Circle())
+                    }
+                    .accessibilityLabel(playback.effectiveFavorite(for: item) ? "取消收藏" : "收藏")
+                    .disabled(source.emby?.userID == nil)
+                }
+            }
+            .buttonStyle(.plain)
+            .frame(width: 44, height: 44)
+        }
+        .frame(width: 188, height: 44, alignment: .trailing)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.3), value: hasScrolled)
+        .foregroundStyle(.primary)
+    }
+
     private func toggleFavorite() {
         playback.setFavorite(!playback.effectiveFavorite(for: item), for: item, source: source) {
             favoriteError = $0
@@ -624,25 +658,49 @@ struct MediaDetailView: View {
     }
 
     private func versionMenu(inMenu: Bool = false) -> some View {
-        Menu {
-            Picker("媒体版本", selection: Binding(
-                get: { selectedVersion?.id ?? "" },
-                set: { id in
-                    guard let version = availableVersions.first(where: { $0.id == id }) else { return }
-                    selectedMediaSourceID = id
-                    resetTrackSelection(for: version)
-                }
-            )) {
-                ForEach(availableVersions) { version in
-                    Text(verbatim: versionMenuTitle(version)).tag(version.id)
-                }
-            }
+        Button {
+            showingVersionSelection = true
         } label: {
             if inMenu { Label("版本", systemImage: "rectangle.stack").labelStyle(.titleAndIcon) }
             else { Image(systemName: "rectangle.stack").foregroundStyle(.primary) }
         }
         .accessibilityLabel("媒体版本")
         .disabled(availableVersions.isEmpty || (series.isEmbySeries && versionsEpisodeID != selectedEpisodeID))
+    }
+
+    private var versionSelectionSheet: some View {
+        NavigationStack {
+            List(availableVersions) { version in
+                Button {
+                    selectedMediaSourceID = version.id
+                    resetTrackSelection(for: version)
+                    showingVersionSelection = false
+                } label: {
+                    HStack(alignment: .center, spacing: 12) {
+                        Text(verbatim: versionMenuTitle(version))
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if version.id == selectedVersion?.id {
+                            Image(systemName: "checkmark")
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                    .padding(.vertical, 4)
+                }
+                .accessibilityAddTraits(version.id == selectedVersion?.id ? .isSelected : [])
+            }
+            .navigationTitle("媒体版本")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingVersionSelection = false } label: {
+                        Label("关闭", systemImage: "xmark")
+                    }
+                }
+            }
+        }
     }
 
     private func trackMenu(type: String, symbol: String, inMenu: Bool = false) -> some View {
@@ -667,7 +725,7 @@ struct MediaDetailView: View {
             else { Image(systemName: symbol).foregroundStyle(.primary) }
         }
         .accessibilityLabel(audio ? "音频" : "字幕")
-        .disabled(selectedVersion == nil || (series.isEmbySeries && versionsEpisodeID != selectedEpisodeID))
+        .disabled(selectedVersion == nil || tracks.isEmpty || (series.isEmbySeries && versionsEpisodeID != selectedEpisodeID))
     }
 
     private var heroMediaFacts: [String] {
@@ -696,7 +754,7 @@ struct MediaDetailView: View {
             else if range.contains("HDR") { facts.append("HDR") }
             else if !range.isEmpty { facts.append("SDR") }
         }
-        if let size = selectedVersion?.size { facts.append(Self.byteCountLabel(size)) }
+        if let size = selectedVersion?.size, size > 0 { facts.append(Self.byteCountLabel(size)) }
         return facts
     }
 

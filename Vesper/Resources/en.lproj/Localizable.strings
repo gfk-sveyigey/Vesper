@@ -1072,3 +1072,37 @@
 "搜索失败" = "Search failed";
 "请先在来源标签页选择一个媒体来源。" = "Choose a media source in the Sources tab first.";
 "无法读取当前来源，请检查访问权限后重试。" = "Unable to read this source. Check access permissions and try again.";
+
+"播放框架与依赖声明" = "Playback Frameworks and Dependency Notices";
+
+"许可内容暂不可用。" = "License text is currently unavailable.";
+"显示调试信息" = "Show Debug Info";
+"播放调试信息" = "Playback Diagnostics";
+"暂无调试数据" = "No diagnostic data available";
+"显隐调试信息" = "Toggle Debug Info";
+"播放后端" = "Playback backend";
+"解码器" = "Decoder";
+"当前码率" = "Current bitrate";
+"平均码率" = "Average bitrate";
+"网络吞吐" = "Network throughput";
+"视频帧率" = "Video frame rate";
+"丢帧数" = "Dropped frames";
+"前向缓冲" = "Forward buffer";
+"显示队列" = "Display queue";
+"读取缓存" = "Read cache";
+"数据缓存" = "Data cache";
+"音画偏差" = "A/V offset";
+"内存占用" = "Memory usage";
+"输入码率" = "Input bitrate";
+"解复用码率" = "Demux bitrate";
+"读取字节" = "Bytes read";
+"解复用字节" = "Bytes demuxed";
+"解码视频帧" = "Decoded video frames";
+"显示视频帧" = "Displayed video frames";
+"迟到视频帧" = "Late video frames";
+"丢失视频帧" = "Lost video frames";
+"损坏数据包" = "Corrupted packets";
+"时间戳不连续" = "Timestamp discontinuities";
+"已播放音频缓冲" = "Audio buffers played";
+"丢失音频缓冲" = "Audio buffers lost";
+"显示帧率" = "Display frame rate";

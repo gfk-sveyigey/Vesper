@@ -15,7 +15,11 @@ import UIKit
 @MainActor
 final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictureInPictureControllerDelegate {
     @Published private(set) var currentEngine = PlaybackPreferences.preferredEngine
+    var diagnosticEngineTitle: String { currentEngine.title }
+    var diagnosticMetrics: [EngineDiagnosticMetric] { core.driver?.diagnosticMetrics ?? [] }
     @Published private(set) var currentDecoder = PlaybackPreferences.preferredDecoder
+    @Published private(set) var playbackSubtitle: String?
+    private var playbackSubtitleTask: Task<Void, Never>?
     @Published private(set) var history: [PlaybackHistoryEntry] = []
     private struct PlayedEdit {
         let id: UUID
@@ -38,6 +42,11 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     @Published private(set) var danmaku = PlayerDanmaku()
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
+    @Published private(set) var hasLoadedMedia = false
+    var canShowMediaDetails: Bool {
+        guard currentItem != nil, core.driver != nil, errorMessage == nil else { return false }
+        return core.playbackURL?.isFileURL == true || hasLoadedMedia
+    }
     @Published private(set) var currentTime: TimeInterval = 0
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var errorMessage: String?
@@ -282,6 +291,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         currentDecoder = decoder ?? PlaybackPreferences.preferredDecoder
         suppressedProgressID = nil
         currentItem = item
+        hasLoadedMedia = false
+        refreshPlaybackSubtitle(for: item, source: source, token: token)
         currentTime = 0
         duration = 0
         errorMessage = nil
@@ -479,7 +490,9 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             pipConfigurationObservation = nil
             return
         }
-        candidate.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+        if candidate.canStartPictureInPictureAutomaticallyFromInline != automaticallyStartsPictureInPicture {
+            candidate.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+        }
         guard candidate !== pipController else { return }
         pipController?.delegate = nil
         pipController?.stopPictureInPicture()
@@ -1001,7 +1014,22 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         seek(to: saved, resume: isPlaying)
     }
 
-    func mediaDetails() async -> PlaybackVideoDetails? {
+    func mediaDetails(showsDetails: Bool = false) async -> PlaybackVideoDetails? {
+        if showsDetails {
+            guard canShowMediaDetails, let info = core.driver?.mediaInformation else { return nil }
+            let url = core.playbackURL
+            let bytes = url.flatMap { $0.isFileURL ? (try? $0.resourceValues(forKeys: [.fileSizeKey]))?.fileSize : nil }
+            var technical = info.fields.filter { !$0.value.isEmpty }.sorted { $0.key < $1.key }
+                .map { PlaybackDetailField(label: $0.key, value: $0.value) }
+            if let container = info.container, !container.isEmpty {
+                technical.append(.init(label: "容器格式", value: container))
+            }
+            return PlaybackVideoDetails(fileName: url?.isFileURL == true ? (externalFile?.name ?? url?.lastPathComponent ?? "") : "",
+                                        dimensions: info.width > 0 && info.height > 0 ? "\(info.width) × \(info.height)" : nil,
+                                        byteCount: bytes.flatMap { $0 > 0 ? $0 : nil }, synopsis: nil,
+                                        sourceName: source?.name ?? VesperLocalization.string("外部视频"), technical: technical,
+                                        duration: info.duration.isFinite && info.duration > 0 ? info.duration : nil)
+        }
         if let source, source.kind == .emby, let item = currentItem {
             return try? await EmbyRepository.shared.details(for: item, source: source).video
         }
@@ -1215,13 +1243,14 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         if let value = trackIDs[id] { return value }
         let value = nextTrackID; nextTrackID += 1; trackIDs[id] = value; return value
     }
-    private func refreshTracks() {
-        let state = core.driver?.snapshot ?? core.snapshot
+    private func refreshTracks(using snapshot: EngineSnapshot? = nil) {
+        let state = snapshot ?? core.driver?.snapshot ?? core.snapshot
         let audio = state.audio.map { PlaybackTrack(id: uiTrackID($0.id), name: $0.name, isSelected: $0.selected) }
         let subtitles = state.subtitles.map { PlaybackTrack(id: uiTrackID($0.id), name: $0.name, isSelected: $0.selected) }
         if audioTracks != audio { audioTracks = audio }
         if subtitleTracks != subtitles { subtitleTracks = subtitles }
-        selectedSubtitleID = state.subtitles.first(where: { $0.selected }).map { uiTrackID($0.id) }
+        let selected = state.subtitles.first(where: { $0.selected }).map { uiTrackID($0.id) }
+        if selectedSubtitleID != selected { selectedSubtitleID = selected }
     }
     private func updateSubtitles() {
         let state = core.snapshot
@@ -1385,7 +1414,41 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         load(currentItem, source: source, engine: currentEngine, decoder: currentDecoder)
     }
 
+    private func refreshPlaybackSubtitle(for item: MediaItem, source: MediaSource?, token: UUID) {
+        playbackSubtitleTask?.cancel()
+        playbackSubtitleTask = nil
+        // Emby version names are file labels, not the episode's display context.
+        playbackSubtitle = item.embyItemType == "Movie" ? item.title : (item.embyItemType == nil ? item.subtitle : nil)
+        guard item.embyItemType == "Episode", let source, source.kind == .emby else { return }
+        playbackSubtitleTask = Task { [weak self] in
+            guard let metadata = try? await EmbyRepository.shared.detailMetadata(for: item, source: source),
+                  !Task.isCancelled else { return }
+            var parts: [String] = []
+            if let series = metadata.series {
+                parts.append(series.title)
+                var count = series.embyPresentation?.seasonCount
+                if count == nil {
+                    count = try? await EmbyRepository.shared.seriesSeasonCount(for: series, source: source)
+                }
+                guard !Task.isCancelled else { return }
+                if (count ?? 0) > 1 || (metadata.seasonNumber ?? 0) > 1,
+                   let season = metadata.seasonNumber {
+                    parts.append(season == 0 ? VesperLocalization.string("特别篇") : VesperLocalization.localized("第\(season)季"))
+                }
+            }
+            if let episode = metadata.episodeNumber {
+                parts.append(VesperLocalization.localized("第\(episode)集"))
+            }
+            guard let self, !Task.isCancelled, self.generation == token else { return }
+            self.playbackSubtitle = parts.isEmpty ? nil : parts.joined(separator: " · ")
+        }
+    }
+
     func stop() {
+        hasLoadedMedia = false
+        playbackSubtitleTask?.cancel()
+        playbackSubtitleTask = nil
+        playbackSubtitle = nil
         traktReporter.finish()
         saveProgress()
         recordPlaybackHistory()
@@ -1471,20 +1534,30 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
     private func syncCoreState() {
         let state = core.snapshot
+        if !hasLoadedMedia && !core.isTransitioning {
+            switch state.phase {
+            case .playing, .paused, .ended: hasLoadedMedia = true
+            default: break
+            }
+        }
         // Lifecycle notifications and engine teardown completion can arrive in
         // either order. Also check the first fresh snapshot after foreground.
         if state.requiresForegroundReload, restoreReleasedAetherSession(resume: false) { return }
-        videoView = core.view
-        currentEngine = core.engineID == .aether ? .aether : .vlc
+        let view = core.view
+        if videoView !== view { videoView = view }
+        let engine: PlaybackEngine = core.engineID == .aether ? .aether : .vlc
+        if currentEngine != engine { currentEngine = engine }
         if let actual = state.actualDecoder {
             let decoder: PlaybackDecoder = actual == .software ? .software : .hardware
             if decoder != currentDecoder, requestedDecoder == nil, !core.isTransitioning {
                 playbackTransitionNotice = .init(message: "已自动切换至\(decoder.title)")
             }
-            currentDecoder = decoder
+            if currentDecoder != decoder { currentDecoder = decoder }
         }
-        isLoading = core.isTransitioning || state.phase == .loading
-        isPlaying = state.phase == .playing
+        let loading = core.isTransitioning || state.phase == .loading
+        if isLoading != loading { isLoading = loading }
+        let playing = state.phase == .playing
+        if isPlaying != playing { isPlaying = playing }
         if appIsInBackground && !PlaybackPreferences.backgroundEnabled && isPlaying { core.pause() }
         if !state.requiresForegroundReload && !isSeeking && !core.isTransitioning {
             if let landing = seekLanding {
@@ -1493,9 +1566,11 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         }
         if !state.requiresForegroundReload && (!isLoading || state.duration > 0) {
             let engineDuration = state.duration.isFinite ? max(0, state.duration) : 0
-            duration = engineDuration > 0 ? engineDuration : (resource?.duration ?? 0)
+            let total = engineDuration > 0 ? engineDuration : (resource?.duration ?? 0)
+            if duration != total { duration = total }
         }
-        bufferedTime = state.buffered.isFinite ? max(currentTime, state.buffered) : currentTime
+        let buffered = state.buffered.isFinite ? max(currentTime, state.buffered) : currentTime
+        if bufferedTime != buffered { bufferedTime = buffered }
         if bufferedRanges != state.bufferedRanges { bufferedRanges = state.bufferedRanges }
         if case .failed(let message) = state.phase { errorMessage = message; isLoading = false }
         if state.phase == .ended {
@@ -1512,9 +1587,10 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         refreshSkipMarkers()
         if applySkipMarkers() { return }
         prepareNextEpisodeIfNeeded()
-        refreshTracks(); updateSubtitles(); configurePictureInPicture()
+        // Reuse this poll's snapshot instead of reading the engine a second time.
+        refreshTracks(using: state); updateSubtitles(); configurePictureInPicture()
         // SwiftVLC retains its native AVKit delegate; consume its observable PiP state.
-        isPictureInPicturePossible = state.pipPossible
+        if isPictureInPicturePossible != state.pipPossible { isPictureInPicturePossible = state.pipPossible }
         if state.pipActive != previouslyActivePiP {
             previouslyActivePiP = state.pipActive
             isPictureInPictureActive = state.pipActive
@@ -1524,7 +1600,9 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         restoreProgressIfNeeded()
         if Date().timeIntervalSince(lastProgressSave) >= 5 && !isSeeking { saveProgress() }
         if isPlaying && !isSeeking && Date().timeIntervalSince(lastHistorySave) >= 5 { recordPlaybackHistory() }
-        UIApplication.shared.isIdleTimerDisabled = isPlaying
+        if UIApplication.shared.isIdleTimerDisabled != isPlaying {
+            UIApplication.shared.isIdleTimerDisabled = isPlaying
+        }
         if !core.isTransitioning {
             var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
             info[MPMediaItemPropertyTitle] = currentItem?.title
@@ -1553,6 +1631,7 @@ struct PlaybackVideoDetails: Sendable {
     let synopsis: String?
     let sourceName: String
     let technical: [PlaybackDetailField]
+    var duration: Double? = nil
 }
 
 struct PlaybackDetailField: Sendable {

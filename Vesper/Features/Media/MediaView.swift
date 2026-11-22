@@ -776,7 +776,8 @@ struct MediaView: View {
                         selectSource(source)
                     } label: {
                         Label {
-                            Text(verbatim: source.name)
+                            Text(verbatim: source.kind == .local ? VesperLocalization.string("本地视频")
+                                 : source.kind == .photos ? VesperLocalization.string("相册视频") : source.name)
                         } icon: {
                             if source.kind == .emby {
                                 sourceMenuIcon(source, size: 22)

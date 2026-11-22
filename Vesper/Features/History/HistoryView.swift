@@ -24,7 +24,9 @@ struct HistoryView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     ForEach(groups) { group in
                         VStack(alignment: .leading, spacing: 0) {
-                            Text(verbatim: library.sources.first(where: { $0.id == group.id })?.name ?? group.source.name)
+                            let source = library.sources.first(where: { $0.id == group.id }) ?? group.source
+                            Text(verbatim: source.kind == .local ? VesperLocalization.string("本地视频")
+                                 : source.kind == .photos ? VesperLocalization.string("相册视频") : source.name)
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundStyle(.primary)
                                 .padding(.horizontal, 20)

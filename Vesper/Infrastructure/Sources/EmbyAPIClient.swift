@@ -18,12 +18,19 @@ struct EmbySourceConfiguration: Codable, Equatable, Sendable {
     var alternateAddresses: [String]? = nil
     var primaryRouteAddress: String? = nil
     var alternateRouteNames: [String: String]? = nil
+    var serverRouteAddresses: [String]? = nil
 
     var primaryRoute: String { primaryRouteAddress ?? serverAddress }
 
     var backupRoutes: [String] {
-        EmbyRouteOptions.unique([serverAddress] + (alternateAddresses ?? []))
+        let addresses = EmbyRouteOptions.unique((alternateAddresses ?? []) + [serverAddress])
             .filter { EmbyRouteOptions.key($0) != EmbyRouteOptions.key(primaryRoute) }
+        let serverKeys = Set((serverRouteAddresses ?? []).map(EmbyRouteOptions.key))
+        let manual = addresses.filter { !serverKeys.contains(EmbyRouteOptions.key($0)) }
+        let available = Set(addresses.map(EmbyRouteOptions.key))
+        let server = EmbyRouteOptions.unique(serverRouteAddresses ?? [])
+            .filter { available.contains(EmbyRouteOptions.key($0)) }
+        return manual + server
     }
     var syncPlaybackProgress: Bool? = nil
     var syncWatchedState: Bool? = nil
@@ -31,6 +38,31 @@ struct EmbySourceConfiguration: Codable, Equatable, Sendable {
     var fetchAlternateAddresses: Bool? = nil
     var iconData: Data? = nil
     var strmDirectPlayback: Bool? = nil
+
+    mutating func mergeServerRoutes(_ routes: [EmbyServerRoute]) {
+        let primaryKey = EmbyRouteOptions.key(primaryRoute)
+        let backups = routes.filter { EmbyRouteOptions.key($0.address) != primaryKey }
+        let previousServerKeys = Set((serverRouteAddresses ?? []).map(EmbyRouteOptions.key))
+        let manual = backupRoutes.filter { !previousServerKeys.contains(EmbyRouteOptions.key($0)) }
+        let manualKeys = Set(manual.map(EmbyRouteOptions.key))
+        serverRouteAddresses = EmbyRouteOptions.unique((serverRouteAddresses ?? []) + backups.map(\.address))
+            .filter { EmbyRouteOptions.key($0) != primaryKey && !manualKeys.contains(EmbyRouteOptions.key($0)) }
+        alternateAddresses = EmbyRouteOptions.unique([primaryRoute] + manual + (serverRouteAddresses ?? []))
+        var names = alternateRouteNames ?? [:]
+        for route in backups {
+            let key = EmbyRouteOptions.key(route.address)
+            // Keep user-edited labels when refreshing server-provided routes.
+            if names[key]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                names[key] = route.name
+            }
+        }
+        alternateRouteNames = names
+    }
+}
+
+struct EmbyServerRoute: Equatable, Sendable {
+    let name: String
+    let address: String
 }
 
 enum EmbyRouteOptions {

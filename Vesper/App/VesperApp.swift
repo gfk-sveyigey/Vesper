@@ -11,6 +11,7 @@ struct VesperApp: App {
     @AppStorage("language.code") private var languageCode = "system"
 
     init() {
+        AppLog.installEngineLogging()
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
         FileDeliveryLog.write("App 启动，build=\(build)，文件接收模式=SwiftUI原生")
         let opensInPlace = Bundle.main.object(forInfoDictionaryKey: "LSSupportsOpeningDocumentsInPlace") as? Bool ?? false

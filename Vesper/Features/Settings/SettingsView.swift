@@ -201,13 +201,13 @@ private struct EmbySettingsView: View {
                 }
             }
             SettingsSection("音频与字幕") {
-                Picker("默认音轨语言", selection: $audioLanguage) {
+                SettingsPicker("默认音轨语言", selection: $audioLanguage) {
                     ForEach(EmbyTrackPreferences.languages.indices, id: \.self) { index in
                         Text(LocalizedStringKey(EmbyTrackPreferences.languages[index].1))
                             .tag(EmbyTrackPreferences.languages[index].0)
                     }
                 }
-                Picker("默认字幕语言", selection: $subtitleLanguage) {
+                SettingsPicker("默认字幕语言", selection: $subtitleLanguage) {
                     ForEach(EmbyTrackPreferences.languages.indices, id: \.self) { index in
                         Text(LocalizedStringKey(EmbyTrackPreferences.languages[index].1))
                             .tag(EmbyTrackPreferences.languages[index].0)
@@ -240,12 +240,12 @@ private struct EmbySettingsView: View {
                     .foregroundStyle(.secondary)
             }
             SettingsSection("视频预加载缓存") {
-                Picker("Wi-Fi", selection: $wifiCacheMB) {
+                SettingsPicker("Wi-Fi", selection: $wifiCacheMB) {
                     ForEach(EmbyPreloadCacheSettings.choices, id: \.self) { size in
                         Text("\(size) MB").tag(size)
                     }
                 }
-                Picker("蜂窝网络", selection: $cellularCacheMB) {
+                SettingsPicker("蜂窝网络", selection: $cellularCacheMB) {
                     ForEach(EmbyPreloadCacheSettings.choices, id: \.self) { size in
                         Text("\(size) MB").tag(size)
                     }
@@ -468,7 +468,7 @@ private struct EmbySkipDatabaseEditor: View {
                 TextField("名称", text: $database.name)
                 TextField("API 基础地址", text: $database.address)
                     .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                Picker("数据库格式", selection: $database.format) {
+                SettingsPicker("数据库格式", selection: $database.format) {
                     ForEach(EmbySkipDatabase.Format.allCases) { Text($0.title).tag($0) }
                 }
                 Text("IntroDB 填写 /segments 之前的地址；TheIntroDB 可填写服务根地址或含 /v4 的地址。")
@@ -521,7 +521,7 @@ private struct AppPermissionsView: View {
                 }
             }
             SettingsSection {
-                LabeledContent("本地网络", value: "使用时由系统请求")
+                LabeledContent("本地网络", value: VesperLocalization.string("使用时由系统请求"))
                 Text("连接局域网 Emby 服务器时，iOS 会显示本地网络访问提示。系统不向 App 提供权限状态查询 API。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -1005,6 +1005,8 @@ struct SettingsLabel: View {
                 .frame(width: 28, height: 28)
                 .accessibilityHidden(true)
             Text(title)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
                 .font(.body)
                 .foregroundStyle(Color(uiColor: .label))
         }
@@ -1040,7 +1042,7 @@ private struct PlaybackLicensesView: View {
     @State private var selectedDocument: LicenseDocument?
 
     private let documents = [
-        LicenseDocument(title: "播放框架与依赖声明", resource: "PlaybackNotices"),
+        LicenseDocument(title: VesperLocalization.string("播放框架与依赖声明"), resource: "PlaybackNotices"),
         LicenseDocument(title: "AetherEngine", resource: "AetherEngine-LICENSE"),
         LicenseDocument(title: "SwiftVLC", resource: "SwiftVLC-LICENSE")
     ]
@@ -1080,7 +1082,7 @@ private struct LicenseDocument: Identifiable {
     var id: String { resource }
     var contents: String {
         Bundle.main.url(forResource: resource, withExtension: "txt")
-            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "许可内容暂不可用。"
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? VesperLocalization.string("许可内容暂不可用。")
     }
 }
 
@@ -1112,12 +1114,49 @@ private struct LicenseDocumentSheet: View {
     }
 }
 
+/// Keep long setting titles readable without moving their controls below them.
+private struct SettingsWrappingToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            configuration.label
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 4)
+            Toggle(isOn: configuration.$isOn) { configuration.label }
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .fixedSize()
+        }
+    }
+}
+
+private struct SettingsWrappingLabeledContentStyle: LabeledContentStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            configuration.label
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 4)
+            configuration.content
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
+        }
+    }
+}
+
 /// A single native grouped List owns every row and section on a settings page.
 struct SettingsPage<Content: View>: View {
     private let content: Content
     init(@ViewBuilder content: () -> Content) { self.content = content() }
     var body: some View {
         List { content }
+            .lineLimit(nil)
+            .minimumScaleFactor(1)
+            .toggleStyle(SettingsWrappingToggleStyle())
+            .labeledContentStyle(SettingsWrappingLabeledContentStyle())
             .listStyle(.insetGrouped)
             .listSectionSpacing(20)
             .contentMargins(.top, 0, for: .scrollContent)
@@ -1138,6 +1177,8 @@ struct SettingsSection<Rows: View, Footer: View>: View {
     var body: some View {
         Section {
             rows
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
                 .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
         } header: {
             if let title { Text(title).textCase(nil) }
@@ -1160,8 +1201,10 @@ struct SettingsPicker<Selection: Hashable, Options: View, Label: View>: View {
         self.selection = selection; self.options = content(); self.label = label()
     }
     var body: some View {
-        HStack(spacing: 8) {
-            label.lineLimit(1).minimumScaleFactor(0.75)
+        HStack(alignment: .center, spacing: 8) {
+            label.lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
             Spacer(minLength: 4)
             Picker(selection: selection) { options } label: { label }
                 .labelsHidden().pickerStyle(.menu)
@@ -1533,6 +1576,11 @@ private struct CacheCategoryList: UIViewRepresentable {
             var content = UIListContentConfiguration.valueCell()
             content.image = UIImage(systemName: category.symbol)
             content.imageProperties.tintColor = tableView.tintColor
+            content.prefersSideBySideTextAndSecondaryText = true
+            content.textProperties.numberOfLines = 0
+            content.textProperties.lineBreakMode = .byWordWrapping
+            content.textProperties.adjustsFontSizeToFitWidth = false
+            content.secondaryTextProperties.numberOfLines = 1
             content.text = VesperLocalization.string(category.label)
             content.secondaryText = view.sizes[category].map {
                 ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)

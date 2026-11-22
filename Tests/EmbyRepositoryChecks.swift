@@ -16,6 +16,38 @@ struct EmbyRepositoryChecks {
         let client = try EmbyAPIClient(configuration: configuration, token: "secret", deviceID: "stable-device")
         let repository = EmbyRepository(clientProvider: { _ in client })
         let source = MediaSource(id: UUID(), name: configuration.title, kind: .emby, behavior: .empty, emby: configuration)
+        let serverRoutes = try await repository.alternateRoutes(for: source)
+        precondition(serverRoutes == [
+            EmbyServerRoute(name: "Backup B", address: "https://backup-b.example.com"),
+            EmbyServerRoute(name: "Backup A", address: "https://backup-a.example.com")
+        ])
+        var routesConfiguration = configuration
+        routesConfiguration.alternateAddresses = ["https://manual.example.com", "https://backup-b.example.com/emby"]
+        routesConfiguration.alternateRouteNames = [EmbyRouteOptions.key("https://backup-b.example.com"): "My label"]
+        routesConfiguration.mergeServerRoutes(serverRoutes)
+        routesConfiguration.mergeServerRoutes(serverRoutes)
+        precondition(routesConfiguration.backupRoutes.count == 3)
+        precondition(routesConfiguration.alternateRouteNames?[EmbyRouteOptions.key("https://backup-b.example.com")] == "My label")
+        precondition(routesConfiguration.alternateRouteNames?[EmbyRouteOptions.key("https://backup-a.example.com")] == "Backup A")
+        precondition(routesConfiguration.primaryRoute == configuration.serverAddress)
+        var orderedConfiguration = configuration
+        orderedConfiguration.alternateAddresses = ["https://manual.example.com"]
+        orderedConfiguration.mergeServerRoutes(serverRoutes)
+        // A manual route added after discovery must still precede server routes.
+        orderedConfiguration.alternateAddresses?.append("https://manual-new.example.com")
+        let expectedRoutes = ["https://manual.example.com", "https://manual-new.example.com",
+                              "https://backup-b.example.com", "https://backup-a.example.com"]
+        precondition(orderedConfiguration.backupRoutes == expectedRoutes)
+        orderedConfiguration.mergeServerRoutes(serverRoutes)
+        precondition(orderedConfiguration.backupRoutes == expectedRoutes)
+        let allRoutes = [orderedConfiguration.primaryRoute] + orderedConfiguration.backupRoutes
+        orderedConfiguration.primaryRouteAddress = orderedConfiguration.primaryRoute
+        orderedConfiguration.serverAddress = "https://manual-new.example.com"
+        orderedConfiguration.alternateAddresses = allRoutes
+        precondition(orderedConfiguration.backupRoutes == expectedRoutes)
+        let persistedRoutes = try JSONDecoder().decode(EmbySourceConfiguration.self,
+                                                       from: JSONEncoder().encode(orderedConfiguration))
+        precondition(persistedRoutes.backupRoutes == expectedRoutes)
         let blankSearch = try await repository.search(for: source, query: "  ")
         precondition(blankSearch.items.isEmpty && !blankSearch.hasMore)
         let firstSearch = try await repository.search(for: source, query: "  晚风 & café /?  ", limit: 2)

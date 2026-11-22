@@ -37,33 +37,39 @@ struct DanmakuOverlay: View {
 
     var body: some View {
         GeometryReader { geometry in
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !session.isPlaying || !preferences.enabled || session.isPictureInPictureActive)) { timeline in
-                Canvas { context, bounds in
-                    guard preferences.enabled, !session.isPictureInPictureActive else { return }
-                    let elapsed = session.isPlaying && !session.isSeeking && !session.isLoading
-                        ? min(0.5, max(0, timeline.date.timeIntervalSince(anchor))) * Double(session.playbackRate) : 0
-                    let time = session.currentTime + elapsed - document.offset
-                    // Binary search bounds the work to the short active window, not the entire file.
-                    var low = 0, high = positions.count
-                    while low < high {
-                        let mid = (low + high) / 2
-                        if positions[mid].comment.time < time - 20 { low = mid + 1 } else { high = mid }
-                    }
-                    for entry in positions[low...] {
-                        let age = time - entry.comment.time
-                        if age < 0 { break }
-                        guard age < entry.lifetime else { continue }
-                        let c = preferences.colored ? entry.comment.color : 0xFFFFFF
-                        let color = Color(red: Double((c >> 16) & 255) / 255, green: Double((c >> 8) & 255) / 255, blue: Double(c & 255) / 255)
-                        let label = Text(entry.comment.text).font(.system(size: size, weight: preferences.bold ? .bold : .regular)).foregroundColor(color)
-                        let x = entry.scrolling
-                            ? bounds.width - CGFloat(age / entry.lifetime) * (bounds.width + CGFloat(entry.width)) + CGFloat(entry.width) / 2
-                            : bounds.width / 2
-                        var shaded = context
-                        if preferences.shadow {
-                            shaded.addFilter(.shadow(color: .black.opacity(0.95), radius: 1, x: 1, y: 1))
+            ZStack {
+                if preferences.enabled && !positions.isEmpty && !session.isPictureInPictureActive {
+                    // An empty overlay must not start a separate animation clock when
+                    // playback begins. Active comments follow the scene's UI cadence.
+                    TimelineView(.animation(paused: !session.isPlaying || session.isSeeking || session.isLoading)) { timeline in
+                        Canvas { context, bounds in
+                            guard preferences.enabled, !session.isPictureInPictureActive else { return }
+                            let elapsed = session.isPlaying && !session.isSeeking && !session.isLoading
+                                ? min(0.5, max(0, timeline.date.timeIntervalSince(anchor))) * Double(session.playbackRate) : 0
+                            let time = session.currentTime + elapsed - document.offset
+                            // Binary search bounds the work to the short active window, not the entire file.
+                            var low = 0, high = positions.count
+                            while low < high {
+                                let mid = (low + high) / 2
+                                if positions[mid].comment.time < time - 20 { low = mid + 1 } else { high = mid }
+                            }
+                            for entry in positions[low...] {
+                                let age = time - entry.comment.time
+                                if age < 0 { break }
+                                guard age < entry.lifetime else { continue }
+                                let c = preferences.colored ? entry.comment.color : 0xFFFFFF
+                                let color = Color(red: Double((c >> 16) & 255) / 255, green: Double((c >> 8) & 255) / 255, blue: Double(c & 255) / 255)
+                                let label = Text(entry.comment.text).font(.system(size: size, weight: preferences.bold ? .bold : .regular)).foregroundColor(color)
+                                let x = entry.scrolling
+                                    ? bounds.width - CGFloat(age / entry.lifetime) * (bounds.width + CGFloat(entry.width)) + CGFloat(entry.width) / 2
+                                    : bounds.width / 2
+                                var shaded = context
+                                if preferences.shadow {
+                                    shaded.addFilter(.shadow(color: .black.opacity(0.95), radius: 1, x: 1, y: 1))
+                                }
+                                shaded.draw(label, at: CGPoint(x: x, y: CGFloat(entry.y)))
+                            }
                         }
-                        shaded.draw(label, at: CGPoint(x: x, y: CGFloat(entry.y)))
                     }
                 }
             }

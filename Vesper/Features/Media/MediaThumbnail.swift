@@ -749,7 +749,7 @@ struct MediaThumbnailPreview: View {
     var artworkIsPrepared = false
     var showsEmbyFacts = false
     var usesLandscapeArtwork = false
-    @Environment(\.locale) private var locale
+    @AppStorage("language.code") private var languageCode = "system"
     @State private var duration: Double = 0
     private var displayName: String {
         previewTitle ?? (VideoImporter.isVideoType(URL(fileURLWithPath: item.title)) ? (item.title as NSString).deletingPathExtension : item.title)
@@ -769,13 +769,14 @@ struct MediaThumbnailPreview: View {
                 Text(verbatim: displayName).lineLimit(previewTitle == nil ? 2 : nil)
                 if let historyEntry {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(historyEntry.watchedAt, format: .dateTime.hour().minute())
+                        Text(historyEntry.watchedAt, format: .dateTime.hour().minute()
+                            .locale(VesperLocalization.locale(for: languageCode)))
                         if historyEntry.duration.isFinite && historyEntry.duration > 0 {
                             let minutes = (historyEntry.duration / 60).rounded()
-                            Text(Measurement(value: max(1, minutes), unit: UnitDuration.minutes),
-                                 format: .measurement(width: .wide, usage: .asProvided,
-                                                      numberFormatStyle: .number.precision(.fractionLength(0)))
-                                    .locale(locale))
+                            Text(verbatim: Measurement(value: max(1, minutes), unit: UnitDuration.minutes)
+                                .formatted(.measurement(width: .wide, usage: .asProvided,
+                                                        numberFormatStyle: .number.precision(.fractionLength(0)))
+                                    .locale(VesperLocalization.locale(for: languageCode))))
                         }
                     }
                     .font(.subheadline)

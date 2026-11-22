@@ -1072,3 +1072,37 @@
 "搜索失败" = "Error de búsqueda";
 "请先在来源标签页选择一个媒体来源。" = "Primero elige una fuente multimedia en la pestaña Fuentes.";
 "无法读取当前来源，请检查访问权限后重试。" = "No se pudo leer esta fuente. Comprueba los permisos de acceso y vuelve a intentarlo.";
+
+"播放框架与依赖声明" = "Avisos de los motores de reproducción y sus dependencias";
+
+"许可内容暂不可用。" = "El texto de la licencia no está disponible en este momento.";
+"显示调试信息" = "Mostrar información de diagnóstico";
+"播放调试信息" = "Diagnóstico de reproducción";
+"暂无调试数据" = "No hay datos de diagnóstico disponibles";
+"显隐调试信息" = "Alternar información de diagnóstico";
+"播放后端" = "Motor de reproducción";
+"解码器" = "Decodificador";
+"当前码率" = "Tasa de bits actual";
+"平均码率" = "Tasa de bits media";
+"网络吞吐" = "Rendimiento de red";
+"视频帧率" = "Fotogramas por segundo";
+"丢帧数" = "Fotogramas descartados";
+"前向缓冲" = "Búfer por delante";
+"显示队列" = "Cola de visualización";
+"读取缓存" = "Caché de lectura";
+"数据缓存" = "Caché de datos";
+"音画偏差" = "Desfase A/V";
+"内存占用" = "Uso de memoria";
+"输入码率" = "Tasa de bits de entrada";
+"解复用码率" = "Tasa de bits de demultiplexación";
+"读取字节" = "Bytes leídos";
+"解复用字节" = "Bytes desmultiplexados";
+"解码视频帧" = "Fotogramas decodificados";
+"显示视频帧" = "Fotogramas mostrados";
+"迟到视频帧" = "Fotogramas retrasados";
+"丢失视频帧" = "Fotogramas perdidos";
+"损坏数据包" = "Paquetes dañados";
+"时间戳不连续" = "Saltos de tiempo";
+"已播放音频缓冲" = "Búferes de audio reproducidos";
+"丢失音频缓冲" = "Búferes de audio perdidos";
+"显示帧率" = "Frecuencia de visualización";

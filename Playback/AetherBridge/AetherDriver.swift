@@ -18,6 +18,13 @@ internal import AetherEngine
     public var restoreUI: ((@escaping (Bool) -> Void) -> Void)?
     public var view: UIView { surface }
     public init() {}
+
+    /// Process-wide sink: do not capture a driver or reinstall for every load.
+    public static func setLogHandler(_ handler: @escaping @Sendable (String) -> Void) {
+        EngineLog.structuredHandler = { @Sendable line, category, _ in
+            handler("[Aether][\(category.rawValue)] \(line)")
+        }
+    }
     public var nativePiPController: AVPictureInPictureController? {
         guard let engine else { return nil }
         // Do not attach a PiP content source for audio-only backgrounding.
@@ -89,6 +96,72 @@ internal import AetherEngine
         }
         if result.duration > 0 { lastUsableSnapshot = result }
         return result
+    }
+    public var mediaInformation: MediaProbe? {
+        guard let engine else { return nil }
+        var result = MediaProbe()
+        result.duration = engine.duration
+        result.width = Int(engine.sourceVideoWidth)
+        result.height = Int(engine.sourceVideoHeight)
+        result.hasVideo = result.width > 0 && result.height > 0
+        result.container = engine.sourceContainerFormat
+        result.fields["视频编码"] = engine.sourceVideoCodecName
+        if result.hasVideo { result.fields["动态范围"] = String(describing: engine.sourceVideoFormat) }
+        if let rate = engine.sourceVideoFrameRate, rate.isFinite, rate > 0 {
+            result.fields["帧率"] = String(format: "%.3f fps", rate)
+        }
+        if engine.sourceVideoBitrate > 0 {
+            result.fields["视频码率"] = String(format: "%.1f kbit/s", Double(engine.sourceVideoBitrate) / 1000)
+        }
+        if let format = engine.sourceVideoStreamFormat {
+            result.fields["像素格式"] = format.pixelFormat
+            result.fields["视频位深"] = format.bitDepth.map { "\($0) bit" }
+            result.fields["色彩原色"] = format.colorPrimaries
+            result.fields["传递函数"] = format.transfer
+            result.fields["色彩矩阵"] = format.matrix
+            result.fields["全范围色彩"] = format.range
+            result.fields["编码规格"] = format.profile
+        }
+        result.fields["音轨数量"] = String(engine.audioTracks.count)
+        if let audio = engine.audioTracks.first(where: { $0.id == engine.activeAudioTrackIndex }) ?? engine.audioTracks.first {
+            result.fields["音频编码"] = audio.codec
+            result.fields["音频语言"] = audio.language
+            if audio.sampleRate > 0 { result.fields["采样率"] = "\(audio.sampleRate) Hz" }
+            if audio.channels > 0 { result.fields["声道数"] = String(audio.channels) }
+            if audio.bitrate > 0 { result.fields["音频码率"] = String(format: "%.1f kbit/s", Double(audio.bitrate) / 1000) }
+            if audio.bitsPerSample > 0 { result.fields["音频位深"] = String(audio.bitsPerSample) }
+            result.fields["声道布局"] = audio.channelLayout
+        }
+        return result
+    }
+
+    public var diagnosticMetrics: [EngineDiagnosticMetric] {
+        guard let engine else { return [] }
+        var metrics = [EngineDiagnosticMetric("播放后端", engine.playbackBackend.rawValue)]
+        if let decoder = engine.activeVideoDecoder {
+            metrics.append(.init("解码器", decoder))
+        }
+        guard let telemetry = engine.liveTelemetry else { return metrics }
+        func add(_ title: String, _ value: Double?, suffix: String, digits: Int = 1) {
+            guard let value, value.isFinite else { return }
+            metrics.append(.init(title, String(format: "%.*f%@", digits, value, suffix)))
+        }
+        add("当前码率", telemetry.instantBitrateMbps, suffix: " Mb/s")
+        add("平均码率", telemetry.averageBitrateMbps, suffix: " Mb/s")
+        add("网络吞吐", telemetry.networkThroughputMbps, suffix: " Mb/s")
+        add("视频帧率", telemetry.observedFps, suffix: " fps")
+        if let dropped = telemetry.droppedFrameCount { metrics.append(.init("丢帧数", "\(dropped)")) }
+        add("前向缓冲", telemetry.forwardBufferSeconds, suffix: " s")
+        add("显示队列", telemetry.displayCushionSeconds, suffix: " s")
+        if let bytes = telemetry.readerWindowAheadBytes { metrics.append(.init("读取缓存", Self.byteCount(bytes))) }
+        if let bytes = telemetry.cachedBytes { metrics.append(.init("数据缓存", Self.byteCount(bytes))) }
+        add("音画偏差", telemetry.avSyncGapMs, suffix: " ms")
+        metrics.append(.init("内存占用", "\(telemetry.rssMb) MB"))
+        return metrics
+    }
+
+    private static func byteCount<T: BinaryInteger>(_ count: T) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
     }
     public func load(url: URL, configuration: EngineConfiguration) async throws {
         let engine = try AetherEngine()

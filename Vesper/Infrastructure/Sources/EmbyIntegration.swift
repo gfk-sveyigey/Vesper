@@ -385,13 +385,24 @@ actor EmbyRepository {
         return serverName?.isEmpty == false ? serverName : productName
     }
 
-    func alternateAddresses(for source: MediaSource) async throws -> [String] {
+    func alternateRoutes(for source: MediaSource) async throws -> [EmbyServerRoute] {
         let client = try await clientProvider(source)
-        let info = try await client.get("System/Info")
-        let values = (info["AlternateUrls"] as? [String] ?? [])
-            + ["LocalAddress", "WanAddress", "ServerAddress"].compactMap { info[$0] as? String }
-        return Array(Set(values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0 != source.emby?.serverAddress })).sorted()
+        let response = try await client.get("System/Ext/ServerDomains")
+        guard response["ok"] as? Bool == true,
+              let rows = response["data"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
+        let primaryKey = source.emby.map { EmbyRouteOptions.key($0.primaryRoute) }
+        var seen = Set<String>()
+        return rows.compactMap { row in
+            guard let name = (row["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty,
+                  let address = (row["url"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !address.isEmpty else { return nil }
+            let configuration = EmbySourceConfiguration(title: "", note: "", serverAddress: address, username: "")
+            guard (try? EmbyAPIClient(configuration: configuration, token: nil, deviceID: "validation")) != nil else { return nil }
+            let key = EmbyRouteOptions.key(address)
+            guard key != primaryKey, seen.insert(key).inserted else { return nil }
+            return EmbyServerRoute(name: name, address: address)
+        }
     }
 
     func items(for source: MediaSource, parentID: String?, startIndex: Int,
@@ -755,7 +766,7 @@ actor EmbyRepository {
                 id: id, name: version["Name"] as? String ?? id,
                 fileName: path.map { URL(fileURLWithPath: $0).lastPathComponent },
                 container: version["Container"] as? String,
-                size: (version["Size"] as? NSNumber)?.int64Value,
+                size: (version["Size"] as? NSNumber).flatMap { $0.int64Value > 0 ? $0.int64Value : nil },
                 bitRate: version["Bitrate"] as? Int,
                 duration: (version["RunTimeTicks"] as? NSNumber).map { $0.doubleValue / 10_000_000 },
                 supportsDirectPlay: version["SupportsDirectPlay"] as? Bool,

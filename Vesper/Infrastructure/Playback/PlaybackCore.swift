@@ -41,6 +41,7 @@ struct TranscodedPlaybackResource: Sendable {
     private var seekTask: Task<Void, Never>?
     private var token = UUID()
     private var url: URL?
+    var playbackURL: URL? { url }
     private var configuration = EngineConfiguration()
     private var attempted: Set<EngineID> = []
     private var hasTriedServer = false

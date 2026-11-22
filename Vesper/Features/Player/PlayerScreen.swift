@@ -48,6 +48,7 @@ struct PlayerScreen: View {
     @State private var hudDuration: Double = 1
     @State private var rotationError: String?
     @State private var showingNotice = false
+    @State private var debugInfoVisible = false
 
     private var canAutoHide: Bool {
         controlsVisible && session.isPlaying && !session.isLoading && !session.isSeeking
@@ -76,9 +77,6 @@ struct PlayerScreen: View {
         .onDisappear {
             if isScrubbing { finishScrubbing(commit: scrubPreviews) }
             if let originalBrightness { brightnessScreen?.brightness = originalBrightness }
-        }
-        .onChange(of: session.currentTime) { _, time in
-            if !isScrubbing { scrubTime = min(time, max(session.duration, 1)) }
         }
         .onChange(of: session.currentItem?.id) { _, _ in
             isScrubbing = false
@@ -137,6 +135,15 @@ struct PlayerScreen: View {
                 }
                 DanmakuOverlay(session: session, document: session.danmaku)
                     .id(ObjectIdentifier(session.danmaku))
+                if debugInfoVisible {
+                    diagnosticOverlay
+                        .padding(.top, safeGeometry.safeAreaInsets.top + 12)
+                        .padding(.leading, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .allowsHitTesting(false)
+                        .accessibilityElement(children: .contain)
+                        .zIndex(10)
+                }
                 PlayerGestureSurface(tapped: handleTap, held: { region, fingers in
                     guard !regionsVisible, !controlsVisible, !menuPresented, panel == nil else { return }
                     performGestureAction(PlayerGesturePreferences.action(.longPress, region, fingers))
@@ -213,9 +220,9 @@ struct PlayerScreen: View {
         }
         .background {
             PlayerInterfaceRefreshDriver(
-                isActive: scenePhase == .active && session.isPresented
-                    && (controlsVisible || menuPresented || panel != nil || showingNotice || regionsVisible || !hudText.isEmpty),
-                context: panel?.rawValue ?? (menuPresented ? "menu" : "controls")
+                isActive: scenePhase == .active && session.isPresented && panel == nil
+                    && (controlsVisible || menuPresented || showingNotice || regionsVisible || !hudText.isEmpty),
+                context: "\(menuPresented ? "menu" : "controls"):\(session.isLoading ? "loading" : session.isPlaying ? "playing" : "paused")"
             )
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -226,6 +233,16 @@ struct PlayerScreen: View {
         .interactiveDismissDisabled(true)
         .sheet(item: $panel, onDismiss: revealControls) { selected in
             panelContent(selected)
+                .background {
+                    // A full-height sheet may detach the presenting view.
+                    // Keep its UI cadence request inside the visible sheet.
+                    PlayerInterfaceRefreshDriver(
+                        isActive: scenePhase == .active,
+                        context: "\(selected.rawValue):\(session.isLoading ? "loading" : session.isPlaying ? "playing" : "paused")"
+                    )
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
                 .environment(\.settingsIntroCardsHidden, true)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -372,7 +389,7 @@ struct PlayerScreen: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    if let subtitle = session.currentItem?.subtitle, !subtitle.isEmpty {
+                    if let subtitle = session.playbackSubtitle, !subtitle.isEmpty {
                         Text(verbatim: subtitle).font(.caption).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
                     }
                     Text(verbatim: session.currentItem?.title ?? VesperLocalization.string("未在播放"))
@@ -533,13 +550,50 @@ struct PlayerScreen: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
+    private var diagnosticOverlay: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            VStack(alignment: .leading, spacing: 5) {
+                Text("\(VesperLocalization.string("播放调试信息")) · \(session.diagnosticEngineTitle)")
+                    .font(.caption.weight(.semibold))
+                let metrics = session.diagnosticMetrics
+                if metrics.isEmpty {
+                    Text(VesperLocalization.string("暂无调试数据"))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(metrics) { metric in
+                        HStack(spacing: 12) {
+                            Text(verbatim: VesperLocalization.string(metric.title))
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 8)
+                            Text(verbatim: metric.value)
+                                .monospacedDigit()
+                        }
+                        .font(.caption2)
+                    }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: 320, alignment: .leading)
+            .background(.black.opacity(0.76), in: RoundedRectangle(cornerRadius: 8))
+            .foregroundStyle(.white)
+        }
+    }
+
     private func bottomActions(landscape: Bool) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 12) {
                 compactAction("视频简介", symbol: "text.book.closed") { requestPanel(.synopsis) }
                 compactAction("详细信息", symbol: "info.circle") { requestPanel(.details) }
+                    .disabled(!session.canShowMediaDetails)
             }
             .glassEffect(.regular.interactive(), in: Capsule())
+            PlayerActionButton(title: VesperLocalization.string("显示调试信息"), symbol: "ladybug", pointSize: 14) {
+                revealControls()
+                debugInfoVisible.toggle()
+            }
+            .frame(width: 36, height: 36)
+            .glassEffect(.regular.interactive(), in: Circle())
             Spacer(minLength: 0)
             HStack(spacing: 12) {
                 compactAction(landscape ? "竖屏" : "横屏", symbol: "rotate.right") { requestRotation(!landscape) }
@@ -592,6 +646,7 @@ struct PlayerScreen: View {
     }
 
     private func requestPanel(_ selected: PlayerPanel) {
+        if selected == .details && !session.canShowMediaDetails { return }
         if selected == .queue {
             PlayerQueueDiagnostic.write("open.request source=\(session.queueSource?.kind.rawValue ?? "none") count=\(session.queue.count)")
         }
@@ -767,6 +822,7 @@ struct PlayerScreen: View {
         case .playlist: return "播放列表"
         case .synopsis: return "视频简介"
         case .details: return "详细信息"
+        case .debugInfo: return "显隐调试信息"
         case .rotate: return "切换屏幕方向"
         case .fill: return "切换填充方式"
         case .fillScreen: return "填满屏幕"
@@ -819,6 +875,7 @@ struct PlayerScreen: View {
         case .playlist: requestPanel(.queue)
         case .synopsis: requestPanel(.synopsis)
         case .details: requestPanel(.details)
+        case .debugInfo: debugInfoVisible.toggle()
         case .rotate: requestRotation(!PlayerOrientationPolicy.isLandscape)
         case .fill: session.toggleFill()
         case .fillScreen: if !session.fillsScreen { session.toggleFill() }
@@ -1003,12 +1060,16 @@ private struct PlayerMediaInfoView: View {
             if showsDetails {
                 if let details {
                     SettingsSection("文件信息") {
-                        LabeledContent("文件名") { Text(verbatim: details.fileName).textSelection(.enabled) }
+                        if !details.fileName.isEmpty {
+                            LabeledContent("文件名") { Text(verbatim: details.fileName).textSelection(.enabled) }
+                        }
                         LabeledContent("来源") { Text(verbatim: details.sourceName) }
                         if let bytes = details.byteCount {
                             LabeledContent("文件大小") { Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
                         }
-                        LabeledContent("时长") { Text(verbatim: mediaTimeLabel(session.duration)) }
+                        if let duration = details.duration {
+                            LabeledContent("时长") { Text(verbatim: mediaTimeLabel(duration)) }
+                        }
                         detailFields(details, group: 0)
                     }
                     SettingsSection("视频信息") {
@@ -1027,9 +1088,10 @@ private struct PlayerMediaInfoView: View {
         .contentMargins(.top, 0, for: .scrollContent)
         .navigationTitle(showsDetails ? "详细信息" : "视频简介")
         .toolbarTitleDisplayMode(.inline)
-        .task(id: session.currentItem?.id) {
+        .task(id: "\(session.currentItem?.id.localID ?? "")|\(session.currentEngine.rawValue)|\(session.currentDecoder.rawValue)") {
             loading = true
-            let result = await session.mediaDetails()
+            details = nil
+            let result = await session.mediaDetails(showsDetails: showsDetails)
             guard !Task.isCancelled else { return }
             details = result
             loading = false

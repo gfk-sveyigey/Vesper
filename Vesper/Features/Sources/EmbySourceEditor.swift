@@ -24,6 +24,7 @@ struct EmbySourceEditor: View {
         alternateRouteName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     @State private var alternateAddresses: [String] = []
+    @State private var serverRouteAddresses: [String] = []
     @State private var fetchAlternateAddresses = false
     @State private var syncProgress = true
     @State private var allowTranscoding = true
@@ -205,6 +206,8 @@ struct EmbySourceEditor: View {
                 .onDelete { offsets in
                     for index in offsets {
                         alternateRouteNames.removeValue(forKey: EmbyRouteOptions.key(alternateAddresses[index]))
+                        let key = EmbyRouteOptions.key(alternateAddresses[index])
+                        serverRouteAddresses.removeAll { EmbyRouteOptions.key($0) == key }
                     }
                     alternateAddresses.remove(atOffsets: offsets)
                 }
@@ -256,6 +259,7 @@ struct EmbySourceEditor: View {
         username = configuration.username
         iconData = configuration.iconData
         alternateAddresses = configuration.backupRoutes
+        serverRouteAddresses = configuration.serverRouteAddresses ?? []
         alternateRouteNames = configuration.alternateRouteNames ?? [:]
         fetchAlternateAddresses = configuration.fetchAlternateAddresses ?? false
         syncProgress = configuration.syncPlaybackProgress ?? true
@@ -308,6 +312,8 @@ struct EmbySourceEditor: View {
         configuration.userID = source?.emby?.userID
         let primaryKey = EmbyRouteOptions.key(trimmedAddress)
         let backups = EmbyRouteOptions.unique(alternateAddresses).filter { EmbyRouteOptions.key($0) != primaryKey }
+        let backupKeys = Set(backups.map(EmbyRouteOptions.key))
+        configuration.serverRouteAddresses = serverRouteAddresses.filter { backupKeys.contains(EmbyRouteOptions.key($0)) }
         let previousAddress = source.flatMap { library.embyConfiguration(for: $0.id)?.serverAddress }
         if let previousAddress, let active = backups.first(where: {
             EmbyRouteOptions.key($0) == EmbyRouteOptions.key(previousAddress)
@@ -315,8 +321,7 @@ struct EmbySourceEditor: View {
             configuration.serverAddress = active
             configuration.primaryRouteAddress = trimmedAddress
         }
-        configuration.alternateAddresses = ([trimmedAddress] + backups)
-            .filter { EmbyRouteOptions.key($0) != EmbyRouteOptions.key(configuration.serverAddress) }
+        configuration.alternateAddresses = [trimmedAddress] + backups
         configuration.alternateRouteNames = alternateRouteNames
             .mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.value.isEmpty }
@@ -339,10 +344,9 @@ struct EmbySourceEditor: View {
                 if fetchAlternateAddresses,
                    let savedSource = source.flatMap({ original in library.sources.first(where: { $0.id == original.id }) })
                     ?? library.sources.last(where: { $0.kind == .emby && $0.emby?.serverAddress == trimmedAddress }),
-                   let fetched = try? await EmbyRepository.shared.alternateAddresses(for: savedSource) {
+                   let fetched = try? await EmbyRepository.shared.alternateRoutes(for: savedSource) {
                     var refreshed = library.embyConfiguration(for: savedSource.id) ?? configuration
-                    refreshed.alternateAddresses = EmbyRouteOptions.unique((refreshed.alternateAddresses ?? []) + fetched)
-                        .filter { EmbyRouteOptions.key($0) != EmbyRouteOptions.key(refreshed.serverAddress) }
+                    refreshed.mergeServerRoutes(fetched)
                     try await library.updateEmby(savedSource.id, configuration: refreshed, password: nil)
                 }
                 saveState = .succeeded
@@ -363,7 +367,9 @@ struct EmbySourceEditor: View {
         } catch { errorMessage = error.localizedDescription; return }
         guard EmbyRouteOptions.key(value) != EmbyRouteOptions.key(serverAddress),
               !alternateAddresses.contains(where: { EmbyRouteOptions.key($0) == EmbyRouteOptions.key(value) }) else { return }
-        alternateAddresses.append(value)
+        let serverKeys = Set(serverRouteAddresses.map(EmbyRouteOptions.key))
+        let insertionIndex = alternateAddresses.firstIndex { serverKeys.contains(EmbyRouteOptions.key($0)) } ?? alternateAddresses.endIndex
+        alternateAddresses.insert(value, at: insertionIndex)
         alternateRouteNames[EmbyRouteOptions.key(value)] = trimmedAlternateRouteName
         alternateAddress = ""
         alternateRouteName = ""

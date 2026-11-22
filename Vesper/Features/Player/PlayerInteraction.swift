@@ -90,7 +90,7 @@ enum PlayerGestureKind: String, CaseIterable, Identifiable {
 
 enum PlayerGestureAction: String, CaseIterable, Identifiable {
     case none, controls, playback, play, pause, backward, forward, brightnessUp, brightnessDown, volumeUp, volumeDown
-    case mute, showRegions, playlist, synopsis, details, rotate, fill, fillScreen, fitScreen, landscape, portrait, pictureInPicture, close, speedUp, speedDown, moreSettings, subtitles, danmaku, gestures
+    case mute, showRegions, playlist, synopsis, details, debugInfo, rotate, fill, fillScreen, fitScreen, landscape, portrait, pictureInPicture, close, speedUp, speedDown, moreSettings, subtitles, danmaku, gestures
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
@@ -98,7 +98,7 @@ enum PlayerGestureAction: String, CaseIterable, Identifiable {
         case .play: "播放"; case .pause: "暂停"; case .backward: "快退"; case .forward: "快进"
         case .brightnessUp: "增大亮度"; case .brightnessDown: "减小亮度"; case .volumeUp: "增大音量"; case .volumeDown: "减小音量"
         case .mute: "静音或取消静音"; case .showRegions: "显示区域划分"; case .playlist: "播放列表"
-        case .synopsis: "视频简介"; case .details: "详细信息"; case .rotate: "切换屏幕方向"; case .fill: "切换填充方式"
+        case .synopsis: "视频简介"; case .details: "详细信息"; case .debugInfo: "显隐调试信息"; case .rotate: "切换屏幕方向"; case .fill: "切换填充方式"
         case .fillScreen: "填满屏幕"; case .fitScreen: "完整显示"; case .landscape: "横屏"; case .portrait: "竖屏"
         case .pictureInPicture: "画中画"; case .close: "退出播放"; case .speedUp: "加快播放速度"; case .speedDown: "减慢播放速度"
         case .moreSettings: "更多设置"; case .subtitles: "字幕设置"; case .danmaku: "弹幕设置"; case .gestures: "播放手势"
@@ -496,6 +496,7 @@ struct PlayerMenuButton: UIViewRepresentable {
 /// Use a native control for direct actions beside native menu controls so the
 /// glass group does not create different hit-testing paths for its children.
 struct PlayerActionButton: UIViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
     let title: String
     let symbol: String
     var pointSize: CGFloat = 17
@@ -509,6 +510,8 @@ struct PlayerActionButton: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(action: action) }
     func updateUIView(_ button: UIButton, context: Context) {
         context.coordinator.action = action
+        button.isEnabled = isEnabled
+        button.alpha = isEnabled ? 1 : 0.35
         button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)), for: .normal)
         button.accessibilityLabel = title
     }

@@ -16,6 +16,17 @@ public struct EngineTrack: Sendable, Equatable {
         self.id = id; self.name = name; self.language = language; self.codec = codec; self.selected = selected
     }
 }
+
+public struct EngineDiagnosticMetric: Identifiable, Sendable, Equatable {
+    public let title: String
+    public let value: String
+    public var id: String { title }
+
+    public init(_ title: String, _ value: String) {
+        self.title = title
+        self.value = value
+    }
+}
 public struct MediaProbe: Sendable {
     public var duration: Double = 0
     public var width: Int = 0
@@ -91,6 +102,8 @@ public struct EngineExternalSubtitle: Sendable {
     var id: EngineID { get }
     var view: UIView { get }
     var snapshot: EngineSnapshot { get }
+    var diagnosticMetrics: [EngineDiagnosticMetric] { get }
+    var mediaInformation: MediaProbe? { get }
     var nativePiPController: AVPictureInPictureController? { get }
     var restoreUI: ((@escaping (Bool) -> Void) -> Void)? { get set }
     func load(url: URL, configuration: EngineConfiguration) async throws
@@ -108,6 +121,8 @@ public struct EngineExternalSubtitle: Sendable {
     func stopPiP()
 }
 extension PlaybackDriver {
+    public var diagnosticMetrics: [EngineDiagnosticMetric] { [] }
+    public var mediaInformation: MediaProbe? { nil }
     public func preparePiP() {}
     public func seek(to seconds: Double, fast: Bool) async throws {
         try await seek(to: seconds)

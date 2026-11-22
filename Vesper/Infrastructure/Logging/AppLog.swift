@@ -1,10 +1,22 @@
 import Foundation
 import Combine
+import VesperAetherBridge
+import VesperVLCBridge
 
-/// Runtime log storage remains available for future recording points.
+/// Shared runtime storage and process-wide playback-engine log forwarding.
 @MainActor
 enum AppLog {
     static let runtimeEntries = RuntimeLogEntries()
+    private static let engineBuffer = EngineLogBuffer()
+    private static var engineLoggingInstalled = false
+
+    static func installEngineLogging() {
+        guard !engineLoggingInstalled else { return }
+        engineLoggingInstalled = true
+        let buffer = engineBuffer
+        AetherDriver.setLogHandler { buffer.append($0) }
+        VLCDriver.setLogHandler { buffer.append($0) }
+    }
 }
 
 @MainActor
@@ -152,5 +164,70 @@ struct RuntimeLogEntry: Codable, Identifiable {
         self.id = id
         self.timestamp = timestamp
         self.message = message
+    }
+}
+
+/// Engine callbacks may run on decoder/network threads. Bound the pending batch
+/// and publish at most four batches a second instead of dispatching per log line.
+private final class EngineLogBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private let queue = DispatchQueue(label: "com.aholic.vesper.engine-logs", qos: .utility)
+    private var pending: [(Date, String)] = []
+    private var scheduled = false
+    private var dropped = 0
+
+    func append(_ message: String) {
+        lock.lock()
+        if pending.count < 1_000 {
+            pending.append((Date(), String(message.prefix(8_192))))
+        } else {
+            dropped += 1
+        }
+        let needsFlush = !scheduled
+        scheduled = true
+        lock.unlock()
+        if needsFlush {
+            queue.asyncAfter(deadline: .now() + .milliseconds(250)) { [self] in flush() }
+        }
+    }
+
+    private func flush() {
+        lock.lock()
+        let batch = pending
+        let skipped = dropped
+        pending.removeAll(keepingCapacity: true)
+        dropped = 0
+        scheduled = false
+        lock.unlock()
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var lines = batch.map { date, message in
+            "\(formatter.string(from: date)) \(Self.redacted(message))"
+        }
+        if skipped > 0 {
+            lines.append("\(formatter.string(from: Date())) [EngineLogs] Suppressed \(skipped) excess log entries")
+        }
+        let entries = lines
+        Task { @MainActor in
+            for line in entries { AppLog.runtimeEntries.append(line) }
+        }
+    }
+
+    // Upstream VLC logs can contain complete request URLs or HTTP headers.
+    // Redact all query values, not just Emby's known token parameter names.
+    static func redacted(_ message: String) -> String {
+        var text = message
+        let rules: [(String, String)] = [
+            (#"(?i)(https?://)[^/\s@]+@"#, "$1[redacted]@"),
+            (#"([?&][^=&\s\"'<>]+?=)[^&\s\"'<>]*"#, "$1[redacted]"),
+            (#"(?im)(\b(?:authorization|proxy-authorization|cookie|set-cookie)[\"']?\s*[:=]\s*)[^\r\n]*"#, "$1[redacted]"),
+            (#"(?i)(\b(?:api[_-]?key|x-emby-token|x-mediabrowser-token|access[_-]?token|refresh[_-]?token|token|password|passwd|pw)[\"']?\s*[:=]\s*)[\"']?[^&\s\"'<>;,}]+"#, "$1[redacted]")
+        ]
+        for (pattern, replacement) in rules {
+            text = text.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
+        }
+        return text.replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
     }
 }

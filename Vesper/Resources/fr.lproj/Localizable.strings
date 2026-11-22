@@ -1072,3 +1072,37 @@
 "搜索失败" = "Échec de la recherche";
 "请先在来源标签页选择一个媒体来源。" = "Choisissez d’abord une source multimédia dans l’onglet Sources.";
 "无法读取当前来源，请检查访问权限后重试。" = "Impossible de lire cette source. Vérifiez les autorisations d’accès et réessayez.";
+
+"播放框架与依赖声明" = "Moteurs de lecture et dépendances : mentions légales";
+
+"许可内容暂不可用。" = "Le texte de la licence est indisponible pour le moment.";
+"显示调试信息" = "Afficher les diagnostics";
+"播放调试信息" = "Diagnostic de lecture";
+"暂无调试数据" = "Aucune donnée de diagnostic disponible";
+"显隐调试信息" = "Afficher/masquer les diagnostics";
+"播放后端" = "Moteur de lecture";
+"解码器" = "Décodeur";
+"当前码率" = "Débit actuel";
+"平均码率" = "Débit moyen";
+"网络吞吐" = "Débit réseau";
+"视频帧率" = "Fréquence vidéo";
+"丢帧数" = "Images ignorées";
+"前向缓冲" = "Tampon à venir";
+"显示队列" = "File d’affichage";
+"读取缓存" = "Cache de lecture";
+"数据缓存" = "Cache de données";
+"音画偏差" = "Décalage A/V";
+"内存占用" = "Mémoire utilisée";
+"输入码率" = "Débit d’entrée";
+"解复用码率" = "Débit de démultiplexage";
+"读取字节" = "Octets lus";
+"解复用字节" = "Octets démultiplexés";
+"解码视频帧" = "Images décodées";
+"显示视频帧" = "Images affichées";
+"迟到视频帧" = "Images en retard";
+"丢失视频帧" = "Images perdues";
+"损坏数据包" = "Paquets corrompus";
+"时间戳不连续" = "Ruptures d’horodatage";
+"已播放音频缓冲" = "Tampons audio lus";
+"丢失音频缓冲" = "Tampons audio perdus";
+"显示帧率" = "Fréquence d’affichage";

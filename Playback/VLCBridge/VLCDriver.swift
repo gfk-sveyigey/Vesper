@@ -16,11 +16,35 @@ internal import SwiftVLC
     private var timelineEvents: Task<Void, Never>?
     private var pendingSeekTime: Double?
     private var seekClockDeadline = Date.distantPast
+    private var previousDiagnosticSample: (date: Date, pictures: UInt64)?
     public var restoreUI: ((@escaping (Bool) -> Void) -> Void)?
     public var view: UIView { surface }
     // SwiftVLC owns the native AVKit delegate. Do not replace it from the App.
     public var nativePiPController: AVPictureInPictureController? { nil }
-    public init() { surface.backgroundColor = .black }
+    private static var engineLogHandler: (@Sendable (String) -> Void)?
+    private static var engineLogTask: Task<Void, Never>?
+
+    public static func setLogHandler(_ handler: @escaping @Sendable (String) -> Void) {
+        engineLogHandler = handler
+    }
+
+    private static func startLoggingIfNeeded() {
+        guard engineLogTask == nil, let handler = engineLogHandler else { return }
+        // Subscribe before Player() opens any media. One consumer per shared VLC
+        // instance survives driver retirement and decoder/engine switches.
+        let stream = VLCInstance.shared.logStream(minimumLevel: .notice)
+        engineLogTask = Task.detached(priority: .utility) {
+            for await entry in stream {
+                guard !Task.isCancelled else { return }
+                handler("[SwiftVLC][\(entry.level)][\(entry.module ?? "vlc")] \(entry.message)")
+            }
+        }
+    }
+
+    public init() {
+        Self.startLoggingIfNeeded()
+        surface.backgroundColor = .black
+    }
     public var snapshot: EngineSnapshot {
         var result = EngineSnapshot()
         guard let player else { return result }
@@ -45,6 +69,64 @@ internal import SwiftVLC
         result.pipPossible = pip?.isPossible ?? false
         result.pipActive = pip?.isActive ?? false
         return result
+    }
+    public var mediaInformation: MediaProbe? {
+        guard let player else { return nil }
+        var result = MediaProbe()
+        result.duration = player.duration.map(seconds) ?? 0
+        result.fields["视频轨道数量"] = String(player.videoTracks.count)
+        result.fields["音轨数量"] = String(player.audioTracks.count)
+        if let video = player.videoTracks.first(where: { $0.isSelected }) ?? player.videoTracks.first {
+            result.width = video.width ?? 0
+            result.height = video.height ?? 0
+            result.hasVideo = true
+            result.fields["视频编码"] = video.codecString
+            if let fps = video.frameRate, fps.isFinite, fps > 0 { result.fields["帧率"] = String(format: "%.3f fps", fps) }
+            if video.bitrate > 0 { result.fields["视频码率"] = String(format: "%.1f kbit/s", Double(video.bitrate) / 1000) }
+        }
+        if let audio = player.selectedAudioTrack ?? player.audioTracks.first {
+            result.fields["音频编码"] = audio.codecString
+            result.fields["音频语言"] = audio.language
+            if let channels = audio.channels, channels > 0 { result.fields["声道数"] = String(channels) }
+            if let sampleRate = audio.sampleRate, sampleRate > 0 { result.fields["采样率"] = "\(sampleRate) Hz" }
+            if audio.bitrate > 0 { result.fields["音频码率"] = String(format: "%.1f kbit/s", Double(audio.bitrate) / 1000) }
+        }
+        return result
+    }
+
+    public var diagnosticMetrics: [EngineDiagnosticMetric] {
+        guard let statistics = player?.statistics else { return [] }
+        var metrics: [EngineDiagnosticMetric] = [
+            .init("输入码率", Self.rate(statistics.inputBitrate)),
+            .init("解复用码率", Self.rate(statistics.demuxBitrate)),
+            .init("读取字节", Self.byteCount(statistics.readBytes)),
+            .init("解复用字节", Self.byteCount(statistics.demuxReadBytes)),
+            .init("解码视频帧", "\(statistics.decodedVideo)"),
+            .init("显示视频帧", "\(statistics.displayedPictures)"),
+            .init("迟到视频帧", "\(statistics.latePictures)"),
+            .init("丢失视频帧", "\(statistics.lostPictures)"),
+            .init("损坏数据包", "\(statistics.demuxCorrupted)"),
+            .init("时间戳不连续", "\(statistics.demuxDiscontinuity)"),
+            .init("已播放音频缓冲", "\(statistics.playedAudioBuffers)"),
+            .init("丢失音频缓冲", "\(statistics.lostAudioBuffers)")
+        ]
+        let now = Date()
+        if let previousDiagnosticSample {
+            let elapsed = now.timeIntervalSince(previousDiagnosticSample.date)
+            if elapsed > 0, statistics.displayedPictures >= previousDiagnosticSample.pictures {
+                let fps = Double(statistics.displayedPictures - previousDiagnosticSample.pictures) / elapsed
+                metrics.insert(.init("显示帧率", String(format: "%.1f fps", fps)), at: 4)
+            }
+        }
+        self.previousDiagnosticSample = (now, statistics.displayedPictures)
+        return metrics
+    }
+    private static func rate(_ kilobits: Float) -> String {
+        guard kilobits.isFinite, kilobits >= 0 else { return "-" }
+        return String(format: "%.1f Mb/s", kilobits / 1_000)
+    }
+    private static func byteCount(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
     }
     public func load(url: URL, configuration: EngineConfiguration) async throws {
         let supportedHeaders = Set(["user-agent", "referer", "referrer", "cookie"])
