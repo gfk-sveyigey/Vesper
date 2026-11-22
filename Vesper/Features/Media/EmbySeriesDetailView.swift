@@ -302,7 +302,6 @@ struct MediaDetailView: View {
         }
         return metadata?.mediaVersions ?? []
     }
-    @State private var showingVersionSelection = false
 
     private var selectedVersion: EmbyMediaVersionDetails? {
         availableVersions.first(where: { $0.id == selectedMediaSourceID })
@@ -417,9 +416,6 @@ struct MediaDetailView: View {
         }
         .navigationDestination(item: $openedPerson) { person in
             EmbyPersonWorksView(source: source, person: person)
-        }
-        .sheet(isPresented: $showingVersionSelection) {
-            versionSelectionSheet
         }
         .alert("无法更新收藏", isPresented: Binding(
             get: { favoriteError != nil }, set: { if !$0 { favoriteError = nil } }
@@ -658,49 +654,28 @@ struct MediaDetailView: View {
     }
 
     private func versionMenu(inMenu: Bool = false) -> some View {
-        Button {
-            showingVersionSelection = true
+        Menu {
+            Picker("媒体版本", selection: Binding<String>(
+                get: { selectedVersion?.id ?? "" },
+                set: { id in
+                    guard let version = availableVersions.first(where: { $0.id == id }) else { return }
+                    selectedMediaSourceID = version.id
+                    resetTrackSelection(for: version)
+                }
+            )) {
+                ForEach(availableVersions) { version in
+                    Text(verbatim: versionMenuTitle(version))
+                        .lineLimit(nil)
+                        .tag(version.id)
+                }
+            }
+            .pickerStyle(.inline)
         } label: {
             if inMenu { Label("版本", systemImage: "rectangle.stack").labelStyle(.titleAndIcon) }
             else { Image(systemName: "rectangle.stack").foregroundStyle(.primary) }
         }
         .accessibilityLabel("媒体版本")
         .disabled(availableVersions.isEmpty || (series.isEmbySeries && versionsEpisodeID != selectedEpisodeID))
-    }
-
-    private var versionSelectionSheet: some View {
-        NavigationStack {
-            List(availableVersions) { version in
-                Button {
-                    selectedMediaSourceID = version.id
-                    resetTrackSelection(for: version)
-                    showingVersionSelection = false
-                } label: {
-                    HStack(alignment: .center, spacing: 12) {
-                        Text(verbatim: versionMenuTitle(version))
-                            .lineLimit(nil)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        if version.id == selectedVersion?.id {
-                            Image(systemName: "checkmark")
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .foregroundStyle(.primary)
-                    .padding(.vertical, 4)
-                }
-                .accessibilityAddTraits(version.id == selectedVersion?.id ? .isSelected : [])
-            }
-            .navigationTitle("媒体版本")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showingVersionSelection = false } label: {
-                        Label("关闭", systemImage: "xmark")
-                    }
-                }
-            }
-        }
     }
 
     private func trackMenu(type: String, symbol: String, inMenu: Bool = false) -> some View {

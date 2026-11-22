@@ -1,16 +1,16 @@
 Vesper PlaybackCore — dual-engine integration
 
-AetherEngine 7.70.0
+AetherEngine 7.72.0
 Copyright (C) 2026 Vincent Herbst
 License: LGPL-3.0 with the upstream Apple Store / DRM Exception.
 Full upstream license: AetherEngine-LICENSE.txt, bundled with this application.
-Source: https://github.com/superuser404notfound/AetherEngine/tree/7.70.0
-Revision: 3cfe848106482150209281c176ed72df5ac2674c
+Source: https://github.com/superuser404notfound/AetherEngine/tree/7.72.0
+Revision: 8b737c24c7dcafe6cded8ddb7863591bc39fab97
 AetherEngine and its FFmpegBuild dependencies use an isolated dynamic bridge.
 Optional patented object-audio and dual-layer Dolby Vision components are not enabled by this integration.
 
-Aether FFmpegBuild 3.15.0 and its bundled libraries
-Source: https://github.com/superuser404notfound/FFmpegBuild/tree/3.15.0
+Aether FFmpegBuild 3.17.0 and its bundled libraries
+Source: https://github.com/superuser404notfound/FFmpegBuild/tree/3.17.0
 Includes FFmpeg, dav1d, zimg and zvbi; consult upstream component licenses,
 patches and build information. A framework/module prefix is not C symbol renaming.
 LibDovi: https://github.com/superuser404notfound/LibDovi/tree/2.2.0

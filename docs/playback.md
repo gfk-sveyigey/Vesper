@@ -5,7 +5,7 @@
 播放界面、手势、播放队列和现有播放设置由 App 保持所有权；引擎只提供媒体读取、解码、渲染和播放状态。
 
 - **PlaybackCore** 是唯一播放调度者，负责选择、切换、错误回退、进度恢复和轨道语义匹配。任何时刻只允许一个播放 driver 持有活动媒体。
-- **AetherEngine 7.70.0** 是主引擎，使用 AetherEngine 上游提供的原生播放和 FFmpeg 能力。
+- **AetherEngine 7.72.0** 是主引擎，使用 AetherEngine 上游提供的原生播放和 FFmpeg 能力。
 - **SwiftVLC 1.0.0 / libVLC 4** 是备用引擎。当前解码设置只表达硬件优先/软件优先，不代表所有 codec 都能强制使用指定解码器。
 - **PlaybackContracts** 是无上游类型的值类型/协议边界。App 与两套适配器只通过该边界交换 URL、状态、轨道和播放偏好。
 - **Emby 转码** 目前只有 PlaybackCore provider 接口；当前 `MediaSource` 尚无 Emby 来源、账号/凭据或转码客户端，因此不是可用的播放回退路径。

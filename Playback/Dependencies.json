@@ -1,8 +1,8 @@
 {
   "AetherEngine": {
     "repository": "https://github.com/superuser404notfound/AetherEngine.git",
-    "version": "7.70.0",
-    "revision": "3cfe848106482150209281c176ed72df5ac2674c"
+    "version": "7.72.0",
+    "revision": "8b737c24c7dcafe6cded8ddb7863591bc39fab97"
   },
   "SwiftVLC": {
     "repository": "https://github.com/harflabs/SwiftVLC.git",
@@ -11,6 +11,6 @@
     "revision": "192393a45cdcd7ebb6befac26586360b8b1676b3",
     "binarySHA256": "23509b945aafb97634d2e66af24a377d7bd50b672aba8f5dec1d6f9ef8614045"
   },
-  "FFmpegBuild": { "version": "3.15.0" },
+  "FFmpegBuild": { "version": "3.17.0" },
   "LibDovi": { "version": "2.2.0" }
 }

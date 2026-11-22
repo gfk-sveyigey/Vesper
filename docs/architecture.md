@@ -41,7 +41,7 @@
 
 ## 依赖和许可
 
-- AetherEngine 固定为 7.70.0；SwiftVLC 固定为 1.0.0。直接和二进制依赖版本见 `Playback/Dependencies.json`。
+- AetherEngine 固定为 7.72.0；SwiftVLC 固定为 1.0.0。直接和二进制依赖版本见 `Playback/Dependencies.json`。
 - VLC 静态 XCFramework 只能链接到 VLC bridge；Aether 使用独立命名的动态 FFmpeg Framework 闭包。
 - 每次升级都要检查 API、平台支持、Mach-O 依赖、符号导出、许可证和真机回归。
 - 各上游及二进制依赖许可证需按实际分发方式单独审核；资源目录中的 notices 不构成合规保证。
