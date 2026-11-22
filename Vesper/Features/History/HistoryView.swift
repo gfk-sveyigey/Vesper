@@ -25,7 +25,8 @@ struct HistoryView: View {
                     ForEach(groups) { group in
                         VStack(alignment: .leading, spacing: 0) {
                             Text(verbatim: library.sources.first(where: { $0.id == group.id })?.name ?? group.source.name)
-                                .font(.headline).foregroundStyle(.secondary)
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.primary)
                                 .padding(.horizontal, 20)
 
                             ScrollView(.horizontal) {

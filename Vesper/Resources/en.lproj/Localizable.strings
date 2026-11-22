@@ -353,7 +353,7 @@
 
 "回到前台自动续播" = "Resume on Return to App";
 
-"保留播放进度" = "Remember Playback Position";
+"按进度续播" = "Resume Playback";
 
 "设置后台播放方式、自动续播、进度保存和跳转时长。" = "Configure background playback, automatic resume, saved positions, and skip intervals.";
 
@@ -1015,3 +1015,25 @@
 "主线路" = "Primary connection";
 "线路名称" = "Connection name";
 "备用线路 %lld" = "Alternate connection %lld";
+
+"已连接" = "Connected";
+
+"断开 Trakt 连接？" = "Disconnect Trakt?";
+
+"断开连接" = "Disconnect";
+
+"Trakt 连接失败，请检查网络和应用回调配置后重试。" = "Could not connect to Trakt. Check your connection and the app’s callback configuration, then try again.";
+
+"播放进度优先级" = "Resume Progress Priority";
+
+"Trakt 记录进度" = "Trakt Progress";
+
+"服务器记录进度" = "Server Progress";
+
+"本地记录进度" = "Local Progress";
+
+"通用" = "General";
+
+"媒体与存储" = "Media & Storage";
+
+"帮助与关于" = "Support & About";

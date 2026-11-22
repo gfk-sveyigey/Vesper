@@ -739,7 +739,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     }
 }
 
-private struct MediaThumbnailPreview: View {
+struct MediaThumbnailPreview: View {
     let source: MediaSource
     let item: MediaItem
     var historyEntry: PlaybackHistoryEntry? = nil
@@ -748,24 +748,38 @@ private struct MediaThumbnailPreview: View {
     var preloadedData: Data? = nil
     var artworkIsPrepared = false
     var showsEmbyFacts = false
+    var usesLandscapeArtwork = false
+    @Environment(\.locale) private var locale
     @State private var duration: Double = 0
     private var displayName: String {
         previewTitle ?? (VideoImporter.isVideoType(URL(fileURLWithPath: item.title)) ? (item.title as NSString).deletingPathExtension : item.title)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            MediaThumbnail(source: source, item: artworkItem ?? item, cacheOnly: true,
+            let aspectRatio: CGFloat = usesLandscapeArtwork ? 1.5 : 2.0 / 3.0
+            MediaThumbnail(source: source, item: artworkItem ?? item, aspectRatio: aspectRatio,
+                           imageOrientation: usesLandscapeArtwork ? .landscape : .portrait,
+                           allowsRemotePrimary: !usesLandscapeArtwork, cacheOnly: true,
                            preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared,
-                           usesMediaCardBackdrop: historyEntry == nil)
-                .frame(width: 200, height: 300)
+                           usesMediaCardBackdrop: historyEntry == nil || usesLandscapeArtwork,
+                           prefersLandscapeMovieArtwork: usesLandscapeArtwork)
+                .frame(width: 200, height: 200 / aspectRatio)
                 .mediaArtworkBorder()
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: displayName).lineLimit(previewTitle == nil ? 2 : nil)
                 if let historyEntry {
-                    Text(verbatim: "\(mediaTimeLabel(historyEntry.position)) / \(mediaTimeLabel(historyEntry.duration))")
-                        .foregroundStyle(.secondary)
-                    Text(historyEntry.watchedAt, format: .dateTime.hour().minute())
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(historyEntry.watchedAt, format: .dateTime.hour().minute())
+                        if historyEntry.duration.isFinite && historyEntry.duration > 0 {
+                            let minutes = (historyEntry.duration / 60).rounded()
+                            Text(Measurement(value: max(1, minutes), unit: UnitDuration.minutes),
+                                 format: .measurement(width: .wide, usage: .asProvided,
+                                                      numberFormatStyle: .number.precision(.fractionLength(0)))
+                                    .locale(locale))
+                        }
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                 } else if showsEmbyFacts {
                     EmbyPreviewFacts(item: item)
                 } else if duration > 0 {

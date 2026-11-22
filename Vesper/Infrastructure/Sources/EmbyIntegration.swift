@@ -821,7 +821,7 @@ actor EmbyRepository {
         let subtitles = externalSubtitles(media: media, itemID: itemID, client: client)
         return EmbyPlaybackResource(resource: PlayableResource(url: url, headers: headers), sessionID: playSessionID,
                                     mediaSourceID: mediaSourceID, duration: duration,
-                                    resumePosition: (progressTicks?.doubleValue ?? 0) / 10_000_000, subtitles: subtitles,
+                                    resumePosition: progressTicks.map { $0.doubleValue / 10_000_000 }, subtitles: subtitles,
                                     bitRate: Self.playbackBitRate(media))
     }
 
@@ -1369,6 +1369,22 @@ struct EmbySkipMarkers: Sendable {
 }
 
 extension EmbyRepository {
+    func traktIdentity(for item: MediaItem, source: MediaSource) async throws -> TraktMediaIdentity? {
+        let (client, detail) = try await detailSnapshot(for: item, source: source)
+        let type = detail["Type"] as? String
+        guard type == "Movie" || type == "Episode" else { return nil }
+        let ids = TraktMediaIdentity.supportedIDs(detail["ProviderIds"] as? [String: String] ?? [:])
+        if !ids.isEmpty { return TraktMediaIdentity(kind: type == "Movie" ? "movie" : "episode", ids: ids) }
+        guard type == "Episode", let seriesID = detail["SeriesId"] as? String, !seriesID.isEmpty,
+              let season = detail["ParentIndexNumber"] as? Int, season >= 0,
+              let episode = detail["IndexNumber"] as? Int, episode > 0 else { return nil }
+        let series = MediaItem(id: MediaID(sourceID: source.id, localID: seriesID), title: "", resource: nil)
+        let parent = try await fetchDetailItem(series, source: source, client: client)
+        let showIDs = TraktMediaIdentity.supportedIDs(parent["ProviderIds"] as? [String: String] ?? [:])
+        guard !showIDs.isEmpty else { return nil }
+        return TraktMediaIdentity(kind: "episode", ids: showIDs, season: season, episode: episode)
+    }
+
     func skipIdentity(for item: MediaItem, source: MediaSource) async throws -> EmbySkipIdentity? {
         let (client, detail) = try await detailSnapshot(for: item, source: source)
         let type = detail["Type"] as? String

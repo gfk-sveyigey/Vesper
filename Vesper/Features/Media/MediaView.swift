@@ -1714,7 +1714,8 @@ private struct RecentEmbyPlaybackCard: View {
             .contextMenu {
                 playbackActions
             } preview: {
-                cardArtwork
+                MediaThumbnailPreview(source: source, item: item, historyEntry: entry,
+                                      previewTitle: title, usesLandscapeArtwork: true)
             }
             .task(id: "\(source.id)|\(entry.mediaID.localID)") {
                 do {

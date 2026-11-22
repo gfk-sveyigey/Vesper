@@ -12,6 +12,9 @@
 <array><dict>
     <key>CFBundleURLName</key><string>com.aholic.vesper.import-diagnostic</string>
     <key>CFBundleURLSchemes</key><array><string>vesper-import-diagnostic</string></array>
+</dict><dict>
+    <key>CFBundleURLName</key><string>com.aholic.vesper.trakt</string>
+    <key>CFBundleURLSchemes</key><array><string>vesper</string></array>
 </dict></array>
 <key>CADisableMinimumFrameDurationOnPhone</key><true/>
 <key>UIBackgroundModes</key><array><string>audio</string></array>

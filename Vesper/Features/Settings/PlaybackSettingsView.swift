@@ -70,7 +70,7 @@ struct PlaybackSettingsView: View {
                     Text("关闭常显后，仅在有可播放内容时显示迷你播放器。")
                 }
                 SettingsSection {
-                    Toggle("保留播放进度", isOn: $remembersProgress)
+                    Toggle("按进度续播", isOn: $remembersProgress)
                     SettingsPicker("快进快退时长", selection: $skipSeconds) {
                         ForEach([5.0, 10, 15, 30], id: \.self) { seconds in
                             Text(verbatim: String(format: VesperLocalization.string("%d 秒"), Int(seconds))).tag(seconds)

@@ -140,6 +140,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     private let core = PlaybackCore()
+    private let traktReporter = TraktPlaybackReporter()
     private var nextPreparation: Task<Void, Never>?
     private var nextPreparationID: MediaID?
     private var attemptedNextForGeneration: UUID?
@@ -267,6 +268,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         let token = generation
         let previousState = core.snapshot
         let carriesSelection = currentItem?.id == item.id && position != nil
+        if !carriesSelection || previousState.phase == .ended { traktReporter.finish() }
         let previousAudio = carriesSelection ? previousState.audio.first(where: { $0.selected }) : initialAudio
         let previousSubtitle = carriesSelection ? previousState.subtitles.first(where: { $0.selected }) : initialSubtitle
         saveProgress()
@@ -306,6 +308,16 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                     resolved.release()
                     return
                 }
+                let startPosition: Double
+                if let position { startPosition = position }
+                else if PlaybackPreferences.remembersProgress, let source, source.kind == .emby {
+                    startPosition = await self.embyResumePosition(for: item, source: source,
+                                                                 serverPosition: resolved.resumePosition,
+                                                                 duration: resolved.duration ?? item.duration)
+                } else {
+                    startPosition = PlaybackPreferences.remembersProgress ? self.savedProgress(for: item) : 0
+                }
+                guard !Task.isCancelled, self.generation == token else { resolved.release(); return }
                 self.resource = resolved
                 self.refreshSkipMarkers()
                 self.progressRestored = true
@@ -319,9 +331,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 self.refreshPlaybackPreferences()
                 var configuration = self.engineConfiguration
                 configuration.decoder = selectedDecoder == .software ? .software : .hardware
-                let savedLocalPosition = source?.kind == .emby ? 0 : (self.savedProgress(for: item))
-                configuration.position = position ?? (PlaybackPreferences.remembersProgress
-                    ? max(savedLocalPosition, resolved.resumePosition ?? 0) : 0)
+                configuration.position = startPosition
                 configuration.autoplay = resume
                 configuration.requestHeaders = resolved.headers
                 configuration.externalSubtitles = resolved.externalSubtitles
@@ -961,6 +971,27 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         if !missing.isEmpty { removePlaybackData { missing.contains($0) } }
     }
 
+    private func embyResumePosition(for item: MediaItem, source: MediaSource,
+                                    serverPosition: Double?, duration: Double?) async -> Double {
+        for priority in EmbyProgressPriority.sources {
+            guard !Task.isCancelled else { return 0 }
+            let value: Double?
+            switch priority {
+            case .trakt:
+                // Keep Trakt in the order even when disconnected, but make no request.
+                guard TraktAccountStore.shared.isConnected else { continue }
+                value = await TraktAccountStore.shared.resumePosition(for: item, source: source, duration: duration ?? 0)
+            case .server:
+                value = serverPosition
+            case .local:
+                let key = item.id.sourceID.uuidString + ":" + item.id.localID
+                value = UserDefaults.standard.dictionary(forKey: progressStorageKey)?[key] as? Double
+            }
+            if let position = EmbyProgressPriority.validPosition(value, duration: duration) { return position }
+        }
+        return 0
+    }
+
     private func restoreProgressIfNeeded() {
         guard !progressRestored, canSeek else { return }
         progressRestored = true
@@ -1355,6 +1386,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     func stop() {
+        traktReporter.finish()
         saveProgress()
         recordPlaybackHistory()
         cancelNextPreparation()
@@ -1473,6 +1505,10 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         embySession?.update(position: currentTime, paused: !isPlaying, rate: playbackRate,
                             remembersProgress: PlaybackPreferences.remembersProgress,
                             ready: !isLoading && (state.phase == .playing || state.phase == .paused || state.phase == .ended))
+        traktReporter.update(item: currentItem, source: source, position: currentTime, duration: duration,
+                             playing: isPlaying, ended: state.phase == .ended,
+                             ready: !isLoading && !isSeeking && progressRestored &&
+                                (state.phase == .playing || state.phase == .paused || state.phase == .ended))
         refreshSkipMarkers()
         if applySkipMarkers() { return }
         prepareNextEpisodeIfNeeded()

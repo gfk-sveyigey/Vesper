@@ -41,42 +41,36 @@ struct SettingsView: View {
     var body: some View {
         VesperRootScrollView(title: "设置") {
             VStack(alignment: .leading, spacing: 32) {
-                VStack(spacing: 0) {
-                    settingsLink(.tabs, title: "标签设置", symbol: "rectangle.3.group")
-                    Divider().padding(.leading, 52)
+                settingsGroup("通用") {
                     settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
                     Divider().padding(.leading, 52)
-                    settingsLink(.logs, title: "运行日志", symbol: "doc.text")
+                    settingsLink(.tabs, title: "标签设置", symbol: "rectangle.3.group")
                     Divider().padding(.leading, 52)
-                    settingsLink(.cache, title: "缓存管理", symbol: "internaldrive")
-                    Divider().padding(.leading, 52)
-                    settingsLink(.emby, title: "Emby 设置", symbol: "server.rack")
+                    HStack {
+                        SettingsLabel("语言设置", symbol: "globe")
+                        Spacer(minLength: 12)
+                        Picker(selection: $languageCode) {
+                            Text("跟随系统").tag("system")
+                            Text(verbatim: "简体中文").tag("zh-Hans")
+                            Text(verbatim: "繁體中文").tag("zh-Hant")
+                            Text(verbatim: "English").tag("en")
+                            Text(verbatim: "Deutsch").tag("de")
+                            Text(verbatim: "Español").tag("es")
+                            Text(verbatim: "Français").tag("fr")
+                            Text(verbatim: "日本語").tag("ja")
+                            Text(verbatim: "한국어").tag("ko")
+                        } label: { SettingsLabel("语言设置", symbol: "globe") }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .buttonStyle(.plain)
+                        .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.leading, 12)
                     Divider().padding(.leading, 52)
                     settingsLink(.permissions, title: "应用权限", symbol: "hand.raised")
-                    Divider().padding(.leading, 52)
-                        HStack {
-                            SettingsLabel("语言设置", symbol: "globe")
-                            Spacer(minLength: 12)
-                            Picker(selection: $languageCode) {
-                                Text("跟随系统").tag("system")
-                                Text(verbatim: "简体中文").tag("zh-Hans")
-                                Text(verbatim: "繁體中文").tag("zh-Hant")
-                                Text(verbatim: "English").tag("en")
-                                Text(verbatim: "Deutsch").tag("de")
-                                Text(verbatim: "Español").tag("es")
-                                Text(verbatim: "Français").tag("fr")
-                                Text(verbatim: "日本語").tag("ja")
-                                Text(verbatim: "한국어").tag("ko")
-                            } label: { SettingsLabel("语言设置", symbol: "globe") }
-                            .pickerStyle(.menu)
-                            .labelsHidden()
-                            .buttonStyle(.plain)
-                            .fixedSize(horizontal: true, vertical: false)
-                        }
-                        .padding(.vertical, 12)
-                        .padding(.leading, 12)
                 }
-                VStack(spacing: 0) {
+                settingsGroup("播放") {
                     settingsLink(.playback, title: "播放设置", symbol: "play.circle")
                     Divider().padding(.leading, 52)
                     settingsLink(.gestures, title: "播放手势", symbol: "hand.draw")
@@ -85,28 +79,16 @@ struct SettingsView: View {
                     Divider().padding(.leading, 52)
                     settingsLink(.danmaku, title: "弹幕设置", symbol: "text.bubble")
                 }
-                VStack(spacing: 0) {
-                        HStack {
-                            SettingsLabel("IMDb", symbol: "film")
-                            Spacer()
-                            Text("尚未连接").foregroundStyle(.secondary)
-                        }.padding(12)
-                        Divider().padding(.leading, 56)
-                        HStack(spacing: 12) {
-                            Image("TraktIcon")
-                                .renderingMode(.template)
-                                .resizable().scaledToFit()
-                                .frame(width: 20, height: 20)
-                                .frame(width: 28, height: 28)
-                                .foregroundStyle(.tint)
-                                .accessibilityHidden(true)
-                            Text(verbatim: "Trakt").font(.body)
-                                .foregroundStyle(Color(uiColor: .label))
-                            Spacer()
-                            Text("尚未连接").foregroundStyle(.secondary)
-                        }.padding(12)
+                settingsGroup("媒体与存储") {
+                    settingsLink(.emby, title: "Emby 设置", symbol: "server.rack")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.cache, title: "缓存管理", symbol: "internaldrive")
                 }
-                settingsLink(.licenses, title: "开源许可", symbol: "doc.plaintext")
+                settingsGroup("帮助与关于") {
+                    settingsLink(.logs, title: "运行日志", symbol: "doc.text")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.licenses, title: "开源许可", symbol: "doc.plaintext")
+                }
                 if debugVisibility.isRevealed {
                     VStack(spacing: 0) {
                         settingsLink(.debug, title: "调试功能", symbol: "ladybug")
@@ -148,6 +130,18 @@ struct SettingsView: View {
         }
     }
 
+    private func settingsGroup<Content: View>(_ title: LocalizedStringKey,
+                                               @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, 12)
+            VStack(spacing: 0) { content() }
+        }
+    }
+
     private func settingsLink(_ route: SettingsRoute, title: LocalizedStringKey, symbol: String) -> some View {
         NavigationLink(value: route) {
             HStack {
@@ -168,6 +162,9 @@ struct SettingsView: View {
 }
 
 private struct EmbySettingsView: View {
+    @ObservedObject private var trakt = TraktAccountStore.shared
+    @State private var confirmsTraktDisconnect = false
+    @State private var showsProgressPriority = false
     @AppStorage(EmbySkipSettings.introKey) private var skipIntro = false
     @AppStorage(EmbySkipSettings.outroKey) private var skipOutro = false
     @AppStorage(EmbySkipSettings.bodyPreloadKey) private var bodyPreload = false
@@ -185,6 +182,39 @@ private struct EmbySettingsView: View {
     var body: some View {
         SettingsPage {
             SettingsIntroCard(title: "Emby 设置", symbol: "server.rack", description: "管理播放缓存、自动跳过与默认音轨。")
+            SettingsSection("观看记录") {
+                Button {
+                    showsProgressPriority = true
+                } label: {
+                    HStack {
+                        Text("播放进度优先级")
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }
+                }
+                Button {
+                    if trakt.isConnected { confirmsTraktDisconnect = true } else { trakt.connect() }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image("TraktIcon")
+                            .renderingMode(.template)
+                            .resizable().scaledToFit()
+                            .frame(width: 20, height: 20)
+                            .frame(width: 28, height: 28)
+                            .foregroundStyle(.tint)
+                            .accessibilityHidden(true)
+                        Text(verbatim: "Trakt").font(.body)
+                            .foregroundStyle(Color(uiColor: .label))
+                        Spacer()
+                        if trakt.isConnecting { ProgressView() }
+                        else if trakt.isConnected { Text("已连接").foregroundStyle(.secondary) }
+                        else { Text("尚未连接").foregroundStyle(.secondary) }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(trakt.isConnecting)
+            }
             SettingsSection("来源图标") {
                 NavigationLink("图标库") { EmbyIconLibrarySettingsView() }
             }
@@ -246,6 +276,16 @@ private struct EmbySettingsView: View {
                 Toggle("完整加载后渲染", isOn: $waitsForArtwork)
             }
         }
+        .confirmationDialog("断开 Trakt 连接？", isPresented: $confirmsTraktDisconnect, titleVisibility: .visible) {
+            Button("断开连接", role: .destructive) { trakt.disconnect() }
+            Button("取消", role: .cancel) {}
+        }
+        .alert("连接失败", isPresented: Binding(get: { trakt.errorMessage != nil }, set: { if !$0 { trakt.errorMessage = nil } })) {
+            Button("好", role: .cancel) { trakt.errorMessage = nil }
+        } message: {
+            Text(trakt.errorMessage ?? "")
+        }
+        .sheet(isPresented: $showsProgressPriority) { EmbyProgressPrioritySheet() }
         .sheet(isPresented: $showsSkipDatabases) { EmbySkipDatabasesView() }
         .task {
             if ["zho", "chi", "zh"].contains(audioLanguage) { audioLanguage = "zh-Hans" }
@@ -772,6 +812,42 @@ private struct TabOrderSettingsView: View {
     }
 }
 
+private struct EmbyProgressPrioritySheet: View {
+    @AppStorage(EmbyProgressPriority.key) private var order = EmbyProgressPriority.defaultOrder
+
+    var body: some View {
+        NavigationStack {
+            SettingsPage {
+                SettingsSection {
+                    ForEach(EmbyProgressPriority.order(order)) { source in
+                        Text(LocalizedStringKey(source.titleKey))
+                    }
+                    .onMove { offsets, destination in
+                        var updated = EmbyProgressPriority.order(order)
+                        updated.move(fromOffsets: offsets, toOffset: destination)
+                        order = updated.map(\.rawValue).joined(separator: ",")
+                    }
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .scrollDisabled(true)
+            .navigationTitle("播放进度优先级")
+            .vesperNavigationStyle(.inline)
+            .toolbarRole(.automatic)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("播放进度优先级").font(.headline)
+                }
+            }
+        }
+        .presentationDetents([.custom(TabOrderDetent.self)])
+        .presentationDragIndicator(.hidden)
+        .interactiveDismissDisabled(false)
+        .presentationBackground(VesperTheme.background)
+    }
+}
+
 private struct TabOrderDetent: CustomPresentationDetent {
     static func height(in context: Context) -> CGFloat? {
         min(context.maxDetentValue, context.dynamicTypeSize.isAccessibilitySize ? 540 : 360)
@@ -780,27 +856,30 @@ private struct TabOrderDetent: CustomPresentationDetent {
 
 /// Introductory card shared by secondary settings pages.
 struct SettingsIntroCard: View {
+    @Environment(\.isPresented) private var isPresented
     let title: LocalizedStringKey
     let symbol: String
     let description: LocalizedStringKey
     @ScaledMetric(relativeTo: .largeTitle) private var iconSize = 28.0
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            Image(systemName: symbol)
-                .font(.system(size: iconSize)).foregroundStyle(.white)
-                .frame(width: iconSize + 20, height: iconSize + 20)
-                .background(.tint, in: RoundedRectangle(cornerRadius: 18))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.headline).accessibilityAddTraits(.isHeader)
-                Text(description).foregroundStyle(.secondary).font(.subheadline)
+        if !isPresented {
+            HStack(alignment: .center, spacing: 16) {
+                Image(systemName: symbol)
+                    .font(.system(size: iconSize)).foregroundStyle(.white)
+                    .frame(width: iconSize + 20, height: iconSize + 20)
+                    .background(.tint, in: RoundedRectangle(cornerRadius: 18))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline).accessibilityAddTraits(.isHeader)
+                    Text(description).foregroundStyle(.secondary).font(.subheadline)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .listRowInsets(EdgeInsets())
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
     }
 }
 

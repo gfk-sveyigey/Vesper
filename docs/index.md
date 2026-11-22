@@ -11,6 +11,7 @@
 - [待决事项](open-decisions.md)：需要在实现前共同确认的产品与技术选择。
 - [项目计划](project-plan.md)：从技术核验到首版验收的实施阶段和交付条件。
 - [开发环境与导航原型](development-setup.md)：构建步骤、原型范围与当前验证状态。
+- [Trakt 接入准备](trakt-integration.md)
 
 ## 维护原则
 

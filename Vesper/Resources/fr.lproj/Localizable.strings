@@ -353,7 +353,7 @@
 
 "回到前台自动续播" = "Reprendre au retour dans l’application";
 
-"保留播放进度" = "Mémoriser la position de lecture";
+"按进度续播" = "Reprendre la lecture";
 
 "设置后台播放方式、自动续播、进度保存和跳转时长。" = "Configurez la lecture en arrière-plan, la reprise, les positions enregistrées et les sauts.";
 
@@ -1015,3 +1015,25 @@
 "主线路" = "Connexion principale";
 "线路名称" = "Nom de la connexion";
 "备用线路 %lld" = "Connexion secondaire %lld";
+
+"已连接" = "Connecté";
+
+"断开 Trakt 连接？" = "Déconnecter Trakt ?";
+
+"断开连接" = "Déconnecter";
+
+"Trakt 连接失败，请检查网络和应用回调配置后重试。" = "Connexion à Trakt impossible. Vérifiez votre connexion et la configuration de retour de l’app, puis réessayez.";
+
+"播放进度优先级" = "Priorité de reprise";
+
+"Trakt 记录进度" = "Progression Trakt";
+
+"服务器记录进度" = "Progression du serveur";
+
+"本地记录进度" = "Progression locale";
+
+"通用" = "Général";
+
+"媒体与存储" = "Médias et stockage";
+
+"帮助与关于" = "Assistance et à propos";
