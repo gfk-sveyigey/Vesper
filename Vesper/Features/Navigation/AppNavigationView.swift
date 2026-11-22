@@ -119,10 +119,7 @@ struct AppNavigationView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            isInBackground = phase == .background
-            appLock.sceneChanged(phase)
-            playback.handleScenePhase(phase)
-            if phase == .active { presentNextIncomingVideo() }
+            handleScenePhaseChange(phase)
         }
         .task(id: incomingPresentationRequest) { await retryIncomingPresentation() }
         .onChange(of: incomingVideos.videos.map(\.id)) { _, _ in presentNextIncomingVideo() }
@@ -313,6 +310,14 @@ struct AppNavigationView: View {
     }
 
     private var hasPlayableContent: Bool { playback.currentItem != nil }
+
+    private func handleScenePhaseChange(_ phase: ScenePhase) {
+        isInBackground = phase == .background
+        appLock.sceneChanged(phase)
+        playback.handleScenePhase(phase)
+        if phase == .active { presentNextIncomingVideo() }
+    }
+
     private var shouldShowMiniPlayer: Bool {
         miniPlayerEnabled && (miniPlayerAlwaysVisible || hasPlayableContent)
     }

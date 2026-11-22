@@ -156,7 +156,7 @@ private struct AppLockSettingsView: View {
     }
 }
 
-private struct AppLockScreen: View {
+struct AppLockScreen: View {
     @EnvironmentObject private var appLock: AppLock
     @AppStorage(AppLock.biometricEnabledKey) private var biometricEnabled = false
     @AppStorage(AppLock.biometricPriorityKey) private var biometricPriority = false
