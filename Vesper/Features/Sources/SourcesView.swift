@@ -443,6 +443,15 @@ private struct SourceRouteManagementSheet: View {
 
     private var activeKey: String { EmbyRouteOptions.key(source.emby?.serverAddress ?? "") }
 
+    @ViewBuilder
+    private func routeTitle(for route: EmbyRouteDraft) -> some View {
+        if route.id == routes.first?.id {
+            Text("主线路")
+        } else {
+            Text(verbatim: route.displayName)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -451,8 +460,7 @@ private struct SourceRouteManagementSheet: View {
                         Button { editingRoute = route } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
-                                    Text(route.id == routes.first?.id
-                                         ? VesperLocalization.string("主线路") : route.displayName)
+                                    routeTitle(for: route)
                                     if EmbyRouteOptions.key(route.address) == activeKey {
                                         Spacer()
                                         Text("正在使用").font(.caption).foregroundStyle(.secondary)

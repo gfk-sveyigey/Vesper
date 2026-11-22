@@ -105,8 +105,8 @@ final class AppLock: ObservableObject {
             let scope = UserDefaults.standard.string(forKey: Self.scopeKey) ?? "launch"
             let seconds = UserDefaults.standard.double(forKey: Self.timeoutKey)
             let requiresLock = scope == "launch" || scope == "both"
-            guard let lastBackgroundDate else { return }
-            let withinGrace = Date().timeIntervalSince(lastBackgroundDate) < seconds
+            guard let backgroundDate = lastBackgroundDate else { return }
+            let withinGrace = Date().timeIntervalSince(backgroundDate) < seconds
             isLocked = requiresLock && !withinGrace
             lastBackgroundDate = nil
         default: break
