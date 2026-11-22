@@ -498,14 +498,15 @@ private struct SourceRouteManagementSheet: View {
             }
             .sheet(item: $editingRoute) { route in
                 EmbyRouteEditor(draft: route, otherAddresses: routes.filter { $0.id != route.id }.map(\.address)) { updated in
+                    var saved = updated
                     if EmbyRouteOptions.key(route.address) == activeKey {
-                        updated.name = route.name
-                        updated.fromServer = route.fromServer
+                        saved.name = route.name
+                        saved.fromServer = route.fromServer
                     }
-                    if let index = routes.firstIndex(where: { $0.id == updated.id }) {
-                        routes[index] = updated
+                    if let index = routes.firstIndex(where: { $0.id == saved.id }) {
+                        routes[index] = saved
                     } else {
-                        routes.append(updated)
+                        routes.append(saved)
                     }
                 }
             }
