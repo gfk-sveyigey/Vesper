@@ -27,6 +27,50 @@ public struct EngineDiagnosticMetric: Identifiable, Sendable, Equatable {
         self.value = value
     }
 }
+/// Cumulative input bytes, with a key that changes when the measured link changes.
+public struct EngineDownloadSample: Sendable {
+    public let counterID: String
+    public let bytes: Int64
+    public init(counterID: String, bytes: Int64) {
+        self.counterID = counterID
+        self.bytes = bytes
+    }
+}
+
+/// A short wall-clock mean over arriving source bytes, including idle time.
+public struct DownloadSpeedSampler {
+    private var counterID: String?
+    private var samples: [(time: TimeInterval, bytes: Int64)] = []
+    public init() {}
+
+    public static func megabytesPerSecond(_ bytesPerSecond: Double?) -> String {
+        guard let bytesPerSecond, bytesPerSecond.isFinite, bytesPerSecond >= 0 else { return "—" }
+        return String(format: "%.2f MB/s", bytesPerSecond / 1_000_000)
+    }
+
+    public mutating func update(_ sample: EngineDownloadSample?, at time: TimeInterval) -> Double? {
+        guard let sample, sample.bytes >= 0, time.isFinite else {
+            counterID = nil
+            samples.removeAll()
+            return nil
+        }
+        if counterID != sample.counterID {
+            samples.removeAll()
+        }
+        if let last = samples.last,
+           time <= last.time || time - last.time > 5 || sample.bytes < last.bytes {
+            samples.removeAll()
+        }
+        counterID = sample.counterID
+        samples.append((time, sample.bytes))
+        while samples.count > 2 && time - samples[1].time >= 2 {
+            samples.removeFirst()
+        }
+        guard let first = samples.first, time > first.time else { return nil }
+        return Double(sample.bytes - first.bytes) / (time - first.time)
+    }
+}
+
 public struct MediaProbe: Sendable {
     public var duration: Double = 0
     public var width: Int = 0
@@ -103,6 +147,7 @@ public struct EngineExternalSubtitle: Sendable {
     var view: UIView { get }
     var snapshot: EngineSnapshot { get }
     var diagnosticMetrics: [EngineDiagnosticMetric] { get }
+    var downloadSample: EngineDownloadSample? { get }
     var mediaInformation: MediaProbe? { get }
     var nativePiPController: AVPictureInPictureController? { get }
     var restoreUI: ((@escaping (Bool) -> Void) -> Void)? { get set }
@@ -122,6 +167,7 @@ public struct EngineExternalSubtitle: Sendable {
 }
 extension PlaybackDriver {
     public var diagnosticMetrics: [EngineDiagnosticMetric] { [] }
+    public var downloadSample: EngineDownloadSample? { nil }
     public var mediaInformation: MediaProbe? { nil }
     public func preparePiP() {}
     public func seek(to seconds: Double, fast: Bool) async throws {

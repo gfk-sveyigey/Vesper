@@ -16,7 +16,28 @@ import UIKit
 final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictureInPictureControllerDelegate {
     @Published private(set) var currentEngine = PlaybackPreferences.preferredEngine
     var diagnosticEngineTitle: String { currentEngine.title }
-    var diagnosticMetrics: [EngineDiagnosticMetric] { core.driver?.diagnosticMetrics ?? [] }
+    var diagnosticMetrics: [EngineDiagnosticMetric] {
+        [.init("下载速度", downloadSpeedText)] + (core.driver?.diagnosticMetrics ?? [])
+    }
+    @Published private(set) var downloadBytesPerSecond: Double?
+    private var downloadSpeedSampler = DownloadSpeedSampler()
+    var downloadSpeedText: String {
+        DownloadSpeedSampler.megabytesPerSecond(downloadBytesPerSecond)
+    }
+
+    // Runs while PlayerScreen is mounted, including the initial async engine load.
+    // SwiftUI cancels it on dismissal; no independent timer keeps the player alive.
+    func monitorDownloadSpeed() async {
+        defer {
+            downloadSpeedSampler = DownloadSpeedSampler()
+            downloadBytesPerSecond = nil
+        }
+        while !Task.isCancelled {
+            downloadBytesPerSecond = downloadSpeedSampler.update(
+                core.driver?.downloadSample, at: ProcessInfo.processInfo.systemUptime)
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        }
+    }
     @Published private(set) var currentDecoder = PlaybackPreferences.preferredDecoder
     @Published private(set) var playbackSubtitle: String?
     private var playbackSubtitleTask: Task<Void, Never>?
@@ -330,6 +351,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 }
                 guard !Task.isCancelled, self.generation == token else { resolved.release(); return }
                 self.resource = resolved
+                self.downloadSpeedSampler = DownloadSpeedSampler()
+                self.downloadBytesPerSecond = nil
                 self.refreshSkipMarkers()
                 self.progressRestored = true
                 if let source, source.kind == .emby, let playSessionID = resolved.embyPlaySessionID {
@@ -1478,6 +1501,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     private func tearDownPlayer() {
+        downloadSpeedSampler = DownloadSpeedSampler()
+        downloadBytesPerSecond = nil
         pipStartTask?.cancel(); pipStartTask = nil
         decoderChange?.cancel(); decoderChange = nil; requestedDecoder = nil
         pipController?.delegate = nil

@@ -165,6 +165,7 @@ final class SourceLibrary: ObservableObject {
     @Published private(set) var storageFailed = false
     enum ConnectionStatus: Equatable { case normal, checking, verified, failed }
     @Published private var connectionStatuses: [UUID: [String: ConnectionStatus]] = [:]
+    @Published private(set) var routeLatencies: [UUID: Int] = [:]
     private var connectionChecks: [UUID: Task<Void, Never>] = [:]
     private var connectionGenerations: [UUID: UUID] = [:]
 
@@ -182,16 +183,22 @@ final class SourceLibrary: ObservableObject {
         connectionGenerations[id] = generation
         let key = EmbyRouteOptions.key(configuration.serverAddress)
         connectionStatuses[id, default: [:]][key] = .checking
+        routeLatencies[id] = nil
         connectionChecks[id] = Task { [weak self] in
             let result: ConnectionStatus
+            let milliseconds: Int?
             do {
-                try await EmbyAccountStore.shared.verifyConnection(for: source)
+                let verification = try await EmbyAccountStore.shared.verifyConnection(for: source)
+                let duration = verification.latency.components
+                milliseconds = max(1, Int(duration.seconds * 1_000 + duration.attoseconds / 1_000_000_000_000_000))
                 result = .verified
             } catch {
+                milliseconds = nil
                 result = .failed
             }
             guard let self, !Task.isCancelled, self.connectionGenerations[id] == generation,
-                  self.sources.first(where: { $0.id == id })?.emby == configuration else { return }
+                  self.sources.first(where: { $0.id == id })?.emby?.serverAddress == configuration.serverAddress else { return }
+            self.routeLatencies[id] = milliseconds
             self.connectionStatuses[id, default: [:]][key] = result
             self.connectionChecks[id] = nil
         }
@@ -319,55 +326,66 @@ final class SourceLibrary: ObservableObject {
         return configuration
     }
 
-    func addEmby(configuration: EmbySourceConfiguration, password: String) async throws {
-        let fallbackName = configuration.title.isEmpty ? Self.embyHostName(configuration.serverAddress) : configuration.title
-        let source = MediaSource(id: UUID(), name: fallbackName, kind: .emby,
-                                 behavior: .empty, emby: configuration)
-        let auth = try await EmbyAccountStore.shared.authenticate(source: source, username: configuration.username,
-                                                                  password: password)
-        var authenticated = source
-        authenticated.emby?.serverID = auth.serverID
-        authenticated.emby?.userID = auth.userID
-        if configuration.title.isEmpty, let name = auth.serverName, !name.isEmpty {
-            authenticated.name = name
-            authenticated.emby?.title = name
-        }
-        authenticated.emby?.customHeaders = [:]
-        sources.append(authenticated)
-        if selectedID == nil { selectedID = source.id; reload() }
-        persist()
-    }
-
-    private static func embyHostName(_ address: String) -> String {
-        URLComponents(string: address)?.host ?? "Emby"
-    }
-
-    func updateEmby(_ id: UUID, configuration: EmbySourceConfiguration, password: String?,
-                    validatesConnection: Bool = false) async throws {
-        guard let index = sources.firstIndex(where: { $0.id == id && $0.kind == .emby }) else { return }
-        _ = try EmbyAPIClient(configuration: configuration, token: nil, deviceID: "validation")
-        var updated = sources[index]
-        updated.name = configuration.title
-        updated.emby = configuration
-        if let password, !password.isEmpty {
-            let auth = try await EmbyAccountStore.shared.authenticate(source: updated, username: configuration.username,
-                                                                      password: password)
-            updated.emby?.serverID = auth.serverID
-            updated.emby?.userID = auth.userID
+    func saveEmby(_ id: UUID?, configuration: EmbySourceConfiguration, password: String?) async throws {
+        let original = id.flatMap { id in sources.first { $0.id == id && $0.kind == .emby } }
+        let sourceID = id ?? UUID()
+        var candidate = original ?? MediaSource(id: sourceID, name: configuration.title, kind: .emby,
+                                                behavior: .empty, emby: configuration)
+        let preferredAddress = configuration.serverAddress
+        var validated = configuration
+        validated.serverAddress = configuration.primaryRoute
+        candidate.emby = validated
+        let accounts = EmbyAccountStore.shared
+        let serverName: String?
+        let preparedAccount: EmbyAccount?
+        if let password {
+            let (auth, account) = try await accounts.prepareAuthentication(
+                source: candidate, username: validated.username, password: password
+            )
+            validated.serverID = auth.serverID
+            validated.userID = auth.userID
+            serverName = auth.serverName
+            preparedAccount = account
         } else {
-            if validatesConnection {
-                guard configuration.username == sources[index].emby?.username else { throw EmbyError.authentication }
-                try await EmbyAccountStore.shared.verifyConnection(for: updated)
-            }
-            try EmbyAccountStore.shared.updateCustomHeaders(configuration.customHeaders, sourceID: id)
+            guard validated.username == original?.emby?.username else { throw EmbyError.authentication }
+            serverName = try await accounts.verifyConnection(for: candidate).serverName
+            preparedAccount = nil
         }
-        updated.emby?.customHeaders = [:]
-        guard let currentIndex = sources.firstIndex(where: { $0.id == id }) else { return }
-        sources[currentIndex] = updated
-        connectionStatuses[id] = nil
-        verifyEmbyConnection(id)
+        if validated.title.isEmpty {
+            validated.title = serverName.flatMap { $0.isEmpty ? nil : $0 }
+                ?? URLComponents(string: validated.primaryRoute)?.host ?? "Emby"
+        }
+        if validated.fetchAlternateAddresses == true {
+            let client: EmbyAPIClient
+            if let preparedAccount {
+                client = try EmbyAPIClient(configuration: validated, token: preparedAccount.token,
+                                           deviceID: preparedAccount.deviceID)
+            } else {
+                client = try accounts.client(for: candidate)
+            }
+            let routes = try await EmbyRepository.alternateRoutes(client: client, primaryRoute: validated.primaryRoute)
+            validated.mergeServerRoutes(routes)
+        }
+        let index = id.flatMap { id in sources.firstIndex { $0.id == id && $0.kind == .emby } }
+        guard id == nil || index != nil else { throw EmbyError.missingAccount }
+        if (original == nil || original?.emby?.serverID == validated.serverID),
+           let preferred = validated.backupRoutes.first(where: {
+            EmbyRouteOptions.key($0) == EmbyRouteOptions.key(preferredAddress)
+        }) {
+            validated.primaryRouteAddress = validated.primaryRoute
+            validated.serverAddress = preferred
+        }
+        if let preparedAccount { try accounts.save(preparedAccount, sourceID: sourceID) }
+        validated.customHeaders = [:]
+        candidate.name = validated.title
+        candidate.emby = validated
+        if let index { sources[index] = candidate }
+        else { sources.append(candidate) }
+        if selectedID == nil { selectedID = sourceID }
+        connectionStatuses[sourceID] = nil
+        verifyEmbyConnection(sourceID)
         persist()
-        if selectedID == id { reload() }
+        if selectedID == sourceID { reload() }
     }
 
     /// Route selection is immediate; verification only updates its status icon.
@@ -388,6 +406,26 @@ final class SourceLibrary: ObservableObject {
         if selectedID == id { reload() }
     }
 
+    func refreshEmbyRoutes(_ id: UUID) async throws {
+        guard let source = sources.first(where: { $0.id == id }),
+              let original = source.emby else { return }
+        try await EmbyAccountStore.shared.verifyConnection(for: source)
+        let routes = try await EmbyRepository.shared.alternateRoutes(for: source)
+        try Task.checkCancellation()
+
+        guard let index = sources.firstIndex(where: { $0.id == id }),
+              var configuration = sources[index].emby,
+              configuration.primaryRoute == original.primaryRoute,
+              configuration.serverID == original.serverID,
+              configuration.userID == original.userID else { return }
+        let oldAddress = configuration.serverAddress
+        configuration.replaceServerRoutes(routes)
+        sources[index].emby = configuration
+        persist()
+        verifyEmbyConnection(id)
+        if selectedID == id, oldAddress != configuration.serverAddress { reload() }
+    }
+
     func configure(_ id: UUID, behavior: DemoSourceBehavior) {
         guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
         sources[index].behavior = behavior
@@ -396,6 +434,7 @@ final class SourceLibrary: ObservableObject {
     }
 
     func remove(_ id: UUID) {
+        routeLatencies[id] = nil
         connectionChecks.removeValue(forKey: id)?.cancel()
         connectionGenerations[id] = nil
         connectionStatuses[id] = nil

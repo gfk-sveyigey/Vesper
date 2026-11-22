@@ -16,6 +16,8 @@ internal import SwiftVLC
     private var timelineEvents: Task<Void, Never>?
     private var pendingSeekTime: Double?
     private var seekClockDeadline = Date.distantPast
+    private var measuresNetworkInput = false
+    private var downloadSessionID = UUID().uuidString
     private var previousDiagnosticSample: (date: Date, pictures: UInt64)?
     public var restoreUI: ((@escaping (Bool) -> Void) -> Void)?
     public var view: UIView { surface }
@@ -94,11 +96,16 @@ internal import SwiftVLC
         return result
     }
 
+    public var downloadSample: EngineDownloadSample? {
+        guard measuresNetworkInput, let player, let bytes = player.statistics?.readBytes,
+              let count = Int64(exactly: bytes) else { return nil }
+        return .init(counterID: downloadSessionID + ":\(player.currentTime.components.seconds):\(player.currentTime.components.attoseconds / 1_000_000_000_000_000)", bytes: count)
+    }
+
     public var diagnosticMetrics: [EngineDiagnosticMetric] {
         guard let statistics = player?.statistics else { return [] }
         var metrics: [EngineDiagnosticMetric] = [
             .init("输入码率", Self.rate(statistics.inputBitrate)),
-            .init("解复用码率", Self.rate(statistics.demuxBitrate)),
             .init("读取字节", Self.byteCount(statistics.readBytes)),
             .init("解复用字节", Self.byteCount(statistics.demuxReadBytes)),
             .init("解码视频帧", "\(statistics.decodedVideo)"),
@@ -129,6 +136,8 @@ internal import SwiftVLC
         ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
     }
     public func load(url: URL, configuration: EngineConfiguration) async throws {
+        measuresNetworkInput = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+        downloadSessionID = UUID().uuidString
         let supportedHeaders = Set(["user-agent", "referer", "referrer", "cookie"])
         let unsupportedHeaders = configuration.requestHeaders.keys.filter { !supportedHeaders.contains($0.lowercased()) }
         guard unsupportedHeaders.isEmpty else {

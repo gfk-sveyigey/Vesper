@@ -58,6 +58,7 @@ struct PlayerScreen: View {
 
     var body: some View {
         observedPlayer
+            .task { await session.monitorDownloadSpeed() }
             .task(id: hudRevision) { await dismissHUDWhenReady() }
             .task(id: autoHideRevision) { await autoHideControlsWhenReady() }
             .task(id: volumeResetRevision) { await resetVolumeWhenReady() }
@@ -137,8 +138,8 @@ struct PlayerScreen: View {
                     .id(ObjectIdentifier(session.danmaku))
                 if debugInfoVisible {
                     diagnosticOverlay
-                        .padding(.top, safeGeometry.safeAreaInsets.top + 12)
-                        .padding(.leading, 12)
+                        .padding(12)
+                        .padding(safeGeometry.safeAreaInsets)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .allowsHitTesting(false)
                         .accessibilityElement(children: .contain)
@@ -176,8 +177,15 @@ struct PlayerScreen: View {
                 .allowsHitTesting(controlsVisible)
                 .accessibilityHidden(!controlsVisible)
                 if (session.isLoading || session.isSeeking) && !isScrubbing {
-                    ProgressView().controlSize(.large).tint(.white)
-                        .allowsHitTesting(false).accessibilityLabel("正在加载")
+                    VStack(spacing: 12) {
+                        ProgressView().controlSize(.large).tint(.white)
+                            .accessibilityLabel("正在加载")
+                        Text(verbatim: session.downloadSpeedText)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white)
+                            .accessibilityLabel(VesperLocalization.string("下载速度") + " " + session.downloadSpeedText)
+                    }
+                    .allowsHitTesting(false)
                 }
                 if !hudText.isEmpty {
                     VStack {
@@ -201,6 +209,9 @@ struct PlayerScreen: View {
                     VStack {
                         Spacer()
                         progressRow
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .glassEffect(.regular, in: Capsule())
                     }
                     .padding(.horizontal, 28).padding(.bottom, safeGeometry.safeAreaInsets.bottom + 12)
                     .allowsHitTesting(false).accessibilityHidden(true)
@@ -387,22 +398,30 @@ struct PlayerScreen: View {
 
     private func bottomControls(landscape: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .bottom, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    if let subtitle = session.playbackSubtitle, !subtitle.isEmpty {
-                        Text(verbatim: subtitle).font(.caption).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
+            if !isScrubbing {
+                HStack(alignment: .bottom, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if let subtitle = session.playbackSubtitle, !subtitle.isEmpty {
+                            Text(verbatim: subtitle).font(.caption).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
+                        }
+                        Text(verbatim: session.currentItem?.title ?? VesperLocalization.string("未在播放"))
+                            .font(landscape ? .headline : .title3.weight(.semibold))
+                            .lineLimit(1).truncationMode(.middle)
                     }
-                    Text(verbatim: session.currentItem?.title ?? VesperLocalization.string("未在播放"))
-                        .font(landscape ? .headline : .title3.weight(.semibold))
-                        .lineLimit(1).truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if landscape { expandedPlaybackOptions }
+                    else { playbackOptionsMenu }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                if landscape { expandedPlaybackOptions }
-                else { playbackOptionsMenu }
             }
             progressRow
-            bottomActions(landscape: landscape)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .glassEffect(.regular, in: Capsule())
+            if !isScrubbing {
+                bottomActions(landscape: landscape)
+            }
         }
+        .animation(.easeInOut(duration: 0.18), value: isScrubbing)
     }
 
     private var progressRow: some View {
@@ -410,9 +429,13 @@ struct PlayerScreen: View {
             Text(timeLabel(isScrubbing ? scrubTime : session.currentTime))
                 .frame(minWidth: 40, alignment: .leading)
             progressBar
-            Text(timeLabel(session.duration)).frame(minWidth: 40, alignment: .trailing)
+            Text(timeLabel(PlaybackPreferences.showsRemainingDuration
+                           ? max(0, session.duration - (isScrubbing ? scrubTime : session.currentTime))
+                           : session.duration))
+                .frame(minWidth: 40, alignment: .trailing)
         }
         .font(.caption.monospacedDigit())
+        .animation(.easeInOut(duration: 0.18), value: isScrubbing)
     }
 
     private var progressBar: some View {
@@ -1024,7 +1047,6 @@ struct PlayerScreen: View {
     }
     private func timeLabel(_ seconds: TimeInterval) -> String {
         let value = Int(max(0, seconds.isFinite ? seconds : 0))
-        if value >= 3600 { return String(format: "%d:%02d:%02d", value / 3600, value / 60 % 60, value % 60) }
         return String(format: "%d:%02d", value / 60, value % 60)
     }
 }

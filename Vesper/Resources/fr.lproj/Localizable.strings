@@ -1106,3 +1106,34 @@
 "已播放音频缓冲" = "Tampons audio lus";
 "丢失音频缓冲" = "Tampons audio perdus";
 "显示帧率" = "Fréquence d’affichage";
+
+"下载速度" = "Vitesse de téléchargement";
+
+"显示剩余时长" = "Afficher le temps restant";
+"关闭时显示视频总时长；开启后显示剩余时长。" = "Désactivé affiche la durée totale ; activé affiche le temps restant.";
+"来源列表行高" = "Hauteur des lignes des sources";
+"来源图标上间距" = "Marge supérieure de l’icône de source";
+"来源图标左间距" = "Marge gauche de l’icône de source";
+"来源图标下间距" = "Marge inférieure de l’icône de source";
+"来源图标右间距" = "Marge droite de l’icône de source";
+"上次播放" = "Dernière lecture";
+
+"名称（可选）" = "Nom (facultatif)";
+"备注（可选）" = "Note (facultative)";
+"已保留登录凭据" = "Identifiants enregistrés";
+"线路" = "Routes de connexion";
+"添加线路" = "Ajouter une route";
+"编辑线路" = "Modifier les routes";
+"线路名称（可选）" = "Nom de la route (facultatif)";
+"域名（必填）" = "Hôte (obligatoire)";
+"端口（可选）" = "Port (facultatif)";
+"路径（可选）" = "Chemin (facultatif)";
+"无法保存线路" = "Impossible d’enregistrer la route";
+"此线路已存在。" = "Cette route existe déjà.";
+"无法保存来源" = "Impossible d’enregistrer la source";
+"请至少添加一条线路。" = "Ajoutez au moins une route.";
+"编辑来源" = "Modifier la source";
+"修改图标" = "Changer l’icône";
+"移除来源" = "Supprimer la source";
+"刷新线路" = "Actualiser les routes";
+"无法刷新线路" = "Impossible d’actualiser les routes";

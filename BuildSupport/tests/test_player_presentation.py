@@ -22,6 +22,44 @@ class PlayerPresentationTests(unittest.TestCase):
         self.assertIn('versionMenu().frame(width: 44', toolbar)
         self.assertNotIn('if hasScrolled { Label', source)
         self.assertIn('.glassEffect(.regular, in: .circle)', toolbar)
+    def test_progress_time_format_and_remaining_preference(self):
+        player = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
+        settings = (ROOT / 'Vesper/Features/Settings/PlaybackSettingsView.swift').read_text()
+        time_label = player.split('private func timeLabel', 1)[1].split('\n}', 1)[0]
+        self.assertIn('String(format: "%d:%02d", value / 60, value % 60)', time_label)
+        self.assertNotIn('value / 3600', time_label)
+        self.assertIn('Text(timeLabel(PlaybackPreferences.showsRemainingDuration', player)
+        self.assertIn('max(0, session.duration - (isScrubbing ? scrubTime : session.currentTime))', player)
+        self.assertIn('@AppStorage("player.showsRemainingDuration")', settings)
+        self.assertIn('Toggle("显示剩余时长", isOn: $showsRemainingDuration)', settings)
+    def test_progress_glass_group_and_scrub_controls(self):
+        source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
+        bottom = source.split('private func bottomControls', 1)[1].split('private var progressBar', 1)[0]
+        self.assertIn('progressRow', bottom)
+        self.assertIn('.glassEffect(.regular, in: Capsule())', bottom)
+        self.assertIn('if !isScrubbing {', bottom)
+        self.assertIn('bottomActions(landscape: landscape)', bottom)
+        self.assertIn('progressRow', source.split('if isScrubbing && !controlsVisible {', 1)[1].split('if regionsVisible', 1)[0])
+        self.assertIn('finishScrubbing(commit: scrubPreviews)', source)
+        self.assertIn('phase == .ended', source)
+    def test_sources_are_tunable_transparent_rows(self):
+        source = (ROOT / 'Vesper/Features/Sources/SourcesView.swift').read_text()
+        media = (ROOT / 'Vesper/Features/Media/MediaView.swift').read_text()
+        settings = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text()
+        row = source.split('private struct SourceListRow', 1)[1]
+        self.assertIn('.frame(height: rowHeight, alignment: .center)', row)
+        self.assertIn('private var iconSide:', row)
+        self.assertIn('rowHeight - iconTop - iconBottom', row)
+        self.assertIn('VesperTheme.accent(accent)', row)
+        self.assertNotIn('.background(Color(uiColor: .secondarySystemBackground)', row)
+        for metric in ['sourceListRowHeight', 'sourceListIconTop', 'sourceListIconLeading',
+                       'sourceListIconBottom', 'sourceListIconTrailing']:
+            self.assertIn(metric, media)
+            self.assertIn('.' + metric, settings)
+        self.assertIn('sourceSummary(for: source)', row)
+        self.assertIn('movieCount', row)
+        self.assertIn('seriesCount', row)
+        self.assertIn('lastPlayed', row)
     def test_rotation_sync_lifecycle(self):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
         controller = source.split('final class PlayerVideoSurfaceController', 1)[1]

@@ -285,6 +285,12 @@ struct EmbySearchPage: Sendable {
     let hasMore: Bool
 }
 
+struct EmbySourceSummary: Sendable {
+    let movieCount: Int
+    let seriesCount: Int
+    let lastPlayed: Date?
+}
+
 actor EmbyRepository {
     static let shared = EmbyRepository()
     private let clientProvider: @MainActor @Sendable (MediaSource) throws -> EmbyAPIClient
@@ -357,6 +363,35 @@ actor EmbyRepository {
         try await latestMedia(for: source, parentID: libraryID, limit: 20)
     }
 
+    func sourceSummary(for source: MediaSource) async throws -> EmbySourceSummary {
+        let client = try await clientProvider(source)
+        let path = source.emby?.userID.map { "Users/\($0)/Items" } ?? "Items"
+        func count(_ type: String) async throws -> Int {
+            let response = try await client.get(path, query: [
+                "Recursive": "true", "IncludeItemTypes": type, "Limit": "1",
+                "EnableTotalRecordCount": "true"
+            ])
+            guard let total = response["TotalRecordCount"] as? Int else { throw EmbyError.invalidResponse }
+            return total
+        }
+        async let movies = count("Movie")
+        async let series = count("Series")
+        async let lastPlayed = client.get(path, query: [
+            "Recursive": "true", "IncludeItemTypes": "Movie,Episode", "Filters": "IsPlayed",
+            "SortBy": "DatePlayed", "SortOrder": "Descending", "Limit": "1",
+            "Fields": "UserData"
+        ])
+        let lastResponse = try await lastPlayed
+        let dateText = (((lastResponse["Items"] as? [[String: Any]])?.first?["UserData"] as? [String: Any])?["LastPlayedDate"] as? String)
+        let latestDate = dateText.flatMap { value -> Date? in
+            let formatter = ISO8601DateFormatter()
+            if let date = formatter.date(from: value) { return date }
+            formatter.formatOptions.insert(.withFractionalSeconds)
+            return formatter.date(from: value)
+        }
+        return EmbySourceSummary(movieCount: try await movies, seriesCount: try await series, lastPlayed: latestDate)
+    }
+
     private func latestMedia(for source: MediaSource, parentID: String?, limit: Int) async throws -> (items: [MediaItem], totalCount: Int?) {
         let client = try await clientProvider(source)
         let path = source.emby?.userID.map { "Users/\($0)/Items" } ?? "Items"
@@ -387,10 +422,14 @@ actor EmbyRepository {
 
     func alternateRoutes(for source: MediaSource) async throws -> [EmbyServerRoute] {
         let client = try await clientProvider(source)
+        return try await Self.alternateRoutes(client: client, primaryRoute: source.emby?.primaryRoute)
+    }
+
+    static func alternateRoutes(client: EmbyAPIClient, primaryRoute: String?) async throws -> [EmbyServerRoute] {
         let response = try await client.get("System/Ext/ServerDomains")
         guard response["ok"] as? Bool == true,
               let rows = response["data"] as? [[String: Any]] else { throw EmbyError.invalidResponse }
-        let primaryKey = source.emby.map { EmbyRouteOptions.key($0.primaryRoute) }
+        let primaryKey = primaryRoute.map(EmbyRouteOptions.key)
         var seen = Set<String>()
         return rows.compactMap { row in
             guard let name = (row["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),

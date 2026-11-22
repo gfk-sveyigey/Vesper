@@ -1245,6 +1245,11 @@ private extension MediaLayoutSettings.Metric {
         case .browserListImageLeading: "列表布局图片左间距"
         case .browserListImageBottom: "列表布局图片下间距"
         case .browserListImageTrailing: "列表布局图片右间距"
+        case .sourceListRowHeight: "来源列表行高"
+        case .sourceListIconTop: "来源图标上间距"
+        case .sourceListIconLeading: "来源图标左间距"
+        case .sourceListIconBottom: "来源图标下间距"
+        case .sourceListIconTrailing: "来源图标右间距"
         case .mediaHeaderHeight: "Header 固定内容高度"
         case .mediaGlassStrength: "Header 下层毛玻璃强度"
         case .mediaGlassTint: "Header 毛玻璃颜色叠加强度"
@@ -1273,6 +1278,50 @@ private extension MediaLayoutSettings.Metric {
     }
 }
 
+private struct DebugSettingsSection<Rows: View, Footer: View>: View {
+    let title: LocalizedStringKey
+    let rows: Rows
+    let footer: Footer
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isExpanded = false
+
+    init(title: LocalizedStringKey, @ViewBuilder rows: () -> Rows, @ViewBuilder footer: () -> Footer) {
+        self.title = title
+        self.rows = rows()
+        self.footer = footer()
+    }
+
+    var body: some View {
+        SettingsSection {
+            Button {
+                withAnimation(reduceMotion ? nil : .default) { isExpanded.toggle() }
+            } label: {
+                HStack {
+                    Text(title).fontWeight(.semibold)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(.isHeader)
+            if isExpanded { rows }
+        } footer: {
+            if isExpanded { footer }
+        }
+    }
+}
+
+private extension DebugSettingsSection where Footer == EmptyView {
+    init(title: LocalizedStringKey, @ViewBuilder rows: () -> Rows) {
+        self.init(title: title, rows: rows, footer: { EmptyView() })
+    }
+}
+
 private struct DebugSettingsView: View {
     @AppStorage("debug.mediaHeader.lightTint") private var lightTint = "#FFFFFF"
     @AppStorage("debug.mediaHeader.darkTint") private var darkTint = "#000000"
@@ -1285,7 +1334,7 @@ private struct DebugSettingsView: View {
     var body: some View {
         SettingsPage {
             SettingsIntroCard(title: "调试功能", symbol: "ladybug", description: "调试 Emby 客户端标识、图片缓存与界面布局，微调导航栏和模糊效果。")
-            SettingsSection {
+            DebugSettingsSection(title: "客户端模拟") {
                 Toggle("启用客户端模拟", isOn: $enabled)
                 if enabled {
                     TextField("客户端名称", text: $clientName)
@@ -1300,12 +1349,12 @@ private struct DebugSettingsView: View {
             } footer: {
                 Text("客户端名称和版本会同时用于 User-Agent 及 Emby Authorization 请求头。留空或关闭时使用 Vesper 默认值。")
             }
-            SettingsSection("图片缓存") {
+            DebugSettingsSection(title: "图片缓存") {
                 Toggle("图片不使用本地缓存", isOn: $ignoreLocalImageCache)
             } footer: {
                 Text("启用后，图片会直接从来源加载，且不会写入本地图片缓存。")
             }
-            SettingsSection("界面设计") {
+            DebugSettingsSection(title: "界面设计") {
                 ForEach(Self.interfaceMetrics, id: \.self) { metric in
                     layoutStepper(metric)
                 }
@@ -1313,7 +1362,7 @@ private struct DebugSettingsView: View {
                     layout.reset(Self.interfaceMetrics)
                 }
             }
-            SettingsSection("媒体页导航栏") {
+            DebugSettingsSection(title: "媒体页导航栏") {
                 ForEach(Self.headerMetrics, id: \.self) { metric in
                     if metric == .mediaSnapConflict {
                         SettingsPicker(metric.label, selection: Binding(
@@ -1340,7 +1389,7 @@ private struct DebugSettingsView: View {
                     layout.reset(Self.headerMetrics)
                 }
             }
-            SettingsSection("轮播图底部模糊") {
+            DebugSettingsSection(title: "轮播图底部模糊") {
                 ForEach(Self.carouselBlurMetrics, id: \.self) { metric in
                     layoutStepper(metric)
                 }

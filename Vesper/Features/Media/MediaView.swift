@@ -11,6 +11,7 @@ final class MediaLayoutSettings: ObservableObject {
         case itemWidth, itemHeight, itemVerticalPadding, itemSpacing, endPadding, episodeCardWidth, episodeCardHeight
         case browserListTop, browserListLeading, browserListBottom, browserListTrailing
         case browserListRowHeight, browserListImageTop, browserListImageLeading, browserListImageBottom, browserListImageTrailing
+        case sourceListRowHeight, sourceListIconTop, sourceListIconLeading, sourceListIconBottom, sourceListIconTrailing
 
         case mediaHeaderHeight, mediaGlassStrength, mediaGlassTint, mediaContentBlur
         case mediaGlassBorderWidth, mediaGlassBorderBlur, mediaGlassBorderOpacity
@@ -42,6 +43,8 @@ final class MediaLayoutSettings: ObservableObject {
             case .browserListLeading, .browserListTrailing: 20
             case .browserListRowHeight: 80
             case .browserListImageTop, .browserListImageLeading, .browserListImageBottom, .browserListImageTrailing: 4
+            case .sourceListRowHeight: 104
+            case .sourceListIconTop, .sourceListIconLeading, .sourceListIconBottom, .sourceListIconTrailing: 8
             case .mediaHeaderHeight: 54
             case .mediaGlassStrength: 5
             case .mediaGlassTint: 50
@@ -73,6 +76,8 @@ final class MediaLayoutSettings: ObservableObject {
             case .itemWidth, .itemHeight: 24...480
             case .browserListRowHeight: 60...320
             case .browserListImageTop, .browserListImageLeading, .browserListImageBottom, .browserListImageTrailing: 0...60
+            case .sourceListRowHeight: 64...240
+            case .sourceListIconTop, .sourceListIconLeading, .sourceListIconBottom, .sourceListIconTrailing: 0...60
             case .episodeCardWidth, .episodeCardHeight: 120...1200
             case .mediaHeaderHeight: 30...120
             case .mediaGlassStrength, .mediaGlassTint, .mediaGlassBorderOpacity, .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength, .carouselBlurTint: 0...100
