@@ -15,10 +15,10 @@ actor LocalFileStore {
         case invalidName, outsideRoot, conflict, invalidMove
         var errorDescription: String? {
             switch self {
-            case .invalidName: String(localized: "名称不能为空，且不能包含斜杠或冒号。")
-            case .outsideRoot: String(localized: "无法访问本地来源以外的位置或符号链接。")
-            case .conflict: String(localized: "目标位置已有同名文件或文件夹。")
-            case .invalidMove: String(localized: "不能移动到原位置、文件夹自身或其子文件夹。")
+            case .invalidName: VesperLocalization.string("名称不能为空，且不能包含斜杠或冒号。")
+            case .outsideRoot: VesperLocalization.string("无法访问本地来源以外的位置或符号链接。")
+            case .conflict: VesperLocalization.string("目标位置已有同名文件或文件夹。")
+            case .invalidMove: VesperLocalization.string("不能移动到原位置、文件夹自身或其子文件夹。")
             }
         }
     }
@@ -39,6 +39,22 @@ actor LocalFileStore {
                     return $0.name.localizedStandardCompare($1.name) == .orderedAscending
                 }
         }
+    }
+
+    /// Preserve relative paths and never follow symbolic links outside this source.
+    func matchingFiles(root: URL, query: String) throws -> [LocalFileEntry] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        var pending = [""]
+        var matches: [LocalFileEntry] = []
+        while let directory = pending.popLast() {
+            try Task.checkCancellation()
+            for entry in try entries(root: root, directory: directory) {
+                if entry.isDirectory { pending.append(entry.path) }
+                else if entry.name.localizedStandardContains(query) { matches.append(entry) }
+            }
+        }
+        return matches.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
     func createFolder(root: URL, directory: String, name: String) throws {

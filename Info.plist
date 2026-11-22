@@ -12,14 +12,20 @@
 <array><dict>
     <key>CFBundleURLName</key><string>com.aholic.vesper.import-diagnostic</string>
     <key>CFBundleURLSchemes</key><array><string>vesper-import-diagnostic</string></array>
+</dict><dict>
+    <key>CFBundleURLName</key><string>com.aholic.vesper.trakt</string>
+    <key>CFBundleURLSchemes</key><array><string>vesper</string></array>
 </dict></array>
+<key>CADisableMinimumFrameDurationOnPhone</key><true/>
 <key>UIBackgroundModes</key><array><string>audio</string></array>
 <key>UILaunchScreen</key><dict/>
 <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>NSPhotoLibraryUsageDescription</key><string>浏览相册中的视频以添加媒体来源。</string>
+<key>NSLocalNetworkUsageDescription</key><string>连接你添加的 Emby 媒体服务器。</string>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 <key>UIFileSharingEnabled</key><true/>
-<key>LSSupportsOpeningDocumentsInPlace</key><false/>
+<key>LSSupportsOpeningDocumentsInPlace</key><true/>
 <key>CFBundleDocumentTypes</key>
 <array><dict>
     <key>CFBundleTypeName</key><string>Video</string>

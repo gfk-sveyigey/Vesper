@@ -10,7 +10,7 @@ struct PlayerGestureSettingsView: View {
     var body: some View {
         let _ = revision
         SettingsPage {
-            SettingsIntroCard(title: "播放手势", symbol: "hand.draw", description: "为每种手势选择区域与动作。")
+            SettingsIntroCard(title: "播放手势", symbol: "hand.draw", description: "为单指和双指手势分配操作，自定义触发区域与成对手势。")
             SettingsSection {
                 settingsEntry("区域范围设置", symbol: "rectangle.split.3x1", destination: .regions)
                 settingsEntry("组合手势设置", symbol: "arrow.up.arrow.down", destination: .pairs)
@@ -27,6 +27,7 @@ struct PlayerGestureSettingsView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("恢复默认", systemImage: "arrow.counterclockwise") { confirmingReset = true }
                     .labelStyle(.iconOnly)
+                    .tint(nil)
             }
         }
         .alert("恢复默认手势？", isPresented: $confirmingReset) {
@@ -103,8 +104,8 @@ struct PlayerGestureSettingsView: View {
         return SettingsSection {
             (Text(fingers == 1 ? "单指" : "双指") + Text(" ") + Text(pair?.title ?? kind.title))
                 .font(.headline)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
             SettingsPicker("区域划分", selection: layoutBinding(kind, fingers)) {
                 Text("单区域").tag(1); Text("双区域").tag(2); Text("三区域").tag(3)
             }
@@ -165,6 +166,7 @@ private struct GesturePairSettingsView: View {
     @State private var revision = 0
     var body: some View {
         SettingsPage {
+
             ForEach(1...2, id: \.self) { fingers in
                 SettingsSection(fingers == 1 ? "单指" : "双指") {
                     ForEach(PlayerGesturePair.allCases.filter { !($0.needsTwoFingers && fingers == 1) }) { pair in
@@ -183,7 +185,6 @@ private struct GesturePairSettingsView: View {
         .contentMargins(.top, 0, for: .scrollContent)
         .scrollContentBackground(.hidden).background(VesperTheme.background)
         .navigationTitle("组合手势设置").toolbarTitleDisplayMode(.inline)
-        .scrollDisabled(true)
     }
 }
 
@@ -194,6 +195,7 @@ private struct GestureRegionSettingsView: View {
 
     var body: some View {
         SettingsPage {
+
             VStack(spacing: 1) {
                 preview([0, split2, 1])
                 preview([0, splitFirst, splitSecond, 1])
@@ -215,7 +217,6 @@ private struct GestureRegionSettingsView: View {
             }
         }
         .navigationTitle("区域范围设置").toolbarTitleDisplayMode(.inline)
-        .scrollDisabled(true)
     }
 
     private func preview(_ edges: [Double]) -> some View {

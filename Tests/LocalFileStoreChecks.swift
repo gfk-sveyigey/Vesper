@@ -33,6 +33,16 @@ struct LocalFileStoreChecks {
         try await expectFailure { try await store.move(root: root, entry: folder, directory: "Folder/Child") }
         try manager.createSymbolicLink(at: root.appendingPathComponent("Link"), withDestinationURL: outside)
         try await expectFailure { try await store.createFolder(root: root, directory: "Link", name: "escape") }
+        let nestedMatches = try await store.matchingFiles(root: root, query: "  RENAMED  ")
+        precondition(nestedMatches.map(\.path) == ["Folder/renamed.mov"])
+        let blankMatches = try await store.matchingFiles(root: root, query: "  ")
+        precondition(blankMatches.isEmpty)
+        try payload.write(to: outside.appendingPathComponent("renamed-outside.mov"))
+        try manager.createSymbolicLink(at: root.appendingPathComponent("renamed-link.mov"),
+                                       withDestinationURL: outside.appendingPathComponent("renamed-outside.mov"))
+        let confinedMatches = try await store.matchingFiles(root: root, query: "renamed")
+        precondition(confinedMatches.map(\.path) == ["Folder/renamed.mov"])
+        try manager.removeItem(at: outside.appendingPathComponent("renamed-outside.mov"))
         let forgedRoot = LocalFileEntry(path: "", name: "", isDirectory: true)
         try await expectFailure { try await store.delete(root: root, entry: forgedRoot) }
         let outsideContents = try manager.contentsOfDirectory(atPath: outside.path)

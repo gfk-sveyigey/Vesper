@@ -5,20 +5,48 @@ import AudioToolbox
 import MediaPlayer
 import Combine
 import SwiftUI
-@preconcurrency import KSPlayer
+import PlaybackContracts
+import VesperAetherBridge
+import VesperVLCBridge
 import UIKit
 
 /// A single app-owned session. Tabs and player presentation never own or reset
-/// the decoder. KSPlayer APIs are contained here, outside navigation code.
+/// the decoder. PlaybackCore owns engine scheduling behind the existing UI API.
 @MainActor
-final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, @preconcurrency AVPictureInPictureControllerDelegate {
+final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictureInPictureControllerDelegate {
     @Published private(set) var currentEngine = PlaybackPreferences.preferredEngine
+    var diagnosticEngineTitle: String { currentEngine.title }
+    var diagnosticMetrics: [EngineDiagnosticMetric] { core.driver?.diagnosticMetrics ?? [] }
     @Published private(set) var currentDecoder = PlaybackPreferences.preferredDecoder
+    @Published private(set) var playbackSubtitle: String?
+    private var playbackSubtitleTask: Task<Void, Never>?
     @Published private(set) var history: [PlaybackHistoryEntry] = []
+    private struct PlayedEdit {
+        let id: UUID
+        let played: Bool
+        var syncedAt: Date?
+    }
+    private struct EmbyRecordWrite {
+        let id: UUID
+        let task: Task<Void, Error>
+    }
+    @Published private var playedEdits: [MediaID: PlayedEdit] = [:]
+    private var recordWrites: [MediaID: EmbyRecordWrite] = [:]
+    private var manuallyUnplayedCurrentItem: MediaID?
     private var lastHistorySave = Date.distantPast
-    @Published private(set) var currentItem: MediaItem?
+    @Published private(set) var currentItem: MediaItem? {
+        didSet {
+            if oldValue?.id != currentItem?.id { danmaku = PlayerDanmaku() }
+        }
+    }
+    @Published private(set) var danmaku = PlayerDanmaku()
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
+    @Published private(set) var hasLoadedMedia = false
+    var canShowMediaDetails: Bool {
+        guard currentItem != nil, core.driver != nil, errorMessage == nil else { return false }
+        return core.playbackURL?.isFileURL == true || hasLoadedMedia
+    }
     @Published private(set) var currentTime: TimeInterval = 0
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var errorMessage: String?
@@ -27,6 +55,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     @Published private(set) var playbackRate: Float = 1
     @Published private(set) var fillsScreen = false
     @Published private(set) var bufferedTime: TimeInterval = 0
+    @Published private(set) var bufferedRanges: [ClosedRange<Double>] = []
     @Published private(set) var isSeeking = false
     @Published private(set) var audioTracks: [PlaybackTrack] = []
     @Published private(set) var subtitleTracks: [PlaybackTrack] = []
@@ -37,21 +66,45 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     @Published private(set) var isPictureInPicturePossible = false
     @Published private(set) var isPictureInPictureActive = false
     @Published var playbackNotice: String?
+    @Published private var subtitleSizes: [PlaybackEngine: Double] = [:]
+    var subtitleSize: Double { subtitleSizes[currentEngine] ?? 22 }
+    @Published private(set) var subtitleDelay: Double = 0
+
+    func setSubtitleSize(_ value: Double) {
+        guard value.isFinite else { return }
+        subtitleSizes[currentEngine] = min(40, max(14, value))
+        core.configure(engineConfiguration)
+    }
+
+    func setSubtitleDelay(_ value: Double) {
+        guard currentEngine == .vlc, value.isFinite else { return }
+        subtitleDelay = min(30, max(-30, value))
+        core.configure(engineConfiguration)
+    }
+    struct PlaybackTransitionNotice: Equatable {
+        let id = UUID()
+        let message: String
+    }
+    @Published private(set) var playbackTransitionNotice: PlaybackTransitionNotice?
+    struct AutomaticSkipNotice: Equatable {
+        enum Kind: Equatable { case intro, outro }
+        let id = UUID()
+        let kind: Kind
+    }
+    @Published private(set) var automaticSkipNotice: AutomaticSkipNotice?
+    private var pipStartTask: Task<Void, Never>?
     private var pipController: AVPictureInPictureController?
     private var pipObservation: NSKeyValueObservation?
     private var pipConfigurationObservation: NSKeyValueObservation?
     private var preferencesObservation: AnyCancellable?
     private var appliedBackgroundPolicy = ""
-    private var pipStateSynchronization: Task<Void, Never>?
     private var restorePiPCompletion: ((Bool) -> Void)?
     private var restoringPiP = false
-    private var pendingSeek: (time: TimeInterval, resume: Bool)?
+    private var pendingSeek: (time: TimeInterval, resume: Bool, preview: Bool)?
     private var seekInFlight = false
     private var seekLanding: (time: Double, deadline: Date)?
-    private let subtitleModel = SubtitleModel()
     private var appIsInBackground = false
     private var appIsInactive = false
-    private var decoderRestore: (time: Double, resume: Bool)?
     private var progressRestored = false
     private var lastProgressSave = Date.distantPast
     private let progressStorageKey = "player.savedProgress"
@@ -65,22 +118,58 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
            let entries = try? JSONDecoder().decode([PlaybackHistoryEntry].self, from: data) {
             history = entries
         }
+        wireCore()
         refreshPlaybackPreferences()
         preferencesObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .sink { [weak self] _ in
                 Task { @MainActor in
-                    guard let self, self.appliedBackgroundPolicy != self.backgroundPolicyID else { return }
-                    self.refreshPlaybackPreferences()
+                    guard let self else { return }
+                    self.refreshSkipMarkers()
+                    if self.appliedBackgroundPolicy != self.backgroundPolicyID { self.refreshPlaybackPreferences() }
                 }
             }
         let savedRate = UserDefaults.standard.float(forKey: "player.playbackRate")
         if [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(savedRate) { playbackRate = savedRate }
     }
 
-    private var layer: KSPlayerLayer?
+    private func wireCore() {
+        core.onChange = { [weak self] in self?.syncCoreState() }
+        core.log = { [weak self] in self?.log($0) }
+        core.onEngineFallback = { [weak self] from, to in
+            let previous: PlaybackEngine = from == .aether ? .aether : .vlc
+            let next: PlaybackEngine = to == .aether ? .aether : .vlc
+            self?.playbackTransitionNotice = .init(message: "\(previous.title) 无法播放，正在切换至 \(next.title)")
+        }
+        core.restoreUI = { [weak self] completion in
+            guard let self else { completion(false); return }
+            self.restoringPiP = true
+            if self.isPresented { completion(true) }
+            else { self.restorePiPCompletion = completion; self.isPresented = true }
+        }
+    }
+
+    private let core = PlaybackCore()
+    private let traktReporter = TraktPlaybackReporter()
+    private var nextPreparation: Task<Void, Never>?
+    private var nextPreparationID: MediaID?
+    private var attemptedNextForGeneration: UUID?
+    private var lastNextPolicyAttempt = Date.distantPast
+    private var preparedNext: (item: MediaItem, sourceID: UUID, resource: ResolvedPlaybackResource)?
+
+    private var trackIDs: [String: Int32] = [:]
+    private var nextTrackID: Int32 = 1
+    private var previouslyActivePiP = false
+    private var requestedDecoder: PlaybackDecoder?
+    private var decoderChange: Task<Void, Never>?
     private var resource: ResolvedPlaybackResource?
+    private var embySession: EmbyPlaybackSession?
     private var request: Task<Void, Never>?
     private var generation = UUID()
+    private var skipMarkers = EmbySkipMarkers.empty
+    private var skipLookupTask: Task<Void, Never>?
+    private var skipLookupIdentity: String?
+    private var skippedIntroEnds = Set<Double>()
+    private var skippedCredits = false
     @Published private(set) var queue: [MediaItem] = []
     private var source: MediaSource?
     private var externalFile: IncomingVideo?
@@ -91,16 +180,30 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         guard let currentItem, let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return false }
         return index + 1 < queue.count
     }
-    var canControl: Bool { layer != nil && errorMessage == nil }
-    var canSeek: Bool { canControl && duration > 0 && layer?.player.seekable == true }
+    var canControl: Bool {
+        core.driver != nil && !core.isTransitioning && !core.snapshot.requiresForegroundReload && errorMessage == nil
+    }
+    var canSeek: Bool { canControl && duration > 0 && core.snapshot.seekable }
 
-    func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem]) {
+    func play(_ item: MediaItem, in source: MediaSource, queue: [MediaItem],
+              audio: EmbyMediaStreamDetails? = nil, subtitle: EmbyMediaStreamDetails? = nil,
+              streams: [EmbyMediaStreamDetails] = []) {
         recordPlaybackHistory()
         externalFile = nil
         self.queue = queue
         self.source = source
         isPresented = true
-        load(item, source: source)
+        load(item, source: source, initialAudio: trackPreference(audio, streams: streams),
+             initialSubtitle: trackPreference(subtitle, streams: streams))
+    }
+
+    private func trackPreference(_ stream: EmbyMediaStreamDetails?, streams: [EmbyMediaStreamDetails]) -> EngineTrack? {
+        guard let stream else { return nil }
+        let siblings = streams.filter { $0.type == stream.type }
+        let ordinal = siblings.firstIndex(where: { $0.id == stream.id }) ?? 0
+        // This is a preference hint, never an engine-local track ID.
+        return EngineTrack(id: "emby-preference:\(ordinal)", name: stream.title ?? stream.displayTitle ?? "",
+                           language: stream.language, codec: stream.codec)
     }
 
     func playExternal(_ file: IncomingVideo) {
@@ -115,12 +218,35 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func setCurrentDecoder(_ decoder: PlaybackDecoder) {
-        guard decoder != currentDecoder, let item = currentItem else { return }
-        let position = currentTime
-        let playing = isPlaying
-        let rate = playbackRate
-        log("切换解码方式：\(decoder.rawValue)，位置=\(position)，继续播放=\(playing)")
-        load(item, source: source, engine: currentEngine, decoder: decoder, position: position, resume: playing, rate: rate)
+        guard decoder != currentDecoder, currentItem != nil, decoderChange == nil, canControl else { return }
+        // SwiftVLC 1.0.0 has no presented-frame readiness acknowledgement.
+        // A detached paused candidate can open audio without a usable drawable,
+        // so do not use the speculative dual-player path for this bridge.
+        if currentEngine == .vlc, let item = currentItem {
+            load(item, source: source, engine: .vlc, decoder: decoder,
+                 position: currentTime, resume: isPlaying, rate: playbackRate,
+                 reportsDecoderChange: true)
+            return
+        }
+        let token = generation
+        requestedDecoder = decoder
+        decoderChange = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.generation == token { self.decoderChange = nil; self.requestedDecoder = nil }
+            }
+            do {
+                let actual = try await self.core.switchDecoder(to: decoder == .software ? .software : .hardware)
+                guard !Task.isCancelled, self.generation == token else { return }
+                self.currentDecoder = actual.map { $0 == .software ? .software : .hardware } ?? decoder
+                self.playbackTransitionNotice = .init(message: actual == nil
+                    ? "已应用\(decoder.title)设置" : "已切换至\(decoder.title)")
+            } catch {
+                guard !Task.isCancelled, self.generation == token else { return }
+                self.playbackTransitionNotice = .init(message: "切换至\(decoder.title)失败，继续使用原解码")
+                self.log("后台切换解码失败：\(error.localizedDescription)")
+            }
+        }
     }
 
     func setCurrentEngine(_ engine: PlaybackEngine) {
@@ -130,20 +256,43 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     private func load(_ item: MediaItem, source: MediaSource?, engine: PlaybackEngine? = nil, decoder: PlaybackDecoder? = nil,
-                      position: Double? = nil, resume: Bool = true, rate: Float? = nil) {
+                      position: Double? = nil, resume: Bool = true, rate: Float? = nil,
+                      initialAudio: EngineTrack? = nil, initialSubtitle: EngineTrack? = nil,
+                      reportsDecoderChange: Bool = false) {
+        let warmed = preparedNext.flatMap { prepared in
+            prepared.item.id == item.id && (item.embyMediaSourceID == nil || prepared.item.embyMediaSourceID == item.embyMediaSourceID)
+                && prepared.sourceID == source?.id && position == nil
+                && (engine ?? PlaybackPreferences.preferredEngine) == .aether ? prepared : nil
+        }
+        if warmed != nil { preparedNext = nil }
+        cancelNextPreparation(discardBytes: warmed == nil)
+        let item = warmed?.item ?? item
         request?.cancel()
         generation = UUID()
+        skipLookupTask?.cancel()
+        skipMarkers = .empty
+        skipLookupIdentity = nil
+        skippedIntroEnds = []
+        skippedCredits = false
         let token = generation
+        let previousState = core.snapshot
+        let carriesSelection = currentItem?.id == item.id && position != nil
+        if !carriesSelection || previousState.phase == .ended { traktReporter.finish() }
+        let previousAudio = carriesSelection ? previousState.audio.first(where: { $0.selected }) : initialAudio
+        let previousSubtitle = carriesSelection ? previousState.subtitles.first(where: { $0.selected }) : initialSubtitle
         saveProgress()
         recordPlaybackHistory()
         tearDownPlayer()
+        requestedDecoder = reportsDecoderChange ? decoder : nil
         lastHistorySave = .distantPast
-        decoderRestore = position.map { ($0, resume) }
+        if !carriesSelection { manuallyUnplayedCurrentItem = nil }
         progressRestored = position != nil
         currentEngine = engine ?? PlaybackPreferences.preferredEngine
         currentDecoder = decoder ?? PlaybackPreferences.preferredDecoder
         suppressedProgressID = nil
         currentItem = item
+        hasLoadedMedia = false
+        refreshPlaybackSubtitle(for: item, source: source, token: token)
         currentTime = 0
         duration = 0
         errorMessage = nil
@@ -157,10 +306,12 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         request = Task { [weak self] in
             do {
                 let resolved: ResolvedPlaybackResource
-                if let external {
+                if let warmed {
+                    resolved = warmed.resource
+                } else if let external {
                     resolved = ResolvedPlaybackResource(url: external.url, externalAccess: external.access)
                 } else if let source {
-                    resolved = try await PlaybackResourceResolver().resolve(item, source: source)
+                    resolved = try await PlaybackResourceResolver().resolve(item, source: source, position: position ?? 0)
                 } else {
                     throw PlaybackFailure.missingFile
                 }
@@ -168,36 +319,59 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
                     resolved.release()
                     return
                 }
+                let startPosition: Double
+                if let position { startPosition = position }
+                else if PlaybackPreferences.remembersProgress, let source, source.kind == .emby {
+                    startPosition = await self.embyResumePosition(for: item, source: source,
+                                                                 serverPosition: resolved.resumePosition,
+                                                                 duration: resolved.duration ?? item.duration)
+                } else {
+                    startPosition = PlaybackPreferences.remembersProgress ? self.savedProgress(for: item) : 0
+                }
+                guard !Task.isCancelled, self.generation == token else { resolved.release(); return }
                 self.resource = resolved
+                self.refreshSkipMarkers()
+                self.progressRestored = true
+                if let source, source.kind == .emby, let playSessionID = resolved.embyPlaySessionID {
+                    let session = EmbyPlaybackSession(source: source, item: item, playSessionID: playSessionID,
+                                                       mediaSourceID: resolved.embyMediaSourceID ?? item.embyMediaSourceID ?? "")
+                    self.embySession = session
+                }
                 try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
                 try AVAudioSession.sharedInstance().setActive(true)
                 self.refreshPlaybackPreferences()
-                if selectedEngine == .mpv {
-                    KSOptions.firstPlayerType = KSMPVPlayer.self
-                    KSOptions.secondPlayerType = nil
-                } else {
-                    KSOptions.firstPlayerType = selectedDecoder == .software ? KSMEPlayer.self : KSAVPlayer.self
-                    KSOptions.secondPlayerType = selectedDecoder == .software ? nil : KSMEPlayer.self
+                var configuration = self.engineConfiguration
+                configuration.decoder = selectedDecoder == .software ? .software : .hardware
+                configuration.position = startPosition
+                configuration.autoplay = resume
+                configuration.requestHeaders = resolved.headers
+                configuration.externalSubtitles = resolved.externalSubtitles
+                configuration.mediaBitRate = resolved.bitRate
+                try await self.core.load(resolved.url, preferred: selectedEngine == .aether ? .aether : .vlc,
+                                         configuration: configuration, audio: previousAudio, subtitle: previousSubtitle,
+                                         server: self.embySession)
+                guard !Task.isCancelled, self.generation == token else { return }
+                self.syncCoreState()
+                if let requested = self.requestedDecoder {
+                    self.requestedDecoder = nil
+                    if let actual = self.core.snapshot.actualDecoder,
+                       (actual == .software) != (requested == .software) {
+                        let actualTitle = actual == .software ? PlaybackDecoder.software.title : PlaybackDecoder.hardware.title
+                        self.playbackTransitionNotice = .init(message: "不支持\(requested.title)，已切换至\(actualTitle)")
+                    } else {
+                        let message = self.core.snapshot.actualDecoder == nil
+                            ? "已应用\(requested.title)设置" : "已切换至\(requested.title)"
+                        self.playbackTransitionNotice = .init(message: message)
+                    }
                 }
-                let options = KSOptions()
-                options.hardwareDecode = selectedDecoder == .hardware
-                options.startPlayTime = position ?? 0
-                options.startPlayRate = self.playbackRate
-                options.isSeekImageSubtitle = true
-                options.canStartPictureInPictureAutomaticallyFromInline = PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "pip"
-                let player = KSPlayerLayer(url: resolved.url, isAutoPlay: false, options: options)
-                self.layer = player
-                player.delegate = self
-                self.refreshPlaybackPreferences()
-                self.videoView = player.player.view
-                player.player.allowsExternalPlayback = true
-                player.player.isMuted = self.isMuted
-                player.player.contentMode = self.fillsScreen ? .scaleAspectFill : .scaleAspectFit
-                if resume { player.play() } else { player.prepareToPlay() }
             } catch {
                 guard let self, !Task.isCancelled, self.generation == token else { return }
                 self.tearDownPlayer()
                 self.isLoading = false
+                if let requested = self.requestedDecoder {
+                    self.playbackTransitionNotice = .init(message: "切换至\(requested.title)失败")
+                    self.requestedDecoder = nil
+                }
                 self.errorMessage = error.localizedDescription
                 self.log("加载失败：\(error.localizedDescription)")
             }
@@ -205,21 +379,26 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func togglePlayback() {
-        guard let layer, errorMessage == nil else { return }
-        if isPlaying { layer.pause() } else { layer.play() }
+        if restoreReleasedAetherSession(resume: true) { return }
+        guard canControl else { return }
+        if core.snapshot.phase == .ended, let currentItem {
+            load(currentItem, source: source, engine: currentEngine, decoder: currentDecoder, position: 0)
+            return
+        }
+        if isPlaying { core.pause() } else { core.play() }
         pipController?.invalidatePlaybackState()
     }
 
     func pause() {
-        layer?.pause()
+        core.pause()
         pipController?.invalidatePlaybackState()
         recordPlaybackHistory()
     }
 
-    func seek(to time: TimeInterval, resume: Bool? = nil) {
+    func seek(to time: TimeInterval, resume: Bool? = nil, preview: Bool = false) {
         guard canSeek, time.isFinite else { return }
         let target = min(max(0, time), duration)
-        pendingSeek = (target, resume ?? isPlaying)
+        pendingSeek = (target, resume ?? isPlaying, preview)
         seekLanding = (target, Date().addingTimeInterval(3))
         currentTime = target
         isSeeking = true
@@ -229,20 +408,21 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     // Coalesce scrub previews: at most one decoder seek is in flight, and the
     // final release target always replaces any older preview waiting behind it.
     private func performPendingSeek() {
-        guard !seekInFlight, let next = pendingSeek, let layer else { return }
+        guard !seekInFlight, let next = pendingSeek, core.driver != nil else { return }
         pendingSeek = nil
         seekInFlight = true
         let token = generation
-        layer.seek(time: next.time, autoPlay: next.resume) { [weak self] finished in
+        core.seek(to: next.time, resume: next.resume, fast: next.preview) { [weak self] finished in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
                 self.seekInFlight = false
                 if self.pendingSeek != nil { self.performPendingSeek() }
                 else {
-                    self.currentTime = finished ? next.time : max(0, layer.player.currentPlaybackTime)
+                    self.currentTime = finished ? next.time : max(0, self.core.snapshot.time)
                     self.seekLanding = finished ? (next.time, Date().addingTimeInterval(2)) : nil
                     self.isSeeking = false
                     self.updateSubtitles()
+                    if finished && !next.preview { self.embySession?.didSeek(to: next.time, paused: !self.isPlaying) }
                 }
             }
         }
@@ -250,26 +430,51 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func toggleMute() {
         isMuted.toggle()
-        layer?.player.isMuted = isMuted
+        core.configure(engineConfiguration)
     }
 
     func unmute() {
         isMuted = false
-        layer?.player.isMuted = false
+        core.configure(engineConfiguration)
     }
 
     func startPictureInPicture() {
-        guard currentEngine != .mpv else { playbackNotice = VesperLocalization.string("mpv 暂不支持画中画。"); return }
+        guard pipStartTask == nil else { return }
+        // Audio mode has no pre-mounted Aether PiP source. Manual opening
+        // creates one now; AVKit may need a moment to publish its readiness.
+        core.preparePiP()
         configurePictureInPicture()
-        guard let pipController, pipController.isPictureInPicturePossible else {
-            playbackNotice = String(localized: "当前视频暂不支持画中画。")
+        if core.engineID != .aether {
+            guard core.snapshot.pipPossible else {
+                playbackNotice = VesperLocalization.string("当前视频暂不支持画中画。")
+                return
+            }
+            core.startPiP()
             return
         }
-        layer?.player.contentMode = .scaleAspectFit
-        // Reuse KSPlayer's controller and playback delegate. Its isPipActive
-        // wrapper also dismisses UIKit screens/suspends the app, so presentation
-        // remains coordinated with our SwiftUI full-screen player.
-        pipController.startPictureInPicture()
+        let token = generation
+        pipStartTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { if self.generation == token { self.pipStartTask = nil } }
+            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+            while !Task.isCancelled, self.generation == token {
+                guard !(self.appIsInBackground || self.appIsInactive) || self.automaticallyStartsPictureInPicture else {
+                    self.core.setPiPActive(false)
+                    self.configurePictureInPicture()
+                    return
+                }
+                if self.pipController?.isPictureInPicturePossible == true {
+                    self.core.startPiP()
+                    return
+                }
+                if ContinuousClock.now >= deadline { break }
+                do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+            }
+            guard !Task.isCancelled, self.generation == token else { return }
+            self.core.setPiPActive(false)
+            self.configurePictureInPicture()
+            self.playbackNotice = VesperLocalization.string("当前视频暂不支持画中画。")
+        }
     }
 
     private var automaticallyStartsPictureInPicture: Bool {
@@ -278,20 +483,25 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     private func configurePictureInPicture() {
         guard AVPictureInPictureController.isPictureInPictureSupported(),
-              let candidate = layer?.player.pipController else { return }
-        candidate.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+              let candidate = core.nativePiPController else {
+            pipController?.delegate = nil
+            pipController = nil
+            pipObservation = nil
+            pipConfigurationObservation = nil
+            return
+        }
+        if candidate.canStartPictureInPictureAutomaticallyFromInline != automaticallyStartsPictureInPicture {
+            candidate.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+        }
         guard candidate !== pipController else { return }
         pipController?.delegate = nil
         pipController?.stopPictureInPicture()
         pipObservation = nil
         pipConfigurationObservation = nil
-        pipStateSynchronization?.cancel()
-        pipStateSynchronization = nil
-        // KSPlayer owns the controller, content source, and sample-buffer playback
-        // delegate. Vesper only observes availability and coordinates its UI.
+        // The Aether bridge owns its native/sample-buffer content source.
         pipController = candidate
         candidate.delegate = self
-        log("KSPlayer 画中画配置：automatic=\(candidate.canStartPictureInPictureAutomaticallyFromInline) policy=\(backgroundPolicyID)")
+        log("PlaybackCore 画中画配置：automatic=\(candidate.canStartPictureInPictureAutomaticallyFromInline) policy=\(backgroundPolicyID)")
         isPictureInPicturePossible = candidate.isPictureInPicturePossible
         pipConfigurationObservation = candidate.observe(\.canStartPictureInPictureAutomaticallyFromInline, options: [.new]) { [weak self] _, change in
             guard change.newValue == true else { return }
@@ -310,33 +520,9 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         }
     }
 
-    private func observePictureInPicturePlayback() {
-        pipStateSynchronization?.cancel()
-        // KSPlayer's PiP controls operate on the decoder directly. Its layer's
-        // timer stops when paused, so observe the engine even while paused and
-        // reconcile transport state without replacing KSPlayer's playback delegate.
-        pipStateSynchronization = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self, self.isPictureInPictureActive, let layer = self.layer else { return }
-                if !self.isSeeking && !self.isLoading {
-                    switch layer.player.playbackState {
-                    case .playing:
-                        if !layer.state.isPlaying { layer.play() }
-                        self.isPlaying = true
-                    case .paused:
-                        if layer.state.isPlaying { layer.pause() }
-                        self.isPlaying = false
-                    default: break
-                    }
-                }
-                do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
-            }
-        }
-    }
-
     func playerDidAppear() {
         restoringPiP = false
-        if isPictureInPictureActive { pipController?.stopPictureInPicture() }
+        if isPictureInPictureActive { core.stopPiP() }
         let completion = restorePiPCompletion
         restorePiPCompletion = nil
         completion?(true)
@@ -344,12 +530,11 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
         guard controller === pipController else { return }
-        log("KSPlayer 将进入画中画：automatic=\(controller.canStartPictureInPictureAutomaticallyFromInline) policy=\(backgroundPolicyID) inactive=\(appIsInactive) background=\(appIsInBackground)")
-        layer?.player.contentMode = .scaleAspectFit
+        log("PlaybackCore 将进入画中画：automatic=\(controller.canStartPictureInPictureAutomaticallyFromInline) policy=\(backgroundPolicyID) inactive=\(appIsInactive) background=\(appIsInBackground)")
     }
 
     private func restoreVideoContentMode() {
-        layer?.player.contentMode = fillsScreen ? .scaleAspectFill : .scaleAspectFit
+        core.configure(engineConfiguration)
     }
 
     func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
@@ -360,15 +545,14 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             return
         }
         isPictureInPictureActive = true
-        observePictureInPicturePlayback()
+        core.setPiPActive(true)
         isPresented = false
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
         guard controller === pipController else { return }
         isPictureInPictureActive = false
-        pipStateSynchronization?.cancel()
-        pipStateSynchronization = nil
+        core.setPiPActive(false)
         restoreVideoContentMode()
         if !restoringPiP && !isPresented && !(appIsInBackground && PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "audio") { pause() }
         restoringPiP = false
@@ -376,6 +560,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func pictureInPictureController(_ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
         guard controller === pipController else { return }
+        core.setPiPActive(false)
         playbackNotice = error.localizedDescription
         if appIsInBackground { pause() }
         restoreVideoContentMode()
@@ -401,18 +586,27 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func refreshPlaybackPreferences() {
-        // The static setting controls KSPlayer's background notification handler;
-        // the instance option also applies if KSPlayer replaces its engine later.
-        KSOptions.canBackgroundPlay = PlaybackPreferences.backgroundEnabled
-        KSOptions.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
-        layer?.options.canStartPictureInPictureAutomaticallyFromInline = automaticallyStartsPictureInPicture
+        // SwiftVLC 1.0.0 captures auto-PiP in the native drawable attachment.
+        // Recreating PiPVideoView for the SAME Player adopts that old attachment.
+        // A new Player is required to change policy before vout is opened.
+        if appliedBackgroundPolicy != backgroundPolicyID, core.engineID == .vlc,
+           core.driver != nil, let item = currentItem {
+            appliedBackgroundPolicy = backgroundPolicyID
+            log("后台策略变化，重建 VLC 原生附件：policy=\(backgroundPolicyID)")
+            let resume = isPlaying && (!appIsInBackground || PlaybackPreferences.backgroundEnabled)
+            if isPictureInPictureActive { isPresented = true }
+            load(item, source: source, engine: currentEngine, decoder: currentDecoder,
+                 position: currentTime, resume: resume, rate: playbackRate)
+            return
+        }
+        core.configure(engineConfiguration)
         configurePictureInPicture()
         if appliedBackgroundPolicy != backgroundPolicyID {
             appliedBackgroundPolicy = backgroundPolicyID
-            log("后台配置：enabled=\(PlaybackPreferences.backgroundEnabled) mode=\(PlaybackPreferences.backgroundMode) automaticPiP=\(automaticallyStartsPictureInPicture) player=\(layer != nil)")
+            log("后台配置：enabled=\(PlaybackPreferences.backgroundEnabled) mode=\(PlaybackPreferences.backgroundMode) automaticPiP=\(automaticallyStartsPictureInPicture) player=\(core.driver != nil)")
         }
         if appIsInBackground {
-            if !automaticallyStartsPictureInPicture { pipController?.stopPictureInPicture() }
+            if !automaticallyStartsPictureInPicture { core.stopPiP() }
             if !PlaybackPreferences.backgroundEnabled { pause() }
         }
     }
@@ -426,24 +620,23 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             appIsInBackground = true
             saveProgress()
             recordPlaybackHistory()
-            if !PlaybackPreferences.backgroundEnabled || PlaybackPreferences.backgroundMode != "pip" { pipController?.stopPictureInPicture() }
+            if !PlaybackPreferences.backgroundEnabled || PlaybackPreferences.backgroundMode != "pip" { core.stopPiP() }
             guard isPlaying else { return }
             guard PlaybackPreferences.backgroundEnabled else {
-                pipController?.stopPictureInPicture()
+                core.stopPiP()
                 pause()
                 return
             }
-            // Automatic PiP is handled by KSPlayer's existing controller, using
-            // the option already applied before the app becomes inactive.
+            // Native PiP policy is configured on the selected bridge before inactivity.
         case .active:
             appIsInBackground = false
             appIsInactive = false
             pruneUnavailableHistory()
+            if restoreReleasedAetherSession(resume: false) { return }
             if isPictureInPictureActive { isPresented = false }
-            else if let layer {
+            else if core.driver != nil {
                 // Reattach the native rendering layer even when playback was
                 // paused before backgrounding. Never resume audio implicitly.
-                layer.player.enterForeground()
                 restoreVideoContentMode()
                 if !isPlaying && canSeek { seek(to: currentTime, resume: false) }
                 log("前台恢复画面：playing=\(isPlaying) position=\(currentTime)")
@@ -452,16 +645,38 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         }
     }
 
+    /// Aether explicitly marks a background-released pipeline. A seek/play
+    /// against that shell cannot restore it. Resolve Emby again (including a
+    /// potentially expired direct/transcode URL), carrying position and tracks.
+    @discardableResult
+    private func restoreReleasedAetherSession(resume: Bool) -> Bool {
+        guard !appIsInBackground, !appIsInactive, !core.isTransitioning, !isLoading,
+              core.engineID == .aether, let item = currentItem, let source, source.kind == .emby,
+              core.driver?.snapshot.requiresForegroundReload == true else { return false }
+        let position = currentTime.isFinite ? max(0, currentTime) : 0
+        log("后台视频管线已释放，重新连接 Emby：position=\(position) resume=\(resume)")
+        load(item, source: source, engine: currentEngine, decoder: currentDecoder,
+             position: position, resume: resume, rate: playbackRate)
+        return true
+    }
+
     private func recordPlaybackHistory() {
         guard let item = currentItem, let source, source.id == item.id.sourceID, externalFile == nil,
               suppressedProgressID != item.id, currentTime > 0.5, duration > 0 else { return }
+        let keepHidden = manuallyUnplayedCurrentItem == item.id
+        let priorPlayed = effectivePlayed(for: item)
+        let played = !keepHidden && (priorPlayed || currentTime / duration >= 0.9)
         let entry = PlaybackHistoryEntry(mediaID: item.id, title: item.title, source: source,
-                                         watchedAt: Date(), position: currentTime, duration: duration)
+                                         watchedAt: Date(), position: currentTime, duration: duration,
+                                         isPlayed: played, hiddenFromHistory: keepHidden)
         history.removeAll { $0.mediaID == item.id }
         history.insert(entry, at: 0)
         if history.count > 1000 { history.removeLast(history.count - 1000) }
         persistHistory()
         lastHistorySave = Date()
+        if !priorPlayed, played, source.kind == .emby {
+            submitPlayed(played, for: item, source: source)
+        }
     }
 
     private var progressKey: String? {
@@ -505,7 +720,8 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         return value.isFinite ? max(0, value) : 0
     }
 
-    func clearSavedProgress(for item: MediaItem) {
+    /// History removal hides the row while retaining watched-state metadata used by other pages.
+    func clearSavedProgress(for item: MediaItem, removeFromHistory: Bool = false) {
         let key = item.id.sourceID.uuidString + ":" + item.id.localID
         var values = UserDefaults.standard.dictionary(forKey: progressStorageKey) as? [String: Double] ?? [:]
         var durations = UserDefaults.standard.dictionary(forKey: durationStorageKey) as? [String: Double] ?? [:]
@@ -513,7 +729,188 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         UserDefaults.standard.set(values, forKey: progressStorageKey)
         UserDefaults.standard.set(durations, forKey: durationStorageKey)
         if currentItem?.id == item.id { suppressedProgressID = item.id }
+        if let index = history.firstIndex(where: { $0.mediaID == item.id }) {
+            let existing = history[index]
+            history[index] = PlaybackHistoryEntry(mediaID: existing.mediaID, title: existing.title,
+                                                   source: existing.source, watchedAt: existing.watchedAt,
+                                                   position: 0, duration: existing.duration,
+                                                   isPlayed: existing.isFullyWatched,
+                                                   hiddenFromHistory: removeFromHistory ? true : existing.hiddenFromHistory)
+        }
+        persistHistory()
+        savedProgressRevision += 1
+    }
+
+    func effectivePlayed(for item: MediaItem) -> Bool {
+        let server = item.isPlayed
+        if let edit = playedEdits[item.id] {
+            if let syncedAt = edit.syncedAt, let fetchedAt = item.embyPlayedFetchedAt,
+               fetchedAt > syncedAt, let server {
+                return server
+            }
+            return edit.played
+        }
+        return PlaybackHistoryEntry.resolvePlayed(
+            server: server,
+            local: history.first(where: { $0.mediaID == item.id })?.isFullyWatched
+        )
+    }
+
+    func setPlayed(_ played: Bool, for item: MediaItem, source: MediaSource,
+                   onFailure: ((String) -> Void)? = nil) {
+        guard source.id == item.id.sourceID else { return }
+        let previousEntry = history.first { $0.mediaID == item.id }
+        let previousEdit = playedEdits[item.id]
+        let previousPlayed = effectivePlayed(for: item)
+        let shouldClearProgress = !played && !item.isContainer && !item.isEmbySeries
+        recordPlayed(played, for: item, source: source)
+        submitPlayed(played, for: item, source: source, onSuccess: { [weak self] in
+            if shouldClearProgress { self?.clearSavedProgress(for: item) }
+        }) { [weak self] message in
+            guard let self else { return }
+            self.playedEdits[item.id] = previousEdit
+            self.history.removeAll { $0.mediaID == item.id }
+            if let previousEntry { self.history.insert(previousEntry, at: 0) }
+            if self.currentItem?.id == item.id {
+                self.currentItem?.isPlayed = previousPlayed
+                self.manuallyUnplayedCurrentItem = previousPlayed ? nil : item.id
+            }
+            self.persistHistory()
+            self.savedProgressRevision += 1
+            onFailure?(message)
+        }
+    }
+
+    private func submitPlayed(_ played: Bool, for item: MediaItem, source: MediaSource,
+                              onSuccess: (() -> Void)? = nil,
+                              onFailure: ((String) -> Void)? = nil) {
+        guard source.kind == .emby, source.emby?.userID != nil else {
+            onSuccess?()
+            return
+        }
+        let editID = UUID()
+        playedEdits[item.id] = PlayedEdit(id: editID, played: played)
+        let write = enqueueEmbyRecordWrite(.setPlayed(played), for: item, source: source)
+        Task {
+            do {
+                try await write.value
+                guard playedEdits[item.id]?.id == editID else { return }
+                playedEdits[item.id]?.syncedAt = Date()
+                onSuccess?()
+            } catch {
+                log("Emby 观看标记同步失败：\(error.localizedDescription)")
+                if playedEdits[item.id]?.id == editID {
+                    onFailure?(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// Clear server progress first, then its local resume state. Does not change watched/favorite state.
+    func clearProgress(for item: MediaItem, source: MediaSource, syncServer: Bool = true) async throws {
+        if syncServer, source.kind == .emby {
+            try await enqueueEmbyRecordWrite(.clearProgress, for: item, source: source).value
+        }
+        clearSavedProgress(for: item)
+    }
+
+    @Published private var favoriteStates: [MediaID: Bool] = [:]
+    private var favoriteRevisions: [MediaID: UUID] = [:]
+    private var confirmedFavorites: [MediaID: Bool] = [:]
+
+    func effectiveFavorite(for item: MediaItem) -> Bool {
+        favoriteStates[item.id] ?? item.isFavorite ?? false
+    }
+
+    /// Optimistic UI, with server writes serialized by the shared item queue.
+    func setFavorite(_ favorite: Bool, for item: MediaItem, source: MediaSource,
+                     completion: @escaping (String?) -> Void) {
+        guard source.id == item.id.sourceID, source.kind == .emby else {
+            completion(EmbyError.invalidResponse.localizedDescription)
+            return
+        }
+        if confirmedFavorites[item.id] == nil {
+            confirmedFavorites[item.id] = item.isFavorite ?? false
+        }
+        let revision = UUID()
+        favoriteRevisions[item.id] = revision
+        favoriteStates[item.id] = favorite
+        let write = enqueueEmbyRecordWrite(.setFavorite(favorite), for: item, source: source)
+        Task {
+            do {
+                try await write.value
+                confirmedFavorites[item.id] = favorite
+                completion(nil)
+            } catch {
+                if favoriteRevisions[item.id] == revision {
+                    favoriteStates[item.id] = confirmedFavorites[item.id] ?? item.isFavorite ?? false
+                }
+                completion(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Favorites use the same per-item queue as watched/progress writes.
+    func setFavorite(_ favorite: Bool, for item: MediaItem, source: MediaSource) async throws {
+        guard source.id == item.id.sourceID, source.kind == .emby else { throw EmbyError.invalidResponse }
+        try await enqueueEmbyRecordWrite(.setFavorite(favorite), for: item, source: source).value
+    }
+
+    // Serialize all user actions for one item without blocking its next UI action.
+    func enqueueEmbyRecordWrite(_ change: EmbyPlaybackRecordChange, for item: MediaItem,
+                                source: MediaSource) -> Task<Void, Error> {
+        let previous = recordWrites[item.id]?.task
+        let writeID = UUID()
+        let task = Task { [weak self] in
+            if let previous { _ = await previous.result }
+            defer {
+                if let self, self.recordWrites[item.id]?.id == writeID {
+                    self.recordWrites.removeValue(forKey: item.id)
+                }
+            }
+            do {
+                try await EmbyRepository.shared.updatePlaybackRecord(for: item, source: source, change: change)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                let operation: String
+                switch change {
+                case .clearProgress: operation = "清除播放进度"
+                case .setPlayed: operation = "更新观看标记"
+                case .setFavorite: operation = "更新收藏状态"
+                }
+                let failure = EmbyOperationFailure(operation: operation, itemID: item.id.localID,
+                                                   sourceID: source.id, reason: error.localizedDescription)
+                self?.log("Emby action source=\(source.id) item=\(item.id.localID) operation=\(operation): \(error.localizedDescription)")
+                throw failure
+            }
+        }
+        recordWrites[item.id] = EmbyRecordWrite(id: writeID, task: task)
+        return task
+    }
+
+    private func recordPlayed(_ played: Bool, for item: MediaItem, source: MediaSource) {
+        guard source.id == item.id.sourceID else { return }
+        let existing = history.first(where: { $0.mediaID == item.id })
+        let duration = max(existing?.duration ?? item.duration ?? savedDuration(for: item), 0)
+        let position = existing?.position ?? savedProgress(for: item)
+        let entry = PlaybackHistoryEntry(
+            mediaID: item.id,
+            title: item.title,
+            source: source,
+            watchedAt: Date(),
+            position: position,
+            duration: duration,
+            isPlayed: played,
+            hiddenFromHistory: !played
+        )
         history.removeAll { $0.mediaID == item.id }
+        history.insert(entry, at: 0)
+        if history.count > 1000 { history.removeLast(history.count - 1000) }
+        if currentItem?.id == item.id {
+            currentItem?.isPlayed = played
+            manuallyUnplayedCurrentItem = played ? nil : item.id
+        }
         persistHistory()
         savedProgressRevision += 1
     }
@@ -581,10 +978,31 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
                    PHAsset.fetchAssets(withLocalIdentifiers: [entry.mediaID.localID], options: nil).count == 0 {
                     missing.insert(entry.mediaID)
                 }
-            case .demo: break
+            case .demo, .emby: break
             }
         }
         if !missing.isEmpty { removePlaybackData { missing.contains($0) } }
+    }
+
+    private func embyResumePosition(for item: MediaItem, source: MediaSource,
+                                    serverPosition: Double?, duration: Double?) async -> Double {
+        for priority in EmbyProgressPriority.sources {
+            guard !Task.isCancelled else { return 0 }
+            let value: Double?
+            switch priority {
+            case .trakt:
+                // Keep Trakt in the order even when disconnected, but make no request.
+                guard TraktAccountStore.shared.isConnected else { continue }
+                value = await TraktAccountStore.shared.resumePosition(for: item, source: source, duration: duration ?? 0)
+            case .server:
+                value = serverPosition
+            case .local:
+                let key = item.id.sourceID.uuidString + ":" + item.id.localID
+                value = UserDefaults.standard.dictionary(forKey: progressStorageKey)?[key] as? Double
+            }
+            if let position = EmbyProgressPriority.validPosition(value, duration: duration) { return position }
+        }
+        return 0
     }
 
     private func restoreProgressIfNeeded() {
@@ -596,7 +1014,25 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         seek(to: saved, resume: isPlaying)
     }
 
-    func mediaDetails() async -> PlaybackVideoDetails? {
+    func mediaDetails(showsDetails: Bool = false) async -> PlaybackVideoDetails? {
+        if showsDetails {
+            guard canShowMediaDetails, let info = core.driver?.mediaInformation else { return nil }
+            let url = core.playbackURL
+            let bytes = url.flatMap { $0.isFileURL ? (try? $0.resourceValues(forKeys: [.fileSizeKey]))?.fileSize : nil }
+            var technical = info.fields.filter { !$0.value.isEmpty }.sorted { $0.key < $1.key }
+                .map { PlaybackDetailField(label: $0.key, value: $0.value) }
+            if let container = info.container, !container.isEmpty {
+                technical.append(.init(label: "容器格式", value: container))
+            }
+            return PlaybackVideoDetails(fileName: url?.isFileURL == true ? (externalFile?.name ?? url?.lastPathComponent ?? "") : "",
+                                        dimensions: info.width > 0 && info.height > 0 ? "\(info.width) × \(info.height)" : nil,
+                                        byteCount: bytes.flatMap { $0 > 0 ? $0 : nil }, synopsis: nil,
+                                        sourceName: source?.name ?? VesperLocalization.string("外部视频"), technical: technical,
+                                        duration: info.duration.isFinite && info.duration > 0 ? info.duration : nil)
+        }
+        if let source, source.kind == .emby, let item = currentItem {
+            return try? await EmbyRepository.shared.details(for: item, source: source).video
+        }
         guard let resource else { return nil }
         let token = generation
         let url = resource.url
@@ -637,7 +1073,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             }
         }
         let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
-        technical.append(.init(label: "音轨数量", value: String(audioTracks.isEmpty ? (layer?.player.tracks(mediaType: .audio).count ?? 0) : audioTracks.count)))
+        technical.append(.init(label: "音轨数量", value: String(audioTracks.isEmpty ? core.snapshot.audio.count : audioTracks.count)))
         for (index, track) in audioTracks.enumerated() {
             let prefix = "Audio \(index + 1)"
             if let language = try? await track.load(.languageCode) { technical.append(.init(label: "音频语言", value: "\(prefix) · \(language)")) }
@@ -658,40 +1094,17 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
             technical.append(.init(label: "总码率", value: Self.bitRateLabel(Double(bytes) * 8 / duration)))
         }
         technical.append(.init(label: "容器格式", value: Self.containerName(url)))
-        // FFmpeg-backed formats may not expose AVAsset tracks. Read the
-        // active decoder's public metadata rather than dropping their details.
-        if let player = layer?.player {
-            if tracks.isEmpty {
-                let size = player.naturalSize
-                if size.width > 0 && size.height > 0 {
-                    var w = Int(size.width.rounded()), h = Int(size.height.rounded())
-                    let originalW = w, originalH = h
-                    while h != 0 { (w, h) = (h, w % h) }
-                    let divisor = max(1, w)
-                    technical.append(.init(label: "画面比例", value: "\(originalW / divisor):\(originalH / divisor)"))
-                }
+        // Probe the source through the isolated Aether bridge; AVAsset alone
+        // omits tracks for TS/MKV and must not report those as zero streams.
+        if let probe = try? await Task.detached(priority: .utility, operation: { try AetherMediaProbe.inspect(url) }).value {
+            let labels = Set(probe.fields.keys)
+            technical.removeAll { labels.contains($0.label) }
+            technical += probe.fields.sorted { $0.key < $1.key }.map { .init(label: $0.key, value: $0.value) }
+            if let container = probe.container {
+                technical.removeAll { $0.label == "容器格式" }
+                technical.append(.init(label: "容器格式", value: container))
             }
-            if dimensions == nil {
-                let size = player.naturalSize
-                if size.width > 0 && size.height > 0 { dimensions = "\(Int(size.width)) × \(Int(size.height))" }
-            }
-            for type in [AVMediaType.video, .audio] where (type == .video ? tracks.isEmpty : audioTracks.isEmpty) {
-                for track in player.tracks(mediaType: type) {
-                    let video = type == .video
-                    if track.bitRate > 0 { technical.append(.init(label: video ? "视频码率" : "音频码率", value: Self.bitRateLabel(Double(track.bitRate)))) }
-                    if track.bitDepth > 0 { technical.append(.init(label: video ? "视频位深" : "音频位深", value: "\(track.bitDepth) bit")) }
-                    if video && track.nominalFrameRate > 0 { technical.append(.init(label: "帧率", value: String(format: "%.3f fps", track.nominalFrameRate))) }
-                    if let format = track.formatDescription {
-                        technical.append(.init(label: video ? "视频编码" : "音频编码", value: Self.codecName(format)))
-                        if video { technical += Self.videoColorDetails(format) }
-                        else { technical += Self.audioLayoutDetails(format) }
-                        if !video, let stream = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee {
-                            technical.append(.init(label: "采样率", value: String(format: "%.0f Hz", stream.mSampleRate)))
-                            technical.append(.init(label: "声道数", value: String(stream.mChannelsPerFrame)))
-                        }
-                    }
-                }
-            }
+            if probe.width > 0 && probe.height > 0 { dimensions = "\(probe.width) × \(probe.height)" }
         }
         var synopsis: String?
         if let metadata = try? await asset.load(.commonMetadata) {
@@ -776,6 +1189,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
 
     func queueInfo(for item: MediaItem) async -> PlaybackQueueInfo {
         guard let source, source.id == item.id.sourceID else { return .init() }
+        if source.kind == .emby { return .init(duration: item.duration ?? 0) }
         if source.kind == .photos {
             guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [item.id.localID], options: nil).firstObject else { return .init() }
             PlayerQueueDiagnostic.write("photos.metadata.begin id=\(item.id.localID) authorization=\(PHPhotoLibrary.authorizationStatus(for: .readWrite).rawValue)")
@@ -801,7 +1215,7 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     func setPlaybackRate(_ rate: Float) {
         guard [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(rate) else { return }
         playbackRate = rate
-        layer?.player.playbackRate = rate
+        core.configure(engineConfiguration)
     }
 
     func toggleFill() {
@@ -815,54 +1229,183 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
     }
 
     func selectAudio(_ id: Int32) {
-        guard let player = layer?.player,
-              let track = player.tracks(mediaType: .audio).first(where: { $0.trackID == id }) else { return }
-        player.select(track: track)
+        guard let key = trackIDs.first(where: { $0.value == id })?.key else { return }
+        core.selectAudio(key)
         refreshTracks()
     }
-
     func selectSubtitle(_ id: Int32?) {
-        guard let player = layer?.player else { return }
-        if let mpv = player as? KSMPVPlayer {
-            if let id, let track = mpv.tracks(mediaType: .subtitle).first(where: { $0.trackID == id }) { mpv.select(track: track) }
-            else { mpv.disableSubtitles() }
-            selectedSubtitleID = id
-            subtitleText = ""
-            subtitleImage = nil
-            refreshTracks()
-            return
-        }
-        subtitleModel.selectedSubtitleInfo = nil
-        if let id, let track = player.tracks(mediaType: .subtitle).first(where: { $0.trackID == id }) {
-            player.select(track: track)
-            subtitleModel.selectedSubtitleInfo = player.subtitleDataSouce?.infos.first { $0.subtitleID == String(id) }
-        } else {
-            for track in player.tracks(mediaType: .subtitle) { track.isEnabled = false }
-        }
+        let key = id.flatMap { value in trackIDs.first { $0.value == value }?.key }
+        core.selectSubtitle(key)
         selectedSubtitleID = id
-        updateSubtitles()
         refreshTracks()
     }
-
-    private func refreshTracks() {
-        guard let player = layer?.player else { return }
-        let audio = player.tracks(mediaType: .audio).map { PlaybackTrack(id: $0.trackID, name: $0.name, isSelected: $0.isEnabled) }
-        let subtitles = player.tracks(mediaType: .subtitle).map { PlaybackTrack(id: $0.trackID, name: $0.name, isSelected: $0.trackID == selectedSubtitleID) }
+    private func uiTrackID(_ id: String) -> Int32 {
+        if let value = trackIDs[id] { return value }
+        let value = nextTrackID; nextTrackID += 1; trackIDs[id] = value; return value
+    }
+    private func refreshTracks(using snapshot: EngineSnapshot? = nil) {
+        let state = snapshot ?? core.driver?.snapshot ?? core.snapshot
+        let audio = state.audio.map { PlaybackTrack(id: uiTrackID($0.id), name: $0.name, isSelected: $0.selected) }
+        let subtitles = state.subtitles.map { PlaybackTrack(id: uiTrackID($0.id), name: $0.name, isSelected: $0.selected) }
         if audioTracks != audio { audioTracks = audio }
         if subtitleTracks != subtitles { subtitleTracks = subtitles }
+        let selected = state.subtitles.first(where: { $0.selected }).map { uiTrackID($0.id) }
+        if selectedSubtitleID != selected { selectedSubtitleID = selected }
+    }
+    private func updateSubtitles() {
+        let state = core.snapshot
+        if subtitleText != state.subtitleText { subtitleText = state.subtitleText }
+        if subtitleImage !== state.subtitleImage { subtitleImage = state.subtitleImage }
     }
 
-    private func updateSubtitles() {
-        _ = subtitleModel.subtitle(currentTime: currentTime)
-        let text = subtitleModel.parts.compactMap { $0.text?.string }.joined(separator: "\n")
-        if subtitleText != text { subtitleText = text }
-        let image = subtitleModel.parts.compactMap(\.image).first
-        if subtitleImage !== image { subtitleImage = image }
+    private func cancelNextPreparation(discardBytes: Bool = true) {
+        nextPreparation?.cancel()
+        nextPreparation = nil
+        nextPreparationID = nil
+        preparedNext?.resource.release()
+        preparedNext = nil
+        if discardBytes { AetherSourcePrewarm.discard() }
+    }
+
+    private func refreshSkipMarkers() {
+        guard let item = currentItem, let source, source.kind == .emby, resource != nil else { return }
+        guard EmbySkipSettings.introEnabled || EmbySkipSettings.outroEnabled else {
+            skipLookupTask?.cancel(); skipLookupTask = nil; skipLookupIdentity = nil; skipMarkers = .empty
+            return
+        }
+        let resourceDuration = resource?.duration ?? 0
+        let knownDuration = resourceDuration > 0 ? resourceDuration : duration
+        guard knownDuration.isFinite, knownDuration > 0, knownDuration < Double(Int64.max) / 1000 else { return }
+        let configuration = UserDefaults.standard.string(forKey: EmbySkipSettings.databasesKey) ?? ""
+        let identity = "\(item.id.localID)|\(resource?.embyMediaSourceID ?? "")|\(Int(knownDuration))|\(configuration)"
+        guard identity != skipLookupIdentity else { return }
+        skipLookupTask?.cancel()
+        skipLookupIdentity = identity
+        skipMarkers = .empty
+        let token = generation
+        var target = item
+        target.embyMediaSourceID = resource?.embyMediaSourceID ?? item.embyMediaSourceID
+        skipLookupTask = Task { [weak self] in
+            let markers = await EmbySkipLookup.shared.markers(for: target, source: source, duration: knownDuration)
+            guard !Task.isCancelled, let self, self.generation == token, self.skipLookupIdentity == identity else { return }
+            self.skipMarkers = markers
+            self.log("[IntroOutro] 播放器应用标记，片头段数=\(markers.intros.count)，片尾起点=\(markers.creditsStart.map { String($0) } ?? "无")，时长=\(knownDuration)")
+            self.skipLookupTask = nil
+        }
+    }
+
+    private var nextEpisodePreloadPosition: Double {
+        let fraction = Double(EmbyPreloadCacheSettings.nextPercent) / 100
+        guard UserDefaults.standard.bool(forKey: EmbySkipSettings.bodyPreloadKey) else { return duration * fraction }
+        return skipMarkers.preloadPosition(duration: duration, fraction: fraction,
+                                          introEnabled: EmbySkipSettings.introEnabled, outroEnabled: EmbySkipSettings.outroEnabled)
+    }
+
+    /// Automatic actions never run while scrubbing, paused, loading or on a non-Emby source.
+    private func applySkipMarkers() -> Bool {
+        guard source?.kind == .emby, isPlaying, !isLoading, !isSeeking, !seekInFlight, duration > 0 else { return false }
+        if EmbySkipSettings.introEnabled, canSeek,
+           let interval = skipMarkers.intros.first(where: { currentTime >= $0.start && currentTime < $0.end && !skippedIntroEnds.contains($0.end) }),
+           interval.end < duration {
+            skippedIntroEnds.insert(interval.end)
+            log("[IntroOutro] 自动跳过片头，当前位置=\(currentTime)，区间=\(interval.start)-\(interval.end)，目标=\(interval.end)")
+            seek(to: interval.end, resume: true)
+            automaticSkipNotice = AutomaticSkipNotice(kind: .intro)
+        }
+        if EmbySkipSettings.outroEnabled, !skippedCredits,
+           hasNext || canSeek,
+           let start = skipMarkers.creditsStart, start < duration, currentTime >= start {
+            skippedCredits = true
+            if hasNext {
+                log("[IntroOutro] 自动跳过片尾，当前位置=\(currentTime)，片尾起点=\(start)，切换下一集")
+                next()
+            } else {
+                let target = max(0, duration - 1)
+                log("[IntroOutro] 自动跳过片尾，当前位置=\(currentTime)，片尾起点=\(start)，无下一集，目标=\(target)")
+                seek(to: target, resume: true)
+            }
+            automaticSkipNotice = AutomaticSkipNotice(kind: .outro)
+            return true
+        }
+        return false
+    }
+
+    private func prepareNextEpisodeIfNeeded() {
+        if UserDefaults.standard.bool(forKey: EmbySkipSettings.bodyPreloadKey), skipLookupTask != nil { return }
+        guard isPlaying, !isLoading, !isSeeking, currentEngine == .aether,
+              duration > 0, currentTime >= nextEpisodePreloadPosition,
+              let source, source.kind == .emby, let item = currentItem, item.embyItemType == "Episode",
+              let index = queue.firstIndex(where: { $0.id == item.id }), index + 1 < queue.count,
+              queue[index + 1].embyItemType == "Episode",
+              attemptedNextForGeneration != generation,
+              Date().timeIntervalSince(lastNextPolicyAttempt) >= 5 else { return }
+        lastNextPolicyAttempt = Date()
+        attemptedNextForGeneration = generation
+        let target = queue[index + 1]
+        let token = generation
+        nextPreparationID = target.id
+        nextPreparation = Task { [weak self] in
+            guard let self else { return }
+            guard await EmbyPreloadCacheSettings.allowsNextEpisode(), !Task.isCancelled,
+                  self.generation == token else {
+                if self.generation == token { self.attemptedNextForGeneration = nil }
+                return
+            }
+            var resolved: ResolvedPlaybackResource?
+            var retained = false
+            defer { if !retained { resolved?.release() } }
+            do {
+                let currentSourceID = self.resource?.embyMediaSourceID ?? item.embyMediaSourceID
+                let current = try? await EmbyRepository.shared.detailMetadata(for: item, source: source)
+                try Task.checkCancellation()
+                let metadata = try await EmbyRepository.shared.detailMetadata(for: target, source: source)
+                let currentVersion = current?.mediaVersions.first(where: { $0.id == currentSourceID })
+                    ?? current?.mediaVersions.first
+                let best = EmbyVersionMatcher.closest(to: currentVersion, in: metadata.mediaVersions)
+                var selected = target
+                selected.embyMediaSourceID = best?.id
+                let resource = try await PlaybackResourceResolver().resolve(selected, source: source)
+                resolved = resource
+                selected.embyMediaSourceID = resource.embyMediaSourceID ?? selected.embyMediaSourceID
+                try Task.checkCancellation()
+                guard resource.url.pathExtension.lowercased() != "m3u8" else { return }
+                // Keep speculative reads small; this is separate from the playing session budget.
+                let budget = min(8 * 1024 * 1024, await EmbyPreloadCacheSettings.currentLimitBytes())
+                let policy = Task { @MainActor in
+                    while !Task.isCancelled {
+                        do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                        let allowed = await EmbyPreloadCacheSettings.allowsNextEpisode()
+                        guard !Task.isCancelled, self.generation == token else { return }
+                        guard allowed else { self.cancelNextPreparation(); return }
+                    }
+                }
+                defer { policy.cancel() }
+                let warmed = await AetherSourcePrewarm.prepare(url: resource.url, headers: resource.headers, byteBudget: budget)
+                try Task.checkCancellation()
+                guard warmed, self.generation == token, self.nextPreparationID == target.id else { return }
+                self.preparedNext = (selected, source.id, resource)
+                retained = true
+                // Keep the warm until consumed, stopped, replaced, or disallowed by network policy.
+                while !Task.isCancelled {
+                    try await Task.sleep(for: .seconds(1))
+                    guard self.generation == token else { return }
+                    let allowed = await EmbyPreloadCacheSettings.allowsNextEpisode()
+                    guard !Task.isCancelled, self.generation == token else { return }
+                    guard allowed else { self.cancelNextPreparation(); return }
+                }
+            } catch {
+                // Preloading is best-effort; playback errors belong only to the active video.
+                if self.generation == token { self.cancelNextPreparation() }
+            }
+        }
     }
 
     func next() {
         guard hasNext, let source, let currentItem,
               let index = queue.firstIndex(where: { $0.id == currentItem.id }) else { return }
+        // Both bridges currently retire their PiP source during load. Present
+        // the new video instead of silently leaving audio with no PiP window.
+        if isPictureInPictureActive { isPresented = true }
         load(queue[index + 1], source: source, engine: currentEngine, decoder: currentDecoder)
     }
 
@@ -871,14 +1414,53 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         load(currentItem, source: source, engine: currentEngine, decoder: currentDecoder)
     }
 
+    private func refreshPlaybackSubtitle(for item: MediaItem, source: MediaSource?, token: UUID) {
+        playbackSubtitleTask?.cancel()
+        playbackSubtitleTask = nil
+        // Emby version names are file labels, not the episode's display context.
+        playbackSubtitle = item.embyItemType == "Movie" ? item.title : (item.embyItemType == nil ? item.subtitle : nil)
+        guard item.embyItemType == "Episode", let source, source.kind == .emby else { return }
+        playbackSubtitleTask = Task { [weak self] in
+            guard let metadata = try? await EmbyRepository.shared.detailMetadata(for: item, source: source),
+                  !Task.isCancelled else { return }
+            var parts: [String] = []
+            if let series = metadata.series {
+                parts.append(series.title)
+                var count = series.embyPresentation?.seasonCount
+                if count == nil {
+                    count = try? await EmbyRepository.shared.seriesSeasonCount(for: series, source: source)
+                }
+                guard !Task.isCancelled else { return }
+                if (count ?? 0) > 1 || (metadata.seasonNumber ?? 0) > 1,
+                   let season = metadata.seasonNumber {
+                    parts.append(season == 0 ? VesperLocalization.string("特别篇") : VesperLocalization.localized("第\(season)季"))
+                }
+            }
+            if let episode = metadata.episodeNumber {
+                parts.append(VesperLocalization.localized("第\(episode)集"))
+            }
+            guard let self, !Task.isCancelled, self.generation == token else { return }
+            self.playbackSubtitle = parts.isEmpty ? nil : parts.joined(separator: " · ")
+        }
+    }
+
     func stop() {
+        hasLoadedMedia = false
+        playbackSubtitleTask?.cancel()
+        playbackSubtitleTask = nil
+        playbackSubtitle = nil
+        traktReporter.finish()
         saveProgress()
         recordPlaybackHistory()
+        cancelNextPreparation()
+        skipLookupTask?.cancel()
+        skipLookupTask = nil
         request?.cancel()
         request = nil
         generation = UUID()
         tearDownPlayer()
         currentItem = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         source = nil
         externalFile = nil
         queue = []
@@ -887,130 +1469,152 @@ final class PlaybackSession: NSObject, ObservableObject, KSPlayerLayerDelegate, 
         isLoading = false
         errorMessage = nil
         isPresented = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        let stoppedGeneration = generation
+        Task { [weak self] in
+            await self?.core.waitUntilRetired()
+            guard let self, self.generation == stoppedGeneration, self.currentItem == nil else { return }
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     private func tearDownPlayer() {
+        pipStartTask?.cancel(); pipStartTask = nil
+        decoderChange?.cancel(); decoderChange = nil; requestedDecoder = nil
         pipController?.delegate = nil
-        pipController?.stopPictureInPicture()
+        core.stopPiP()
         pipObservation = nil
         pipConfigurationObservation = nil
         pipController = nil
-        pipStateSynchronization?.cancel()
-        pipStateSynchronization = nil
         isPictureInPicturePossible = false
         isPictureInPictureActive = false
+        previouslyActivePiP = false
         restorePiPCompletion?(false)
         restorePiPCompletion = nil
         restoringPiP = false
         pendingSeek = nil
         seekInFlight = false
         seekLanding = nil
-        layer?.delegate = nil
-        layer?.stop()
+        let retirement = core.shutdown()
+        let retiringEmbySession = embySession
+        embySession = nil
+        let retiringResource = resource
+        Task {
+            await retirement.value
+            if let ending = retiringEmbySession?.finish() { await ending.value }
+            retiringResource?.release()
+        }
         videoView?.removeFromSuperview()
         videoView = nil
-        layer = nil
-        resource?.release()
+        trackIDs = [:]; nextTrackID = 1
         resource = nil
-        subtitleModel.selectedSubtitleInfo = nil
-        _ = subtitleModel.subtitle(currentTime: 0)
         subtitleText = ""
         subtitleImage = nil
         selectedSubtitleID = nil
         audioTracks = []
         subtitleTracks = []
         bufferedTime = 0
+        bufferedRanges = []
         isSeeking = false
         isPlaying = false
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
-    func player(layer: KSPlayerLayer, state: KSPlayerState) {
-        guard layer === self.layer else { return }
-        videoView = layer.player.view
-        isPlaying = state.isPlaying
-        isLoading = state == .preparing || state == .buffering
-        if appIsInBackground && !PlaybackPreferences.backgroundEnabled && state.isPlaying {
-            layer.pause()
-            return
-        }
-        if state == .readyToPlay {
-            if let mpv = layer.player as? KSMPVPlayer {
-                currentDecoder = mpv.usingHardwareDecoder ? .hardware : .software
-            } else {
-                currentDecoder = layer.player is KSAVPlayer || layer.options.hardwareDecode ? .hardware : .software
-            }
-            if let restore = decoderRestore {
-                decoderRestore = nil
-                currentTime = restore.time
-                seekLanding = (restore.time, Date().addingTimeInterval(3))
-                layer.seek(time: restore.time, autoPlay: restore.resume) { _ in }
-            }
-            layer.player.playbackRate = playbackRate
-            layer.player.contentMode = fillsScreen ? .scaleAspectFill : .scaleAspectFit
-            layer.player.allowsExternalPlayback = true
-            layer.player.isMuted = isMuted
-            var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-            info[MPMediaItemPropertyTitle] = currentItem?.title
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-            configurePictureInPicture()
-            for track in layer.player.tracks(mediaType: .subtitle) { track.isEnabled = false }
-        }
-        refreshTracks()
-        if state == .playedToTheEnd {
-            currentTime = duration
-            saveProgress()
-            recordPlaybackHistory()
-            UIApplication.shared.isIdleTimerDisabled = false
-        }
-        log("状态：\(state)")
+    private var engineConfiguration: EngineConfiguration {
+        var value = EngineConfiguration()
+        value.decoder = currentDecoder == .software ? .software : .hardware
+        value.position = currentTime; value.autoplay = isPlaying
+        value.rate = playbackRate; value.muted = isMuted; value.fillsScreen = fillsScreen
+        value.backgroundEnabled = PlaybackPreferences.backgroundEnabled
+        value.automaticPiP = automaticallyStartsPictureInPicture
+        value.subtitleFontSize = subtitleSize
+        value.subtitleDelay = subtitleDelay
+        value.requestHeaders = resource?.headers ?? [:]
+        value.externalSubtitles = resource?.externalSubtitles ?? []
+        return value
     }
-
-    func player(layer: KSPlayerLayer, currentTime: TimeInterval, totalTime: TimeInterval) {
-        guard layer === self.layer else { return }
-        // Decoder ticks already queued before a preview/final seek must not
-        // overwrite the UI target. Resume normal updates once the decoder lands.
-        if let mpv = layer.player as? KSMPVPlayer, mpv.isReadyToPlay {
-            currentDecoder = mpv.usingHardwareDecoder ? .hardware : .software
+    private func syncCoreState() {
+        let state = core.snapshot
+        if !hasLoadedMedia && !core.isTransitioning {
+            switch state.phase {
+            case .playing, .paused, .ended: hasLoadedMedia = true
+            default: break
+            }
         }
-        if !isSeeking {
+        // Lifecycle notifications and engine teardown completion can arrive in
+        // either order. Also check the first fresh snapshot after foreground.
+        if state.requiresForegroundReload, restoreReleasedAetherSession(resume: false) { return }
+        let view = core.view
+        if videoView !== view { videoView = view }
+        let engine: PlaybackEngine = core.engineID == .aether ? .aether : .vlc
+        if currentEngine != engine { currentEngine = engine }
+        if let actual = state.actualDecoder {
+            let decoder: PlaybackDecoder = actual == .software ? .software : .hardware
+            if decoder != currentDecoder, requestedDecoder == nil, !core.isTransitioning {
+                playbackTransitionNotice = .init(message: "已自动切换至\(decoder.title)")
+            }
+            if currentDecoder != decoder { currentDecoder = decoder }
+        }
+        let loading = core.isTransitioning || state.phase == .loading
+        if isLoading != loading { isLoading = loading }
+        let playing = state.phase == .playing
+        if isPlaying != playing { isPlaying = playing }
+        if appIsInBackground && !PlaybackPreferences.backgroundEnabled && isPlaying { core.pause() }
+        if !state.requiresForegroundReload && !isSeeking && !core.isTransitioning {
             if let landing = seekLanding {
-                if abs(currentTime - landing.time) < 1.5 || Date() >= landing.deadline {
-                    seekLanding = nil
-                    self.currentTime = currentTime.isFinite ? max(0, currentTime) : 0
-                }
-            } else { self.currentTime = currentTime.isFinite ? max(0, currentTime) : 0 }
+                if abs(state.time - landing.time) < 1.5 || Date() >= landing.deadline { seekLanding = nil; currentTime = max(0, state.time) }
+            } else { currentTime = state.time.isFinite ? max(0, state.time) : 0 }
         }
-        duration = totalTime.isFinite ? max(0, totalTime) : 0
-        if !isSeeking && layer.player.playbackState != .seeking {
-            let playing = layer.player.isPlaying
-            if isPlaying != playing { isPlaying = playing }
+        if !state.requiresForegroundReload && (!isLoading || state.duration > 0) {
+            let engineDuration = state.duration.isFinite ? max(0, state.duration) : 0
+            let total = engineDuration > 0 ? engineDuration : (resource?.duration ?? 0)
+            if duration != total { duration = total }
         }
-        let playable = layer.player.playableTime
-        bufferedTime = playable.isFinite ? min(duration, max(currentTime, playable)) : currentTime
-        refreshTracks()
-        updateSubtitles()
-        configurePictureInPicture()
+        let buffered = state.buffered.isFinite ? max(currentTime, state.buffered) : currentTime
+        if bufferedTime != buffered { bufferedTime = buffered }
+        if bufferedRanges != state.bufferedRanges { bufferedRanges = state.bufferedRanges }
+        if case .failed(let message) = state.phase { errorMessage = message; isLoading = false }
+        if state.phase == .ended {
+            currentTime = duration; saveProgress(); recordPlaybackHistory()
+            embySession?.finish()
+        }
+        embySession?.update(position: currentTime, paused: !isPlaying, rate: playbackRate,
+                            remembersProgress: PlaybackPreferences.remembersProgress,
+                            ready: !isLoading && (state.phase == .playing || state.phase == .paused || state.phase == .ended))
+        traktReporter.update(item: currentItem, source: source, position: currentTime, duration: duration,
+                             playing: isPlaying, ended: state.phase == .ended,
+                             ready: !isLoading && !isSeeking && progressRestored &&
+                                (state.phase == .playing || state.phase == .paused || state.phase == .ended))
+        refreshSkipMarkers()
+        if applySkipMarkers() { return }
+        prepareNextEpisodeIfNeeded()
+        // Reuse this poll's snapshot instead of reading the engine a second time.
+        refreshTracks(using: state); updateSubtitles(); configurePictureInPicture()
+        // SwiftVLC retains its native AVKit delegate; consume its observable PiP state.
+        if isPictureInPicturePossible != state.pipPossible { isPictureInPicturePossible = state.pipPossible }
+        if state.pipActive != previouslyActivePiP {
+            previouslyActivePiP = state.pipActive
+            isPictureInPictureActive = state.pipActive
+            if state.pipActive { isPresented = false }
+            else if !restoringPiP && !isPresented && !(appIsInBackground && PlaybackPreferences.backgroundEnabled && PlaybackPreferences.backgroundMode == "audio") { pause() }
+        }
         restoreProgressIfNeeded()
         if Date().timeIntervalSince(lastProgressSave) >= 5 && !isSeeking { saveProgress() }
-        if layer.player.isPlaying && !isSeeking && Date().timeIntervalSince(lastHistorySave) >= 5 { recordPlaybackHistory() }
-    }
-
-    func player(layer: KSPlayerLayer, finish error: Error?) {
-        guard layer === self.layer else { return }
-        isPlaying = false
-        isLoading = false
-        if let error {
-            errorMessage = error.localizedDescription
-            UIApplication.shared.isIdleTimerDisabled = false
-            log("播放失败：\(error.localizedDescription)")
+        if isPlaying && !isSeeking && Date().timeIntervalSince(lastHistorySave) >= 5 { recordPlaybackHistory() }
+        if UIApplication.shared.isIdleTimerDisabled != isPlaying {
+            UIApplication.shared.isIdleTimerDisabled = isPlaying
+        }
+        if !core.isTransitioning {
+            var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+            info[MPMediaItemPropertyTitle] = currentItem?.title
+            info[MPMediaItemPropertyPlaybackDuration] = duration
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+            info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? playbackRate : 0
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         }
     }
 
-    func player(layer: KSPlayerLayer, bufferedCount: Int, consumeTime: TimeInterval) {}
-
     private func log(_ message: String) {
-        AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [Playback] \(message)")
+        AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [Playback] \(EmbyAPIClient.redacted(message))")
     }
 }
 
@@ -1027,6 +1631,7 @@ struct PlaybackVideoDetails: Sendable {
     let synopsis: String?
     let sourceName: String
     let technical: [PlaybackDetailField]
+    var duration: Double? = nil
 }
 
 struct PlaybackDetailField: Sendable {
@@ -1047,8 +1652,19 @@ struct PlaybackHistoryEntry: Identifiable, Codable {
     let watchedAt: Date
     let position: Double
     let duration: Double
+    var isPlayed: Bool? = nil
+    var isCompleted: Bool? = nil
+    var hiddenFromHistory: Bool? = nil
     var id: MediaID { mediaID }
-    var item: MediaItem { MediaItem(id: mediaID, title: title, resource: nil) }
+    var isFullyWatched: Bool { isPlayed ?? isCompleted ?? false }
+    static func resolvePlayed(trakt: Bool? = nil, server: Bool?, local: Bool?) -> Bool {
+        trakt ?? server ?? local ?? false
+    }
+    var item: MediaItem {
+        MediaItem(id: mediaID, title: title, resource: nil,
+                  embyItemID: source.kind == .emby ? mediaID.localID : nil, duration: duration,
+                  isPlayed: isFullyWatched)
+    }
 }
 
 /// Photos invokes callbacks off the main actor. Resume a request exactly once,

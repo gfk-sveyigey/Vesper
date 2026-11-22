@@ -1,8 +1,11 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
+import AVFoundation
+import QuartzCore
 
 private enum PlayerPanel: String, Identifiable {
-    case queue, gestures, danmaku, subtitles, synopsis, details, more
+    case queue, gestures, danmaku, danmakuSearch, subtitles, synopsis, details, more
     var id: String { rawValue }
 }
 
@@ -20,8 +23,6 @@ struct PlayerScreen: View {
     @State private var menuPresented = false
     @State private var scrubShowsControls = true
     @State private var scrubPreviews = true
-    @AppStorage("player.subtitle.fontSize") private var subtitleFontSize = 22.0
-    @AppStorage("player.subtitle.background") private var subtitleBackground = true
     @State private var scrubTime: Double = 0
     @State private var scrubStart: Double = 0
     @State private var isScrubbing = false
@@ -30,6 +31,9 @@ struct PlayerScreen: View {
     @State private var panel: PlayerPanel?
     @State private var pendingPanel: PlayerPanel?
     @State private var pendingRotation: Bool?
+    @State private var pendingDanmakuImport = false
+    @State private var importingDanmaku = false
+    @State private var importDocument: PlayerDanmaku?
     @State private var gestureAction = PlayerGestureAction.none
     @State private var gestureStart: Double = 0
     @State private var regionsVisible = false
@@ -41,17 +45,87 @@ struct PlayerScreen: View {
     @State private var hudSymbol = ""
     @State private var hudDetail = ""
     @State private var hudRevision = 0
+    @State private var hudDuration: Double = 1
     @State private var rotationError: String?
     @State private var showingNotice = false
+    @State private var debugInfoVisible = false
 
     private var canAutoHide: Bool {
         controlsVisible && session.isPlaying && !session.isLoading && !session.isSeeking
-            && !isScrubbing && !volumeExpanded && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
+            && !isScrubbing && !importingDanmaku && !volumeExpanded && volumeDragStart == nil && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
     }
     private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
 
     var body: some View {
-        GeometryReader { geometry in
+        observedPlayer
+            .task(id: hudRevision) { await dismissHUDWhenReady() }
+            .task(id: autoHideRevision) { await autoHideControlsWhenReady() }
+            .task(id: volumeResetRevision) { await resetVolumeWhenReady() }
+            .fileImporter(isPresented: $importingDanmaku, allowedContentTypes: [.xml], onCompletion: handleDanmakuImport)
+    }
+
+    private var observedPlayer: some View {
+        presentedPlayer
+        .onAppear {
+            PlayerOrientationPolicy.update(true, scene: session.videoView?.window?.windowScene)
+            session.playerDidAppear()
+            brightnessScreen = screen
+            originalBrightness = screen?.brightness
+            scrubTime = session.currentTime
+            setControlsVisible(voiceOver || session.errorMessage != nil)
+        }
+        .onDisappear {
+            if isScrubbing { finishScrubbing(commit: scrubPreviews) }
+            if let originalBrightness { brightnessScreen?.brightness = originalBrightness }
+        }
+        .onChange(of: session.currentItem?.id) { _, _ in
+            isScrubbing = false
+            scrubTime = 0
+            setControlsVisible(voiceOver)
+        }
+        .onChange(of: session.isPlaying) { _, _ in autoHideRevision += 1 }
+        .onChange(of: session.isLoading) { _, _ in autoHideRevision += 1 }
+        .onChange(of: session.isSeeking) { _, _ in autoHideRevision += 1 }
+        .onChange(of: session.errorMessage) { _, message in if message != nil { revealControls() } }
+        .onChange(of: session.playbackNotice) { _, message in if message != nil { showingNotice = true; revealControls() } }
+        .onChange(of: session.playbackTransitionNotice) { _, notice in
+            guard let notice else { return }
+            showHUD(notice.message, symbol: "arrow.triangle.2.circlepath", duration: 3)
+        }
+        .onChange(of: session.automaticSkipNotice) { _, notice in
+            guard let notice else { return }
+            showHUD(VesperLocalization.string(notice.kind == .intro ? "已跳过片头" : "已跳过片尾"),
+                    symbol: notice.kind == .intro ? "forward.fill" : "forward.end.fill")
+        }
+        .onChange(of: volume.value) { old, new in if new > 0.001 && old != new && session.isMuted { session.unmute() } }
+        .onChange(of: volumeDragStart) { _, _ in autoHideRevision += 1 }
+        .onChange(of: voiceOver) { _, _ in revealControls() }
+        .onChange(of: panel) { _, _ in revealControls() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active && isScrubbing { finishScrubbing(commit: scrubPreviews) } }
+    }
+
+    @MainActor private func autoHideControlsWhenReady() async {
+        guard canAutoHide else { return }
+        do { try await Task.sleep(for: .seconds(3)) } catch { return }
+        guard !Task.isCancelled, canAutoHide else { return }
+        setControlsVisible(false)
+    }
+
+    @MainActor private func resetVolumeWhenReady() async {
+        guard !controlsVisible else { return }
+        do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+        guard !Task.isCancelled, !controlsVisible else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { volumeExpanded = false; volumeDragStart = nil }
+    }
+
+    private var presentedPlayer: some View {
+        // Read safe-area margins outside the edge-to-edge viewport. Video,
+        // transport and UIKit rotation now share the full-screen midpoint;
+        // only the peripheral controls are inset into the safe area.
+        GeometryReader { safeGeometry in
+            GeometryReader { geometry in
             ZStack {
                 Color.black.ignoresSafeArea()
                 if let view = session.videoView {
@@ -59,14 +133,23 @@ struct PlayerScreen: View {
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
                 }
+                DanmakuOverlay(session: session, document: session.danmaku)
+                    .id(ObjectIdentifier(session.danmaku))
+                if debugInfoVisible {
+                    diagnosticOverlay
+                        .padding(.top, safeGeometry.safeAreaInsets.top + 12)
+                        .padding(.leading, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .allowsHitTesting(false)
+                        .accessibilityElement(children: .contain)
+                        .zIndex(10)
+                }
                 PlayerGestureSurface(tapped: handleTap, held: { region, fingers in
                     guard !regionsVisible, !controlsVisible, !menuPresented, panel == nil else { return }
                     performGestureAction(PlayerGesturePreferences.action(.longPress, region, fingers))
                 }, panned: handlePan)
                     .ignoresSafeArea()
                     .accessibilityHidden(true)
-                subtitles
-                    .allowsHitTesting(false)
                 LinearGradient(colors: [.black.opacity(0.6), .clear, .clear, .black.opacity(0.75)],
                                startPoint: .top, endPoint: .bottom)
                     .ignoresSafeArea()
@@ -75,18 +158,18 @@ struct PlayerScreen: View {
                 // Independent placement keeps the transport centered on the
                 // actual video, regardless of header/title/progress height.
                 transportControls
-                    .position(x: (geometry.size.width + geometry.safeAreaInsets.trailing - geometry.safeAreaInsets.leading) / 2,
-                              y: (geometry.size.height + geometry.safeAreaInsets.bottom - geometry.safeAreaInsets.top) / 2)
+                    .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                     .opacity(controlsVisible && session.errorMessage == nil && !session.isLoading ? 1 : 0)
                     .allowsHitTesting(controlsVisible && session.errorMessage == nil && !session.isLoading)
                     .accessibilityHidden(!controlsVisible || session.errorMessage != nil || session.isLoading)
                 VStack {
-                    topControls(availableWidth: geometry.size.width - (geometry.size.width > geometry.size.height ? 24 : 40), landscape: geometry.size.width > geometry.size.height)
+                    topControls(availableWidth: max(0, geometry.size.width - safeGeometry.safeAreaInsets.leading - safeGeometry.safeAreaInsets.trailing - (geometry.size.width > geometry.size.height ? 24 : 40)), landscape: geometry.size.width > geometry.size.height)
                     Spacer(minLength: 0)
                     bottomControls(landscape: geometry.size.width > geometry.size.height)
                 }
                 .padding(.horizontal, geometry.size.width > geometry.size.height ? 12 : 20)
                 .padding(.vertical, 12)
+                .padding(safeGeometry.safeAreaInsets)
                 // Keep the Menu mounted while fading the controls, so a
                 // system menu never loses its presentation anchor mid-use.
                 .opacity(controlsVisible ? 1 : 0)
@@ -100,7 +183,7 @@ struct PlayerScreen: View {
                     VStack {
                         HStack(spacing: 8) {
                             Image(systemName: hudSymbol)
-                            Text(verbatim: hudText).fontWeight(.semibold)
+                            Text(verbatim: hudText).fontWeight(.semibold).lineLimit(2)
                             if !hudDetail.isEmpty {
                                 Text(verbatim: hudDetail).foregroundStyle(.secondary)
                             }
@@ -109,7 +192,7 @@ struct PlayerScreen: View {
                         .lineLimit(1)
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .glassEffect(.regular, in: Capsule())
-                        .padding(.top, controlsVisible ? 62 : 8)
+                        .padding(.top, safeGeometry.safeAreaInsets.top + (controlsVisible ? 62 : 8))
                         Spacer()
                     }
                     .allowsHitTesting(false)
@@ -119,7 +202,7 @@ struct PlayerScreen: View {
                         Spacer()
                         progressRow
                     }
-                    .padding(.horizontal, 28).padding(.bottom, 12)
+                    .padding(.horizontal, 28).padding(.bottom, safeGeometry.safeAreaInsets.bottom + 12)
                     .allowsHitTesting(false).accessibilityHidden(true)
                 }
                 if regionsVisible { regionOverlay.ignoresSafeArea() }
@@ -127,11 +210,22 @@ struct PlayerScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .foregroundStyle(.white).tint(.white)
+            }
+            .ignoresSafeArea(.container)
         }
         .overlay(alignment: .topLeading) {
             PlayerVolumeBridge(volume: volume)
                 .frame(width: 160, height: 44)
                 .accessibilityHidden(true)
+        }
+        .background {
+            PlayerInterfaceRefreshDriver(
+                isActive: scenePhase == .active && session.isPresented && panel == nil
+                    && (controlsVisible || menuPresented || showingNotice || regionsVisible || !hudText.isEmpty),
+                context: "\(menuPresented ? "menu" : "controls"):\(session.isLoading ? "loading" : session.isPlaying ? "playing" : "paused")"
+            )
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(!controlsVisible)
@@ -139,6 +233,17 @@ struct PlayerScreen: View {
         .interactiveDismissDisabled(true)
         .sheet(item: $panel, onDismiss: revealControls) { selected in
             panelContent(selected)
+                .background {
+                    // A full-height sheet may detach the presenting view.
+                    // Keep its UI cadence request inside the visible sheet.
+                    PlayerInterfaceRefreshDriver(
+                        isActive: scenePhase == .active,
+                        context: "\(selected.rawValue):\(session.isLoading ? "loading" : session.isPlaying ? "playing" : "paused")"
+                    )
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+                .environment(\.settingsIntroCardsHidden, true)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .preferredColorScheme(.dark)
@@ -152,54 +257,13 @@ struct PlayerScreen: View {
         .alert("播放器", isPresented: $showingNotice) {
             Button("好", role: .cancel) { session.playbackNotice = nil; rotationError = nil }
         } message: { Text(verbatim: rotationError ?? session.playbackNotice ?? "") }
-        .onAppear {
-            PlayerOrientationPolicy.update(true, scene: session.videoView?.window?.windowScene)
-            session.playerDidAppear()
-            brightnessScreen = screen
-            originalBrightness = screen?.brightness
-            scrubTime = session.currentTime
-            setControlsVisible(voiceOver || session.errorMessage != nil)
-        }
-        .onDisappear {
-            if isScrubbing { finishScrubbing(commit: scrubPreviews) }
-            if let originalBrightness { brightnessScreen?.brightness = originalBrightness }
-        }
-        .onChange(of: session.currentTime) { _, time in
-            if !isScrubbing { scrubTime = min(time, max(session.duration, 1)) }
-        }
-        .onChange(of: session.currentItem?.id) { _, _ in
-            isScrubbing = false
-            scrubTime = 0
-            setControlsVisible(voiceOver)
-        }
-        .onChange(of: session.isPlaying) { _, _ in autoHideRevision += 1 }
-        .onChange(of: session.isLoading) { _, _ in autoHideRevision += 1 }
-        .onChange(of: session.isSeeking) { _, _ in autoHideRevision += 1 }
-        .onChange(of: session.errorMessage) { _, message in if message != nil { revealControls() } }
-        .onChange(of: session.playbackNotice) { _, message in if message != nil { showingNotice = true; revealControls() } }
-        .onChange(of: volume.value) { old, new in if new > 0.001 && old != new && session.isMuted { session.unmute() } }
-        .onChange(of: voiceOver) { _, _ in revealControls() }
-        .onChange(of: panel) { _, _ in revealControls() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active && isScrubbing { finishScrubbing(commit: scrubPreviews) } }
-        .task(id: autoHideRevision) {
-            guard canAutoHide else { return }
-            do { try await Task.sleep(for: .seconds(3)) } catch { return }
-            guard !Task.isCancelled, canAutoHide else { return }
-            setControlsVisible(false)
-        }
-        .task(id: volumeResetRevision) {
-            guard !controlsVisible else { return }
-            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-            guard !Task.isCancelled, !controlsVisible else { return }
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { volumeExpanded = false; volumeDragStart = nil }
-        }
-        .task(id: hudRevision) {
-            do { try await Task.sleep(for: .seconds(1)) } catch { return }
-            guard !Task.isCancelled else { return }
-            hudText = ""
-        }
+    }
+
+    @MainActor private func dismissHUDWhenReady() async {
+        let delay: Duration = .seconds(hudDuration)
+        do { try await Task.sleep(for: delay) } catch { return }
+        guard !Task.isCancelled else { return }
+        hudText = ""
     }
 
     private func topControls(availableWidth: CGFloat, landscape: Bool) -> some View {
@@ -222,7 +286,7 @@ struct PlayerScreen: View {
             .opacity(volumeExpanded && !landscape ? 0 : 1)
             .allowsHitTesting(!volumeExpanded || landscape)
             .accessibilityHidden(volumeExpanded && !landscape)
-            volumeControl(width: min(240, availableWidth))
+            volumeControl(width: min(240, availableWidth), landscape: landscape)
         }
         .frame(height: 44)
     }
@@ -244,8 +308,9 @@ struct PlayerScreen: View {
         }
     }
 
-    private func volumeControl(width: CGFloat) -> some View {
-        ZStack(alignment: .trailing) {
+    private func volumeControl(width: CGFloat, landscape: Bool) -> some View {
+        let expanded = landscape || volumeExpanded
+        return ZStack(alignment: .trailing) {
             GeometryReader { geometry in
                 let trackWidth = max(0, geometry.size.width - 72)
                 ZStack(alignment: .leading) {
@@ -258,7 +323,7 @@ struct PlayerScreen: View {
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
             }
             .frame(height: 8)
-            .opacity(volumeExpanded ? 1 : 0)
+            .opacity(expanded ? 1 : 0)
             .clipped()
             .allowsHitTesting(false)
             Image(systemName: volumeSymbol)
@@ -266,13 +331,13 @@ struct PlayerScreen: View {
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 44, height: 44)
                 .allowsHitTesting(false)
-            PlayerVolumeTouchSurface(expanded: volumeExpanded, tapped: { onIcon in
+            PlayerVolumeTouchSurface(expanded: expanded, tapped: { onIcon in
                 revealControls()
-                if !volumeExpanded { volumeExpanded = true }
+                if !expanded { volumeExpanded = true }
                 else if onIcon { toggleAudioMute() }
-                else { volumeExpanded = false }
+                else if !landscape { volumeExpanded = false }
             }, dragged: { translation, phase in
-                guard volumeExpanded else { return }
+                guard expanded else { return }
                 if phase == .began {
                     volumeDragStart = volume.value
                 }
@@ -285,15 +350,18 @@ struct PlayerScreen: View {
                 }
             })
         }
-        .frame(width: volumeExpanded ? width : 44, height: 44)
+        .frame(width: expanded ? width : 44, height: 44)
         .clipShape(Capsule())
         .glassEffect(.regular.interactive(), in: Capsule())
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: volumeExpanded)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: expanded)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("音量")
         .accessibilityValue(Text(verbatim: String(format: "%d%%", Int(displayedVolume * 100))))
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction { revealControls(); volumeExpanded.toggle() }
+        .accessibilityAction {
+            revealControls()
+            if landscape { toggleAudioMute() } else { volumeExpanded.toggle() }
+        }
         .accessibilityAction(named: Text(audioIsMuted ? "取消静音" : "静音")) { toggleAudioMute() }
         .accessibilityAdjustableAction { direction in
             session.unmute()
@@ -321,10 +389,10 @@ struct PlayerScreen: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    if let subtitle = session.currentItem?.subtitle, !subtitle.isEmpty {
+                    if let subtitle = session.playbackSubtitle, !subtitle.isEmpty {
                         Text(verbatim: subtitle).font(.caption).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
                     }
-                    Text(verbatim: session.currentItem?.title ?? String(localized: "未在播放"))
+                    Text(verbatim: session.currentItem?.title ?? VesperLocalization.string("未在播放"))
                         .font(landscape ? .headline : .title3.weight(.semibold))
                         .lineLimit(1).truncationMode(.middle)
                 }
@@ -348,15 +416,18 @@ struct PlayerScreen: View {
     }
 
     private var progressBar: some View {
-        GeometryReader { geometry in
+        let segments = progressBufferRanges.compactMap { range -> ClosedRange<CGFloat>? in
+            guard range.lowerBound.isFinite, range.upperBound.isFinite else { return nil }
+            let start = fraction(range.lowerBound)
+            let end = fraction(range.upperBound)
+            return start < end ? start...end : nil
+        }
+        return GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.25)).frame(height: isScrubbing ? 12 : 8)
                 Capsule().fill(.white.opacity(0.35))
                     .frame(height: isScrubbing ? 12 : 8)
-                    .frame(maxWidth: .infinity)
-                    .mask(alignment: .leading) {
-                        Rectangle().frame(width: geometry.size.width * fraction(session.bufferedTime))
-                    }
+                    .mask { PlayerBufferMask(segments: segments) }
                 Capsule().fill(.white)
                     .frame(height: isScrubbing ? 12 : 8)
                     .frame(maxWidth: .infinity)
@@ -390,10 +461,55 @@ struct PlayerScreen: View {
 
     private var playbackOptionsMenu: some View {
         PlayerMenuButton(symbol: "ellipsis", accessibilityTitle: VesperLocalization.string("播放选项"),
-                         makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu()]) },
+                         makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu(), introOutroMenu()]) },
                          visibilityChanged: menuVisibilityChanged)
             .frame(width: 44, height: 44)
             .glassEffect(.regular.interactive(), in: Circle())
+    }
+
+    private func danmakuMenu() -> UIMenu {
+        UIMenu(title: VesperLocalization.string("弹幕"), image: UIImage(systemName: "text.bubble"),
+               children: danmakuSourceActions())
+    }
+
+    private func introOutroMenu() -> UIMenu {
+        UIMenu(title: VesperLocalization.string("片头片尾"), image: UIImage(systemName: "forward.end"), children: [
+            menuAction(VesperLocalization.string("自动跳过片头"), selected: EmbySkipSettings.introEnabled) {
+                UserDefaults.standard.set(!EmbySkipSettings.introEnabled, forKey: EmbySkipSettings.introKey)
+            },
+            menuAction(VesperLocalization.string("自动跳过片尾"), selected: EmbySkipSettings.outroEnabled) {
+                UserDefaults.standard.set(!EmbySkipSettings.outroEnabled, forKey: EmbySkipSettings.outroKey)
+            }
+        ])
+    }
+
+    private func danmakuSourceActions() -> [UIMenuElement] {
+        [
+            menuAction(VesperLocalization.string("搜索弹幕"), symbol: "text.magnifyingglass") {
+                requestPanel(.danmakuSearch)
+            },
+            menuAction(VesperLocalization.string("导入本地弹幕文件"), symbol: "doc.badge.plus",
+                       enabled: !session.danmaku.isImporting) {
+                pendingDanmakuImport = true
+                if !menuPresented { performMenuNavigation() }
+            }
+        ]
+    }
+
+    private func handleDanmakuImport(_ result: Result<URL, Error>) {
+        guard let document = importDocument else { return }
+        importDocument = nil
+        Task { @MainActor in
+            do {
+                try await document.importFile(result.get())
+                guard session.danmaku === document else { return }
+                showHUD(VesperLocalization.string("弹幕已导入"), symbol: "text.bubble")
+            } catch {
+                if (error as NSError).code != CocoaError.userCancelled.rawValue {
+                    session.playbackNotice = VesperLocalization.string("弹幕导入失败：") + error.localizedDescription
+                }
+            }
+        }
     }
 
     private func speedMenu() -> UIMenu {
@@ -426,6 +542,7 @@ struct PlayerScreen: View {
             landscapeMenu("播放速度", symbol: "speedometer", menu: speedMenu)
             landscapeMenu("音频", symbol: "waveform", menu: audioMenu)
             landscapeMenu("字幕", symbol: "captions.bubble", menu: subtitleMenu)
+            landscapeMenu("播放选项", symbol: "ellipsis", menu: { UIMenu(children: [danmakuMenu(), introOutroMenu()]) })
         }
         .glassEffect(.regular.interactive(), in: Capsule())
         .accessibilityElement(children: .contain)
@@ -433,13 +550,50 @@ struct PlayerScreen: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
+    private var diagnosticOverlay: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            VStack(alignment: .leading, spacing: 5) {
+                Text("\(VesperLocalization.string("播放调试信息")) · \(session.diagnosticEngineTitle)")
+                    .font(.caption.weight(.semibold))
+                let metrics = session.diagnosticMetrics
+                if metrics.isEmpty {
+                    Text(VesperLocalization.string("暂无调试数据"))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(metrics) { metric in
+                        HStack(spacing: 12) {
+                            Text(verbatim: VesperLocalization.string(metric.title))
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 8)
+                            Text(verbatim: metric.value)
+                                .monospacedDigit()
+                        }
+                        .font(.caption2)
+                    }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: 320, alignment: .leading)
+            .background(.black.opacity(0.76), in: RoundedRectangle(cornerRadius: 8))
+            .foregroundStyle(.white)
+        }
+    }
+
     private func bottomActions(landscape: Bool) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 12) {
                 compactAction("视频简介", symbol: "text.book.closed") { requestPanel(.synopsis) }
                 compactAction("详细信息", symbol: "info.circle") { requestPanel(.details) }
+                    .disabled(!session.canShowMediaDetails)
             }
             .glassEffect(.regular.interactive(), in: Capsule())
+            PlayerActionButton(title: VesperLocalization.string("显示调试信息"), symbol: "ladybug", pointSize: 14) {
+                revealControls()
+                debugInfoVisible.toggle()
+            }
+            .frame(width: 36, height: 36)
+            .glassEffect(.regular.interactive(), in: Circle())
             Spacer(minLength: 0)
             HStack(spacing: 12) {
                 compactAction(landscape ? "竖屏" : "横屏", symbol: "rotate.right") { requestRotation(!landscape) }
@@ -476,7 +630,7 @@ struct PlayerScreen: View {
                     session.setCurrentDecoder(decoder)
                 }
             })
-        let engineMenu = UIMenu(title: VesperLocalization.string("播放内核") + " · " + session.currentEngine.title,
+        let engineMenu = UIMenu(title: session.currentEngine.title,
                                image: UIImage(systemName: "play.rectangle"), children:
             PlaybackEngine.allCases.map { engine in
                 UIAction(title: engine.title, state: engine == session.currentEngine ? .on : .off) { _ in session.setCurrentEngine(engine) }
@@ -492,6 +646,7 @@ struct PlayerScreen: View {
     }
 
     private func requestPanel(_ selected: PlayerPanel) {
+        if selected == .details && !session.canShowMediaDetails { return }
         if selected == .queue {
             PlayerQueueDiagnostic.write("open.request source=\(session.queueSource?.kind.rawValue ?? "none") count=\(session.queue.count)")
         }
@@ -520,6 +675,11 @@ struct PlayerScreen: View {
                 pendingPanel = nil
                 panel = selected
             }
+            if pendingDanmakuImport {
+                pendingDanmakuImport = false
+                importDocument = session.danmaku
+                importingDanmaku = true
+            }
             if let landscape = pendingRotation {
                 pendingRotation = nil
                 rotate(landscape: landscape)
@@ -534,24 +694,6 @@ struct PlayerScreen: View {
             action()
             revealControls()
         }
-    }
-
-    private var subtitles: some View {
-        VStack {
-            Spacer()
-            if let image = session.subtitleImage {
-                Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 140)
-            }
-            if !session.subtitleText.isEmpty {
-                Text(verbatim: session.subtitleText)
-                    .font(.system(size: subtitleFontSize, weight: .semibold)).multilineTextAlignment(.center)
-                    .foregroundStyle(.white).shadow(color: .black, radius: 2, x: 1, y: 1)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(.black.opacity(subtitleBackground ? 0.45 : 0), in: RoundedRectangle(cornerRadius: 6))
-            }
-        }
-        .padding(.horizontal, 20).padding(.bottom, controlsVisible ? 178 : (isScrubbing ? 68 : 24))
-        .frame(maxWidth: .infinity)
     }
 
     private func glassButton(_ title: LocalizedStringKey, symbol: String, size: CGFloat = 44, iconSize: CGFloat? = nil,
@@ -588,14 +730,18 @@ struct PlayerScreen: View {
                             }
                         }
                         SettingsSection {
-                            NavigationLink("弹幕设置") { DanmakuSettingsView() }
-                            NavigationLink("字幕设置") { SubtitleSettingsView() }
+                            NavigationLink("弹幕设置") { PlayerDanmakuSettingsView(document: session.danmaku) }
+                            NavigationLink("字幕设置") { PlayerSubtitleSettingsView(session: session) }
                             NavigationLink("播放手势") { PlayerGestureSettingsView() }
                         }
                     }.contentMargins(.top, 0, for: .scrollContent).navigationTitle("更多设置")
                 case .gestures: PlayerGestureSettingsView()
-                case .danmaku: DanmakuSettingsView()
-                case .subtitles: SubtitleSettingsView()
+                case .danmaku: PlayerDanmakuSettingsView(document: session.danmaku)
+                case .danmakuSearch:
+                    DanmakuAPISearchView(document: session.danmaku, item: session.currentItem,
+                                         mediaSource: session.queueSource)
+                        .id(ObjectIdentifier(session.danmaku))
+                case .subtitles: PlayerSubtitleSettingsView(session: session)
                 case .synopsis: PlayerMediaInfoView(session: session, showsDetails: false)
                 case .details: PlayerMediaInfoView(session: session, showsDetails: true)
                 case .queue:
@@ -633,14 +779,15 @@ struct PlayerScreen: View {
         scrubTime = scrubStart
         isScrubbing = true
         lastPreview = .distantPast
-        if previews { session.pause() }
+        if scrubPreviews { session.pause() }
         if showControls { revealControls() }
     }
     private func updateScrubbing(_ target: Double) {
         scrubTime = min(session.duration, max(0, target))
-        if scrubPreviews && Date().timeIntervalSince(lastPreview) >= 0.15 {
+        let interval = session.currentEngine == .vlc ? 0.35 : 0.15
+        if scrubPreviews && Date().timeIntervalSince(lastPreview) >= interval {
             lastPreview = Date()
-            session.seek(to: scrubTime, resume: false)
+            session.seek(to: scrubTime, resume: false, preview: true)
         }
     }
     private func finishScrubbing(commit: Bool = true) {
@@ -675,6 +822,7 @@ struct PlayerScreen: View {
         case .playlist: return "播放列表"
         case .synopsis: return "视频简介"
         case .details: return "详细信息"
+        case .debugInfo: return "显隐调试信息"
         case .rotate: return "切换屏幕方向"
         case .fill: return "切换填充方式"
         case .fillScreen: return "填满屏幕"
@@ -694,7 +842,7 @@ struct PlayerScreen: View {
     }
 
     private func performGestureAction(_ action: PlayerGestureAction) {
-        if action != .none && action != .controls && ![.backward, .forward, .brightnessUp, .brightnessDown, .volumeUp, .volumeDown].contains(action) {
+        if action != .none && action != .controls && ![.backward, .forward, .brightnessUp, .brightnessDown, .volumeUp, .volumeDown, .speedUp, .speedDown].contains(action) {
             let message: String
             switch action {
             case .playback: message = VesperLocalization.string(session.isPlaying ? "暂停" : "播放")
@@ -727,6 +875,7 @@ struct PlayerScreen: View {
         case .playlist: requestPanel(.queue)
         case .synopsis: requestPanel(.synopsis)
         case .details: requestPanel(.details)
+        case .debugInfo: debugInfoVisible.toggle()
         case .rotate: requestRotation(!PlayerOrientationPolicy.isLandscape)
         case .fill: session.toggleFill()
         case .fillScreen: if !session.fillsScreen { session.toggleFill() }
@@ -739,6 +888,8 @@ struct PlayerScreen: View {
             let rates: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
             let index = rates.firstIndex(of: session.playbackRate) ?? 2
             session.setPlaybackRate(rates[min(rates.count - 1, max(0, index + (action == .speedUp ? 1 : -1)))])
+            let format = VesperLocalization.string(action == .speedUp ? "加快至 %g×" : "减慢至 %g×")
+            showHUD(String(format: format, Double(session.playbackRate)), symbol: "speedometer")
         case .moreSettings: revealControls(); requestPanel(.more)
         case .subtitles: requestPanel(.subtitles)
         case .danmaku: requestPanel(.danmaku)
@@ -774,7 +925,11 @@ struct PlayerScreen: View {
             showHUD(String(format: VesperLocalization.string("音量 %d%%"), Int(value * 100)), symbol: "speaker.wave.2.fill")
         case .backward, .forward:
             if isScrubbing {
-                updateScrubbing(scrubStart + amount * PlayerGesturePreferences.skipInterval * (gestureAction == .backward ? -1 : 1))
+                // Half a gesture surface seeks five minutes; the destination
+                // is clamped by updateScrubbing, not by reducing sensitivity.
+                // Double-tap skip duration remains a separate preference.
+                let seekSpan: Double = 600
+                updateScrubbing(scrubStart + amount * seekSpan * (gestureAction == .backward ? -1 : 1))
                 showSeekHUD(from: scrubStart, to: scrubTime)
             }
         default: break
@@ -832,8 +987,8 @@ struct PlayerScreen: View {
         }
     }
 
-    private func showHUD(_ text: String, symbol: String, detail: String = "") {
-        hudText = text; hudSymbol = symbol; hudDetail = detail; hudRevision += 1
+    private func showHUD(_ text: String, symbol: String, detail: String = "", duration: Double = 1) {
+        hudText = text; hudSymbol = symbol; hudDetail = detail; hudDuration = duration; hudRevision += 1
     }
     private func showSeekHUD(from start: Double, to target: Double) {
         let delta = Int((target - start).rounded())
@@ -844,8 +999,14 @@ struct PlayerScreen: View {
     private func skipSymbol(backward: Bool) -> String {
         "\(backward ? "gobackward" : "goforward").\(Int(PlayerGesturePreferences.skipInterval))"
     }
+    private var progressBufferRanges: [ClosedRange<Double>] {
+        if !session.bufferedRanges.isEmpty { return session.bufferedRanges }
+        guard session.bufferedTime > session.currentTime else { return [] }
+        return [session.currentTime...session.bufferedTime]
+    }
+
     private func fraction(_ time: Double) -> CGFloat {
-        guard session.duration > 0 else { return 0 }
+        guard time.isFinite, session.duration.isFinite, session.duration > 0 else { return 0 }
         return CGFloat(min(1, max(0, time / session.duration)))
     }
     private func revealControls() { setControlsVisible(true) }
@@ -899,12 +1060,16 @@ private struct PlayerMediaInfoView: View {
             if showsDetails {
                 if let details {
                     SettingsSection("文件信息") {
-                        LabeledContent("文件名") { Text(verbatim: details.fileName).textSelection(.enabled) }
+                        if !details.fileName.isEmpty {
+                            LabeledContent("文件名") { Text(verbatim: details.fileName).textSelection(.enabled) }
+                        }
                         LabeledContent("来源") { Text(verbatim: details.sourceName) }
                         if let bytes = details.byteCount {
                             LabeledContent("文件大小") { Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
                         }
-                        LabeledContent("时长") { Text(verbatim: mediaTimeLabel(session.duration)) }
+                        if let duration = details.duration {
+                            LabeledContent("时长") { Text(verbatim: mediaTimeLabel(duration)) }
+                        }
                         detailFields(details, group: 0)
                     }
                     SettingsSection("视频信息") {
@@ -923,9 +1088,10 @@ private struct PlayerMediaInfoView: View {
         .contentMargins(.top, 0, for: .scrollContent)
         .navigationTitle(showsDetails ? "详细信息" : "视频简介")
         .toolbarTitleDisplayMode(.inline)
-        .task(id: session.currentItem?.id) {
+        .task(id: "\(session.currentItem?.id.localID ?? "")|\(session.currentEngine.rawValue)|\(session.currentDecoder.rawValue)") {
             loading = true
-            let result = await session.mediaDetails()
+            details = nil
+            let result = await session.mediaDetails(showsDetails: showsDetails)
             guard !Task.isCancelled else { return }
             details = result
             loading = false
@@ -943,7 +1109,9 @@ private struct PlayerQueueRow: View {
     var body: some View {
         HStack(spacing: 14) {
             if let source = session.queueSource {
-                MediaThumbnail(source: source, item: item, aspectRatio: 16.0 / 9.0, logsQueueDiagnostics: true)
+                MediaThumbnail(source: source, item: item, aspectRatio: 16.0 / 9.0,
+                               imageOrientation: .landscape, logsQueueDiagnostics: true,
+                               usesMediaCardBackdrop: false)
                     .frame(width: 104, height: 58.5)
             }
             VStack(alignment: .leading, spacing: 8) {
@@ -972,33 +1140,226 @@ private struct PlayerQueueRow: View {
     }
 }
 
-/// Only mounts the existing rendering view. Dismissal detaches its surface,
-/// while the app-owned session continues decoding and playing audio.
-struct PlayerVideoSurface: UIViewRepresentable {
+/// UIKit owns the orientation transition; do not apply a separate SwiftUI
+/// rotation or recreate the engine's rendering surface during it.
+struct PlayerVideoSurface: UIViewControllerRepresentable {
     let videoView: UIView
     var isActive = true
 
-    func makeUIView(context: Context) -> UIView { UIView() }
+    func makeUIViewController(context: Context) -> PlayerVideoSurfaceController {
+        PlayerVideoSurfaceController()
+    }
+    func updateUIViewController(_ controller: PlayerVideoSurfaceController, context: Context) {
+        controller.mount(isActive ? videoView : nil)
+    }
+    static func dismantleUIViewController(_ controller: PlayerVideoSurfaceController, coordinator: ()) {
+        controller.mount(nil)
+    }
+}
 
-    func updateUIView(_ host: UIView, context: Context) {
-        guard isActive else {
-            if videoView.superview === host { videoView.removeFromSuperview() }
-            return
-        }
-        guard videoView.superview !== host else { return }
-        host.subviews.forEach { $0.removeFromSuperview() }
-        videoView.removeFromSuperview()
-        videoView.translatesAutoresizingMaskIntoConstraints = false
-        host.addSubview(videoView)
-        NSLayoutConstraint.activate([
-            videoView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            videoView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            videoView.topAnchor.constraint(equalTo: host.topAnchor),
-            videoView.bottomAnchor.constraint(equalTo: host.bottomAnchor)
-        ])
+final class PlayerVideoSurfaceController: UIViewController {
+    private weak var renderingView: UIView?
+    private var mountingConstraints: [NSLayoutConstraint] = []
+    private var rotationDisplayLink: CADisplayLink?
+    private var rotationRevision = 0
+    private typealias LayerGeometry = (layer: CALayer, bounds: CGRect, position: CGPoint)
+    private var rotationFrames: [LayerGeometry] = []
+    private var rotationStarted: CFTimeInterval = 0
+    private var rotationDuration: TimeInterval = 0
+    private var rotationTiming = CAMediaTimingFunction(name: .easeInEaseOut)
+    private static let boundsAnimation = "vesper.videoRotation.bounds"
+    private static let positionAnimation = "vesper.videoRotation.position"
+
+    override func loadView() {
+        let host = UIView()
+        host.backgroundColor = .black
+        host.clipsToBounds = true
+        view = host
     }
 
-    static func dismantleUIView(_ host: UIView, coordinator: ()) {
-        host.subviews.forEach { $0.removeFromSuperview() }
+    func mount(_ renderingView: UIView?) {
+        loadViewIfNeeded()
+        if self.renderingView === renderingView, renderingView == nil || renderingView?.superview === view { return }
+        stopRotationSynchronization()
+        NSLayoutConstraint.deactivate(mountingConstraints)
+        mountingConstraints = []
+        if self.renderingView?.superview === view { self.renderingView?.removeFromSuperview() }
+        self.renderingView = renderingView
+        guard let renderingView else { return }
+        renderingView.removeFromSuperview()
+        renderingView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(renderingView)
+        // Centre-based constraints keep resizing symmetric about the video
+        // viewport rather than anchoring the drawable to its top-left corner.
+        mountingConstraints = [
+            renderingView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            renderingView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            renderingView.widthAnchor.constraint(equalTo: view.widthAnchor),
+            renderingView.heightAnchor.constraint(equalTo: view.heightAnchor)
+        ]
+        NSLayoutConstraint.activate(mountingConstraints)
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        guard let renderingView, renderingView.superview === view,
+              view.window != nil, coordinator.isAnimated, !UIAccessibility.isReduceMotionEnabled else { return }
+        let frames = videoGeometryLayers(in: renderingView.layer).map { layer in
+            let visible = layer.presentation() ?? layer
+            return (layer: layer, bounds: visible.bounds, position: visible.position)
+        }
+        // Capture presentation geometry before cancelling an in-flight turn.
+        stopRotationSynchronization()
+        let revision = rotationRevision
+        rotationFrames = frames
+        // Both engines disable implicit actions when laying out their video
+        // layers. UIKit animates the hosting view, but those layers otherwise
+        // jump straight to the final bounds/position, moving the visible video
+        // centre mid-rotation. Supply only the missing geometry animation,
+        // using the same transition coordinator and retaining live playback.
+        coordinator.animate(alongsideTransition: { [weak self] context in
+            guard let self, self.rotationRevision == revision else { return }
+            self.rotationStarted = CACurrentMediaTime()
+            self.rotationDuration = context.transitionDuration
+            self.rotationTiming = self.timingFunction(context.completionCurve)
+            let link = CADisplayLink(target: RotationGeometryTick(owner: self), selector: #selector(RotationGeometryTick.tick(_:)))
+            self.rotationDisplayLink = link
+            link.add(to: .main, forMode: .common)
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+            self.synchronizeVideoGeometry()
+        }, completion: { [weak self] _ in
+            guard let self, self.rotationRevision == revision else { return }
+            self.stopRotationSynchronization()
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+        })
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // SwiftUI may deliver the new viewport bounds after the coordinator's
+        // animation block. Synchronize that later layout to the same clock.
+        synchronizeVideoGeometry()
+    }
+
+    private func synchronizeVideoGeometry() {
+        guard rotationDuration > 0, CACurrentMediaTime() - rotationStarted < rotationDuration,
+              let renderingView, renderingView.superview === view else { return }
+        renderingView.layoutIfNeeded()
+        // Engine layout can run independently of the host's layout callback.
+        // Check each display tick, including intermediate container layers.
+        // Animating only the final drawable leaves its parent free to jump.
+        for frame in rotationFrames {
+            guard contains(frame.layer, in: renderingView.layer) else { continue }
+            let boundsKey = Self.boundsAnimation
+            let positionKey = Self.positionAnimation
+            let previousBounds = (frame.layer.animation(forKey: boundsKey) as? CABasicAnimation)?.toValue as? NSValue
+            if frame.bounds != frame.layer.bounds, previousBounds?.cgRectValue != frame.layer.bounds {
+                let animation = CABasicAnimation(keyPath: "bounds")
+                animation.fromValue = NSValue(cgRect: frame.bounds)
+                animation.toValue = NSValue(cgRect: frame.layer.bounds)
+                configure(animation, for: frame.layer)
+                frame.layer.add(animation, forKey: boundsKey)
+            }
+            let previousPosition = (frame.layer.animation(forKey: positionKey) as? CABasicAnimation)?.toValue as? NSValue
+            if frame.position != frame.layer.position, previousPosition?.cgPointValue != frame.layer.position {
+                let animation = CABasicAnimation(keyPath: "position")
+                animation.fromValue = NSValue(cgPoint: frame.position)
+                animation.toValue = NSValue(cgPoint: frame.layer.position)
+                configure(animation, for: frame.layer)
+                frame.layer.add(animation, forKey: positionKey)
+            }
+        }
+    }
+
+    private func configure(_ animation: CABasicAnimation, for layer: CALayer) {
+        animation.duration = rotationDuration
+        animation.beginTime = layer.convertTime(rotationStarted, from: nil)
+        animation.timingFunction = rotationTiming
+    }
+
+    private func videoGeometryLayers(in root: CALayer) -> [CALayer] {
+        func branch(_ layer: CALayer) -> [CALayer] {
+            let descendants = (layer.sublayers ?? []).flatMap { branch($0) }
+            let isVideo = layer is AVPlayerLayer || layer is AVSampleBufferDisplayLayer
+                || layer is CAMetalLayer || layer is CAEAGLLayer
+            return isVideo || !descendants.isEmpty ? [layer] + descendants : []
+        }
+        // The outer rendering view is already animated by UIKit constraints.
+        // Include every internal ancestor of a drawable, not just the leaf.
+        if root is AVPlayerLayer || root is AVSampleBufferDisplayLayer
+            || root is CAMetalLayer || root is CAEAGLLayer {
+            return branch(root)
+        }
+        return (root.sublayers ?? []).flatMap { branch($0) }
+    }
+
+    fileprivate func rotationGeometryTick(_ link: CADisplayLink) {
+        guard rotationDuration > 0, CACurrentMediaTime() - rotationStarted < rotationDuration else {
+            if rotationDisplayLink === link { stopRotationSynchronization() }
+            else { link.invalidate() }
+            return
+        }
+        synchronizeVideoGeometry()
+    }
+
+    private func stopRotationSynchronization() {
+        // Also cancel coordinator callbacks queued for an unmounted surface.
+        rotationRevision += 1
+        rotationDisplayLink?.invalidate()
+        rotationDisplayLink = nil
+        rotationDuration = 0
+        for frame in rotationFrames {
+            frame.layer.removeAnimation(forKey: Self.boundsAnimation)
+            frame.layer.removeAnimation(forKey: Self.positionAnimation)
+        }
+        rotationFrames = []
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        stopRotationSynchronization()
+    }
+
+    /// A display link must not retain the player controller after dismissal.
+    @MainActor private final class RotationGeometryTick: NSObject {
+        weak var owner: PlayerVideoSurfaceController?
+        init(owner: PlayerVideoSurfaceController) { self.owner = owner }
+        @objc func tick(_ link: CADisplayLink) {
+            guard let owner else { link.invalidate(); return }
+            owner.rotationGeometryTick(link)
+        }
+    }
+    private func contains(_ layer: CALayer, in root: CALayer) -> Bool {
+        var candidate: CALayer? = layer
+        while let current = candidate {
+            if current === root { return true }
+            candidate = current.superlayer
+        }
+        return false
+    }
+    private func timingFunction(_ curve: UIView.AnimationCurve) -> CAMediaTimingFunction {
+        switch curve {
+        case .easeIn: CAMediaTimingFunction(name: .easeIn)
+        case .easeOut: CAMediaTimingFunction(name: .easeOut)
+        case .linear: CAMediaTimingFunction(name: .linear)
+        default: CAMediaTimingFunction(name: .easeInEaseOut)
+        }
+    }
+}
+
+private struct PlayerBufferMask: Shape {
+    let segments: [ClosedRange<CGFloat>]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard rect.width.isFinite, rect.height.isFinite, !rect.isEmpty else { return path }
+        for segment in segments where segment.lowerBound < segment.upperBound {
+            let x = rect.minX + rect.width * segment.lowerBound
+            let width = rect.width * (segment.upperBound - segment.lowerBound)
+            path.addRect(CGRect(x: x, y: rect.minY, width: width, height: rect.height))
+        }
+        return path
     }
 }

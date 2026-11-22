@@ -1,17 +1,40 @@
 import Foundation
 @preconcurrency import Photos
+import PlaybackContracts
 
 /// Owns access to a URL until playback stops, including security scope and
 /// downloaded Photos files. Never release these when the player sheet closes.
 @MainActor
 final class ResolvedPlaybackResource {
     let url: URL
+    let headers: [String: String]
+    let embyPlaySessionID: String?
+    let embyItemID: String?
+    let embyMediaSourceID: String?
+    let embyUserID: String?
+    let duration: Double?
+    let bitRate: Double?
+    let resumePosition: Double?
+    let externalSubtitles: [EngineExternalSubtitle]
     private let scopedFolder: URL?
     private let temporary: Bool
     private var externalAccess: IncomingFileAccess?
 
-    init(url: URL, scopedFolder: URL? = nil, temporary: Bool = false, externalAccess: IncomingFileAccess? = nil) {
+    init(url: URL, headers: [String: String] = [:], embyPlaySessionID: String? = nil,
+         embyItemID: String? = nil, embyMediaSourceID: String? = nil, embyUserID: String? = nil,
+         duration: Double? = nil, bitRate: Double? = nil, resumePosition: Double? = nil,
+         externalSubtitles: [EngineExternalSubtitle] = [],
+         scopedFolder: URL? = nil, temporary: Bool = false, externalAccess: IncomingFileAccess? = nil) {
         self.url = url
+        self.headers = headers
+        self.embyPlaySessionID = embyPlaySessionID
+        self.embyItemID = embyItemID
+        self.embyMediaSourceID = embyMediaSourceID
+        self.embyUserID = embyUserID
+        self.duration = duration
+        self.bitRate = bitRate
+        self.resumePosition = resumePosition
+        self.externalSubtitles = externalSubtitles
         self.scopedFolder = scopedFolder
         self.temporary = temporary
         self.externalAccess = externalAccess
@@ -28,16 +51,16 @@ enum PlaybackFailure: LocalizedError {
     case missingFile, unavailableAsset, demo
     var errorDescription: String? {
         switch self {
-        case .missingFile: "视频文件不存在或无法访问。"
-        case .unavailableAsset: "无法读取相册视频，请检查照片权限和网络连接。"
-        case .demo: "演示内容无法播放。"
+        case .missingFile: VesperLocalization.string("视频文件不存在或无法访问。")
+        case .unavailableAsset: VesperLocalization.string("无法读取相册视频，请检查照片权限和网络连接。")
+        case .demo: VesperLocalization.string("演示内容无法播放。")
         }
     }
 }
 
 @MainActor
 struct PlaybackResourceResolver {
-    func resolve(_ item: MediaItem, source: MediaSource) async throws -> ResolvedPlaybackResource {
+    func resolve(_ item: MediaItem, source: MediaSource, position: Double = 0) async throws -> ResolvedPlaybackResource {
         guard item.id.sourceID == source.id else { throw PlaybackFailure.missingFile }
         switch source.kind {
         case .demo:
@@ -87,6 +110,17 @@ struct PlaybackResourceResolver {
                 try? FileManager.default.removeItem(at: url)
                 throw error
             }
+        case .emby:
+            let playback = try await EmbyRepository.shared.playbackResource(
+                item: item, source: source, position: position
+            )
+            return ResolvedPlaybackResource(url: playback.resource.url, headers: playback.resource.headers,
+                                            embyPlaySessionID: playback.sessionID, embyItemID: item.embyItemID,
+                                            embyMediaSourceID: playback.mediaSourceID,
+                                            embyUserID: source.emby?.userID, duration: playback.duration,
+                                            bitRate: playback.bitRate,
+                                            resumePosition: playback.resumePosition,
+                                            externalSubtitles: playback.subtitles)
         }
     }
 }

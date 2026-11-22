@@ -3,10 +3,9 @@ import Foundation
 import UIKit
 
 enum VesperTheme {
-    static let background = Color(uiColor: UIColor { traits in
-        if traits.userInterfaceStyle == .dark { return .systemBackground }
-        return UIColor(named: "VesperBackground", in: .main, compatibleWith: traits) ?? .systemBackground
-    })
+    static let mediaCardBackground = Color(uiColor: .secondarySystemBackground)
+
+    static let background = Color(uiColor: .systemBackground)
 
     static func accent(_ identifier: String) -> Color {
         if identifier.hasPrefix("#"), identifier.count == 7,
@@ -42,21 +41,6 @@ enum VesperTheme {
     }
 }
 
-enum VesperLocalization {
-    static func locale(for language: String) -> Locale {
-        language == "system" ? .autoupdatingCurrent : Locale(identifier: language)
-    }
-
-    static func string(_ key: String, language: String? = nil) -> String {
-        let code = language ?? UserDefaults.standard.string(forKey: "language.code") ?? "system"
-        guard code != "system",
-              let path = Bundle.main.path(forResource: code, ofType: "lproj"),
-              let bundle = Bundle(path: path) else {
-            return NSLocalizedString(key, comment: "")
-        }
-        return bundle.localizedString(forKey: key, value: key, table: nil)
-    }
-}
 
 /// Shared system navigation layout; each NavigationStack still owns its history.
 struct VesperNavigationStyle: ViewModifier {

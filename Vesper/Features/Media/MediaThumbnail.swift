@@ -3,6 +3,11 @@ import UIKit
 import AVFoundation
 @preconcurrency import Photos
 
+enum ImageCacheDebugSettings {
+    static let ignoreLocalCacheKey = "debug.images.ignoreLocalCache"
+    static var ignoresLocalCache: Bool { UserDefaults.standard.bool(forKey: ignoreLocalCacheKey) }
+}
+
 /// Shared by the Photos grid and local folder browser.
 struct MediaThumbnail: View {
     let source: MediaSource
@@ -10,75 +15,383 @@ struct MediaThumbnail: View {
     var playback: PlaybackSession? = nil
     var historyEntry: PlaybackHistoryEntry? = nil
     var aspectRatio: CGFloat = 2.0 / 3.0
+    var imageOrientation: EmbyImageOrientation = .portrait
+    var crossfadesArtwork = false
+    var allowsRemotePrimary = true
     var logsQueueDiagnostics = false
-    @State private var image: UIImage?
+    var cacheOnly = false
+    var cornerRadius: CGFloat = 12
+    var fixedHeight: CGFloat? = nil
+    var preloadedData: Data? = nil
+    var missingArtworkSymbol: String? = nil
+    var artworkIsPrepared = false
+    var mirroredEdgeFraction: CGFloat = 0
+    var showsMissingArtwork = true
+    var usesMediaCardBackdrop = true
+    var prefersLandscapeMovieArtwork = false
+    var bottomArtworkBlur: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var loadedArtwork: LoadedArtwork?
+
+    private struct LoadedArtwork {
+        let key: String
+        let image: UIImage?
+    }
+
+    private var loadKey: String {
+        "\(AppCacheStore.embyArtworkKey(for: item, source: source)):\(aspectRatio):\(imageOrientation.rawValue):\(cacheOnly):\(prefersLandscapeMovieArtwork && item.embyItemType == "Movie"):\(ImageCacheDebugSettings.ignoresLocalCache)"
+    }
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                Color("VesperSecondaryBackground")
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                } else {
-                    Image(systemName: "play.rectangle")
-                        .font(.largeTitle).foregroundStyle(.secondary)
-                }
-            }
-        }
-        .aspectRatio(aspectRatio, contentMode: .fit)
+        sizedArtwork
         .overlay(alignment: .bottomLeading) {
             if let historyEntry {
-                ThumbnailProgressBadge(position: historyEntry.position, total: historyEntry.duration, showsPosition: true, title: mediaDisplayName(item.title))
+                MediaPlaybackStatus(position: historyEntry.position, duration: historyEntry.duration,
+                                    played: historyEntry.isFullyWatched)
+                    .font(.caption2)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .bottomLeading)
+                    .background {
+                        Rectangle().fill(.regularMaterial)
+                            .mask {
+                                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            }
+                    }
             } else if let playback {
                 ThumbnailPlaybackProgress(session: playback, source: source, item: item)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay {
+            if mirroredEdgeFraction > 0 {
+                mirroredEdges
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .contentShape(Rectangle())
         .accessibilityHidden(true)
-        .task(id: "\(item.id):\(aspectRatio)") {
-            image = nil
+        .task(id: artworkIsPrepared ? nil : loadKey) {
+            guard !artworkIsPrepared else { return }
+            let key = loadKey
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.begin source=\(source.kind.rawValue) item=\(item.id.localID)") }
-            let data = await MediaThumbnailLoader.shared.load(item, source: source, aspectRatio: aspectRatio, diagnostics: logsQueueDiagnostics)
+            let data = await MediaThumbnailLoader.shared.load(item, source: source, aspectRatio: aspectRatio,
+                                                             imageOrientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary,
+                                                             diagnostics: logsQueueDiagnostics, cacheOnly: cacheOnly,
+                                                             prefersLandscapeMovieArtwork: prefersLandscapeMovieArtwork)
             guard !Task.isCancelled else {
                 if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.cancelled item=\(item.id.localID)") }
                 return
             }
-            image = data.flatMap { UIImage(data: $0) }
+            let image = data.flatMap { UIImage(data: $0) }
+            loadedArtwork = LoadedArtwork(key: key, image: image)
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.end item=\(item.id.localID) bytes=\(data?.count ?? 0) decoded=\(image != nil)") }
+        }
+    }
+
+    @ViewBuilder
+    private var sizedArtwork: some View {
+        if let fixedHeight {
+            artwork.frame(height: fixedHeight)
+        } else {
+            artwork.aspectRatio(aspectRatio, contentMode: .fit)
+        }
+    }
+
+    private var cover: UIImage? {
+        if artworkIsPrepared { return preloadedData.flatMap { UIImage(data: $0) } }
+        return loadedArtwork?.key == loadKey ? loadedArtwork?.image : nil
+    }
+
+    private var artworkIdentity: Int? {
+        if artworkIsPrepared { return preloadedData?.hashValue }
+        return loadedArtwork?.key == loadKey ? loadedArtwork?.image.map { ObjectIdentifier($0).hashValue } : nil
+    }
+
+    private var artwork: some View {
+        GeometryReader { geometry in
+            let cover = cover
+            let finishedLoading = artworkIsPrepared || loadedArtwork?.key == loadKey
+            ZStack {
+                if usesMediaCardBackdrop {
+                    MediaCardBackdrop(showsMissingArtwork: showsMissingArtwork && finishedLoading && cover == nil,
+                                      missingArtworkSymbol: missingArtworkSymbol)
+                } else {
+                    Rectangle().fill(.regularMaterial)
+                }
+                ZStack {
+                    if let cover {
+                        croppedArtwork(cover, size: geometry.size)
+                            .overlay(alignment: .bottom) {
+                                if bottomArtworkBlur > 0 {
+                                    croppedArtwork(cover, size: geometry.size)
+                                        .padding(bottomArtworkBlur * 2)
+                                        .blur(radius: bottomArtworkBlur)
+                                        .frame(width: geometry.size.width, height: geometry.size.height / 4,
+                                               alignment: .bottom)
+                                        .offset(y: bottomArtworkBlur * 2)
+                                        .frame(height: geometry.size.height / 4)
+                                        .mask {
+                                            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                                        }
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                            .id(crossfadesArtwork ? artworkIdentity : nil)
+                            .transition(.opacity)
+                    }
+                }
+                .animation(crossfadesArtwork && !reduceMotion ? .easeInOut(duration: 0.3) : nil,
+                           value: crossfadesArtwork ? artworkIdentity : nil)
+            }
+        }
+    }
+
+    private func croppedArtwork(_ image: UIImage, size: CGSize) -> some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: size.width, height: size.height)
+            .clipped()
+    }
+
+    private var mirroredEdges: some View {
+        GeometryReader { geometry in
+            let size = geometry.size
+            let edgeWidth = size.width * mirroredEdgeFraction
+            let reflection = ZStack {
+                MediaCardBackdrop()
+                if let cover { croppedArtwork(cover, size: size).scaleEffect(x: -1, y: 1) }
+            }
+            .frame(width: size.width, height: size.height)
+
+            // Reflect the visible crop so the outermost pixels meet along each edge.
+            reflection
+                .frame(width: edgeWidth, alignment: .trailing)
+                .clipped()
+                .offset(x: -edgeWidth)
+            reflection
+                .frame(width: edgeWidth, alignment: .leading)
+                .clipped()
+                .offset(x: size.width)
         }
     }
 }
 
+/// Visible card surface for device media; keep Emby poster layouts unchanged.
+struct DeviceMediaCardBackground: ViewModifier {
+    var enabled = true
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if enabled {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(VesperTheme.mediaCardBackground)
+                }
+            }
+    }
+}
+
+struct MediaCardBackdrop: View {
+    var showsMissingArtwork = false
+    var iconCenterY: CGFloat = 0.5
+    var missingArtworkSymbol: String? = nil
+
+    var body: some View {
+        VesperTheme.mediaCardBackground
+            .overlay {
+                if showsMissingArtwork {
+                    GeometryReader { geometry in
+                        let size = geometry.size
+                        Image(systemName: missingArtworkSymbol ?? AppSection.media.symbol)
+                            .font(.system(size: min(44, min(size.width, size.height) * 0.28)))
+                            .foregroundStyle(.secondary)
+                            .position(x: size.width / 2, y: size.height * iconCenterY)
+                    }
+                }
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+private struct MediaArtworkBorder: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    let cornerRadius: CGFloat
+    var isSelected = false
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius)
+        let stroke = colorScheme == .dark ? Color.white : Color.black
+        content
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder((isSelected ? Color.accentColor : stroke).opacity(0.5), lineWidth: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+    }
+}
+
+extension View {
+    func mediaArtworkBorder(cornerRadius: CGFloat = 12, isSelected: Bool = false) -> some View {
+        modifier(MediaArtworkBorder(cornerRadius: cornerRadius, isSelected: isSelected))
+    }
+}
+
+struct EmbyFeaturedArtwork: Sendable {
+    var poster: Data?
+    var logo: Data?
+}
+
+private struct CarouselArtworkPartResult: Sendable {
+    enum Part: Sendable {
+        case poster
+        case logo
+    }
+
+    let id: MediaID
+    let part: Part
+    let data: Data?
+}
+
 @MainActor
-private final class MediaThumbnailLoader {
+final class MediaThumbnailLoader {
     static let shared = MediaThumbnailLoader()
-    private let cache = NSCache<NSString, NSData>()
     private let durationCache = NSCache<NSString, NSNumber>()
+    private var pendingEmbyImages: [String: Task<Data?, Never>] = [:]
 
     private init() {
         durationCache.countLimit = 256
-        cache.countLimit = 160
-        cache.totalCostLimit = 32 * 1024 * 1024
     }
 
-    func load(_ item: MediaItem, source: MediaSource, aspectRatio: CGFloat = 2.0 / 3.0, diagnostics: Bool = false) async -> Data? {
+    func prepareCarouselArtwork(
+        _ items: [MediaItem],
+        source: MediaSource,
+        onArtworkReady: (@MainActor (MediaID, EmbyFeaturedArtwork) -> Void)? = nil
+    ) async -> [MediaID: EmbyFeaturedArtwork] {
+        await withTaskGroup(of: CarouselArtworkPartResult.self) { group in
+            for item in items {
+                group.addTask {
+                    CarouselArtworkPartResult(
+                        id: item.id,
+                        part: .logo,
+                        data: await self.featuredLogo(for: item, source: source)
+                    )
+                }
+                group.addTask {
+                    var poster = await self.textlessPoster(for: item, source: source)
+                    if poster == nil, !Task.isCancelled {
+                        poster = await self.load(item, source: source, aspectRatio: 3.0 / 5.0,
+                                                 imageOrientation: .portrait)
+                    }
+                    return CarouselArtworkPartResult(id: item.id, part: .poster, data: poster)
+                }
+            }
+            var result: [MediaID: EmbyFeaturedArtwork] = [:]
+            var logos: [MediaID: Data] = [:]
+            for await update in group {
+                switch update.part {
+                case .poster:
+                    guard let poster = update.data else { continue }
+                    let artwork = EmbyFeaturedArtwork(poster: poster, logo: logos[update.id])
+                    result[update.id] = artwork
+                    onArtworkReady?(update.id, artwork)
+                case .logo:
+                    guard let logo = update.data else { continue }
+                    logos[update.id] = logo
+                    guard var artwork = result[update.id] else { continue }
+                    artwork.logo = logo
+                    result[update.id] = artwork
+                    onArtworkReady?(update.id, artwork)
+                }
+            }
+            return result
+        }
+    }
+
+    func featuredArtwork(for item: MediaItem, source: MediaSource) async -> EmbyFeaturedArtwork {
+        guard item.id.sourceID == source.id else { return .init() }
+        async let logo = featuredLogo(for: item, source: source)
+        async let poster = textlessPoster(for: item, source: source)
+        return await EmbyFeaturedArtwork(poster: poster, logo: logo)
+    }
+
+    private func featuredLogo(for item: MediaItem, source: MediaSource) async -> Data? {
+        let key = "featured-logo|\(AppCacheStore.scope(for: source))|\(item.id.localID)"
+        let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
+        let (cached, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
+        if let cached, UIImage(data: cached) != nil { return cached }
+        guard let data = await EmbyRepository.shared.artworkData(for: item, source: source, purpose: .logo),
+              UIImage(data: data) != nil, !Task.isCancelled else { return nil }
+        if !ignoresCache {
+            await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
+        }
+        return data
+    }
+
+    private func textlessPoster(for item: MediaItem, source: MediaSource) async -> Data? {
+        let key = "featured-textless|\(AppCacheStore.embyArtworkKey(for: item, source: source))"
+        let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
+        let (cached, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
+        if let cached, UIImage(data: cached) != nil { return cached }
+        for url in await EmbyRepository.shared.featuredPosterCandidates(for: item, source: source) {
+            guard !Task.isCancelled else { return nil }
+            // Provider artwork uses an unauthenticated request.
+            var request = URLRequest(url: url, timeoutInterval: 8)
+            request.httpShouldHandleCookies = false
+            guard let (data, response) = try? await EmbyNetworkSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  data.count <= 8 * 1024 * 1024, UIImage(data: data) != nil else { continue }
+            guard !Task.isCancelled else { return nil }
+            if !ignoresCache {
+                await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
+            }
+            return data
+        }
+        return nil
+    }
+
+    func load(_ item: MediaItem, source: MediaSource, aspectRatio: CGFloat = 2.0 / 3.0,
+              imageOrientation: EmbyImageOrientation = .portrait,
+              allowsRemotePrimary: Bool = true, diagnostics: Bool = false, cacheOnly: Bool = false,
+              prefersLandscapeMovieArtwork: Bool = false) async -> Data? {
         guard item.id.sourceID == source.id, !Task.isCancelled else { return nil }
         switch source.kind {
         case .demo: return nil
+        case .emby:
+            let prefersLandscape = prefersLandscapeMovieArtwork && item.embyItemType == "Movie"
+            let variant = prefersLandscape ? "|movie-landscape" : ""
+            let key = "\(AppCacheStore.embyArtworkKey(for: item, source: source))|\(imageOrientation.rawValue)\(variant)"
+            let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
+            let (data, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
+            if let data, UIImage(data: data) != nil { return data }
+            let requestKey = "\(key)|\(generation)|\(ignoresCache)|remote:\(allowsRemotePrimary)"
+            if let pending = pendingEmbyImages[requestKey] { return await pending.value }
+            guard !cacheOnly, !Task.isCancelled else { return nil }
+            let task = Task { () -> Data? in
+                defer { pendingEmbyImages[requestKey] = nil }
+                guard let data = await EmbyRepository.shared.artworkData(for: item, source: source,
+                            purpose: item.embyItemType == "Person" ? .avatar : imageOrientation == .landscape ? .thumbnail : .poster,
+                            orientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary,
+                            prefersLandscapeMovieArtwork: prefersLandscape),
+                      UIImage(data: data) != nil else { return nil }
+                if !ignoresCache {
+                    await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
+                }
+                return data
+            }
+            pendingEmbyImages[requestKey] = task
+            return await task.value
         case .photos:
             let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
             guard status == .authorized || status == .limited,
                   let asset = PHAsset.fetchAssets(withLocalIdentifiers: [item.id.localID], options: nil).firstObject else { return nil }
-            let key = "photos:\(item.id.localID):\(asset.modificationDate?.timeIntervalSince1970 ?? 0):\(aspectRatio)" as NSString
-            if let data = cache.object(forKey: key) { return data as Data }
-            let targetSize = CGSize(width: 400, height: 400 / max(0.1, aspectRatio))
-            let data = await PhotoThumbnailRequest().load(asset, targetSize: targetSize, diagnostics: diagnostics)
-            return remember(data, key: key)
+            let key = "photos:\(item.id.localID):\(asset.modificationDate?.timeIntervalSince1970 ?? 0):\(aspectRatio)"
+            return await cachedImage(key: key, cacheOnly: cacheOnly) {
+                let targetSize = CGSize(width: 400, height: 400 / max(0.1, aspectRatio))
+                return await PhotoThumbnailRequest().load(asset, targetSize: targetSize, diagnostics: diagnostics)
+            }
         case .local:
             guard let root = try? source.localFolderURL() else { return nil }
             let scoped = root.startAccessingSecurityScopedResource()
@@ -91,16 +404,17 @@ private final class MediaThumbnailLoader {
                   url.pathComponents.starts(with: base.pathComponents), url != base,
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]),
                   values.isRegularFile == true else { return nil }
-            let key = "local:\(source.id):\(item.id.localID):\(values.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values.fileSize ?? 0)" as NSString
-            if let data = cache.object(forKey: key) { return data as Data }
-            let data = await VideoImporter.shared.thumbnail(at: url)
-            return remember(data, key: key)
+        let key = "local:\(source.id):\(item.id.localID):\(values.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values.fileSize ?? 0)"
+            return await cachedImage(key: key, cacheOnly: cacheOnly) {
+                await VideoImporter.shared.thumbnail(at: url)
+            }
         }
     }
 
     func duration(_ item: MediaItem, source: MediaSource) async -> Double {
         guard item.id.sourceID == source.id, !Task.isCancelled else { return 0 }
         switch source.kind {
+        case .emby: return item.duration ?? 0
         case .photos:
             let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
             guard status == .authorized || status == .limited else { return 0 }
@@ -119,9 +433,15 @@ private final class MediaThumbnailLoader {
         }
     }
 
-    private func remember(_ data: Data?, key: NSString) -> Data? {
-        guard !Task.isCancelled, let data else { return nil }
-        cache.setObject(data as NSData, forKey: key, cost: data.count)
+    private func cachedImage(key: String, cacheOnly: Bool, generate: () async -> Data?) async -> Data? {
+        let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
+        let (data, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
+        if let data, UIImage(data: data) != nil { return data }
+        guard !cacheOnly, !Task.isCancelled,
+              let data = await generate(), UIImage(data: data) != nil, !Task.isCancelled else { return nil }
+        if !ignoresCache {
+            await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
+        }
         return data
     }
 }
@@ -133,7 +453,10 @@ private struct ThumbnailPlaybackProgress: View {
     let item: MediaItem
     @AppStorage("player.rememberProgress") private var remembersProgress = true
     @State private var duration: Double = 0
-    private var progress: Double { remembersProgress ? session.savedProgress(for: item) : 0 }
+    private var progress: Double {
+        guard remembersProgress else { return 0 }
+        return source.kind == .emby ? (item.resumePosition ?? 0) : session.savedProgress(for: item)
+    }
     private var total: Double { duration > 0 ? duration : session.savedDuration(for: item) }
     var body: some View {
         Group {
@@ -150,39 +473,59 @@ private struct ThumbnailPlaybackProgress: View {
     }
 }
 
+struct MediaPlaybackStatus: View {
+    let position: Double
+    let duration: Double?
+    var played = false
+
+    var body: some View {
+        HStack(spacing: 7) {
+            if played {
+                Image(systemName: "arrow.clockwise").accessibilityLabel("已观看")
+            } else if position.isFinite && position > 0 {
+                Image(systemName: "play.fill").accessibilityLabel("有播放进度")
+                if let duration, duration.isFinite, duration > 0 {
+                    ProgressView(value: min(position / duration, 1)).frame(width: 38)
+                }
+            }
+            if let duration, duration.isFinite, duration > 0 {
+                Text(verbatim: mediaTimeLabel(duration)).monospacedDigit()
+                    .lineLimit(1).minimumScaleFactor(0.75)
+            } else {
+                Text("未知时长").lineLimit(1)
+            }
+        }
+    }
+}
+
 private struct ThumbnailProgressBadge: View {
     let position: Double
     let total: Double
-    var showsPosition = false
-    var title: String? = nil
     @ScaledMetric(relativeTo: .caption2) private var progressWidth = 20.0
     private var fraction: CGFloat {
         guard total.isFinite, position.isFinite, total > 0 else { return 0 }
         return CGFloat(min(1, max(0, position / total)))
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            if let title { Text(verbatim: title).font(.caption).lineLimit(1).truncationMode(.tail) }
-            HStack(spacing: 5) {
-                if total > 0 {
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(.white.opacity(0.35))
-                            Capsule().fill(.white)
-                                .mask(alignment: .leading) {
-                                    Rectangle().frame(width: geometry.size.width * fraction)
-                                }
-                        }
+        HStack(spacing: 5) {
+            if total > 0 {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.35))
+                        Capsule().fill(.white)
+                            .mask(alignment: .leading) {
+                                Rectangle().frame(width: geometry.size.width * fraction)
+                            }
                     }
-                    .frame(width: progressWidth, height: 4)
                 }
-                Text(verbatim: showsPosition && total > 0 ? "\(mediaTimeLabel(position)) / \(mediaTimeLabel(total))" : mediaTimeLabel(total))
-                    .font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
+                .frame(width: progressWidth, height: 4)
             }
+            Text(verbatim: mediaTimeLabel(total))
+                .font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 8).padding(.bottom, 8)
-        .frame(maxWidth: .infinity, minHeight: title == nil ? 44 : 64, alignment: .bottomLeading)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .bottomLeading)
         .background {
             Rectangle().fill(.ultraThinMaterial)
                 .overlay {
@@ -257,24 +600,87 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     let item: MediaItem
     @ObservedObject var playback: PlaybackSession
     var historyEntry: PlaybackHistoryEntry? = nil
+    var artworkItem: MediaItem? = nil
+    var previewTitle: String? = nil
+    var preloadedData: Data? = nil
+    var artworkIsPrepared = false
+    var showsEmbyFacts = false
+    var openEmbyDetails: (() -> Void)? = nil
     @ViewBuilder let actions: () -> Actions
     @State private var shareResource: ResolvedPlaybackResource?
     @State private var showingShare = false
     @State private var preparingShare = false
     @State private var shareError: String?
     @State private var showingShareError = false
+    @State private var showingEmbyDetails = false
+    @Namespace private var detailsZoom
+    @State private var updatingWatchState = false
+    @State private var clearedServerProgress = false
+    @State private var watchError: String?
+    @State private var favoriteError: String?
+
+    private var showsWatchActions: Bool {
+        source.kind == .emby && showsEmbyFacts && !item.isContainer
+    }
+
+    private var hasServerProgress: Bool {
+        !clearedServerProgress && (item.resumePosition ?? 0) > 0
+    }
+
+    @ViewBuilder
+    private func detailsArtwork(_ content: Content) -> some View {
+        if source.kind == .emby, item.isEmbySeries, openEmbyDetails == nil {
+            content.matchedTransitionSource(id: item.id, in: detailsZoom)
+        } else {
+            content
+        }
+    }
 
     func body(content: Content) -> some View {
-        content
+        detailsArtwork(content)
             .contextMenu {
-                Button("分享", systemImage: "square.and.arrow.up") { share() }
-                    .disabled(preparingShare)
-                if playback.savedProgress(for: item) > 0 || playback.history.contains(where: { $0.mediaID == item.id }) {
-                    Button("清除播放进度", systemImage: "clock.arrow.circlepath") { playback.clearSavedProgress(for: item) }
+                if source.kind == .emby {
+                    Button("详情", systemImage: "info.circle") {
+                        if let openEmbyDetails { openEmbyDetails() }
+                        else { showingEmbyDetails = true }
+                    }
+                } else {
+                    Button("分享", systemImage: "square.and.arrow.up") { share() }
+                        .disabled(preparingShare)
+                }
+                if source.kind == .emby, ["Movie", "Series"].contains(item.embyItemType ?? "") {
+                    let favorite = playback.effectiveFavorite(for: item)
+                    Button(favorite ? "取消收藏" : "收藏",
+                           systemImage: favorite ? "heart.slash" : "heart") {
+                        playback.setFavorite(!favorite, for: item, source: source) { favoriteError = $0 }
+                    }
+                    .disabled(source.emby?.userID == nil)
+                }
+                if showsWatchActions {
+                    if hasServerProgress || playback.savedProgress(for: item) > 0 {
+                        Button("清除播放进度", systemImage: "clock.arrow.circlepath") { clearProgress() }
+                            .disabled(updatingWatchState || (hasServerProgress && source.emby?.userID == nil))
+                    }
+                } else if !showsEmbyFacts && (playback.savedProgress(for: item) > 0
+                    || playback.history.contains(where: { $0.mediaID == item.id })) {
+                    Button(source.kind == .emby ? "清除本地记录" : "清除播放进度", systemImage: "clock.arrow.circlepath") {
+                        playback.clearSavedProgress(for: item, removeFromHistory: historyEntry != nil)
+                    }
+                }
+                if showsWatchActions || (source.kind == .emby && historyEntry != nil) {
+                    let played = playback.effectivePlayed(for: item)
+                    Button(played ? "标记为未观看" : "标记为已观看",
+                           systemImage: played ? "circle" : "checkmark.circle") {
+                        playback.setPlayed(!played, for: item, source: source) { watchError = $0 }
+                    }
+                    .disabled(source.emby?.userID == nil)
                 }
                 actions()
             } preview: {
-                MediaThumbnailPreview(source: source, item: item, playback: playback, historyEntry: historyEntry)
+                MediaThumbnailPreview(source: source, item: item, historyEntry: historyEntry,
+                                      artworkItem: artworkItem, previewTitle: previewTitle,
+                                      preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared,
+                                      showsEmbyFacts: showsEmbyFacts)
             }
             .sheet(isPresented: $showingShare, onDismiss: {
                 shareResource?.release()
@@ -282,9 +688,37 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
             }) {
                 if let shareResource { MediaVideoShareSheet(url: shareResource.url) }
             }
+            .sheet(isPresented: $showingEmbyDetails) {
+                embyDetailsSheet(source: source, item: item, artworkZoom: detailsZoom)
+            }
+            .onChange(of: item.resumePosition) { _, _ in clearedServerProgress = false }
+            .alert("无法更新收藏", isPresented: Binding(
+                get: { favoriteError != nil }, set: { if !$0 { favoriteError = nil } }
+            )) {
+                Button("好", role: .cancel) { favoriteError = nil }
+            } message: { Text(verbatim: favoriteError ?? "") }
+            .alert("无法更新观看记录", isPresented: Binding(
+                get: { watchError != nil }, set: { if !$0 { watchError = nil } }
+            )) {
+                Button("好", role: .cancel) { watchError = nil }
+            } message: { Text(verbatim: watchError ?? "") }
             .alert("无法分享视频", isPresented: $showingShareError) {
                 Button("好", role: .cancel) { }
             } message: { Text(verbatim: shareError ?? "") }
+    }
+
+    private func clearProgress() {
+        guard !updatingWatchState else { return }
+        updatingWatchState = true
+        Task { @MainActor in
+            defer { updatingWatchState = false }
+            do {
+                try await playback.clearProgress(for: item, source: source, syncServer: hasServerProgress)
+                clearedServerProgress = true
+            } catch {
+                watchError = error.localizedDescription
+            }
+        }
     }
 
     private func share() {
@@ -305,33 +739,65 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     }
 }
 
-private struct MediaThumbnailPreview: View {
+struct MediaThumbnailPreview: View {
     let source: MediaSource
     let item: MediaItem
-    let playback: PlaybackSession
     var historyEntry: PlaybackHistoryEntry? = nil
+    var artworkItem: MediaItem? = nil
+    var previewTitle: String? = nil
+    var preloadedData: Data? = nil
+    var artworkIsPrepared = false
+    var showsEmbyFacts = false
+    var usesLandscapeArtwork = false
+    @AppStorage("language.code") private var languageCode = "system"
     @State private var duration: Double = 0
     private var displayName: String {
-        VideoImporter.isVideoType(URL(fileURLWithPath: item.title)) ? (item.title as NSString).deletingPathExtension : item.title
+        previewTitle ?? (VideoImporter.isVideoType(URL(fileURLWithPath: item.title)) ? (item.title as NSString).deletingPathExtension : item.title)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            MediaThumbnail(source: source, item: item)
-                .frame(width: 200, height: 300)
-            Text(verbatim: displayName).lineLimit(2)
-            if let historyEntry {
-                Text(verbatim: "\(mediaTimeLabel(historyEntry.position)) / \(mediaTimeLabel(historyEntry.duration))")
+            let aspectRatio: CGFloat = usesLandscapeArtwork ? 1.5 : 2.0 / 3.0
+            MediaThumbnail(source: source, item: artworkItem ?? item, aspectRatio: aspectRatio,
+                           imageOrientation: usesLandscapeArtwork ? .landscape : .portrait,
+                           allowsRemotePrimary: !usesLandscapeArtwork, cacheOnly: true,
+                           preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared,
+                           usesMediaCardBackdrop: historyEntry == nil || usesLandscapeArtwork,
+                           prefersLandscapeMovieArtwork: usesLandscapeArtwork)
+                .frame(width: 200, height: 200 / aspectRatio)
+                .mediaArtworkBorder()
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: displayName).lineLimit(previewTitle == nil ? 2 : nil)
+                if let historyEntry {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(historyEntry.watchedAt, format: .dateTime.hour().minute()
+                            .locale(VesperLocalization.locale(for: languageCode)))
+                        if historyEntry.duration.isFinite && historyEntry.duration > 0 {
+                            let minutes = (historyEntry.duration / 60).rounded()
+                            Text(verbatim: Measurement(value: max(1, minutes), unit: UnitDuration.minutes)
+                                .formatted(.measurement(width: .wide, usage: .asProvided,
+                                                        numberFormatStyle: .number.precision(.fractionLength(0)))
+                                    .locale(VesperLocalization.locale(for: languageCode))))
+                        }
+                    }
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text(historyEntry.watchedAt, format: .dateTime.hour().minute())
-                    .foregroundStyle(.secondary)
-            } else if duration > 0 {
-                Text(verbatim: mediaTimeLabel(duration)).foregroundStyle(.secondary)
-            } else { ProgressView() }
+                } else if showsEmbyFacts {
+                    EmbyPreviewFacts(item: item)
+                } else if duration > 0 {
+                    Text(verbatim: mediaTimeLabel(duration))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(14)
         .frame(width: 228)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
-        .task { duration = await MediaThumbnailLoader.shared.duration(item, source: source) }
+        .task {
+            if historyEntry == nil && !showsEmbyFacts {
+                duration = await MediaThumbnailLoader.shared.duration(item, source: source)
+            }
+        }
     }
 }
 

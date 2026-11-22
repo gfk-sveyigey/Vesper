@@ -11,20 +11,18 @@ struct VesperApp: App {
     @AppStorage("language.code") private var languageCode = "system"
 
     init() {
+        AppLog.installEngineLogging()
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
         FileDeliveryLog.write("App 启动，build=\(build)，文件接收模式=SwiftUI原生")
         let opensInPlace = Bundle.main.object(forInfoDictionaryKey: "LSSupportsOpeningDocumentsInPlace") as? Bool ?? false
         FileDeliveryLog.write("安装包文件交付配置，openInPlace=\(opensInPlace)")
-        // Customize only the text color; leave fonts, backgrounds and materials native.
-        if let titleColor = UIColor(named: "VesperPrimaryText") {
-            UINavigationBar.appearance().largeTitleTextAttributes = [.foregroundColor: titleColor]
-            UINavigationBar.appearance().titleTextAttributes = [.foregroundColor: titleColor]
-        }
+
     }
 
     var body: some Scene {
         WindowGroup {
             AppNavigationView()
+                .scrollIndicators(.hidden)
                 .environmentObject(incomingVideos)
                 .onOpenURL { FileDeliveryRouter.receive($0, origin: "swiftui.open") }
                 .onChange(of: scenePhase, initial: true) { _, phase in

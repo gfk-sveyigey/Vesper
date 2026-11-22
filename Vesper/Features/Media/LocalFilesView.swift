@@ -5,10 +5,14 @@ import UniformTypeIdentifiers
 struct LocalFilesView<SourceMenu: View>: View {
     let source: MediaSource
     var directory = ""
-    @ViewBuilder let sourceMenu: () -> SourceMenu
+    var onVerticalOffsetChange: (CGFloat) -> Void = { _ in }
+    var onVerticalScrollPhaseChange: (ScrollPhase, CGFloat) -> Void = { _, _ in }
+    var onTopPullChange: (CGFloat) -> Void = { _ in }
+    @ViewBuilder let sourceMenu: (Bool, @escaping () -> Void) -> SourceMenu
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
     @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
+    @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var entries: [LocalFileEntry] = []
     @State private var loading = true
     @State private var reloadGeneration = 0
@@ -20,32 +24,23 @@ struct LocalFilesView<SourceMenu: View>: View {
     @State private var renameEntry: LocalFileEntry?
     @State private var deleteEntry: LocalFileEntry?
     @State private var movingEntry: LocalFileEntry?
+    @State private var rootScrollPosition = ScrollPosition(edge: .top)
 
     var body: some View {
         Group {
             if directory.isEmpty {
-                VesperRootScrollView(title: "媒体") { files } actions: {
-                    HStack(spacing: 0) {
-                        Button("选择视频", systemImage: "square.and.arrow.down") {
-                            incomingVideos.selectVideo()
-                        }
-                        .labelStyle(.iconOnly)
-                        .font(.system(size: 17, weight: .medium))
-                        .frame(width: 44, height: 44)
-                        .buttonStyle(.plain)
-                        .disabled(busy)
-                        Button("新建文件夹", systemImage: "folder.badge.plus", action: createFolder)
-                            .labelStyle(.iconOnly)
-                            .font(.system(size: 17, weight: .medium))
-                            .frame(width: 44, height: 44)
-                            .buttonStyle(.plain)
-                            .disabled(busy)
-                        sourceMenu()
-                    }
-                    .glassEffect(.regular.interactive(), in: .capsule)
+                VesperRootScrollView(title: "媒体", showsLoading: loading && entries.isEmpty,
+                                     usesMediaScrollEdges: true, scrollPosition: $rootScrollPosition,
+                                     onVerticalOffsetChange: onVerticalOffsetChange,
+                                     onVerticalScrollPhaseChange: onVerticalScrollPhaseChange,
+                                     onTopPullChange: onTopPullChange) { files } actions: {
+                    sourceMenu(busy, createFolder)
                 }
             } else {
                 ScrollView { files.padding(.top, 12).padding(.bottom, 20) }
+                    .overlay {
+                        if loading && entries.isEmpty { VesperPageLoadingOverlay() }
+                    }
                     .navigationTitle(String(directory.split(separator: "/").last ?? ""))
                     .vesperNavigationStyle(.inline)
                     .toolbar {
@@ -81,7 +76,11 @@ struct LocalFilesView<SourceMenu: View>: View {
             }
             Button("取消", role: .cancel) { deleteEntry = nil }
         } message: {
-            Text("删除后无法恢复；删除文件夹会同时删除其中的所有文件。")
+            if deleteEntry?.isDirectory == true {
+                Text("删除后无法恢复；删除文件夹会同时删除其中的所有文件。")
+            } else {
+                Text("删除后无法恢复。")
+            }
         }
         .sheet(item: $movingEntry, onDismiss: { Task { await reload() } }) { entry in
             LocalMoveView(source: source, entry: entry, initialDirectory: directory) {
@@ -96,9 +95,7 @@ struct LocalFilesView<SourceMenu: View>: View {
 
     private var files: some View {
         LazyVStack(spacing: 12) {
-            if loading && entries.isEmpty {
-                ProgressView().padding(40)
-            } else if entries.isEmpty {
+            if !loading && entries.isEmpty {
                 VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
@@ -115,6 +112,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                                     .map(mediaItem)
                                 playback.play(mediaItem(entry), in: source, queue: queue)
                             } label: { row(entry) }
+                            .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
                             .disabled(!VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)))
                         }
                     }
@@ -130,27 +128,40 @@ struct LocalFilesView<SourceMenu: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             if entry.isDirectory {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color("VesperSecondaryBackground"))
-                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                    .fill(VesperTheme.mediaCardBackground)
+                    .frame(height: layout.thumbnailHeight)
+                    .aspectRatio(layout.thumbnailHeight == nil ? 2.0 / 3.0 : nil, contentMode: .fit)
                     .overlay {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 48)).foregroundStyle(.tint)
+                        VStack(spacing: 12) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 48)).foregroundStyle(.tint)
+                            Text(verbatim: entry.name)
+                                .font(.headline).foregroundStyle(.primary)
+                                .lineLimit(2).truncationMode(.tail)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .padding(12)
                     }
             } else if VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
-                MediaThumbnail(source: source, item: mediaItem(entry), playback: playback)
-                    .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
+                MediaThumbnail(source: source, item: mediaItem(entry), playback: playback,
+                               imageOrientation: .portrait, fixedHeight: layout.thumbnailHeight)
+                    .modifier(DeviceMediaCardBackground())
             } else {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color("VesperSecondaryBackground"))
-                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                    .fill(VesperTheme.mediaCardBackground)
+                    .frame(height: layout.thumbnailHeight)
+                    .aspectRatio(layout.thumbnailHeight == nil ? 2.0 / 3.0 : nil, contentMode: .fit)
                     .overlay {
                         Image(systemName: "doc")
                             .font(.largeTitle).foregroundStyle(.secondary)
                     }
             }
-            Text(verbatim: entry.isDirectory ? entry.name : (entry.name as NSString).deletingPathExtension)
-                .font(.headline).foregroundStyle(.primary)
-                .lineLimit(1).truncationMode(.tail)
+            if !entry.isDirectory && !VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
+                Text(verbatim: entry.name)
+                    .font(.headline).foregroundStyle(.primary)
+                    .lineLimit(1).truncationMode(.tail)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())

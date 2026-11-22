@@ -61,9 +61,10 @@ final class IncomingVideoReceiver: ObservableObject {
         inspectNext()
     }
 
-    func takeNext() -> IncomingVideo? {
-        guard !videos.isEmpty else { return nil }
-        return videos.removeFirst()
+    /// Reserve by peeking; only acknowledge after the import sheet appears.
+    /// A rejected/background presentation must not silently lose the file.
+    func acknowledgePresented(_ id: UUID) {
+        videos.removeAll { $0.id == id }
     }
 
     private func inspectNext() {

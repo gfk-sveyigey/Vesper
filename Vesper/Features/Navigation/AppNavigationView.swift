@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 private enum NavigationTab: Hashable {
     case section(AppSection)
@@ -10,24 +11,29 @@ private enum NavigationTab: Hashable {
 struct AppNavigationView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
-    @AppStorage("navigation.icons") private var icons = "{}"
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
     @AppStorage("navigation.hidden") private var hidden = ""
     @AppStorage("search.recent") private var recentSearchesData = "[]"
     @AppStorage("miniPlayer.enabled") private var miniPlayerEnabled = true
     @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
     @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
+    @AppStorage(ImageCacheDebugSettings.ignoreLocalCacheKey) private var ignoreLocalImageCache = false
     @State private var selection: NavigationTab
     @StateObject private var library = SourceLibrary()
     @StateObject private var playback = PlaybackSession()
     @State private var mediaPath = NavigationPath()
     @State private var sourcesPath = NavigationPath()
+    @State private var sourcesHeaderVisible = true
     @State private var historyPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
     @State private var searchQuery = ""
+    @State private var searchPath = NavigationPath()
+    @State private var searchRefreshID = UUID()
     @State private var pickedVideoAccess: IncomingFileAccess?
     @State private var videoPickerDismissed = true
     @State private var previewVideo: IncomingVideo?
+    @State private var importPresentationHost = VideoImportPresentationProbeController()
+    @State private var playerPresentationDismissed = true
     @State private var playAfterPreviewDismiss: IncomingVideo?
     @State private var acknowledgedNonVideoCount = 0
     @State private var importNotice: String?
@@ -68,11 +74,27 @@ struct AppNavigationView: View {
                     .accessibilityHidden(true)
             }
         }
+        .background {
+            VideoImportPresentationProbe(controller: importPresentationHost)
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .onChange(of: playback.isPresented) { _, presented in
+            if presented { playerPresentationDismissed = false }
             PlayerOrientationPolicy.update(presented)
         }
-        .onChange(of: scenePhase) { _, phase in playback.handleScenePhase(phase) }
-        .task { presentNextIncomingVideo() }
+        .onChange(of: ignoreLocalImageCache) { _, _ in
+            Task {
+                await AppCacheStore.shared.invalidateImageWrites()
+                library.reload()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            playback.handleScenePhase(phase)
+            if phase == .active { presentNextIncomingVideo() }
+        }
+        .task(id: incomingPresentationRequest) { await retryIncomingPresentation() }
         .onChange(of: incomingVideos.videos.map(\.id)) { _, _ in presentNextIncomingVideo() }
         .onChange(of: incomingVideos.nonVideoCount) { _, _ in presentNextIncomingVideo() }
         .onChange(of: isShowingImportNotice) { _, showing in
@@ -100,6 +122,10 @@ struct AppNavigationView: View {
             } saved: { _ in
                 library.registerImportedVideos(name: VesperLocalization.string("本地视频"))
             }
+            .onAppear {
+                incomingVideos.acknowledgePresented(file.id)
+                FileDeliveryLog.write("视频导入面板已显示")
+            }
         }
         .alert("视频导入", isPresented: $isShowingImportNotice) {
             Button("好", role: .cancel) { }
@@ -108,10 +134,48 @@ struct AppNavigationView: View {
         }
     }
 
+    private func tabIcon(for section: AppSection) -> Image {
+        guard section == .media, let source = library.selectedSource else {
+            return Image(systemName: section.symbol)
+        }
+        switch source.kind {
+        case .photos: return Image(systemName: "play.rectangle.on.rectangle")
+        case .local: return Image(systemName: "folder")
+        case .demo: return Image(systemName: "play.rectangle")
+        case .emby:
+            let customIcon = source.emby?.iconData.flatMap { UIImage(data: $0) }
+            guard let image = customIcon ?? UIImage(named: "EmbyLogo"),
+                  image.size.width > 0, image.size.height > 0 else {
+                return Image(systemName: "server.rack")
+            }
+            // Tab bar images need an intrinsic, point-sized canvas rather than
+            // the full-resolution source image.
+            let size: CGFloat = 25
+            let format = UIGraphicsImageRendererFormat()
+            format.opaque = false
+            let icon = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format).image { _ in
+                let bounds = CGRect(x: 0, y: 0, width: size, height: size)
+                if customIcon != nil {
+                    UIBezierPath(roundedRect: bounds, cornerRadius: size * 0.23).addClip()
+                }
+                let scale = customIcon == nil
+                    ? min(size / image.size.width, size / image.size.height)
+                    : max(size / image.size.width, size / image.size.height)
+                let width = image.size.width * scale
+                let height = image.size.height * scale
+                image.withRenderingMode(.alwaysOriginal)
+                    .draw(in: CGRect(x: (size - width) / 2, y: (size - height) / 2, width: width, height: height))
+            }
+            // Preserve this flag across SwiftUI's conversion to the native tab item.
+            return Image(uiImage: icon.withRenderingMode(.alwaysOriginal)).renderingMode(.original)
+        }
+    }
+
     private var tabs: some View {
         accessoryContent
             .fullScreenCover(isPresented: $playback.isPresented, onDismiss: {
                 PlayerOrientationPolicy.update(false)
+                playerPresentationDismissed = true
                 presentNextIncomingVideo()
             }) {
                 PlayerScreen(session: playback)
@@ -124,12 +188,16 @@ struct AppNavigationView: View {
         if #available(iOS 26.1, *) {
             tabContent
                 .tabViewBottomAccessory(isEnabled: shouldShowMiniPlayer) {
-                    MiniPlayerAccessory(session: playback) { playback.isPresented = true }
+                    MiniPlayerAccessory(session: playback) {
+                        if playback.currentItem != nil { playback.isPresented = true }
+                    }
                 }
         } else if shouldShowMiniPlayer {
             tabContent
                 .tabViewBottomAccessory {
-                    MiniPlayerAccessory(session: playback) { playback.isPresented = true }
+                    MiniPlayerAccessory(session: playback) {
+                        if playback.currentItem != nil { playback.isPresented = true }
+                    }
                 }
         } else {
             tabContent
@@ -140,36 +208,47 @@ struct AppNavigationView: View {
     private var tabContent: some View {
         TabView(selection: $selection) {
             ForEach(visibleSections) { section in
-                Tab(section.title, systemImage: section.symbol, value: NavigationTab.section(section)) {
+                Tab(value: NavigationTab.section(section)) {
                     sectionPage(section)
+                } label: {
+                    Label { Text(section.title) } icon: { tabIcon(for: section) }
                 }
             }
             Tab("搜索", systemImage: "magnifyingglass", value: NavigationTab.search, role: .search) {
-                NavigationStack {
-                    Group {
+                NavigationStack(path: $searchPath) {
+                    VesperRootScrollView(title: searchQuery.isEmpty ? "最近搜索" : "搜索") {
                         if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             if recentSearches.isEmpty {
-                                ContentUnavailableView("无最近搜索", systemImage: "clock.arrow.circlepath")
+                                VesperCenteredEmptyContent(message: "无最近搜索", symbol: "clock.arrow.circlepath")
                             } else {
-                                List {
-                                    Section("最近搜索") {
-                                        ForEach(recentSearches, id: \.self) { query in
-                                            Button { searchQuery = query; rememberSearch() } label: {
-                                                Label { Text(verbatim: query) } icon: { Image(systemName: "clock.arrow.circlepath") }
-                                            }
+                                LazyVStack(alignment: .leading, spacing: 0) {
+                                    ForEach(recentSearches, id: \.self) { query in
+                                        Button { searchQuery = query; rememberSearch() } label: {
+                                            Label { Text(verbatim: query) } icon: { Image(systemName: "clock.arrow.circlepath") }
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .padding(.vertical, 14)
+                                                .contentShape(Rectangle())
                                         }
+                                        .buttonStyle(.plain)
+                                        if query != recentSearches.last { Divider().padding(.leading, 28) }
                                     }
                                 }
+                                .padding(.horizontal, 20)
                             }
                         } else {
-                            ContentUnavailableView("暂无搜索结果", systemImage: "magnifyingglass")
+                            MediaSearchResultsView(query: searchQuery, refreshID: searchRefreshID) { source, item in
+                                searchPath.append(SearchMediaRoute(source: source, item: item))
+                            }
                         }
                     }
-                    .navigationTitle(searchQuery.isEmpty ? "最近搜索" : "搜索")
-                    .toolbarTitleDisplayMode(.inlineLarge)
                     .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
                     .onSubmit(of: .search) { rememberSearch() }
+                    .refreshable { searchRefreshID = UUID() }
+                    .navigationDestination(for: SearchMediaRoute.self) { route in
+                        MediaDetailView(source: route.source, series: route.item)
+                    }
                 }
+                .modifier(VesperNavigationHeaderLayer(isRoot: searchPath.isEmpty))
             }
         }
         .onChange(of: hidden) { _, _ in
@@ -182,6 +261,7 @@ struct AppNavigationView: View {
         .environmentObject(library)
         .environmentObject(playback)
         .background(VesperTheme.background.ignoresSafeArea())
+
     }
 
     private var hasPlayableContent: Bool { playback.currentItem != nil }
@@ -203,7 +283,7 @@ struct AppNavigationView: View {
     }
 
     private func presentNextIncomingVideo() {
-        guard videoPickerDismissed, !incomingVideos.isSelectingVideo, previewVideo == nil, !isShowingImportNotice, playAfterPreviewDismiss == nil else { return }
+        guard scenePhase == .active, videoPickerDismissed, !incomingVideos.isSelectingVideo, previewVideo == nil, !isShowingImportNotice, playAfterPreviewDismiss == nil else { return }
         let hasNotice = incomingVideos.nonVideoCount > acknowledgedNonVideoCount
         guard hasNotice || !incomingVideos.videos.isEmpty else { return }
         // Dismiss the existing full-screen UI before presenting the preview.
@@ -212,12 +292,56 @@ struct AppNavigationView: View {
             playback.isPresented = false
             return
         }
+        guard playerPresentationDismissed, importPresentationHost.canPresent else { return }
         if hasNotice {
             acknowledgedNonVideoCount = incomingVideos.nonVideoCount
-            importNotice = String(localized: "此文件不是视频文件。")
+            importNotice = VesperLocalization.string("此文件不是视频文件。")
             isShowingImportNotice = true
         } else {
-            previewVideo = incomingVideos.takeNext()
+            previewVideo = incomingVideos.videos.first
+        }
+    }
+
+    private var incomingPresentationRequest: VideoImportPresentationRequest {
+        .init(active: scenePhase == .active,
+              nextID: incomingVideos.videos.first?.id,
+              nonVideoCount: incomingVideos.nonVideoCount,
+              previewID: previewVideo?.id,
+              selecting: incomingVideos.isSelectingVideo,
+              pickerDismissed: videoPickerDismissed,
+              noticeVisible: isShowingImportNotice,
+              playerVisible: playback.isPresented,
+              playerDismissed: playerPresentationDismissed,
+              awaitingPlay: playAfterPreviewDismiss != nil)
+    }
+
+    /// Retry only while there is an actual pending import. This also handles
+    /// sheets owned by child pages, whose dismissal the root cannot observe.
+    private func retryIncomingPresentation() async {
+        guard scenePhase == .active else { return }
+        if let reserved = previewVideo,
+           incomingVideos.videos.contains(where: { $0.id == reserved.id }) {
+            // onAppear normally acknowledges immediately. If SwiftUI rejected
+            // the request because another presenter won the race, release the
+            // reservation and retry without removing the queued file.
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            guard scenePhase == .active, previewVideo?.id == reserved.id,
+                  incomingVideos.videos.contains(where: { $0.id == reserved.id }) else { return }
+            FileDeliveryLog.write("导入面板尚未显示，保留文件并等待重新展示")
+            previewVideo = nil
+            return
+        }
+        // Explicit new-file/foreground events may dismiss the current player.
+        // A retry alone must not immediately close Direct Play just chosen
+        // from the previous sheet merely because more files remain queued.
+        guard previewVideo == nil, !isShowingImportNotice, !playback.isPresented,
+              playAfterPreviewDismiss == nil, !incomingVideos.isSelectingVideo,
+              videoPickerDismissed else { return }
+        while !Task.isCancelled,
+              !incomingVideos.videos.isEmpty || incomingVideos.nonVideoCount > acknowledgedNonVideoCount {
+            presentNextIncomingVideo()
+            if previewVideo != nil || isShowingImportNotice { return }
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
         }
     }
 
@@ -243,13 +367,17 @@ struct AppNavigationView: View {
     private func sectionPage(_ section: AppSection) -> some View {
         switch section {
         case .media:
-            NavigationStack(path: $mediaPath) { MediaView() }
+            NavigationStack(path: $mediaPath) {
+                MediaView(path: $mediaPath)
+            }
                 .modifier(VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty))
         case .sources:
-            NavigationStack(path: $sourcesPath) { SourcesView() }
-                .modifier(VesperNavigationHeaderLayer(isRoot: sourcesPath.isEmpty))
+            NavigationStack(path: $sourcesPath) {
+                SourcesView { sourcesHeaderVisible = $0 }
+            }
+                .modifier(VesperNavigationHeaderLayer(isRoot: sourcesPath.isEmpty && sourcesHeaderVisible))
         case .history:
-            NavigationStack(path: $historyPath) { HistoryView() }
+            NavigationStack(path: $historyPath) { HistoryView(path: $historyPath) }
                 .modifier(VesperNavigationHeaderLayer(isRoot: historyPath.isEmpty))
         case .settings:
             NavigationStack(path: $settingsPath) {
@@ -276,7 +404,7 @@ private struct MiniPlayerAccessory: View {
                     Image(systemName: "play.rectangle")
                         .font(isCompact ? .body : .title2)
                         .frame(width: isCompact ? 24 : 36, height: isCompact ? 24 : 36)
-                    Text(verbatim: session.currentItem?.title ?? String(localized: "未在播放"))
+                    Text(verbatim: session.currentItem?.title ?? VesperLocalization.string("未在播放"))
                         .font(isCompact ? .footnote.weight(.medium) : .subheadline.weight(.medium))
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -289,7 +417,7 @@ private struct MiniPlayerAccessory: View {
                 ProgressView().controlSize(.small)
             } else {
                 Button(session.isPlaying ? "暂停" : "播放", systemImage: session.isPlaying ? "pause.fill" : "play.fill") {
-                    if !session.isPlaying && !session.isPictureInPictureActive { openPlayer() }
+                    if !session.isPlaying && !session.isPictureInPictureActive { session.isPresented = true }
                     session.togglePlayback()
                 }
                 .disabled(!session.canControl)
@@ -302,5 +430,265 @@ private struct MiniPlayerAccessory: View {
         }
         .padding(.horizontal, isCompact ? 8 : 16)
         .padding(.vertical, isCompact ? 4 : 8)
+    }
+}
+
+
+// A probe in the same window as the tab root avoids presenting while another
+// page's sheet/alert or a UIKit transition already occupies that presenter.
+private struct VideoImportPresentationRequest: Hashable {
+    let active: Bool
+    let nextID: UUID?
+    let nonVideoCount: Int
+    let previewID: UUID?
+    let selecting: Bool
+    let pickerDismissed: Bool
+    let noticeVisible: Bool
+    let playerVisible: Bool
+    let playerDismissed: Bool
+    let awaitingPlay: Bool
+}
+
+private struct VideoImportPresentationProbe: UIViewControllerRepresentable {
+    let controller: VideoImportPresentationProbeController
+    func makeUIViewController(context: Context) -> VideoImportPresentationProbeController { controller }
+    func updateUIViewController(_ uiViewController: VideoImportPresentationProbeController, context: Context) {}
+}
+
+private final class VideoImportPresentationProbeController: UIViewController {
+    override func loadView() {
+        view = UIView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+    }
+
+    var canPresent: Bool {
+        guard let window = viewIfLoaded?.window,
+              window.windowScene?.activationState == .foregroundActive,
+              let root = window.rootViewController else { return false }
+        return !hasPresentation(in: root)
+    }
+
+    private func hasPresentation(in controller: UIViewController) -> Bool {
+        controller.presentedViewController != nil || controller.isBeingPresented
+            || controller.isBeingDismissed || controller.transitionCoordinator != nil
+            || controller.children.contains { hasPresentation(in: $0) }
+    }
+}
+
+
+/// Keep search details in their originating stack so returning restores the search page.
+private struct SearchMediaRoute: Hashable {
+    let source: MediaSource
+    let item: MediaItem
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.source.id == rhs.source.id && lhs.item == rhs.item
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(source.id)
+        hasher.combine(item)
+    }
+}
+
+/// Each request captures its source configuration as well as its query, so switching
+/// accounts or server routes cannot publish results from an obsolete request.
+private struct MediaSearchRequest: Equatable {
+    let source: MediaSource?
+    let query: String
+    let retry: UUID
+    let refreshID: UUID
+}
+
+private struct MediaSearchResultsView: View {
+    let query: String
+    let refreshID: UUID
+    let openDetail: (MediaSource, MediaItem) -> Void
+    @Environment(\.vesperEmptyContentHeight) private var emptyHeight
+    @EnvironmentObject private var library: SourceLibrary
+    @EnvironmentObject private var playback: PlaybackSession
+    @State private var items: [MediaItem] = []
+    @State private var loading = true
+    @State private var errorMessage: String?
+    @State private var retry = UUID()
+    @State private var generation = UUID()
+    @State private var loadedSource: MediaSource?
+    @State private var nextIndex = 0
+    @State private var hasMore = false
+    @State private var loadingMore = false
+    @State private var moreError: String?
+    @State private var moreTask: Task<Void, Never>?
+
+    private var request: MediaSearchRequest {
+        MediaSearchRequest(source: library.selectedSource,
+                           query: query.trimmingCharacters(in: .whitespacesAndNewlines), retry: retry, refreshID: refreshID)
+    }
+
+    var body: some View {
+        Group {
+            if library.selectedSource == nil {
+                ContentUnavailableView("未配置来源", systemImage: "server.rack",
+                                       description: Text("请先在来源标签页选择一个媒体来源。"))
+                    .frame(minHeight: emptyHeight)
+            } else if loading {
+                ProgressView("正在搜索")
+                    .frame(maxWidth: .infinity, minHeight: emptyHeight)
+            } else if let errorMessage {
+                ContentUnavailableView {
+                    Label("搜索失败", systemImage: "exclamationmark.magnifyingglass")
+                } description: {
+                    Text(verbatim: errorMessage)
+                } actions: {
+                    Button("重试") { retry = UUID() }
+                }
+                .frame(minHeight: emptyHeight)
+            } else if let source = loadedSource {
+                resultList(source)
+            }
+        }
+        .task(id: request) { await search(request) }
+        .onDisappear { moreTask?.cancel() }
+    }
+
+    private func resultList(_ source: MediaSource) -> some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            Text(verbatim: source.kind == .local ? VesperLocalization.string("本地视频")
+                 : source.kind == .photos ? VesperLocalization.string("相册视频") : source.name)
+                .font(.subheadline).foregroundStyle(.secondary)
+                .padding(.bottom, 12)
+            ForEach(items) { item in
+                Button {
+                    open(item, source: source)
+                } label: {
+                    resultRow(item, source: source)
+                }
+                .buttonStyle(.plain)
+                .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
+                                             showsEmbyFacts: source.kind == .emby,
+                                             openEmbyDetails: { open(item, source: source) }) { EmptyView() })
+                if item.id != items.last?.id { Divider().padding(.leading, 78) }
+            }
+            if items.isEmpty {
+                VesperCenteredEmptyContent(message: "暂无搜索结果", symbol: "magnifyingglass")
+            }
+            if hasMore {
+                VStack(spacing: 8) {
+                    if let moreError { Text(verbatim: moreError).font(.footnote).foregroundStyle(.secondary) }
+                    Button {
+                        moreTask?.cancel()
+                        moreTask = Task { await loadMore(source: source, token: generation) }
+                    } label: {
+                        if loadingMore { ProgressView() }
+                        else { Text("加载更多") }
+                    }
+                    .disabled(loadingMore)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func resultRow(_ item: MediaItem, source: MediaSource) -> some View {
+        HStack(spacing: 14) {
+            MediaThumbnail(source: source, item: item, playback: playback,
+                           usesMediaCardBackdrop: source.kind == .emby)
+                .frame(width: 64, height: 96)
+                .clipped()
+            VStack(alignment: .leading, spacing: 6) {
+                Text(verbatim: item.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
+                if source.kind == .emby {
+                    Text(LocalizedStringKey(item.embyItemType == "Series" ? "剧集"
+                                            : item.embyItemType == "Movie" ? "电影"
+                                            : item.embyItemType == "Episode" ? "单集" : "视频"))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                if let subtitle = item.subtitle, !subtitle.isEmpty {
+                    Text(verbatim: subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    private func open(_ item: MediaItem, source: MediaSource) {
+        if source.kind == .emby {
+            openDetail(source, item)
+        } else { playback.play(item, in: source, queue: items) }
+    }
+
+    @MainActor private func search(_ snapshot: MediaSearchRequest) async {
+        let token = UUID()
+        generation = token
+        moreTask?.cancel()
+        loadingMore = false
+        items = []
+        errorMessage = nil
+        moreError = nil
+        hasMore = false
+        nextIndex = 0
+        loadedSource = nil
+        loading = snapshot.source != nil
+        guard let source = snapshot.source, !snapshot.query.isEmpty else { loading = false; return }
+        do {
+            try await Task.sleep(for: .milliseconds(350))
+            let found: [MediaItem]
+            var page: EmbySearchPage?
+            switch source.kind {
+            case .emby:
+                let result = try await EmbyRepository.shared.search(for: source, query: snapshot.query)
+                page = result
+                found = result.items
+            case .local:
+                let root = try source.localFolderURL()
+                let files = try await LocalFileStore.shared.matchingFiles(root: root, query: snapshot.query)
+                found = files.filter { VideoImporter.isVideoType(URL(fileURLWithPath: $0.name)) }.map {
+                    MediaItem(id: MediaID(sourceID: source.id, localID: $0.path),
+                              title: ($0.name as NSString).deletingPathExtension, resource: nil,
+                              subtitle: ($0.path as NSString).deletingLastPathComponent)
+                }
+            case .photos, .demo:
+                found = try await DemoSourceAdapter().media(in: source)
+                    .filter { $0.title.localizedStandardContains(snapshot.query) }
+            }
+            try Task.checkCancellation()
+            guard generation == token, request == snapshot else { return }
+            var seen = Set<MediaID>()
+            items = found.filter { seen.insert($0.id).inserted }
+            loadedSource = source
+            nextIndex = page?.nextIndex ?? 0
+            hasMore = page?.hasMore ?? false
+            loading = false
+        } catch {
+            guard !Task.isCancelled, generation == token, request == snapshot else { return }
+            errorMessage = error is SourceFailure
+                ? VesperLocalization.string("无法读取当前来源，请检查访问权限后重试。") : error.localizedDescription
+            loading = false
+        }
+    }
+
+    @MainActor private func loadMore(source: MediaSource, token: UUID) async {
+        guard !loadingMore, hasMore, source == library.selectedSource else { return }
+        let snapshot = request
+        loadingMore = true
+        moreError = nil
+        do {
+            let result = try await EmbyRepository.shared.search(for: source, query: snapshot.query, startIndex: nextIndex)
+            try Task.checkCancellation()
+            guard generation == token, request == snapshot else { return }
+            var seen = Set(items.map(\.id))
+            items += result.items.filter { seen.insert($0.id).inserted }
+            nextIndex = result.nextIndex
+            hasMore = result.hasMore
+        } catch {
+            guard !Task.isCancelled, generation == token, request == snapshot else { return }
+            moreError = error.localizedDescription
+        }
+        if generation == token { loadingMore = false }
     }
 }

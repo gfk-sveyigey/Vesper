@@ -28,7 +28,33 @@ enum PlayerOrientationPolicy {
     }
 }
 
+@MainActor
 final class VesperAppDelegate: NSObject, UIApplicationDelegate {
+    // Keep SwiftUI in charge of scene/window creation; forward document events
+    // through the delegate that the app actually registers.
+    private let fileDelivery = VesperFileDeliveryDelegate()
+
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        fileDelivery.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+
+    func application(_ application: UIApplication, open url: URL,
+                     options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        fileDelivery.application(application, open: url, options: options)
+    }
+
+    func application(_ application: UIApplication, continue userActivity: NSUserActivity,
+                     restorationHandler: @escaping ([any UIUserActivityRestoring]?) -> Void) -> Bool {
+        fileDelivery.application(application, continue: userActivity, restorationHandler: restorationHandler)
+    }
+
+    func application(_ application: UIApplication,
+                     configurationForConnecting connectingSceneSession: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        fileDelivery.application(application, configurationForConnecting: connectingSceneSession, options: options)
+    }
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         PlayerOrientationPolicy.allowsLandscape ? .allButUpsideDown : .portrait
     }
@@ -64,7 +90,7 @@ enum PlayerGestureKind: String, CaseIterable, Identifiable {
 
 enum PlayerGestureAction: String, CaseIterable, Identifiable {
     case none, controls, playback, play, pause, backward, forward, brightnessUp, brightnessDown, volumeUp, volumeDown
-    case mute, showRegions, playlist, synopsis, details, rotate, fill, fillScreen, fitScreen, landscape, portrait, pictureInPicture, close, speedUp, speedDown, moreSettings, subtitles, danmaku, gestures
+    case mute, showRegions, playlist, synopsis, details, debugInfo, rotate, fill, fillScreen, fitScreen, landscape, portrait, pictureInPicture, close, speedUp, speedDown, moreSettings, subtitles, danmaku, gestures
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
@@ -72,7 +98,7 @@ enum PlayerGestureAction: String, CaseIterable, Identifiable {
         case .play: "播放"; case .pause: "暂停"; case .backward: "快退"; case .forward: "快进"
         case .brightnessUp: "增大亮度"; case .brightnessDown: "减小亮度"; case .volumeUp: "增大音量"; case .volumeDown: "减小音量"
         case .mute: "静音或取消静音"; case .showRegions: "显示区域划分"; case .playlist: "播放列表"
-        case .synopsis: "视频简介"; case .details: "详细信息"; case .rotate: "切换屏幕方向"; case .fill: "切换填充方式"
+        case .synopsis: "视频简介"; case .details: "详细信息"; case .debugInfo: "显隐调试信息"; case .rotate: "切换屏幕方向"; case .fill: "切换填充方式"
         case .fillScreen: "填满屏幕"; case .fitScreen: "完整显示"; case .landscape: "横屏"; case .portrait: "竖屏"
         case .pictureInPicture: "画中画"; case .close: "退出播放"; case .speedUp: "加快播放速度"; case .speedDown: "减慢播放速度"
         case .moreSettings: "更多设置"; case .subtitles: "字幕设置"; case .danmaku: "弹幕设置"; case .gestures: "播放手势"
@@ -470,6 +496,7 @@ struct PlayerMenuButton: UIViewRepresentable {
 /// Use a native control for direct actions beside native menu controls so the
 /// glass group does not create different hit-testing paths for its children.
 struct PlayerActionButton: UIViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
     let title: String
     let symbol: String
     var pointSize: CGFloat = 17
@@ -483,6 +510,8 @@ struct PlayerActionButton: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(action: action) }
     func updateUIView(_ button: UIButton, context: Context) {
         context.coordinator.action = action
+        button.isEnabled = isEnabled
+        button.alpha = isEnabled ? 1 : 0.35
         button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)), for: .normal)
         button.accessibilityLabel = title
     }
@@ -528,6 +557,100 @@ struct PlayerVolumeTouchSurface: UIViewRepresentable {
         }
         @objc private func pan(_ sender: UIPanGestureRecognizer) {
             dragged?(sender.translation(in: self).x, sender.state)
+        }
+    }
+}
+
+/// UI cadence belongs to the scene, not the renderer's media clock. A passive
+/// CADisplayLink alone does not request continuous UIKit/SwiftUI updates.
+struct PlayerInterfaceRefreshDriver: UIViewRepresentable {
+    let isActive: Bool
+    var context = "controls"
+
+    func makeUIView(context: Context) -> RefreshView { RefreshView() }
+
+    func updateUIView(_ view: RefreshView, context: Context) {
+        view.isActive = isActive
+        view.diagnosticContext = self.context
+        view.updateLink()
+    }
+
+    static func dismantleUIView(_ view: RefreshView, coordinator: ()) {
+        view.stop()
+    }
+
+    final class RefreshView: UIView {
+        var isActive = false
+        var diagnosticContext = "controls" {
+            didSet {
+                if oldValue != diagnosticContext { resetMeasurement() }
+            }
+        }
+        private var link: UIUpdateLink?
+        private weak var linkedScene: UIWindowScene?
+        private var sampleStart: TimeInterval?
+        private var updateCount = 0
+        private var didReport = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            updateLink()
+        }
+
+        func updateLink() {
+            guard isActive, let scene = window?.windowScene else {
+                stop()
+                return
+            }
+            guard link == nil || linkedScene !== scene else { return }
+            stop()
+            // Bind to the scene so a sheet/menu covering this particular view
+            // does not make its UI update request passive or inactive.
+            let link = UIUpdateLink(windowScene: scene) { [weak self] _, info in
+                self?.measureUpdate(at: info.modelTime)
+            }
+            let maximum = Float(scene.screen.maximumFramesPerSecond)
+            link.preferredFrameRateRange = CAFrameRateRange(
+                minimum: maximum, maximum: maximum, preferred: maximum
+            )
+            link.requiresContinuousUpdates = true
+            link.isEnabled = true
+            linkedScene = scene
+            self.link = link
+        }
+
+        func stop() {
+            link?.isEnabled = false
+            link?.requiresContinuousUpdates = false
+            link = nil
+            linkedScene = nil
+            resetMeasurement()
+        }
+
+        private func resetMeasurement() {
+            sampleStart = nil
+            updateCount = 0
+            didReport = false
+        }
+
+        private func measureUpdate(at time: TimeInterval) {
+            guard !didReport else { return }
+            guard let start = sampleStart else { sampleStart = time; return }
+            updateCount += 1
+            let elapsed = time - start
+            guard elapsed >= 2 else { return }
+            didReport = true
+            // This measures scene UI updates, not video FPS or a guarantee of
+            // panel refresh. Low Power Mode and thermal limits remain OS-owned.
+            let hz = Double(updateCount) / elapsed
+            let maximum = linkedScene?.screen.maximumFramesPerSecond ?? 0
+            let power = ProcessInfo.processInfo.isLowPowerModeEnabled
+            let thermal = ProcessInfo.processInfo.thermalState.rawValue
+            AppLog.runtimeEntries.append(
+                "\(ISO8601DateFormatter().string(from: Date())) [PlayerRefresh] "
+                + "context=\(diagnosticContext) uiUpdates=\(String(format: "%.1f", hz))Hz "
+                + "requested=\(maximum)Hz lowPower=\(power) thermal=\(thermal)"
+            )
         }
     }
 }

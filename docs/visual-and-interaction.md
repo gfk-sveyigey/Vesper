@@ -18,85 +18,22 @@
 
 ## 色彩系统
 
-颜色应以语义命名和使用，不在各个 View 中硬编码 HEX。以下颜色为设计 token；落地到 `Assets.xcassets` 时，应为支持外观切换的 Color Set 配置 Any Appearance 与 Dark Appearance，由系统根据当前 appearance 选择。
+仅保留默认主题强调色资源 `VesperAccent`：浅色 `#6958C8`，深色 `#A99BFF`。用户仍可在外观设置中选择强调色。
 
-### 品牌色
+其他界面颜色使用系统语义色，随应用深浅色外观自动变化：
+- 页面背景：`UIColor.systemBackground`。
+- 次级背景、卡片：`UIColor.secondarySystemBackground`。
+- 主要文字及图标：SwiftUI `.primary` 或 `UIColor.label`；辅助文字使用 `.secondary`。
+- 分隔线和边框：`UIColor.separator`；需要不透明边框时使用 `UIColor.opaqueSeparator`。
+- 剧集观看标记按钮：`UIColor.systemGray4` 背景，`UIColor.label` 前景，以及 `UIColor.systemGray2` 的 1pt 内边框（浅色模式比背景稍深、深色模式比背景稍浅）。
+- 阴影如需适配外观，使用系统颜色，不新增自定义颜色资源。
 
-| Token | Light Appearance | Dark Appearance | 用途 |
-|---|---|---|---|
-| VesperAccent | `#6958C8` | `#A99BFF` | 主强调色、播放进度 |
-| VesperAccentPressed | `#5545AE` | `#8E7DEB` | 按下状态 |
-| VesperAccentSoft | `#EAE6FC` | `#302B50` | 柔和强调背景、选中区域 |
-| 强调色前景 | `#FFFFFF` | `#171426` | 强调色按钮或区域上的内容 |
-
-### 应用界面语义色
-
-| Token | Light Appearance | Dark Appearance | 用途 |
-|---|---|---|---|
-| VesperBackground | `#F5F4F8` | 系统 `systemBackground` | 页面主背景 |
-| VesperSecondaryBackground | `#EDECF2` | `#191C2D` | 次级背景、分组区域 |
-| VesperSurface | `#FFFFFF` | `#20243A` | 卡片、内容容器 |
-| VesperElevatedSurface | `#FFFFFF` | `#292D45` | 弹出层、悬浮面板 |
-| VesperPrimaryText | `#222131` | `#F4F2FA` | 标题、主要文字 |
-| VesperSecondaryText | `#727181` | `#B7B5C7` | 副标题、辅助说明 |
-| VesperTertiaryText | `#A09EAD` | `#85849B` | 占位符、弱化文字 |
-| VesperSeparator | `#E3E1E9` | `#34364B` | 分割线、边框 |
-
-### 播放器专用色
-
-全屏播放器控制层（后续定义）不随 App 的浅色/深色 appearance 改变，始终使用独立的深色半透明控制层。播放器内颜色作为专用 token 管理，不复用会随系统外观改变的页面语义色。紧凑播放条使用应用的语义色和原生控件；PiP 外观及其系统控制遵循 iOS，不自行绘制系统 PiP 窗口。
-
-| Token / 元素 | 色值 | 用途 |
-|---|---|---|
-| 播放按钮背景、已播放进度 | `#A99BFF` | 播放/暂停按钮背景、播放进度 |
-| 播放按钮图标 | `#171426` | 播放、暂停图标 |
-| 缓冲进度 | `#77718F` | 已缓冲但尚未播放的部分 |
-| 未播放轨道 | `#FFFFFF`，25% opacity | 进度条背景 |
-| 控制文字 | `#FFFFFF` | 播放时间、按钮文字 |
-| VesperPlayerControlBackground | `#111321`，65% opacity | 播放控制区域背景 |
-| 字幕背景 | `#000000`，65% opacity | 字幕底色 |
-| 字幕文字 | `#FFFFFF` | 字幕内容 |
-
-播放器已播放进度可使用 `VesperPlaybackProgress` 命名；缓冲进度使用 `VesperBufferedProgress`。字幕和按钮图标颜色如需跨多个组件复用，可在实现时建立对应的播放器专用资源。本阶段不定义完整全屏播放控制 UI；紧凑播放条沿用应用语义色，系统 PiP 遵循系统外观。
-
-### 色彩使用原则
-
-- 使用 Vesper Violet 建立品牌识别；深色外观使用 Vesper Glow 保持强调状态清晰。
-- 浅色页面背景使用柔和灰白色；深色页面主背景使用系统 `systemBackground`。
-- 强调色限用于重要交互、选中状态和关键视觉元素，避免大面积铺色造成干扰。
-- 保证文本、图标和交互状态在对应背景上清晰可辨；状态不能只依赖颜色表达。
-- 优先使用 SwiftUI 原生材质和 Liquid Glass；不要自行模拟系统已有的玻璃材质。仅在目标 OS 支持且适合该交互场景时使用，材质不可用时提供清晰的实色背景回退。
-- 全屏播放界面以视频内容为核心，控制层使用深色半透明表面；控制层不跟随 App appearance 切换。
-
-### Xcode Color Set 组织
-
-在 `Assets.xcassets` 中按下列语义创建 Color Set；播放器颜色保持专用命名空间。支持动态外观的资源配置 Any Appearance 与 Dark Appearance。固定沉浸式播放器颜色不应错误地随 appearance 改变。
-
-| 分组 | Color Set |
-|---|---|
-| Brand | `VesperAccent`、`VesperAccentPressed`、`VesperAccentSoft` |
-| Background | `VesperBackground`、`VesperSecondaryBackground`、`VesperSurface`、`VesperElevatedSurface` |
-| Text | `VesperPrimaryText`、`VesperSecondaryText`、`VesperTertiaryText` |
-| Separator | `VesperSeparator` |
-| Player | `VesperPlaybackProgress`、`VesperBufferedProgress`、`VesperPlayerControlBackground` |
-
-`VesperPlaybackProgress` 在页面 appearance 下可对应主强调色；播放器内则应使用固定的深色外观变体/专用值 `#A99BFF`，不能因系统 appearance 变化而切换成浅色主强调色。
-
-SwiftUI 优先通过语义化资源使用颜色：
-
-```swift
-Color("VesperAccent")
-Color("VesperBackground")
-Color("VesperPrimaryText")
-Color("VesperPlaybackProgress")
-```
-
-视图中不得散落 HEX 常量；颜色资源集中维护，便于主题调整、外观适配和测试。
+不再维护自定义文字、背景、分隔线或播放器颜色资源。系统播放器和 PiP 的外观由系统管理。
 
 ## 信息层级
 
-- 四个一级页面分别显示“媒体”“来源”“记录”“设置”。VesperLargeTitle 位于 ScrollView/List 内容顶部，始终使用系统 largeTitle 字号及 VesperPrimaryText，不使用系统 Large Title 转 Inline Title 的行为，不使用固定 overlay，不覆盖页面内容。标题背景透明，文字由 SwiftUI 直接渲染，不使用截图、Core Image、自定义高斯模糊或材质背景。
-- 顶部使用 iOS 26 原生 `.scrollEdgeEffectStyle(.soft, for: .top)`，并保留顶部 edge effect 可见。滚动视口延伸至顶部安全区，初始内容通过 NavigationStack 外测量的顶部 safeAreaInsets 设置 scrollContent 顶部 margin，仅避让状态栏，不额外预留空导航栏高度；滚动时内容可经过顶部系统边缘效果。ContentHost 约束保持原样，不使用固定状态栏高度或缩短 Host 避让。唯一全屏 VesperBackground 延伸至安全区，状态栏不另加 UIVisualEffectView、Material 或纯色覆盖。原生边缘模糊与标题动画独立管理，不把标题整体高斯模糊当作系统效果。
+- 四个一级页面分别显示“媒体”“来源”“记录”“设置”。VesperLargeTitle 位于 ScrollView/List 内容顶部，始终使用系统 largeTitle 字号及 系统主要文字色，不使用系统 Large Title 转 Inline Title 的行为，不使用固定 overlay，不覆盖页面内容。标题背景透明，文字由 SwiftUI 直接渲染，不使用截图、Core Image、自定义高斯模糊或材质背景。
+- 顶部使用 iOS 26 原生 `.scrollEdgeEffectStyle(.soft, for: .top)`，并保留顶部 edge effect 可见。滚动视口延伸至顶部安全区，初始内容通过 NavigationStack 外测量的顶部 safeAreaInsets 设置 scrollContent 顶部 margin，仅避让状态栏，不额外预留空导航栏高度；滚动时内容可经过顶部系统边缘效果。ContentHost 约束保持原样，不使用固定状态栏高度或缩短 Host 避让。唯一全屏 系统主背景色 延伸至安全区，状态栏不另加 UIVisualEffectView、Material 或纯色覆盖。原生边缘模糊与标题动画独立管理，不把标题整体高斯模糊当作系统效果。
 - 每个一级页面独立管理 expanded、collapsing、collapsed、expanding。onScrollGeometryChange 观测相对顶部的偏移，仅驱动标题逐渐淡出及顶部恢复；2 pt 顶部容差外开始淡出，48 pt 达到完全透明，48 pt 不是独立动画触发阈值。手指拖动及惯性滚动期间标题仅随 ScrollView 自然移动，不触发独立收起；onScrollPhaseChange 进入 idle 后读取实时 ScrollGeometry，只有已离开顶部才执行独立向上移出与淡出。自然滚动与自有 offset 分离，标题布局高度不随动画改变。
 - 标题收起后，中途向下滚动保持隐藏，仅回到顶部（2 pt 容差）才恢复。用 SwiftUI 动画 completion 完成状态转换，忽略过期回调，不用固定延迟。默认动画 0.30 秒；Reduce Motion 开启时取消独立位移，仅用 0.18 秒淡入淡出。各标签独立保留标题状态。
 - 一级和二级页面均保持系统导航栏显示，统一使用 inline、automatic 背景和原生返回配置。一级导航栏中央视觉为空，不添加操作按钮；自定义大标题仍位于滚动内容顶部，内容延伸到空导航栏下方。一级与二级转场不再切换导航栏显隐，但导航栏仍参与系统布局，不能承诺转场期间按钮屏幕坐标完全固定。二级及更深页面中央不显示标题，使用 inline 模式、原生返回图标和边缘滑动返回；导航栏背景交给系统 automatic，不强制 regularMaterial、纯色或不透明 appearance，不自行绘制返回按钮。每个标签的 NavigationStack 独立管理历史，不承诺原生返回图标在转场期间固定于同一屏幕坐标。日志导出和清空仍位于原生导航栏右侧。
@@ -133,7 +70,7 @@ Color("VesperPlaybackProgress")
 - 播放/暂停、进度拖动、前进/后退和退出播放应有明确的可发现入口。
 - 进度拖动期间显示目标时间；提交跳转后区分正在缓冲与已恢复播放。
 - 音轨、字幕、画面比例等选择项应显示当前值，并对不可用选项给出原因或禁用状态。
-- 全屏与系统 PiP 属于需求，具体支持需在目标平台和 KSPlayer 后端确认后实现；外接播放能力暂不承诺。界面状态须与实际播放器状态一致。
+- 全屏与系统 PiP 属于需求，具体支持需在目标平台和当前播放引擎确认后实现；外接播放能力暂不承诺。界面状态须与实际播放器状态一致。
 - 手势不得成为唯一操作方式；提供可见控件以及目标平台适用的辅助输入路径。
 
 ## 紧凑播放与 PiP
@@ -195,12 +132,12 @@ Color("VesperPlaybackProgress")
 
 - 日志导出从当前 UIKit 控制器直接 present UIActivityViewController，传入完整 `.log` 文件 URL，不经过 SwiftUI sheet；保留导出失败提示及取消处理。
 - 标签显隐列表不显示始终保留的设置标签；排序半屏页仍包含该标签。排序页标题为“标签顺序”，隐藏返回按钮；排序与手势半屏页覆盖 editor toolbarRole，使用自动样式及居中 principal 标题。
-- 手势排序卡片使用 VesperSurface 背景及主题色边框。外观中的“重置主题色”始终显示，默认颜色时禁用；图标不展示名称，但保留辅助功能名称和选中状态。
+- 手势排序卡片使用 系统次级背景色 背景及主题色边框。外观中的“重置主题色”始终显示，默认颜色时禁用；图标不展示名称，但保留辅助功能名称和选中状态。
 - 语言菜单依次为跟随系统、简体中文、繁体中文、English、Deutsch、Español、Français、日本語、한국어。
 
 - 排序或重置顺序时，以 order 为原生 TabView 的视图身份，重建其 UIKit 标签项，避免位置复用留下旧图标；ContentHost、SectionHosts 和导航历史不重建。标签组显隐和搜索状态更新不触发这一重建。
 - 标签顺序及手势与动作面板固定 360pt 高度，禁止下拉关闭，不显示拖动横条，右上角使用关闭图标；内容仍可滚动，卡片拖动排序保留。
-- 手势卡片使用比浅色页面背景更深的 VesperSecondaryBackground；设置首页图标与标签设置一致，使用普通 Label，不绘制外框。
+- 手势卡片使用比浅色页面背景更深的 系统次级背景色；设置首页图标与标签设置一致，使用普通 Label，不绘制外框。
 
 - 设置页面采用系统设置布局：原生大标题、insetGrouped 分组列表及系统列表背景；设置二级页面显示原生 inline 标题，保留系统返回按钮。其他三个一级页面的标题方案不变。
 - 设置首页新增“页面”分组，提供媒体、来源、记录的常驻切换入口，直接切换 ContentHost 中原有页面，不创建新导航栈；标签设置的显隐开关分组标题为“显示标签”。

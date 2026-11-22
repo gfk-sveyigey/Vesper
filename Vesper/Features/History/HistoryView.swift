@@ -3,10 +3,10 @@ import SwiftUI
 struct HistoryView: View {
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
-    @AppStorage("navigation.icons") private var icons = "{}"
+    @Binding var path: NavigationPath
 
     private var groups: [HistorySourceGroup] {
-        Dictionary(grouping: playback.history, by: { $0.source.id }).values.map { entries in
+        Dictionary(grouping: playback.history.filter { $0.hiddenFromHistory != true }, by: { $0.source.id }).values.map { entries in
             HistorySourceGroup(source: entries[0].source, entries: entries.sorted { $0.watchedAt > $1.watchedAt })
         }.sorted { left, right in
             if left.id == library.selectedID { return true }
@@ -16,48 +16,59 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        Group {
-            if playback.history.isEmpty {
-                VesperEmptyPage(title: "记录", message: "无记录", symbol: AppSection.history.symbol)
+        let groups = groups
+        VesperRootScrollView(title: "记录") {
+            if groups.isEmpty {
+                VesperCenteredEmptyContent(message: "无记录", symbol: AppSection.history.symbol)
             } else {
-                VesperRootScrollView(title: "记录") {
-                    LazyVStack(alignment: .leading, spacing: 24) {
-                        ForEach(groups) { group in
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(verbatim: library.sources.first(where: { $0.id == group.id })?.name ?? group.source.name)
-                                    .font(.headline).foregroundStyle(.secondary)
-                                    .padding(.horizontal, 20)
+                VStack(alignment: .leading, spacing: 24) {
+                    ForEach(groups) { group in
+                        VStack(alignment: .leading, spacing: 0) {
+                            let source = library.sources.first(where: { $0.id == group.id }) ?? group.source
+                            Text(verbatim: source.kind == .local ? VesperLocalization.string("本地视频")
+                                 : source.kind == .photos ? VesperLocalization.string("相册视频") : source.name)
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 20)
 
-                                ScrollView(.horizontal) {
-                                    LazyHStack(spacing: 12) {
-                                        ForEach(group.entries) { entry in
-                                            let source = library.sources.first(where: { $0.id == group.id }) ?? group.source
-                                            Button {
-                                                playback.play(entry.item, in: source, queue: group.entries.map(\.item))
-                                            } label: {
-                                                MediaThumbnail(source: source, item: entry.item, playback: playback, historyEntry: entry)
-                                                    .frame(width: 132, height: 198)
-                                            }
-                                            .contentShape(Rectangle())
-                                            .clipped()
-                                            .buttonStyle(.plain)
-                                            .modifier(MediaThumbnailMenu(source: source, item: entry.item, playback: playback, historyEntry: entry) { EmptyView() })
-                                            .accessibilityLabel(Text(verbatim: entry.title))
+                            ScrollView(.horizontal) {
+                                LazyHStack(spacing: 12) {
+                                    ForEach(group.entries) { entry in
+                                        let source = library.sources.first(where: { $0.id == group.id }) ?? group.source
+                                        HistoryMediaCard(source: source, entry: entry, queue: group.entries.map(\.item)) { item in
+                                            path.append(HistoryDetailRoute(source: source, item: item))
                                         }
                                     }
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 12)
                                 }
-                                .scrollIndicators(.hidden)
-                                .contentMargins(.horizontal, 0, for: .scrollContent)
+                                .scrollTargetLayout()
+                                .padding(.vertical, 12)
                             }
+                            .scrollIndicators(.hidden)
+                            .contentMargins(.horizontal, 20, for: .scrollContent)
+                            .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .leading))
                         }
                     }
-
                 }
             }
         }
         .onAppear { playback.pruneUnavailableHistory() }
+        .navigationDestination(for: HistoryDetailRoute.self) { route in
+            MediaDetailView(source: route.source, series: route.item)
+        }
+    }
+}
+
+private struct HistoryDetailRoute: Hashable {
+    let source: MediaSource
+    let item: MediaItem
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.source.id == rhs.source.id && lhs.item == rhs.item
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(source.id)
+        hasher.combine(item)
     }
 }
 
@@ -65,4 +76,80 @@ private struct HistorySourceGroup: Identifiable {
     let source: MediaSource
     let entries: [PlaybackHistoryEntry]
     var id: UUID { source.id }
+}
+
+/// Artwork may belong to the parent series; playback and menu actions always target the episode.
+private struct HistoryMediaCard: View {
+    let source: MediaSource
+    let entry: PlaybackHistoryEntry
+    let queue: [MediaItem]
+    let openDetail: (MediaItem) -> Void
+    @EnvironmentObject private var playback: PlaybackSession
+    @State private var resolvedItem: MediaItem?
+    @State private var posterItem: MediaItem?
+    @State private var previewTitle: String?
+
+    private var item: MediaItem { resolvedItem ?? entry.item }
+
+    var body: some View {
+        Button {
+            if source.kind == .emby { openDetail(item) }
+            else { playback.play(item, in: source, queue: queue) }
+        } label: {
+            MediaThumbnail(source: source, item: posterItem ?? item, playback: playback, historyEntry: entry,
+                           imageOrientation: .portrait,
+                           artworkIsPrepared: source.kind == .emby && posterItem == nil,
+                           usesMediaCardBackdrop: false)
+                .frame(width: 132, height: 198)
+                .mediaArtworkBorder()
+        }
+        .contentShape(Rectangle())
+        .clipped()
+        .buttonStyle(.plain)
+        .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback, historyEntry: entry,
+                                     artworkItem: posterItem, previewTitle: previewTitle,
+                                     openEmbyDetails: { openDetail(item) }) { EmptyView() })
+        .accessibilityLabel(Text(verbatim: previewTitle ?? entry.title))
+        .task(id: "\(AppCacheStore.scope(for: source))|\(entry.mediaID.localID)") {
+            guard source.kind == .emby, resolvedItem == nil else { return }
+            do {
+                let metadata = try await EmbyRepository.shared.detailMetadata(for: entry.item, source: source)
+                var poster = metadata.item
+                var title: String? = nil
+                if metadata.item.embyItemType == "Episode", let series = metadata.series {
+                    let parent = try? await EmbyRepository.shared.detailMetadata(for: series, source: source)
+                    try Task.checkCancellation()
+                    poster = parent?.item ?? series
+                    var seasonCount = poster.embyPresentation?.seasonCount
+                    if seasonCount == nil {
+                        seasonCount = try? await EmbyRepository.shared.seriesSeasonCount(for: series, source: source)
+                    }
+                    try Task.checkCancellation()
+                    let multipleSeasons = (seasonCount ?? 0) > 1 || (metadata.seasonNumber ?? 0) > 1
+                    var episodeParts: [String] = []
+                    if let season = metadata.seasonNumber, multipleSeasons || season == 0 {
+                        episodeParts.append(season == 0 ? VesperLocalization.string("特别篇") : VesperLocalization.localized("第\(season)季"))
+                    }
+                    if let episode = metadata.episodeNumber { episodeParts.append(VesperLocalization.localized("第\(episode)集")) }
+                    var lines = [series.title]
+                    if !episodeParts.isEmpty { lines.append(episodeParts.joined(separator: " · ")) }
+                    let episodeTitle = metadata.item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !episodeTitle.isEmpty, episodeTitle != series.title { lines.append(episodeTitle) }
+                    title = lines.joined(separator: " · ")
+                } else if metadata.item.embyItemType == "Episode" {
+                    // Missing parent metadata must not switch this history card to an episode Thumb.
+                    poster.embyItemType = "Movie"
+                }
+                try Task.checkCancellation()
+                resolvedItem = metadata.item
+                posterItem = poster
+                previewTitle = title
+            } catch {
+                guard !Task.isCancelled else { return }
+                var fallback = entry.item
+                fallback.embyItemType = "Movie"
+                posterItem = fallback
+            }
+        }
+    }
 }

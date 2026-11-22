@@ -1,10 +1,9 @@
 name: Build (dev)
 
 # 只改 VERSION 或 .github 配置不会触发构建。
-# App、播放引擎、隔离脚本或 Xcode 工程变化会触发构建。
 on:
   push:
-    branches: [ dev ]
+    branches: [dev]
     paths:
       - 'Vesper/**'
       - 'Playback/**'
@@ -59,11 +58,22 @@ jobs:
             echo "::error::Info.plist not found"
             exit 1
           }
+          plutil -lint Info.plist
+
+      - name: Resolve Swift packages
+        run: |
+          set -e
+          rm -rf build/DerivedData
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project Vesper.xcodeproj \
+            -scheme Vesper \
+            -derivedDataPath build/DerivedData
+
           test -f Vesper.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved || {
-            echo "::error::Commit the resolved Swift package graph before building"
+            echo "::error::Xcode did not produce Package.resolved"
             exit 1
           }
-          plutil -lint Info.plist
 
       - name: Read version
         id: version
@@ -86,8 +96,6 @@ jobs:
       - name: Build unsigned iOS app (Debug)
         run: |
           set -e
-          rm -rf build/DerivedData
-
           xcodebuild \
             -project Vesper.xcodeproj \
             -scheme Vesper \
@@ -95,6 +103,7 @@ jobs:
             -configuration Debug \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/DerivedData \
+            -onlyUsePackageVersionsFromResolvedFile \
             -disableAutomaticPackageResolution \
             MARKETING_VERSION='${{ steps.version.outputs.raw }}(Build dev ${{ github.run_number }})' \
             CURRENT_PROJECT_VERSION='${{ github.run_number }}' \
@@ -156,12 +165,10 @@ jobs:
           ls -la "$APP"
           plutil -p "$APP/Info.plist" | grep -E "CFBundleDisplayName|CFBundleIdentifier"
 
-      - name: Upload IPA and isolation report
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: Vesper-${{ steps.version.outputs.raw }}-dev${{ github.run_number }}
-          path: |
-            build/Vesper-*-unsigned.ipa
-            build/DerivedData/Build/Products/Debug-iphoneos/playback-isolation-report.txt
+          path: build/Vesper-*-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
