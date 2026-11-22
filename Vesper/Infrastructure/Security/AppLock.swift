@@ -50,6 +50,7 @@ final class AppLock: ObservableObject {
     @Published private(set) var isLocked = false
     @Published private(set) var lastBackgroundDate: Date?
     @Published var authenticationRequest: AuthenticationPurpose?
+    @Published private(set) var authenticationRequestID = UUID()
     @Published var settingsAuthorized = false
     private let passwordService = "com.aholic.vesper.app-lock"
     private var isActive = false
@@ -57,6 +58,7 @@ final class AppLock: ObservableObject {
     var settingsVisibleProvider: (() -> Bool)?
     var isSettingsVisible: Bool { settingsVisibleProvider?() ?? false }
     private var authenticationCompletion: (() -> Void)?
+    private var automaticBiometricAttemptRequestID: UUID?
     private(set) var isBiometricAuthenticationInProgress = false
 
     private init() {
@@ -105,10 +107,22 @@ final class AppLock: ObservableObject {
 
     func requestAuthentication(_ purpose: AuthenticationPurpose, completion: (() -> Void)? = nil) {
         guard isEnabled || [.createPassword, .resetPassword, .disableProtection].contains(purpose) else { return }
+        if authenticationRequest == purpose {
+            authenticationCompletion = completion
+            return
+        }
         if purpose == .appUnlock { settingsAuthorized = false }
         authenticationCompletion = completion
         authenticationRequest = purpose
+        authenticationRequestID = UUID()
         if purpose == .appUnlock { isLocked = true }
+    }
+
+    func claimAutomaticBiometricAttempt(for requestID: UUID) -> Bool {
+        guard authenticationRequest != nil, authenticationRequestID == requestID,
+              automaticBiometricAttemptRequestID != requestID else { return false }
+        automaticBiometricAttemptRequestID = requestID
+        return true
     }
 
     func cancelAuthentication() {
@@ -186,6 +200,14 @@ final class AppLock: ObservableObject {
         case .background:
             lastBackgroundDate = Date()
         case .active:
+            // Biometric UI can cause lifecycle callbacks while the same
+            // authentication request is still being presented. Keep that
+            // request alive instead of treating the callback as a new unlock.
+            if authenticationRequest != nil {
+                isActive = true
+                lastBackgroundDate = nil
+                return
+            }
             guard didInitializeLifecycle else {
                 didInitializeLifecycle = true
                 isActive = true
@@ -224,6 +246,7 @@ final class AppLock: ObservableObject {
         isActive = true
         isLocked = false
         authenticationRequest = nil
+        authenticationRequestID = UUID()
         lastBackgroundDate = nil
     }
 
@@ -237,6 +260,7 @@ final class AppLock: ObservableObject {
                 didUnlock()
             } else if authenticationRequest == purpose {
                 authenticationRequest = nil
+                authenticationRequestID = UUID()
             }
         }
         if purpose == .settingsAccess { settingsAuthorized = true }

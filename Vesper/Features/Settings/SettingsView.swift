@@ -99,7 +99,6 @@ struct AppLockScreen: View {
     @State private var failures = 0
     @State private var showPassword = false
     @State private var biometricType = AppLock.shared.biometricType
-    @State private var automaticAttemptPurpose: AppLock.AuthenticationPurpose?
 
     private var passwordOnly: Bool {
         [.createPassword, .resetPassword, .disableProtection].contains(appLock.authenticationRequest)
@@ -157,19 +156,17 @@ struct AppLockScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { Rectangle().fill(.regularMaterial).ignoresSafeArea() }
         .contentShape(Rectangle())
-        .task(id: appLock.authenticationRequest) {
+        .task(id: appLock.authenticationRequestID) {
             pin = ""
             errorMessage = nil
             failures = 0
             showPassword = false
             biometricType = appLock.biometricType
             if !passwordOnly, biometricEnabled, biometricPriority, biometricType != .none {
-                if automaticAttemptPurpose != appLock.authenticationRequest {
-                    automaticAttemptPurpose = appLock.authenticationRequest
+                let requestID = appLock.authenticationRequestID
+                if appLock.claimAutomaticBiometricAttempt(for: requestID) {
                     await authenticate()
                 }
-            } else if appLock.authenticationRequest == nil {
-                automaticAttemptPurpose = nil
             }
         }
     }
