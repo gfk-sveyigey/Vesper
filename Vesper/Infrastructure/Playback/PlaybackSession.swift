@@ -205,6 +205,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var preparedNext: (item: MediaItem, sourceID: UUID, resource: ResolvedPlaybackResource)?
 
     private var trackIDs: [String: Int32] = [:]
+    private var requestedSubtitleID: Int32?
     private var nextTrackID: Int32 = 1
     private var previouslyActivePiP = false
     private var requestedDecoder: PlaybackDecoder?
@@ -1285,10 +1286,16 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         refreshTracks()
     }
     func selectSubtitle(_ id: Int32?) {
+        requestedSubtitleID = id
         let key = id.flatMap { value in trackIDs.first { $0.value == value }?.key }
         core.selectSubtitle(key)
         selectedSubtitleID = id
         refreshTracks()
+        if let id, !subtitleTracks.contains(where: { $0.id == id && $0.isSelected }) {
+            subtitleTracks = subtitleTracks.map { track in
+                PlaybackTrack(id: track.id, name: track.name, isSelected: track.id == id)
+            }
+        }
     }
     private func uiTrackID(_ id: String) -> Int32 {
         if let value = trackIDs[id] { return value }
@@ -1297,11 +1304,17 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private func refreshTracks(using snapshot: EngineSnapshot? = nil) {
         let state = snapshot ?? core.driver?.snapshot ?? core.snapshot
         let audio = state.audio.map { PlaybackTrack(id: uiTrackID($0.id), name: $0.name, isSelected: $0.selected) }
-        let subtitles = state.subtitles.map { PlaybackTrack(id: uiTrackID($0.id), name: $0.name, isSelected: $0.selected) }
+        let subtitles = state.subtitles.map { track in
+            let id = uiTrackID(track.id)
+            return PlaybackTrack(id: id, name: track.name,
+                                 isSelected: track.selected || id == requestedSubtitleID)
+        }
         if audioTracks != audio { audioTracks = audio }
         if subtitleTracks != subtitles { subtitleTracks = subtitles }
-        let selected = state.subtitles.first(where: { $0.selected }).map { uiTrackID($0.id) }
+        let engineSelected = state.subtitles.first(where: { $0.selected }).map { uiTrackID($0.id) }
+        let selected = engineSelected ?? requestedSubtitleID
         if selectedSubtitleID != selected { selectedSubtitleID = selected }
+        if let engineSelected, engineSelected == requestedSubtitleID { requestedSubtitleID = nil }
     }
     private func updateSubtitles() {
         let state = core.snapshot

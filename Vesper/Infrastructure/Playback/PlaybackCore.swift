@@ -55,6 +55,7 @@ struct TranscodedPlaybackResource: Sendable {
     private var serverAttemptCount = 0
     private var lastError: Error?
     private var pendingSubtitleSelection: EngineTrack?
+    private var subtitleSelectionIsExplicitlyOff = false
     private var isAppBackgrounded = false
     private var aetherBackgroundRecoveryPending = false
     private var timelineOffset: Double = 0
@@ -65,6 +66,8 @@ struct TranscodedPlaybackResource: Sendable {
     func load(_ url: URL, preferred: EngineID, configuration: EngineConfiguration, audio: EngineTrack? = nil,
               subtitle: EngineTrack? = nil, server: (any PlaybackTranscodingProvider)? = nil) async throws {
         let barrier = shutdown()
+        pendingSubtitleSelection = nil
+        subtitleSelectionIsExplicitlyOff = subtitle == nil
         aetherBackgroundRecoveryPending = false
         transcodingProvider = server
         let generation = UUID(); token = generation
@@ -295,32 +298,22 @@ struct TranscodedPlaybackResource: Sendable {
     }
     private func match(_ old: EngineTrack?, in tracks: [EngineTrack]) -> EngineTrack? {
         guard let old else { return nil }
-        if old.id.hasPrefix("emby-preference:"),
-           let ordinal = Int(old.id.dropFirst("emby-preference:".count)) {
-            // Emby indices include video and other stream types. Use the ordinal
-            // within this track type only when its metadata also agrees.
-            if tracks.indices.contains(ordinal) {
-                let candidate = tracks[ordinal]
-                if (old.language == nil || candidate.language == nil
-                    || EmbyTrackPreferences.normalized(candidate.language ?? "") == EmbyTrackPreferences.normalized(old.language ?? ""))
-                    && (old.codec == nil || candidate.codec == nil || Self.trackCodec(candidate.codec) == Self.trackCodec(old.codec)) {
-                    return candidate
-                }
+        if old.id.hasPrefix("emby-preference:") {
+            let language = EmbyTrackPreferences.normalized(old.language ?? "")
+            let named = tracks.filter {
+                EmbyTrackPreferences.normalized($0.language ?? "") == language
+                    || $0.name.localizedCaseInsensitiveContains(old.name)
             }
+            if named.count == 1 { return named[0] }
+            if let exactName = tracks.first(where: { $0.name.localizedCaseInsensitiveCompare(old.name) == .orderedSame }) {
+                return exactName
+            }
+            return nil
         }
         // IDs are engine-local. Match semantics, never an unrelated reused ID.
         return tracks.first { $0.language == old.language && $0.codec == old.codec && $0.name == old.name }
             ?? tracks.first { old.language != nil && $0.language == old.language && $0.codec == old.codec }
             ?? tracks.first { $0.name == old.name && !old.name.isEmpty }
-    }
-    private static func trackCodec(_ codec: String?) -> String {
-        switch codec?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) ?? "" {
-        case "srt", "subrip": return "subrip"
-        case "ssa", "ass": return "ass"
-        case "wvtt", "webvtt": return "webvtt"
-        case "pgs", "pgssub", "hdmv_pgs_subtitle": return "pgs"
-        default: return codec?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        }
     }
     private func poll(generation: UUID) {
         monitor?.cancel()
@@ -329,7 +322,8 @@ struct TranscodedPlaybackResource: Sendable {
                 guard let self, self.token == generation, let driver = self.driver else { return }
                 let previous = self.snapshot
                 self.snapshot = driver.snapshot
-                if let pending = self.pendingSubtitleSelection,
+                if !self.subtitleSelectionIsExplicitlyOff,
+                   let pending = self.pendingSubtitleSelection,
                    let selected = self.match(pending, in: self.snapshot.subtitles) {
                     self.pendingSubtitleSelection = nil
                     driver.selectSubtitle(selected.id)
@@ -500,6 +494,7 @@ struct TranscodedPlaybackResource: Sendable {
     func selectAudio(_ id: String) { driver?.selectAudio(id) }
     func selectSubtitle(_ id: String?) {
         pendingSubtitleSelection = nil
+        subtitleSelectionIsExplicitlyOff = id == nil
         driver?.selectSubtitle(id)
     }
     func preparePiP() { driver?.preparePiP() }

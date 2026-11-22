@@ -25,6 +25,15 @@ class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
         self.assertIn('try player.seek(to: .seconds(configuration.position), fast: false)', driver)
         self.assertIn('else if configuration.position > 0 { try player.play() }', driver)
 
+    def test_subtitle_selection_survives_vlc_async_track_acknowledgement(self):
+        core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
+        session = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
+        vlc = (ROOT / 'Playback/VLCBridge/VLCDriver.swift').read_text()
+        self.assertIn('pendingSubtitleSelection', core)
+        self.assertIn('requestedSubtitleID', session)
+        self.assertIn('let selected = engineSelected ?? requestedSubtitleID', session)
+        self.assertIn('player.subtitleTracks.first { $0.id == requestedID }', vlc)
+
     def test_timeline_does_not_broadcast_through_shared_session(self):
         session = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
         screen = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()

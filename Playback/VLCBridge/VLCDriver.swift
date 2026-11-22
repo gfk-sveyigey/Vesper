@@ -307,7 +307,12 @@ internal import SwiftVLC
         hosting?.view.removeFromSuperview(); hosting = nil; hasInstalledSurface = false
     }
     public func selectAudio(_ id: String) { player?.selectedAudioTrack = player?.audioTracks.first { $0.id == id } }
-    public func selectSubtitle(_ id: String?) { player?.selectedSubtitleTrack = player?.subtitleTracks.first { $0.id == id } }
+    public func selectSubtitle(_ id: String?) {
+        guard let player else { return }
+        player.selectedSubtitleTrack = id.flatMap { requestedID in
+            player.subtitleTracks.first { $0.id == requestedID }
+        }
+    }
     public func setPiPActive(_ active: Bool) {}
     public func startPiP() { player?.aspectRatio = .default; pip?.start() }
     public func stopPiP() { pip?.stop() }
