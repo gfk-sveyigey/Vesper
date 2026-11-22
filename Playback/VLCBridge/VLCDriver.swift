@@ -99,7 +99,7 @@ internal import SwiftVLC
     public var downloadSample: EngineDownloadSample? {
         guard measuresNetworkInput, let player, let bytes = player.statistics?.readBytes,
               let count = Int64(exactly: bytes) else { return nil }
-        return .init(counterID: downloadSessionID + ":\(player.currentTime.components.seconds):\(player.currentTime.components.attoseconds / 1_000_000_000_000_000)", bytes: count)
+        return .init(counterID: downloadSessionID, bytes: count)
     }
 
     public var diagnosticMetrics: [EngineDiagnosticMetric] {
@@ -178,14 +178,14 @@ internal import SwiftVLC
             }
         }
         media.addOption(":no-video-title-show")
-        var networkCachingMilliseconds: Int?
-        if !url.isFileURL, let limit = configuration.preloadCacheLimitBytes {
-            let milliseconds = PlaybackCacheSizing.vlcMilliseconds(byteLimit: limit, bitRate: configuration.mediaBitRate)
-            media.addOption(":network-caching=\(milliseconds)")
-            networkCachingMilliseconds = milliseconds
+        let networkCachingMilliseconds: Int? = url.isFileURL ? nil : 5_000
+        if let networkCachingMilliseconds {
+            media.addOption(":network-caching=\(networkCachingMilliseconds)")
         }
-        if configuration.position > 0 { media.addOption(":start-time=\(configuration.position)") }
-        if !configuration.autoplay { media.addOption(":start-paused") }
+        // Open the complete input timeline. VLC's start-time input option can
+        // expose the remaining input length as duration on some demuxers.
+        // Restore progress with a normal absolute seek after input readiness.
+        if !configuration.autoplay || configuration.position > 0 { media.addOption(":start-paused") }
         try player.play(media)
         // Readiness is asynchronous. Do not report success merely on play().
         // A large network buffer must be allowed to fill before the open timeout.
@@ -195,9 +195,22 @@ internal import SwiftVLC
             try Task.checkCancellation()
             switch player.state {
             case .playing, .paused:
+                if configuration.position > 0 {
+                    // State readiness can precede seekability (especially HTTP).
+                    // Keep waiting within the existing open timeout, rather than
+                    // silently starting at zero or changing the input timeline.
+                    guard player.isSeekable else {
+                        try await Task.sleep(for: .milliseconds(50))
+                        continue
+                    }
+                    try player.seek(to: .seconds(configuration.position), fast: false)
+                    pendingSeekTime = configuration.position
+                    seekClockDeadline = Date().addingTimeInterval(8)
+                }
                 player.selectedSubtitleTrack = nil
                 configure(configuration)
                 if !configuration.autoplay { player.pause() }
+                else if configuration.position > 0 { try player.play() }
                 return
             case .error: throw PlaybackCoreError.failed("SwiftVLC: 播放失败")
             default: break

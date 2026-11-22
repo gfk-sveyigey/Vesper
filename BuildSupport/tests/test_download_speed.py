@@ -10,6 +10,23 @@ ROOT = Path(__file__).resolve().parents[2]
 SWIFTC = shutil.which(os.environ.get('SWIFTC', 'swiftc'))
 
 
+class DownloadCounterIdentityTests(unittest.TestCase):
+    def test_playhead_does_not_reset_byte_counter_identity(self):
+        for bridge in ('Aether', 'VLC'):
+            driver = (ROOT / f'Playback/{bridge}Bridge/{bridge}Driver.swift').read_text()
+            sample = driver.split('public var downloadSample:', 1)[1].split('public var diagnosticMetrics:', 1)[0]
+            self.assertIn('downloadSessionID', sample)
+            self.assertNotIn('currentTime', sample)
+            self.assertNotIn('positionBucket', sample)
+
+    def test_swiftvlc_uses_fixed_five_second_remote_start_buffer(self):
+        driver = (ROOT / 'Playback/VLCBridge/VLCDriver.swift').read_text()
+        cache_setup = driver.split('let networkCachingMilliseconds:', 1)[1].split('// Open the complete input timeline.', 1)[0]
+        self.assertIn('url.isFileURL ? nil : 5_000', cache_setup)
+        self.assertIn('network-caching=', cache_setup)
+        self.assertNotIn('preloadCacheLimitBytes', cache_setup)
+
+
 @unittest.skipUnless(SWIFTC, 'Swift compiler is required')
 class DownloadSpeedTests(unittest.TestCase):
     def test_idle_smoothing_and_counter_lifecycle(self):

@@ -151,8 +151,7 @@ internal import AetherEngine
         default: return nil
         }
         let route = engine.videoRoute.rawValue
-        let positionBucket = Int(engine.clock.currentTime.rounded(.down))
-        return .init(counterID: "\(downloadSessionID):\(route):\(positionBucket)", bytes: bytes)
+        return .init(counterID: "\(downloadSessionID):\(route)", bytes: bytes)
     }
 
     public var diagnosticMetrics: [EngineDiagnosticMetric] {

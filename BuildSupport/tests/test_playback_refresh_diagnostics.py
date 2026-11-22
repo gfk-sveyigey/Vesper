@@ -5,6 +5,26 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
+    def test_aether_background_failure_recovers_without_engine_failover(self):
+        core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
+        session = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
+        self.assertIn('aetherBackgroundRecoveryPending', core)
+        self.assertIn('self.snapshot.requiresForegroundReload = true', core)
+        self.assertIn('等待前台重载', core)
+        self.assertIn('var requestedAutoplay: Bool { configuration.autoplay }', core)
+        recovery = session.split('private func restoreReleasedAetherSession', 1)[1].split('private func recordPlaybackHistory', 1)[0]
+        self.assertIn('core.snapshot.requiresForegroundReload', recovery)
+        self.assertIn('engine: .aether', recovery)
+        self.assertIn('restoreReleasedAetherSession(resume: core.requestedAutoplay)', session)
+
+    def test_vlc_resume_preserves_the_full_input_timeline(self):
+        driver = (ROOT / 'Playback/VLCBridge/VLCDriver.swift').read_text()
+        self.assertNotIn('media.addOption(":start-time=', driver)
+        self.assertIn('!configuration.autoplay || configuration.position > 0', driver)
+        self.assertIn('guard player.isSeekable else', driver)
+        self.assertIn('try player.seek(to: .seconds(configuration.position), fast: false)', driver)
+        self.assertIn('else if configuration.position > 0 { try player.play() }', driver)
+
     def test_timeline_does_not_broadcast_through_shared_session(self):
         session = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
         screen = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()

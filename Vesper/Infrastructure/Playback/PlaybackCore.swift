@@ -48,11 +48,14 @@ struct TranscodedPlaybackResource: Sendable {
     private var token = UUID()
     private var url: URL?
     var playbackURL: URL? { url }
+    var requestedAutoplay: Bool { configuration.autoplay }
     private var configuration = EngineConfiguration()
     private var attempted: Set<EngineID> = []
     private var hasTriedServer = false
     private var serverAttemptCount = 0
     private var lastError: Error?
+    private var isAppBackgrounded = false
+    private var aetherBackgroundRecoveryPending = false
     private var timelineOffset: Double = 0
     private var originalDuration: Double = 0
     var view: UIView? { driver?.view }
@@ -61,6 +64,7 @@ struct TranscodedPlaybackResource: Sendable {
     func load(_ url: URL, preferred: EngineID, configuration: EngineConfiguration, audio: EngineTrack? = nil,
               subtitle: EngineTrack? = nil, server: (any PlaybackTranscodingProvider)? = nil) async throws {
         let barrier = shutdown()
+        aetherBackgroundRecoveryPending = false
         transcodingProvider = server
         let generation = UUID(); token = generation
         self.url = url; self.configuration = configuration
@@ -79,6 +83,11 @@ struct TranscodedPlaybackResource: Sendable {
         try Task.checkCancellation()
         guard token == generation else { throw CancellationError() }
         if let lastError { throw lastError }
+    }
+
+    func setAppBackgrounded(_ backgrounded: Bool) {
+        isAppBackgrounded = backgrounded
+        if backgrounded, engineID == .aether { aetherBackgroundRecoveryPending = true }
     }
     /// Return a retirement barrier so file access is kept alive until all native
     /// readers and pending open/seek work stop. Never await yourself in this chain.
@@ -318,7 +327,19 @@ struct TranscodedPlaybackResource: Sendable {
                     }
                     self.snapshot.duration = self.originalDuration
                 }
+                if self.engineID == .aether, self.aetherBackgroundRecoveryPending,
+                   !self.isAppBackgrounded, self.snapshot.phase == .playing {
+                    self.aetherBackgroundRecoveryPending = false
+                }
                 if case .failed(let message) = self.snapshot.phase {
+                    if self.engineID == .aether, self.aetherBackgroundRecoveryPending {
+                        self.snapshot = previous
+                        self.snapshot.phase = .paused
+                        self.snapshot.requiresForegroundReload = true
+                        self.onChange?()
+                        self.log?("Aether 后台会话失效，等待前台重载：\(message)")
+                        return
+                    }
                     self.configuration.position = previous.time
                     if previous.phase == .playing { self.configuration.autoplay = true }
                     else if previous.phase == .paused { self.configuration.autoplay = false }

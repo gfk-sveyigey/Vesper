@@ -71,6 +71,9 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var recordWrites: [MediaID: EmbyRecordWrite] = [:]
     private var manuallyUnplayedCurrentItem: MediaID?
     private var lastHistorySave = Date.distantPast
+    // Preserve write order, including deletes, without encoding the full history
+    // on the main actor while video and controls are rendering.
+    private let historyPersistenceQueue = DispatchQueue(label: "app.vesper.playback.history", qos: .utility)
     @Published private(set) var currentItem: MediaItem? {
         didSet {
             if oldValue?.id != currentItem?.id { danmaku = PlayerDanmaku() }
@@ -662,6 +665,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     func handleScenePhase(_ phase: ScenePhase) {
+        core.setAppBackgrounded(phase == .background)
         switch phase {
         case .inactive:
             appIsInactive = true
@@ -695,17 +699,16 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         }
     }
 
-    /// Aether explicitly marks a background-released pipeline. A seek/play
-    /// against that shell cannot restore it. Resolve Emby again (including a
-    /// potentially expired direct/transcode URL), carrying position and tracks.
+    /// Aether marks a background-released or invalidated pipeline. Re-resolve
+    /// the current resource at its last position, keeping Aether as the preferred engine.
     @discardableResult
     private func restoreReleasedAetherSession(resume: Bool) -> Bool {
         guard !appIsInBackground, !appIsInactive, !core.isTransitioning, !isLoading,
-              core.engineID == .aether, let item = currentItem, let source, source.kind == .emby,
-              core.driver?.snapshot.requiresForegroundReload == true else { return false }
+              core.engineID == .aether, let item = currentItem,
+              core.snapshot.requiresForegroundReload else { return false }
         let position = currentTime.isFinite ? max(0, currentTime) : 0
-        log("后台视频管线已释放，重新连接 Emby：position=\(position) resume=\(resume)")
-        load(item, source: source, engine: currentEngine, decoder: currentDecoder,
+        log("后台 Aether 视频管线已失效，使用原引擎恢复：position=\(position) resume=\(resume)")
+        load(item, source: source, engine: .aether, decoder: currentDecoder,
              position: position, resume: resume, rate: playbackRate)
         return true
     }
@@ -719,9 +722,10 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         let entry = PlaybackHistoryEntry(mediaID: item.id, title: item.title, source: source,
                                          watchedAt: Date(), position: currentTime, duration: duration,
                                          isPlayed: played, hiddenFromHistory: keepHidden)
-        history.removeAll { $0.mediaID == item.id }
-        history.insert(entry, at: 0)
-        if history.count > 1000 { history.removeLast(history.count - 1000) }
+        var updatedHistory = history.filter { $0.mediaID != item.id }
+        updatedHistory.insert(entry, at: 0)
+        if updatedHistory.count > 1000 { updatedHistory.removeLast(updatedHistory.count - 1000) }
+        history = updatedHistory
         persistHistory()
         lastHistorySave = Date()
         if !priorPlayed, played, source.kind == .emby {
@@ -991,8 +995,11 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     private func persistHistory() {
-        if let data = try? JSONEncoder().encode(history) {
-            UserDefaults.standard.set(data, forKey: "player.history.v1")
+        let entries = history
+        historyPersistenceQueue.async {
+            if let data = try? JSONEncoder().encode(entries) {
+                UserDefaults.standard.set(data, forKey: "player.history.v1")
+            }
         }
     }
 
@@ -1593,11 +1600,19 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
 
     private func syncCoreState() {
         let started = ProcessInfo.processInfo.systemUptime
+        var checkpoint = started
+        var slowSteps: [String] = []
+        func measure(_ name: String) {
+            let now = ProcessInfo.processInfo.systemUptime
+            let milliseconds = (now - checkpoint) * 1000
+            if milliseconds >= 4 { slowSteps.append("\(name)=\(Int(milliseconds))ms") }
+            checkpoint = now
+        }
         defer {
             let elapsed = ProcessInfo.processInfo.systemUptime - started
             if elapsed > 0.016, started - lastSlowStateLog > 5 {
                 lastSlowStateLog = started
-                log("[Performance] 播放状态同步耗时 \(Int(elapsed * 1000))ms")
+                log("[Performance] 播放状态同步耗时 \(Int(elapsed * 1000))ms，\(slowSteps.joined(separator: ", "))")
             }
         }
         let state = core.snapshot
@@ -1609,7 +1624,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         }
         // Lifecycle notifications and engine teardown completion can arrive in
         // either order. Also check the first fresh snapshot after foreground.
-        if state.requiresForegroundReload, restoreReleasedAetherSession(resume: false) { return }
+        if state.requiresForegroundReload, restoreReleasedAetherSession(resume: core.requestedAutoplay) { return }
         let view = core.view
         if videoView !== view { videoView = view }
         let engine: PlaybackEngine = core.engineID == .aether ? .aether : .vlc
@@ -1647,6 +1662,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             currentTime = duration; saveProgress(); recordPlaybackHistory()
             embySession?.finish()
         }
+        measure("timeline")
         embySession?.update(position: currentTime, paused: !isPlaying, rate: playbackRate,
                             remembersProgress: PlaybackPreferences.remembersProgress,
                             ready: !isLoading && (state.phase == .playing || state.phase == .paused || state.phase == .ended))
@@ -1654,11 +1670,14 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                              playing: isPlaying, ended: state.phase == .ended,
                              ready: !isLoading && !isSeeking && progressRestored &&
                                 (state.phase == .playing || state.phase == .paused || state.phase == .ended))
+        measure("serverProgress")
         refreshSkipMarkers()
         if applySkipMarkers() { return }
         prepareNextEpisodeIfNeeded()
+        measure("skipAndPreload")
         // Reuse this poll's snapshot instead of reading the engine a second time.
         refreshTracks(using: state); updateSubtitles(); configurePictureInPicture()
+        measure("tracksAndPiP")
         // SwiftVLC retains its native AVKit delegate; consume its observable PiP state.
         if isPictureInPicturePossible != state.pipPossible { isPictureInPicturePossible = state.pipPossible }
         if state.pipActive != previouslyActivePiP {
@@ -1670,6 +1689,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         restoreProgressIfNeeded()
         if Date().timeIntervalSince(lastProgressSave) >= 5 && !isSeeking { saveProgress() }
         if isPlaying && !isSeeking && Date().timeIntervalSince(lastHistorySave) >= 5 { recordPlaybackHistory() }
+        measure("persistProgress")
         if UIApplication.shared.isIdleTimerDisabled != isPlaying {
             UIApplication.shared.isIdleTimerDisabled = isPlaying
         }
@@ -1690,6 +1710,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? playbackRate : 0
             MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         }
+        measure("nowPlaying")
     }
 
     private func log(_ message: String) {
@@ -1724,7 +1745,7 @@ struct PlaybackQueueInfo: Sendable {
     var byteCount: Int?
 }
 
-struct PlaybackHistoryEntry: Identifiable, Codable {
+struct PlaybackHistoryEntry: Identifiable, Codable, Sendable {
     let mediaID: MediaID
     let title: String
     let source: MediaSource

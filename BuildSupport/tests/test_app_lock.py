@@ -24,6 +24,10 @@ class AppLockTests(unittest.TestCase):
         self.assertIn("if failures >= 2 { showPassword = true }", settings)
         self.assertIn("didBecomeActiveNotification", lock)
         self.assertIn("willResignActiveNotification", lock)
+        self.assertIn("// Establish the gate before SwiftUI renders its first frame.", lock)
+        self.assertIn("!AppLock.shared.isBiometricAuthenticationInProgress", lock)
+        self.assertIn("transaction.disablesAnimations = true", lock)
+        self.assertIn(".transition(.identity)", navigation)
         self.assertIn("E10000000000000000000014", project)
         self.assertIn("NSFaceIDUsageDescription", (ROOT / "Info.plist").read_text())
 

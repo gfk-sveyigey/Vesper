@@ -84,6 +84,7 @@ struct AppNavigationView: View {
             if appLock.authenticationRequest != nil {
                 AppLockScreen()
                     .environmentObject(appLock)
+                    .transition(.identity)
                     .zIndex(100)
             }
         }

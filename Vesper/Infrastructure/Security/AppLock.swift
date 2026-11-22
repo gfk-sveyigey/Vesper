@@ -53,8 +53,19 @@ final class AppLock: ObservableObject {
     var settingsVisibleProvider: (() -> Bool)?
     var isSettingsVisible: Bool { settingsVisibleProvider?() ?? false }
     private var authenticationCompletion: (() -> Void)?
+    private(set) var isBiometricAuthenticationInProgress = false
 
-    private init() {}
+    private init() {
+        // Establish the gate before SwiftUI renders its first frame.
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: Self.enabledKey) {
+            let scope = defaults.string(forKey: Self.scopeKey) ?? "launch"
+            if scope == "launch" || scope == "both" {
+                isLocked = true
+                authenticationRequest = .appUnlock
+            }
+        }
+    }
 
     var isEnabled: Bool { UserDefaults.standard.bool(forKey: Self.enabledKey) }
     var shouldBlurInBackground: Bool {
@@ -141,11 +152,14 @@ final class AppLock: ObservableObject {
     }
 
     func authenticateBiometrically(reason: String = "解锁 Vesper") async -> Bool {
+        guard !isBiometricAuthenticationInProgress else { return false }
         let context = LAContext()
         context.localizedFallbackTitle = VesperLocalization.string("使用密码")
         context.localizedCancelTitle = ""
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else { return false }
+        isBiometricAuthenticationInProgress = true
+        defer { isBiometricAuthenticationInProgress = false }
         do {
             return try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
                                                      localizedReason: VesperLocalization.string(reason))
@@ -167,7 +181,7 @@ final class AppLock: ObservableObject {
                 didInitializeLifecycle = true
                 isActive = true
                 let scope = UserDefaults.standard.string(forKey: Self.scopeKey) ?? "launch"
-                if scope == "launch" || scope == "both" {
+                if authenticationRequest == nil, scope == "launch" || scope == "both" {
                     requestAuthentication(.appUnlock)
                 }
                 return
@@ -203,10 +217,14 @@ final class AppLock: ObservableObject {
     func didAuthenticate(_ purpose: AuthenticationPurpose) {
         let completion = authenticationCompletion
         authenticationCompletion = nil
-        if purpose == .appUnlock {
-            didUnlock()
-        } else if authenticationRequest == purpose {
-            authenticationRequest = nil
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if purpose == .appUnlock {
+                didUnlock()
+            } else if authenticationRequest == purpose {
+                authenticationRequest = nil
+            }
         }
         if purpose == .settingsAccess { settingsAuthorized = true }
         if purpose == .disableProtection { settingsAuthorized = false }
@@ -251,6 +269,7 @@ struct AppPrivacyBlurHost: UIViewRepresentable {
 
         @objc private func obscure() {
             guard AppLock.shared.isEnabled, AppLock.shared.shouldBlurInBackground,
+                  !AppLock.shared.isBiometricAuthenticationInProgress,
                   let window, shield == nil else { return }
             let style: UIBlurEffect.Style = {
                 switch traitCollection.userInterfaceStyle {
