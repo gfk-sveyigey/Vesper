@@ -64,13 +64,7 @@ private struct AppLockSettingsView: View {
                 }
             }
         }
-        .onAppear {
-            appLock.settingsVisibleProvider = { true }
-            if enabled, appLock.authenticationRequest == nil {
-                appLock.settingsAuthorized = false
-                appLock.requestAuthentication(.settingsAccess)
-            }
-        }
+        .onAppear { appLock.settingsVisibleProvider = { true } }
         .onDisappear {
             appLock.settingsVisibleProvider = { false }
             appLock.revokeSettingsAuthorization()

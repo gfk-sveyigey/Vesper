@@ -49,6 +49,7 @@ final class AppLock: ObservableObject {
     @Published var settingsAuthorized = false
     private let passwordService = "com.aholic.vesper.app-lock"
     private var isActive = false
+    private var didInitializeLifecycle = false
     var settingsVisibleProvider: (() -> Bool)?
     var isSettingsVisible: Bool { settingsVisibleProvider?() ?? false }
     private var authenticationCompletion: (() -> Void)?
@@ -141,7 +142,8 @@ final class AppLock: ObservableObject {
 
     func authenticateBiometrically(reason: String = "解锁 Vesper") async -> Bool {
         let context = LAContext()
-        context.localizedCancelTitle = VesperLocalization.string("使用密码")
+        context.localizedFallbackTitle = VesperLocalization.string("使用密码")
+        context.localizedCancelTitle = ""
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else { return false }
         do {
@@ -161,6 +163,15 @@ final class AppLock: ObservableObject {
         case .background:
             lastBackgroundDate = Date()
         case .active:
+            guard didInitializeLifecycle else {
+                didInitializeLifecycle = true
+                isActive = true
+                let scope = UserDefaults.standard.string(forKey: Self.scopeKey) ?? "launch"
+                if scope == "launch" || scope == "both" {
+                    requestAuthentication(.appUnlock)
+                }
+                return
+            }
             if !isActive {
                 isActive = true
                 let scope = UserDefaults.standard.string(forKey: Self.scopeKey) ?? "launch"

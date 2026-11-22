@@ -320,6 +320,11 @@ struct AppNavigationView: View {
         isInBackground = phase != .active
         appLock.sceneChanged(phase)
         playback.handleScenePhase(phase)
+        if phase == .active, protectionEnabled, protectionScope != "source",
+           appLock.authenticationRequest == nil, !appLock.isLocked,
+           appLock.lastBackgroundDate == nil {
+            appLock.activateIfNeeded()
+        }
         if phase == .active { presentNextIncomingVideo() }
     }
 
