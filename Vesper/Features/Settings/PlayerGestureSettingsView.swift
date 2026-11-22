@@ -10,7 +10,7 @@ struct PlayerGestureSettingsView: View {
     var body: some View {
         let _ = revision
         SettingsPage {
-            SettingsIntroCard(title: "播放手势", symbol: "hand.draw", description: "为每种手势选择区域与动作。")
+            SettingsIntroCard(title: "播放手势", symbol: "hand.draw", description: "为单指和双指手势分配操作，自定义触发区域与成对手势。")
             SettingsSection {
                 settingsEntry("区域范围设置", symbol: "rectangle.split.3x1", destination: .regions)
                 settingsEntry("组合手势设置", symbol: "arrow.up.arrow.down", destination: .pairs)
@@ -166,7 +166,7 @@ private struct GesturePairSettingsView: View {
     @State private var revision = 0
     var body: some View {
         SettingsPage {
-            SettingsIntroCard(title: "组合手势设置", symbol: "hand.draw", description: "选择需要联动设置的成对手势。")
+
             ForEach(1...2, id: \.self) { fingers in
                 SettingsSection(fingers == 1 ? "单指" : "双指") {
                     ForEach(PlayerGesturePair.allCases.filter { !($0.needsTwoFingers && fingers == 1) }) { pair in
@@ -195,7 +195,7 @@ private struct GestureRegionSettingsView: View {
 
     var body: some View {
         SettingsPage {
-            SettingsIntroCard(title: "区域范围设置", symbol: "rectangle.split.3x1", description: "调整手势区域的分界位置。")
+
             VStack(spacing: 1) {
                 preview([0, split2, 1])
                 preview([0, splitFirst, splitSecond, 1])

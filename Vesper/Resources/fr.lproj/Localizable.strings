@@ -1037,3 +1037,32 @@
 "媒体与存储" = "Médias et stockage";
 
 "帮助与关于" = "Assistance et à propos";
+"继续播放" = "Continuer à regarder";
+"正在验证来源" = "Vérification de la source…";
+"来源验证成功" = "Source vérifiée";
+"验证失败，点击重试" = "Échec de la vérification. Touchez pour réessayer";
+"查看照片访问权限，了解本地网络访问方式，并前往系统设置管理授权。" = "Consultez les accès aux photos et au réseau local, puis gérez les autorisations dans les réglages système.";
+"选择深浅色外观、主题色和应用图标，打造喜欢的界面。" = "Choisissez l’apparence, la couleur d’accentuation et l’icône de l’app.";
+"查看运行日志、设置保留时间，导出或清空日志以便排查问题。" = "Consultez les journaux, réglez leur durée de conservation et exportez-les ou effacez-les pour le diagnostic.";
+"了解应用使用的开源组件，查看各项目的许可与声明。" = "Découvrez les composants open source de l’app, leurs licences et leurs mentions légales.";
+"调试 Emby 客户端标识、图片缓存与界面布局，微调导航栏和模糊效果。" = "Ajustez l’identité du client Emby, le cache d’images, la disposition, les en-têtes et le flou.";
+"查看各类缓存占用，选择类别清理或一次清理全部缓存。" = "Consultez l’espace occupé et videz certaines catégories de cache ou l’ensemble des caches.";
+"选择显示的标签页，调整排列顺序、默认页面和标签栏收缩方式。" = "Choisissez les onglets visibles, leur ordre, l’onglet par défaut et la réduction de la barre.";
+"连接 Trakt，设置续播进度优先级、片头片尾跳过、下一集预加载与音频字幕偏好。" = "Connectez Trakt et réglez la priorité de reprise, le saut des génériques, le préchargement et les langues.";
+"设置默认内核与解码方式，调整后台播放、迷你播放器、续播和播放速度。" = "Réglez le moteur, le décodage, la lecture en arrière-plan, le mini-lecteur, la reprise et la vitesse.";
+"字幕由播放引擎显示，请在播放界面调整当前引擎支持的字幕选项。" = "Les sous-titres sont affichés par le moteur de lecture. Réglez les options disponibles dans le lecteur.";
+"为单指和双指手势分配操作，自定义触发区域与成对手势。" = "Attribuez des actions aux gestes à un ou deux doigts et personnalisez leurs zones et leurs paires.";
+"调整弹幕字号、速度、透明度和显示区域，管理屏蔽规则与在线 API。" = "Réglez la taille, la vitesse, l’opacité et la zone des commentaires, puis gérez les filtres et les API.";
+"添加、编辑或停用兼容弹弹play的 API，在播放时搜索并加载在线弹幕。" = "Ajoutez, modifiez ou désactivez des API compatibles dandanplay pour rechercher et charger des commentaires pendant la lecture.";
+"添加和管理在线图标库，供添加或编辑 Emby 来源时选择图标。" = "Gérez les bibliothèques d’icônes en ligne pour personnaliser vos sources Emby.";
+
+/* Emby account and browsing settings */
+"未连接" = "Non connecté";
+"音频与字幕" = "Audio et sous-titres";
+"浏览显示" = "Affichage";
+"观看电影" = "Films vus";
+"观看剧集" = "Séries vues";
+"观看集数" = "Épisodes vus";
+"观看时长" = "Temps de visionnage";
+"Trakt 暂未提供此账号的观看统计。" = "Trakt ne fournit pas encore de statistiques de visionnage pour ce compte.";
+"无法加载 Trakt 账号信息，请稍后重试。" = "Impossible de charger votre compte Trakt. Réessayez plus tard.";

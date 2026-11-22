@@ -25,7 +25,7 @@ struct DanmakuAPISettingsView: View {
     var body: some View {
         SettingsPage {
             SettingsIntroCard(title: "弹幕 API", symbol: "network",
-                              description: "管理在线弹幕来源，播放时选择作品与剧集。")
+                              description: "添加、编辑或停用兼容弹弹play的 API，在播放时搜索并加载在线弹幕。")
             SettingsSection {
                 HStack {
                     Text("已添加的 API").font(.headline)
@@ -317,7 +317,7 @@ private struct DanmakuAPIEditor: View {
     }
     var body: some View {
         SettingsPage {
-            SettingsIntroCard(title: "弹幕 API", symbol: "network", description: "配置在线弹幕服务的名称与接口地址。")
+
             SettingsSection("基本信息") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("名称").font(.caption).foregroundStyle(.secondary)

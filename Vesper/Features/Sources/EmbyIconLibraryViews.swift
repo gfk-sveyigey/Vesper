@@ -24,7 +24,7 @@ struct EmbyIconLibrarySettingsView: View {
     var body: some View {
         SettingsPage {
             SettingsIntroCard(title: "图标库", symbol: "square.grid.2x2",
-                              description: "添加在线图标库，为 Emby 来源选择图标。")
+                              description: "添加和管理在线图标库，供添加或编辑 Emby 来源时选择图标。")
             SettingsSection {
                 if store.links.isEmpty {
                     Text("尚未添加图标库").foregroundStyle(.secondary)
@@ -70,8 +70,7 @@ private struct EmbyIconLibraryEditor: View {
     var body: some View {
         NavigationStack {
             SettingsPage {
-                SettingsIntroCard(title: isNew ? "添加图标库" : "编辑图标库", symbol: "square.grid.2x2",
-                                  description: "添加在线图标库，为 Emby 来源选择图标。")
+
                 SettingsSection {
                     TextField("名称", text: $link.name)
                     TextField("图标库链接", text: $link.address)

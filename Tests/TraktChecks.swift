@@ -2,6 +2,16 @@
 @main
 struct TraktChecks {
     @MainActor static func main() async throws {
+        let profile = try JSONDecoder().decode(TraktAccountSettings.self, from: Data(#"{"user":{"username":"viewer","name":"  ","vip":false,"vip_ep":true,"images":{"avatar":{"full":"https://example.com/avatar.jpg"}}}}"#.utf8)).user
+        precondition(profile.displayName == "viewer")
+        precondition(profile.isVIP && profile.avatarURL?.scheme == "https")
+        let minimal = try JSONDecoder().decode(TraktAccountUser.self, from: Data(#"{"username":"viewer"}"#.utf8))
+        precondition(!minimal.isVIP && minimal.avatarURL == nil)
+        let statistics = try JSONDecoder().decode(TraktAccountStatistics.self, from: Data(#"{"movies":{"watched":12,"plays":15,"minutes":1200},"shows":{"watched":3},"episodes":{"watched":25,"plays":30,"minutes":1000}}"#.utf8))
+        precondition(statistics.movies.watched == 12) // Unique titles, not repeat plays.
+        precondition(statistics.shows.watched == 3 && statistics.episodes.watched == 25)
+        precondition(statistics.watchedMinutes == 2200) // Movie + episode time only.
+
         var state = TraktScrobbleState()
         precondition(state.update(playing: false, ended: false) == nil)
         precondition(state.finish() == nil) // Open failure/loading never creates a record.

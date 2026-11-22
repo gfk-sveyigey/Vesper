@@ -359,7 +359,7 @@ struct MediaView: View {
             .sorted { $0.watchedAt > $1.watchedAt }
         if !entries.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                Text("最近播放")
+                Text("继续播放")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.primary)
                     .accessibilityAddTraits(.isHeader)

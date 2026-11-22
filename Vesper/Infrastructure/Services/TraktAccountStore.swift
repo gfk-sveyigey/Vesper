@@ -166,6 +166,19 @@ final class TraktAccountStore: NSObject, ObservableObject, ASWebAuthenticationPr
         return token
     }
 
+    func accountOverview() async throws -> TraktAccountOverview {
+        let revision = accountRevision
+        let settings = try await api("users/settings", revision: revision)
+        let user = try JSONDecoder().decode(TraktAccountSettings.self, from: settings).user
+        // Use the authenticated alias rather than interpolating a user-controlled name.
+        let data = try await api("users/me/stats", revision: revision)
+        try Task.checkCancellation()
+        guard accountRevision == revision, isConnected else { throw Failure.disconnected }
+        // Trakt returns 204 when precomputed statistics are unavailable.
+        let statistics = data.isEmpty ? nil : try JSONDecoder().decode(TraktAccountStatistics.self, from: data)
+        return TraktAccountOverview(user: user, statistics: statistics)
+    }
+
     /// Coalesce all callers. The rotating refresh token is persisted before any waiter resumes.
     private func accessToken(revision: UUID, rejectedToken: String? = nil) async throws -> String {
         guard accountRevision == revision, let saved = token else { throw Failure.disconnected }
@@ -272,6 +285,48 @@ final class TraktAccountStore: NSObject, ObservableObject, ASWebAuthenticationPr
 }
 
 // Foundation-only values keep media matching and lifecycle policy testable without a player.
+struct TraktAccountSettings: Decodable, Sendable {
+    let user: TraktAccountUser
+}
+
+struct TraktAccountUser: Decodable, Sendable {
+    struct Images: Decodable, Sendable {
+        struct Avatar: Decodable, Sendable { let full: String? }
+        let avatar: Avatar?
+    }
+    let username: String
+    let name: String?
+    let vip: Bool?
+    let vip_ep: Bool?
+    let images: Images?
+    var displayName: String {
+        let value = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? username : value
+    }
+    var isVIP: Bool { vip == true || vip_ep == true }
+    var avatarURL: URL? {
+        guard let full = images?.avatar?.full, let url = URL(string: full),
+              url.scheme == "https", url.host != nil else { return nil }
+        return url
+    }
+}
+
+struct TraktAccountStatistics: Decodable, Sendable {
+    struct Media: Decodable, Sendable {
+        let watched: Int
+        let minutes: Int?
+    }
+    let movies: Media
+    let shows: Media
+    let episodes: Media
+    var watchedMinutes: Int { max(0, movies.minutes ?? 0) + max(0, episodes.minutes ?? 0) }
+}
+
+struct TraktAccountOverview: Sendable {
+    let user: TraktAccountUser
+    let statistics: TraktAccountStatistics?
+}
+
 struct TraktToken: Codable, Sendable {
     let access_token: String
     let refresh_token: String

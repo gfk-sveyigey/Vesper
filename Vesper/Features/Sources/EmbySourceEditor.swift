@@ -6,6 +6,7 @@ struct EmbySourceEditor: View {
     let source: MediaSource?
     @EnvironmentObject private var library: SourceLibrary
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var title = ""
     @State private var note = ""
     @State private var schemeIsHTTPS = true
@@ -33,24 +34,57 @@ struct EmbySourceEditor: View {
     @State private var showingIconLibrary = false
     @State private var iconSelectionRevision = 0
     @State private var showingMoreSettings = false
-    @State private var saving = false
+    @State private var saveState = SaveState.idle
     @State private var errorMessage: String?
     @FocusState private var focusedField: AddressField?
 
     private enum AddressField: Hashable { case host, port, path }
+    private enum SaveState: Equatable {
+        case idle, validating, succeeded, failed
+
+        var symbol: String {
+            switch self {
+            case .idle: "checkmark"
+            case .validating: "arrow.triangle.2.circlepath"
+            case .succeeded: "checkmark.circle.fill"
+            case .failed: "xmark.circle.fill"
+            }
+        }
+
+        var label: LocalizedStringKey {
+            switch self {
+            case .idle: "完成"
+            case .validating: "正在验证来源"
+            case .succeeded: "来源验证成功"
+            case .failed: "验证失败，点击重试"
+            }
+        }
+    }
+
+    private var saving: Bool { saveState == .validating || saveState == .succeeded }
 
     var body: some View {
         NavigationStack {
             settingsForm
+            .disabled(saving)
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(source == nil ? "添加 Emby 来源" : "编辑 Emby 来源")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("关闭", systemImage: "xmark") { dismiss() }
+                        .disabled(saving)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { save() }.disabled(saving || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button(action: save) {
+                        Image(systemName: saveState.symbol)
+                            .contentTransition(.symbolEffect(.replace))
+                            .symbolEffect(.rotate, options: .repeating,
+                                          isActive: saveState == .validating && !reduceMotion)
+                    }
+                    .animation(reduceMotion ? nil : .snappy(duration: 0.3), value: saveState)
+                    .accessibilityLabel(saveState.label)
+                    .disabled(saving || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
@@ -110,18 +144,11 @@ struct EmbySourceEditor: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.top, 12)
     }
 
     private var settingsForm: some View {
         Form {
             Section {
-                identityFields
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-            Section("服务器") {
                 fieldRow("域名") {
                     TextField("example.com", text: $host)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
@@ -137,6 +164,15 @@ struct EmbySourceEditor: View {
                         .focused($focusedField, equals: .path)
                 }
                 Toggle("HTTPS", isOn: $schemeIsHTTPS)
+            } header: {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Keep the identity controls outside the rounded Form row container.
+                    identityFields
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    Text("服务器")
+                }
+                .textCase(nil)
             }
             Section("账户") {
                 fieldRow("用户名") {
@@ -192,6 +228,7 @@ struct EmbySourceEditor: View {
             }
             if let errorMessage { Text(verbatim: errorMessage).foregroundStyle(.red) }
         }
+        .contentMargins(.top, 0, for: .scrollContent)
     }
 
     private var sourceIcon: some View {
@@ -252,10 +289,15 @@ struct EmbySourceEditor: View {
     }
 
     private func save() {
+        guard !saving else { return }
+        focusedField = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        parseFullAddressIfNeeded()
         let trimmedAddress = serverAddress
         guard let components = URLComponents(string: trimmedAddress), components.host != nil,
               components.port == nil || (1...65535).contains(components.port!) else {
-            errorMessage = "服务器地址无效。"
+            errorMessage = VesperLocalization.string("服务器地址无效。")
+            saveState = .failed
             return
         }
         let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -284,11 +326,15 @@ struct EmbySourceEditor: View {
         configuration.allowServerTranscoding = allowTranscoding
         configuration.strmDirectPlayback = strmDirectPlayback
         configuration.iconData = iconData
-        saving = true
+        saveState = .validating
         errorMessage = nil
         Task {
             do {
-                if let source { try await library.updateEmby(source.id, configuration: configuration, password: password.isEmpty ? nil : password) }
+                if let source {
+                    try await library.updateEmby(source.id, configuration: configuration,
+                                                 password: password.isEmpty ? nil : password,
+                                                 validatesConnection: true)
+                }
                 else { try await library.addEmby(configuration: configuration, password: password) }
                 if fetchAlternateAddresses,
                    let savedSource = source.flatMap({ original in library.sources.first(where: { $0.id == original.id }) })
@@ -299,10 +345,11 @@ struct EmbySourceEditor: View {
                         .filter { EmbyRouteOptions.key($0) != EmbyRouteOptions.key(refreshed.serverAddress) }
                     try await library.updateEmby(savedSource.id, configuration: refreshed, password: nil)
                 }
-                saving = false
+                saveState = .succeeded
+                try? await Task.sleep(for: .milliseconds(650))
                 dismiss()
             } catch {
-                saving = false
+                saveState = .failed
                 errorMessage = error.localizedDescription
             }
         }

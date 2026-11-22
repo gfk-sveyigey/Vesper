@@ -1037,3 +1037,32 @@
 "媒体与存储" = "Contenido y almacenamiento";
 
 "帮助与关于" = "Ayuda e información";
+"继续播放" = "Seguir viendo";
+"正在验证来源" = "Verificando fuente…";
+"来源验证成功" = "Fuente verificada";
+"验证失败，点击重试" = "Error de verificación. Toca para reintentar";
+"查看照片访问权限，了解本地网络访问方式，并前往系统设置管理授权。" = "Consulta los permisos de fotos y red local y gestiona el acceso en los ajustes del sistema.";
+"选择深浅色外观、主题色和应用图标，打造喜欢的界面。" = "Elige la apariencia, el color de acento y el icono de la app.";
+"查看运行日志、设置保留时间，导出或清空日志以便排查问题。" = "Revisa los registros, ajusta cuánto tiempo se guardan y expórtalos o bórralos para diagnosticar problemas.";
+"了解应用使用的开源组件，查看各项目的许可与声明。" = "Consulta los componentes de código abierto de la app, sus licencias y avisos.";
+"调试 Emby 客户端标识、图片缓存与界面布局，微调导航栏和模糊效果。" = "Ajusta la identificación del cliente Emby, la caché de imágenes, el diseño y los efectos de desenfoque.";
+"查看各类缓存占用，选择类别清理或一次清理全部缓存。" = "Consulta el espacio de caché y borra categorías concretas o toda la caché a la vez.";
+"选择显示的标签页，调整排列顺序、默认页面和标签栏收缩方式。" = "Elige las pestañas visibles, su orden, la pestaña inicial y cómo se contrae la barra.";
+"连接 Trakt，设置续播进度优先级、片头片尾跳过、下一集预加载与音频字幕偏好。" = "Conecta Trakt y configura la prioridad del progreso, los saltos de intro y créditos, la precarga y los idiomas.";
+"设置默认内核与解码方式，调整后台播放、迷你播放器、续播和播放速度。" = "Configura el motor, el decodificador, la reproducción en segundo plano, el minirreproductor, la reanudación y la velocidad.";
+"字幕由播放引擎显示，请在播放界面调整当前引擎支持的字幕选项。" = "El motor de reproducción muestra los subtítulos. Ajusta sus opciones disponibles desde el reproductor.";
+"为单指和双指手势分配操作，自定义触发区域与成对手势。" = "Asigna acciones a gestos de uno o dos dedos y personaliza sus zonas y parejas.";
+"调整弹幕字号、速度、透明度和显示区域，管理屏蔽规则与在线 API。" = "Ajusta el tamaño, la velocidad, la opacidad y la zona de los comentarios, y gestiona filtros y API.";
+"添加、编辑或停用兼容弹弹play的 API，在播放时搜索并加载在线弹幕。" = "Añade, edita o desactiva API compatibles con dandanplay para buscar y cargar comentarios al reproducir.";
+"添加和管理在线图标库，供添加或编辑 Emby 来源时选择图标。" = "Gestiona bibliotecas de iconos en línea para elegir iconos al añadir o editar fuentes Emby.";
+
+/* Emby account and browsing settings */
+"未连接" = "Sin conectar";
+"音频与字幕" = "Audio y subtítulos";
+"浏览显示" = "Visualización";
+"观看电影" = "Películas vistas";
+"观看剧集" = "Series vistas";
+"观看集数" = "Episodios vistos";
+"观看时长" = "Tiempo de reproducción";
+"Trakt 暂未提供此账号的观看统计。" = "Trakt aún no ofrece estadísticas de visualización para esta cuenta.";
+"无法加载 Trakt 账号信息，请稍后重试。" = "No se pudo cargar tu cuenta de Trakt. Inténtalo más tarde.";

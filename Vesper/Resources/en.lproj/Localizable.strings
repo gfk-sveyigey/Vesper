@@ -1037,3 +1037,32 @@
 "媒体与存储" = "Media & Storage";
 
 "帮助与关于" = "Support & About";
+"继续播放" = "Continue Watching";
+"正在验证来源" = "Verifying source…";
+"来源验证成功" = "Source verified";
+"验证失败，点击重试" = "Verification failed. Tap to retry";
+"查看照片访问权限，了解本地网络访问方式，并前往系统设置管理授权。" = "Review photo access and local network permissions, and manage access in system settings.";
+"选择深浅色外观、主题色和应用图标，打造喜欢的界面。" = "Choose your appearance, accent color, and app icon.";
+"查看运行日志、设置保留时间，导出或清空日志以便排查问题。" = "Review logs, set retention, and export or clear logs when troubleshooting.";
+"了解应用使用的开源组件，查看各项目的许可与声明。" = "Explore the open-source components used by the app and read their licenses and notices.";
+"调试 Emby 客户端标识、图片缓存与界面布局，微调导航栏和模糊效果。" = "Tune Emby client identification, image caching, layout, navigation headers, and blur effects.";
+"查看各类缓存占用，选择类别清理或一次清理全部缓存。" = "Review cache storage and clear selected categories or all caches at once.";
+"选择显示的标签页，调整排列顺序、默认页面和标签栏收缩方式。" = "Choose visible tabs, their order, the default tab, and tab bar minimization.";
+"连接 Trakt，设置续播进度优先级、片头片尾跳过、下一集预加载与音频字幕偏好。" = "Connect Trakt and set resume priorities, intro and credits skipping, next-episode preloading, and language preferences.";
+"设置默认内核与解码方式，调整后台播放、迷你播放器、续播和播放速度。" = "Set the default engine and decoder, background playback, mini player, resume behavior, and playback speed.";
+"字幕由播放引擎显示，请在播放界面调整当前引擎支持的字幕选项。" = "Subtitles are rendered by the playback engine. Adjust its supported options from the player.";
+"为单指和双指手势分配操作，自定义触发区域与成对手势。" = "Assign actions to one- and two-finger gestures and customize regions and paired gestures.";
+"调整弹幕字号、速度、透明度和显示区域，管理屏蔽规则与在线 API。" = "Adjust comment size, speed, opacity, and screen area, and manage filters and online APIs.";
+"添加、编辑或停用兼容弹弹play的 API，在播放时搜索并加载在线弹幕。" = "Add, edit, or disable dandanplay-compatible APIs to find and load comments during playback.";
+"添加和管理在线图标库，供添加或编辑 Emby 来源时选择图标。" = "Manage online icon libraries to choose icons when adding or editing Emby sources.";
+
+/* Emby account and browsing settings */
+"未连接" = "Not connected";
+"音频与字幕" = "Audio & subtitles";
+"浏览显示" = "Browsing";
+"观看电影" = "Movies watched";
+"观看剧集" = "Shows watched";
+"观看集数" = "Episodes watched";
+"观看时长" = "Watch time";
+"Trakt 暂未提供此账号的观看统计。" = "Trakt has no viewing statistics available for this account yet.";
+"无法加载 Trakt 账号信息，请稍后重试。" = "Unable to load your Trakt account. Please try again later.";

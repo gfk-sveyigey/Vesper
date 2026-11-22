@@ -341,7 +341,8 @@ final class SourceLibrary: ObservableObject {
         URLComponents(string: address)?.host ?? "Emby"
     }
 
-    func updateEmby(_ id: UUID, configuration: EmbySourceConfiguration, password: String?) async throws {
+    func updateEmby(_ id: UUID, configuration: EmbySourceConfiguration, password: String?,
+                    validatesConnection: Bool = false) async throws {
         guard let index = sources.firstIndex(where: { $0.id == id && $0.kind == .emby }) else { return }
         _ = try EmbyAPIClient(configuration: configuration, token: nil, deviceID: "validation")
         var updated = sources[index]
@@ -353,6 +354,10 @@ final class SourceLibrary: ObservableObject {
             updated.emby?.serverID = auth.serverID
             updated.emby?.userID = auth.userID
         } else {
+            if validatesConnection {
+                guard configuration.username == sources[index].emby?.username else { throw EmbyError.authentication }
+                try await EmbyAccountStore.shared.verifyConnection(for: updated)
+            }
             try EmbyAccountStore.shared.updateCustomHeaders(configuration.customHeaders, sourceID: id)
         }
         updated.emby?.customHeaders = [:]

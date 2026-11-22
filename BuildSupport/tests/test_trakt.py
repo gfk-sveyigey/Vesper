@@ -12,7 +12,7 @@ SWIFTC = shutil.which(os.environ.get("SWIFTC", "swiftc"))
 
 def production_checks_source():
     source = (ROOT / "Vesper/Infrastructure/Services/TraktAccountStore.swift").read_text()
-    values = source[source.index("struct TraktToken:"):source.index("/// Shared by both engines.")]
+    values = source[source.index("struct TraktAccountSettings:"):source.index("/// Shared by both engines.")]
     values += source[source.index("enum EmbyProgressSource:"):source.index("extension TraktAccountStore {")]
     values += source[source.index("enum TraktResumeProgress:"):]
     refresh = source[source.index("    private func accessToken("):source.index("    /// One refresh/replay")]

@@ -38,7 +38,9 @@ struct SourcesView: View {
                                         .frame(width: 36)
                                 }
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(verbatim: source.name).foregroundStyle(.primary)
+                                    Text(verbatim: source.kind == .local ? VesperLocalization.string("本地视频")
+                                         : source.kind == .photos ? VesperLocalization.string("相册视频") : source.name)
+                                        .foregroundStyle(.primary)
                                     if let note = source.emby?.note, !note.isEmpty {
                                         Text(verbatim: note).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                                     }

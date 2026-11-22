@@ -40,7 +40,7 @@ struct PlaybackSettingsView: View {
     var body: some View {
         SettingsPage {
             Group {
-                SettingsIntroCard(title: "播放设置", symbol: "play.circle", description: "管理后台播放、进度与跳转。")
+                SettingsIntroCard(title: "播放设置", symbol: "play.circle", description: "设置默认内核与解码方式，调整后台播放、迷你播放器、续播和播放速度。")
                 SettingsSection {
                     SettingsPicker("默认播放内核", selection: $engine) {
                         ForEach(PlaybackEngine.allCases) { mode in Text(verbatim: mode.title).tag(mode) }
@@ -101,7 +101,7 @@ struct PlaybackSettingsView: View {
 struct SubtitleSettingsView: View {
     var body: some View {
         SettingsPage {
-            SettingsIntroCard(title: "字幕设置", symbol: "captions.bubble", description: "字幕选项可在播放时按当前内核调整。")
+            SettingsIntroCard(title: "字幕设置", symbol: "captions.bubble", description: "字幕由播放引擎显示，请在播放界面调整当前引擎支持的字幕选项。")
             SettingsSection {
                 Text("请在播放界面打开字幕设置。可调整的选项随当前播放引擎及字幕格式变化。")
             }
@@ -147,7 +147,7 @@ struct DanmakuSettingsView: View {
     var body: some View {
         SettingsPage {
             SettingsIntroCard(title: "弹幕设置", symbol: "text.bubble",
-                              description: "调整弹幕显示，管理在线来源与内容过滤。")
+                              description: "调整弹幕字号、速度、透明度和显示区域，管理屏蔽规则与在线 API。")
             DanmakuPreferenceSections(showsSourceManagement: true)
         }
         .navigationTitle("弹幕设置")

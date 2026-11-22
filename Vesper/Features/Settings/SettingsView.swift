@@ -41,7 +41,9 @@ struct SettingsView: View {
     var body: some View {
         VesperRootScrollView(title: "设置") {
             VStack(alignment: .leading, spacing: 32) {
-                settingsGroup("通用") {
+                settingsGroup {
+                    settingsLink(.permissions, title: "应用权限", symbol: "hand.raised")
+                    Divider().padding(.leading, 52)
                     settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
                     Divider().padding(.leading, 52)
                     settingsLink(.tabs, title: "标签设置", symbol: "rectangle.3.group")
@@ -67,10 +69,8 @@ struct SettingsView: View {
                     }
                     .padding(.vertical, 12)
                     .padding(.leading, 12)
-                    Divider().padding(.leading, 52)
-                    settingsLink(.permissions, title: "应用权限", symbol: "hand.raised")
                 }
-                settingsGroup("播放") {
+                settingsGroup {
                     settingsLink(.playback, title: "播放设置", symbol: "play.circle")
                     Divider().padding(.leading, 52)
                     settingsLink(.gestures, title: "播放手势", symbol: "hand.draw")
@@ -79,12 +79,12 @@ struct SettingsView: View {
                     Divider().padding(.leading, 52)
                     settingsLink(.danmaku, title: "弹幕设置", symbol: "text.bubble")
                 }
-                settingsGroup("媒体与存储") {
+                settingsGroup {
                     settingsLink(.emby, title: "Emby 设置", symbol: "server.rack")
                     Divider().padding(.leading, 52)
                     settingsLink(.cache, title: "缓存管理", symbol: "internaldrive")
                 }
-                settingsGroup("帮助与关于") {
+                settingsGroup {
                     settingsLink(.logs, title: "运行日志", symbol: "doc.text")
                     Divider().padding(.leading, 52)
                     settingsLink(.licenses, title: "开源许可", symbol: "doc.plaintext")
@@ -130,16 +130,8 @@ struct SettingsView: View {
         }
     }
 
-    private func settingsGroup<Content: View>(_ title: LocalizedStringKey,
-                                               @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .accessibilityAddTraits(.isHeader)
-                .padding(.horizontal, 12)
-            VStack(spacing: 0) { content() }
-        }
+    private func settingsGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) { content() }
     }
 
     private func settingsLink(_ route: SettingsRoute, title: LocalizedStringKey, symbol: String) -> some View {
@@ -163,7 +155,7 @@ struct SettingsView: View {
 
 private struct EmbySettingsView: View {
     @ObservedObject private var trakt = TraktAccountStore.shared
-    @State private var confirmsTraktDisconnect = false
+    @State private var showsTraktAccount = false
     @State private var showsProgressPriority = false
     @AppStorage(EmbySkipSettings.introKey) private var skipIntro = false
     @AppStorage(EmbySkipSettings.outroKey) private var skipOutro = false
@@ -181,8 +173,23 @@ private struct EmbySettingsView: View {
 
     var body: some View {
         SettingsPage {
-            SettingsIntroCard(title: "Emby 设置", symbol: "server.rack", description: "管理播放缓存、自动跳过与默认音轨。")
+            SettingsIntroCard(title: "Emby 设置", symbol: "server.rack", description: "连接 Trakt，设置续播进度优先级、片头片尾跳过、下一集预加载与音频字幕偏好。")
             SettingsSection("观看记录") {
+                Button {
+                    if trakt.isConnected { showsTraktAccount = true } else { trakt.connect() }
+                } label: {
+                    HStack(spacing: 12) {
+                        Text(verbatim: "Trakt").font(.body)
+                            .foregroundStyle(Color(uiColor: .label))
+                        Spacer()
+                        if trakt.isConnecting { ProgressView() }
+                        else if trakt.isConnected { Text("已连接").foregroundStyle(.secondary) }
+                        else { Text("未连接").foregroundStyle(.secondary) }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(trakt.isConnecting)
                 Button {
                     showsProgressPriority = true
                 } label: {
@@ -192,31 +199,21 @@ private struct EmbySettingsView: View {
                         Image(systemName: "chevron.right").foregroundStyle(.secondary)
                     }
                 }
-                Button {
-                    if trakt.isConnected { confirmsTraktDisconnect = true } else { trakt.connect() }
-                } label: {
-                    HStack(spacing: 12) {
-                        Image("TraktIcon")
-                            .renderingMode(.template)
-                            .resizable().scaledToFit()
-                            .frame(width: 20, height: 20)
-                            .frame(width: 28, height: 28)
-                            .foregroundStyle(.tint)
-                            .accessibilityHidden(true)
-                        Text(verbatim: "Trakt").font(.body)
-                            .foregroundStyle(Color(uiColor: .label))
-                        Spacer()
-                        if trakt.isConnecting { ProgressView() }
-                        else if trakt.isConnected { Text("已连接").foregroundStyle(.secondary) }
-                        else { Text("尚未连接").foregroundStyle(.secondary) }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(trakt.isConnecting)
             }
-            SettingsSection("来源图标") {
-                NavigationLink("图标库") { EmbyIconLibrarySettingsView() }
+            SettingsSection("音频与字幕") {
+                Picker("默认音轨语言", selection: $audioLanguage) {
+                    ForEach(EmbyTrackPreferences.languages.indices, id: \.self) { index in
+                        Text(LocalizedStringKey(EmbyTrackPreferences.languages[index].1))
+                            .tag(EmbyTrackPreferences.languages[index].0)
+                    }
+                }
+                Picker("默认字幕语言", selection: $subtitleLanguage) {
+                    ForEach(EmbyTrackPreferences.languages.indices, id: \.self) { index in
+                        Text(LocalizedStringKey(EmbyTrackPreferences.languages[index].1))
+                            .tag(EmbyTrackPreferences.languages[index].0)
+                    }
+                }
+                Toggle("无对应语言时关闭字幕", isOn: $disableMissingSubtitle)
             }
             SettingsSection("跳过片头片尾") {
                 Toggle("自动跳过片头", isOn: $skipIntro)
@@ -257,40 +254,134 @@ private struct EmbySettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            SettingsSection {
-                Picker("默认音轨语言", selection: $audioLanguage) {
-                    ForEach(EmbyTrackPreferences.languages.indices, id: \.self) { index in
-                        Text(verbatim: EmbyTrackPreferences.languages[index].1)
-                            .tag(EmbyTrackPreferences.languages[index].0)
-                    }
-                }
-                Picker("默认字幕语言", selection: $subtitleLanguage) {
-                    ForEach(EmbyTrackPreferences.languages.indices, id: \.self) { index in
-                        Text(verbatim: EmbyTrackPreferences.languages[index].1)
-                            .tag(EmbyTrackPreferences.languages[index].0)
-                    }
-                }
-                Toggle("无对应语言时关闭字幕", isOn: $disableMissingSubtitle)
-            }
-            SettingsSection {
+            SettingsSection("浏览显示") {
+                NavigationLink("图标库") { EmbyIconLibrarySettingsView() }
                 Toggle("完整加载后渲染", isOn: $waitsForArtwork)
             }
-        }
-        .confirmationDialog("断开 Trakt 连接？", isPresented: $confirmsTraktDisconnect, titleVisibility: .visible) {
-            Button("断开连接", role: .destructive) { trakt.disconnect() }
-            Button("取消", role: .cancel) {}
         }
         .alert("连接失败", isPresented: Binding(get: { trakt.errorMessage != nil }, set: { if !$0 { trakt.errorMessage = nil } })) {
             Button("好", role: .cancel) { trakt.errorMessage = nil }
         } message: {
             Text(trakt.errorMessage ?? "")
         }
+        .sheet(isPresented: $showsTraktAccount) { TraktAccountSheet() }
         .sheet(isPresented: $showsProgressPriority) { EmbyProgressPrioritySheet() }
         .sheet(isPresented: $showsSkipDatabases) { EmbySkipDatabasesView() }
         .task {
             if ["zho", "chi", "zh"].contains(audioLanguage) { audioLanguage = "zh-Hans" }
             if ["zho", "chi", "zh"].contains(subtitleLanguage) { subtitleLanguage = "zh-Hans" }
         }
+    }
+}
+
+private struct TraktAccountSheet: View {
+    @ObservedObject private var trakt = TraktAccountStore.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var overview: TraktAccountOverview?
+    @State private var failure: String?
+    @State private var loading = true
+    @State private var requestID = UUID()
+    @State private var height: CGFloat = 320
+    @State private var confirmsDisconnect = false
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                if let overview {
+                    profile(overview.user)
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        statistic("观看电影", value: overview.statistics.map { $0.movies.watched.formatted() })
+                        statistic("观看剧集", value: overview.statistics.map { $0.shows.watched.formatted() })
+                        statistic("观看集数", value: overview.statistics.map { $0.episodes.watched.formatted() })
+                        statistic("观看时长", value: overview.statistics.map { watchTime($0.watchedMinutes) })
+                    }
+                    if overview.statistics == nil {
+                        Text("Trakt 暂未提供此账号的观看统计。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                } else if loading {
+                    ProgressView().frame(maxWidth: .infinity, minHeight: 180)
+                } else if let failure {
+                    Text(failure).font(.callout).foregroundStyle(.secondary)
+                    Button("重试") { requestID = UUID() }
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .presentationDetents([.height(height)])
+        .presentationDragIndicator(.hidden)
+        .confirmationDialog("断开 Trakt 连接？", isPresented: $confirmsDisconnect, titleVisibility: .visible) {
+            Button("断开连接", role: .destructive) { trakt.disconnect(); dismiss() }
+            Button("取消", role: .cancel) {}
+        }
+        .onChange(of: trakt.isConnected) { _, connected in if !connected { dismiss() } }
+        .task(id: requestID) {
+            loading = true
+            failure = nil
+            do { overview = try await trakt.accountOverview() }
+            catch is CancellationError { return }
+            catch {
+                guard !Task.isCancelled else { return }
+                failure = String(localized: "无法加载 Trakt 账号信息，请稍后重试。")
+            }
+            loading = false
+        }
+    }
+
+    private func profile(_ user: TraktAccountUser) -> some View {
+        VStack(spacing: 8) {
+            AsyncImage(url: user.avatarURL) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable().foregroundStyle(.secondary)
+            }
+            .frame(width: 80, height: 80).clipShape(Circle())
+            .accessibilityHidden(true)
+            HStack(spacing: 6) {
+                Text(verbatim: user.displayName).font(.title2.bold())
+                if user.isVIP {
+                    Text(verbatim: "VIP").font(.caption.bold())
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Color.accentColor.opacity(0.15), in: Capsule())
+                        .foregroundStyle(.tint)
+                }
+                Button {
+                    confirmsDisconnect = true
+                } label: {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.body)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("断开连接")
+            }
+            Text(verbatim: "@" + user.username).font(.subheadline).foregroundStyle(.secondary)
+        }
+        .multilineTextAlignment(.center)
+    }
+
+    private func statistic(_ title: LocalizedStringKey, value: String?) -> some View {
+        VStack(spacing: 8) {
+            Text(value ?? "—").font(.title3.weight(.semibold)).monospacedDigit()
+            Text(title).font(.subheadline).foregroundStyle(.secondary)
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity, minHeight: 84)
+        .padding(8)
+        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func watchTime(_ minutes: Int) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = minutes >= 60 ? [.hour, .minute] : [.minute]
+        formatter.unitsStyle = .short
+        return formatter.string(from: TimeInterval(minutes) * 60) ?? "—"
     }
 }
 
@@ -303,7 +394,7 @@ private struct EmbySkipDatabasesView: View {
     var body: some View {
         NavigationStack {
             SettingsPage {
-                SettingsIntroCard(title: "片头片尾数据库", symbol: "externaldrive", description: "按优先顺序管理片头片尾数据来源。")
+
                 SettingsSection {
                     ForEach($databases) { $database in
                         VStack(alignment: .leading, spacing: 6) {
@@ -373,7 +464,7 @@ private struct EmbySkipDatabaseEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                SettingsIntroCard(title: "数据库设置", symbol: "externaldrive.badge.plus", description: "配置数据库名称、接口地址与数据格式。")
+
                 TextField("名称", text: $database.name)
                 TextField("API 基础地址", text: $database.address)
                     .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -414,7 +505,7 @@ private struct AppPermissionsView: View {
 
     var body: some View {
         SettingsPage {
-            SettingsIntroCard(title: "应用权限", symbol: "hand.raised", description: "查看权限状态，管理照片与本地网络访问。")
+            SettingsIntroCard(title: "应用权限", symbol: "hand.raised", description: "查看照片访问权限，了解本地网络访问方式，并前往系统设置管理授权。")
             SettingsSection {
                 LabeledContent("照片图库", value: photoStatusText)
                 if photoStatus == .notDetermined {
@@ -489,7 +580,7 @@ private struct RuntimeLogsView: View {
     var body: some View {
         SettingsPage {
             Group {
-                SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看、保留和分享运行日志。")
+                SettingsIntroCard(title: "运行日志", symbol: "doc.text", description: "查看运行日志、设置保留时间，导出或清空日志以便排查问题。")
 
                 if store.storageError != nil { Text("日志文件写入失败。").foregroundStyle(.red) }
                 SettingsSection {
@@ -639,7 +730,7 @@ private struct AppearanceSettingsView: View {
     var body: some View {
         SettingsPage {
             Group {
-                SettingsIntroCard(title: "外观设置", symbol: "paintpalette", description: "选择主题、颜色和应用图标。")
+                SettingsIntroCard(title: "外观设置", symbol: "paintpalette", description: "选择深浅色外观、主题色和应用图标，打造喜欢的界面。")
 
                 SettingsSection {
                     SettingsPicker(selection: $appearanceMode) {
@@ -697,7 +788,7 @@ struct TabSettingsView: View {
     var body: some View {
         SettingsPage {
             Group {
-                SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "调整标签排列顺序和显示状态。")
+                SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "选择显示的标签页，调整排列顺序、默认页面和标签栏收缩方式。")
 
                 SettingsSection {
                     ForEach(sections.filter { $0 != .settings }) { section in
@@ -795,7 +886,7 @@ private struct TabOrderSettingsView: View {
 
     var body: some View {
         SettingsPage {
-            SettingsIntroCard(title: "标签顺序", symbol: "arrow.up.arrow.down", description: "拖动排列标签页的顺序。")
+
             SettingsSection {
                 ForEach(sections) { section in
                     Label(section.title, systemImage: section.symbol)
@@ -943,7 +1034,7 @@ private struct PlaybackLicensesView: View {
 
     var body: some View {
         SettingsPage {
-            SettingsIntroCard(title: "开源许可", symbol: "doc.plaintext", description: "查看第三方组件许可。")
+            SettingsIntroCard(title: "开源许可", symbol: "doc.plaintext", description: "了解应用使用的开源组件，查看各项目的许可与声明。")
             SettingsSection {
                 ForEach(documents) { document in
                     Button {
@@ -1137,7 +1228,7 @@ private struct DebugSettingsView: View {
 
     var body: some View {
         SettingsPage {
-            SettingsIntroCard(title: "客户端模拟", symbol: "ladybug", description: "调整 Emby 请求中的客户端标识。")
+            SettingsIntroCard(title: "调试功能", symbol: "ladybug", description: "调试 Emby 客户端标识、图片缓存与界面布局，微调导航栏和模糊效果。")
             SettingsSection {
                 Toggle("启用客户端模拟", isOn: $enabled)
                 if enabled {
@@ -1384,7 +1475,7 @@ private struct CacheCategoryList: UIViewRepresentable {
         let header = UIView()
         let card = UIHostingConfiguration {
             SettingsIntroCard(title: "缓存管理", symbol: "internaldrive",
-                              description: "查看各类缓存占用，按需释放存储空间。")
+                              description: "查看各类缓存占用，选择类别清理或一次清理全部缓存。")
         }.margins(.all, 0).makeContentView()
         card.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(card)
