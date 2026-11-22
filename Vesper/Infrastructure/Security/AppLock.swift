@@ -183,6 +183,10 @@ final class AppLock: ObservableObject {
             guard didInitializeLifecycle else {
                 didInitializeLifecycle = true
                 isActive = true
+                // Startup can pass through background before the first active
+                // callback. That timestamp is not a real post-unlock background
+                // interval and must not relock on the immediately following active.
+                lastBackgroundDate = nil
                 let scope = UserDefaults.standard.string(forKey: Self.scopeKey) ?? "launch"
                 if authenticationRequest == nil, scope == "launch" || scope == "both" {
                     requestAuthentication(.appUnlock)

@@ -85,6 +85,7 @@ struct AppNavigationView: View {
                 AppLockScreen()
                     .environmentObject(appLock)
                     .transition(.identity)
+                    .transaction { $0.disablesAnimations = true; $0.animation = nil }
                     .zIndex(100)
             }
         }
@@ -215,7 +216,10 @@ struct AppNavigationView: View {
                     .interactiveDismissDisabled(true)
                     .overlay {
                         if appLock.authenticationRequest != nil {
-                            AppLockScreen().environmentObject(appLock)
+                            AppLockScreen()
+                                .environmentObject(appLock)
+                                .transition(.identity)
+                                .transaction { $0.disablesAnimations = true; $0.animation = nil }
                         }
                     }
             }

@@ -19,6 +19,8 @@ class AppLockTests(unittest.TestCase):
         auth_overlay = navigation.split('if appLock.authenticationRequest != nil', 1)[1].split('}', 1)[0]
         self.assertNotIn('.transition(.opacity)', auth_overlay)
         self.assertIn("isSettingsVisible && !withinGrace", lock)
+        first_active = lock.split("guard didInitializeLifecycle else", 1)[1].split("if !isActive", 1)[0]
+        self.assertIn("lastBackgroundDate = nil", first_active)
         self.assertIn("appLock.requestAuthentication(.resetPassword)", settings)
         self.assertIn('case .resetPassword: "输入旧密码以重置"', settings)
         self.assertIn("if failures >= 2 { showPassword = true }", settings)
@@ -35,6 +37,7 @@ class AppLockTests(unittest.TestCase):
         self.assertIn("UIApplication.shared.applicationState != .active", lock)
         self.assertIn("transaction.disablesAnimations = true", lock)
         self.assertIn(".transition(.identity)", navigation)
+        self.assertIn("$0.disablesAnimations = true; $0.animation = nil", navigation)
         self.assertIn("E10000000000000000000014", project)
         self.assertIn("NSFaceIDUsageDescription", (ROOT / "Info.plist").read_text())
 
