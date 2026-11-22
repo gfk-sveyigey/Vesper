@@ -222,11 +222,11 @@ private struct MediaArtworkBorder: ViewModifier {
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius)
-        let stroke = colorScheme == .dark ? Color.white.opacity(0.24) : Color.black.opacity(0.18)
+        let stroke = colorScheme == .dark ? Color.white : Color.black
         content
             .clipShape(shape)
             .overlay {
-                shape.strokeBorder(isSelected ? Color.accentColor : stroke, lineWidth: 1)
+                shape.strokeBorder((isSelected ? Color.accentColor : stroke).opacity(0.5), lineWidth: 1)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }

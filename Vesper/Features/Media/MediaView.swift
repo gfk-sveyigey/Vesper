@@ -37,29 +37,32 @@ final class MediaLayoutSettings: ObservableObject {
             case .endPadding: 20
             case .episodeCardWidth: 246
             case .episodeCardHeight: 230
-            case .browserListTop, .browserListBottom: 12
+            case .browserListTop: 0
+            case .browserListBottom: 12
             case .browserListLeading, .browserListTrailing: 20
-            case .browserListRowHeight: 132
-            case .browserListImageTop, .browserListImageLeading, .browserListImageBottom, .browserListImageTrailing: 8
-            case .mediaHeaderHeight: 60
-            case .mediaGlassStrength: 65
-            case .mediaGlassTint: 12
+            case .browserListRowHeight: 80
+            case .browserListImageTop, .browserListImageLeading, .browserListImageBottom, .browserListImageTrailing: 4
+            case .mediaHeaderHeight: 54
+            case .mediaGlassStrength: 5
+            case .mediaGlassTint: 50
             case .mediaGlassBorderWidth: 10
             case .mediaGlassBorderBlur: 0
-            case .mediaGlassBorderOpacity: 80
-            case .mediaContentBlur: 8
-            case .mediaContentOpacityCurve, .mediaContentBlurCurve: 0
-            case .mediaSnapThreshold, .mediaSnapCollapsedThreshold: 50
-            case .mediaSnapConflict: 1
+            case .mediaGlassBorderOpacity: 15
+            case .mediaContentBlur: 3
+            case .mediaContentOpacityCurve, .mediaContentBlurCurve: 2
+            case .mediaSnapThreshold, .mediaSnapCollapsedThreshold: 70
+            case .mediaSnapConflict: 0
             case .mediaSnapDuration: 300
             case .mediaSnapCurve: 3
-            case .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength: 100
+            case .mediaEdgeTopStrength: 5
+            case .mediaEdgeTopMaxStrength: 70
             case .mediaEdgeBottomStrength: 0
-            case .mediaEdgeTint: 12
-            case .mediaEdgeCurve, .mediaEdgeHeightCurve: 1
-            case .carouselBlurHeight: 40
-            case .carouselBlurFadeHeight: 24
-            case .carouselBlurStrength: 55
+            case .mediaEdgeTint: 50
+            case .mediaEdgeCurve: 1
+            case .mediaEdgeHeightCurve: 3
+            case .carouselBlurHeight: 30
+            case .carouselBlurFadeHeight: 110
+            case .carouselBlurStrength: 60
             case .carouselBlurTint: 14
             }
         }

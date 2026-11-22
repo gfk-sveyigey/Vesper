@@ -1019,7 +1019,7 @@ struct MediaDetailView: View {
                                 .background(VesperTheme.mediaCardBackground, in: Capsule())
                                 .overlay {
                                     Capsule()
-                                        .strokeBorder(.primary.opacity(0.18), lineWidth: 1)
+                                        .strokeBorder(.primary.opacity(0.5), lineWidth: 1)
                                         .allowsHitTesting(false)
                                 }
                         }
