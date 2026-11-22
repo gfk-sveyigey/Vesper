@@ -5,13 +5,6 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
-    def test_history_persistence_has_first_write_diagnostics(self):
-        session = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
-        persistence = session.split('private func persistHistory()', 1)[1].split('/// Reconcile', 1)[0]
-        self.assertIn('开始首次历史写入', persistence)
-        self.assertIn('首次历史写入完成', persistence)
-        self.assertIn('JSONEncoder().encode(history)', persistence)
-
     def test_aether_background_failure_recovers_without_engine_failover(self):
         core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
         session = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()

@@ -217,11 +217,15 @@ struct AppLockScreen: View {
         guard !isAuthenticating, !appLock.isBiometricAuthenticationInProgress else { return }
         let purpose = appLock.authenticationRequest
         isAuthenticating = true
-        let success = await appLock.authenticateBiometrically(reason: biometricReason)
+        let result = await appLock.authenticateBiometrically(reason: biometricReason)
         isAuthenticating = false
         guard !Task.isCancelled, appLock.authenticationRequest == purpose else { return }
-        if success { finish() }
-        else {
+        switch result {
+        case .success:
+            finish()
+        case .passwordFallback:
+            showPassword = true
+        case .failure:
             failures += 1
             if failures >= 2 { showPassword = true }
         }

@@ -230,8 +230,7 @@ struct PlayerScreen: View {
         .background {
             PlayerInterfaceRefreshDriver(
                 isActive: scenePhase == .active && session.isPresented && panel == nil
-                    && (controlsVisible || menuPresented || showingNotice || regionsVisible || !hudText.isEmpty),
-                context: "\(menuPresented ? "menu" : "controls"):\(session.isLoading ? "loading" : session.isPlaying ? "playing" : "paused")"
+                    && (controlsVisible || menuPresented || showingNotice || regionsVisible || !hudText.isEmpty)
             )
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -246,8 +245,7 @@ struct PlayerScreen: View {
                     // A full-height sheet may detach the presenting view.
                     // Keep its UI cadence request inside the visible sheet.
                     PlayerInterfaceRefreshDriver(
-                        isActive: scenePhase == .active,
-                        context: "\(selected.rawValue):\(session.isLoading ? "loading" : session.isPlaying ? "playing" : "paused")"
+                        isActive: scenePhase == .active
                     )
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)

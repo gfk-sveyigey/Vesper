@@ -54,6 +54,7 @@ struct TranscodedPlaybackResource: Sendable {
     private var hasTriedServer = false
     private var serverAttemptCount = 0
     private var lastError: Error?
+    private var pendingSubtitleSelection: EngineTrack?
     private var isAppBackgrounded = false
     private var aetherBackgroundRecoveryPending = false
     private var timelineOffset: Double = 0
@@ -92,6 +93,7 @@ struct TranscodedPlaybackResource: Sendable {
     /// Return a retirement barrier so file access is kept alive until all native
     /// readers and pending open/seek work stop. Never await yourself in this chain.
     @discardableResult func shutdown() -> Task<Void, Never> {
+        pendingSubtitleSelection = nil
         token = UUID(); monitor?.cancel(); monitor = nil
         let pending = transition; pending?.cancel()
         let seeking = seekTask; seeking?.cancel(); seekTask = nil
@@ -224,10 +226,14 @@ struct TranscodedPlaybackResource: Sendable {
                 if localConfiguration.autoplay { try candidate.play() } else { candidate.pause() }
                 let state = candidate.snapshot
                 if let selected = match(audio, in: state.audio) { candidate.selectAudio(selected.id) }
+                pendingSubtitleSelection = nil
                 if subtitlesOff { candidate.selectSubtitle(nil) }
                 else if let selected = match(subtitle, in: state.subtitles) { candidate.selectSubtitle(selected.id) }
-                else { candidate.selectSubtitle(nil) }
-                snapshot = state
+                else {
+                    pendingSubtitleSelection = subtitle
+                    candidate.selectSubtitle(nil)
+                }
+                snapshot = candidate.snapshot
                 if hasTriedServer { transcodingProvider?.didActivateTranscoding() }
                 isTransitioning = false; lastError = nil
                 poll(generation: generation)
@@ -295,8 +301,9 @@ struct TranscodedPlaybackResource: Sendable {
             // within this track type only when its metadata also agrees.
             if tracks.indices.contains(ordinal) {
                 let candidate = tracks[ordinal]
-                if (old.language == nil || candidate.language == old.language)
-                    && (old.codec == nil || candidate.codec?.lowercased() == old.codec?.lowercased()) {
+                if (old.language == nil || candidate.language == nil
+                    || EmbyTrackPreferences.normalized(candidate.language ?? "") == EmbyTrackPreferences.normalized(old.language ?? ""))
+                    && (old.codec == nil || candidate.codec == nil || Self.trackCodec(candidate.codec) == Self.trackCodec(old.codec)) {
                     return candidate
                 }
             }
@@ -306,18 +313,27 @@ struct TranscodedPlaybackResource: Sendable {
             ?? tracks.first { old.language != nil && $0.language == old.language && $0.codec == old.codec }
             ?? tracks.first { $0.name == old.name && !old.name.isEmpty }
     }
+    private static func trackCodec(_ codec: String?) -> String {
+        switch codec?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) ?? "" {
+        case "srt", "subrip": return "subrip"
+        case "ssa", "ass": return "ass"
+        case "wvtt", "webvtt": return "webvtt"
+        case "pgs", "pgssub", "hdmv_pgs_subtitle": return "pgs"
+        default: return codec?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+    }
     private func poll(generation: UUID) {
         monitor?.cancel()
         monitor = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, self.token == generation, let driver = self.driver else { return }
                 let previous = self.snapshot
-                let snapshotStarted = ProcessInfo.processInfo.systemUptime
                 self.snapshot = driver.snapshot
-                let snapshotElapsed = ProcessInfo.processInfo.systemUptime - snapshotStarted
-                if snapshotElapsed > 0.016, snapshotStarted - self.lastSlowSnapshotLog > 5 {
-                    self.lastSlowSnapshotLog = snapshotStarted
-                    self.log?("[Performance] 引擎快照读取耗时 \(Int(snapshotElapsed * 1000))ms")
+                if let pending = self.pendingSubtitleSelection,
+                   let selected = self.match(pending, in: self.snapshot.subtitles) {
+                    self.pendingSubtitleSelection = nil
+                    driver.selectSubtitle(selected.id)
+                    self.snapshot = driver.snapshot
                 }
                 if self.timelineOffset > 0 || self.originalDuration > 0 {
                     self.snapshot.time += self.timelineOffset
@@ -376,7 +392,6 @@ struct TranscodedPlaybackResource: Sendable {
         }
     }
 
-    private var lastSlowSnapshotLog: TimeInterval = 0
 
     private static func needsStateNotification(from old: EngineSnapshot, to new: EngineSnapshot) -> Bool {
         old.phase != new.phase
@@ -483,7 +498,10 @@ struct TranscodedPlaybackResource: Sendable {
         }
     }
     func selectAudio(_ id: String) { driver?.selectAudio(id) }
-    func selectSubtitle(_ id: String?) { driver?.selectSubtitle(id) }
+    func selectSubtitle(_ id: String?) {
+        pendingSubtitleSelection = nil
+        driver?.selectSubtitle(id)
+    }
     func preparePiP() { driver?.preparePiP() }
     func startPiP() { driver?.startPiP() }
     func stopPiP() { driver?.stopPiP() }

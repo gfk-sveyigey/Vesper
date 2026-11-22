@@ -71,7 +71,6 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var recordWrites: [MediaID: EmbyRecordWrite] = [:]
     private var manuallyUnplayedCurrentItem: MediaID?
     private var lastHistorySave = Date.distantPast
-    private var didDiagnoseHistoryPersistence = false
     @Published private(set) var currentItem: MediaItem? {
         didSet {
             if oldValue?.id != currentItem?.id { danmaku = PlayerDanmaku() }
@@ -993,14 +992,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     private func persistHistory() {
-        let diagnose = !didDiagnoseHistoryPersistence
-        didDiagnoseHistoryPersistence = true
-        if diagnose { log("[History] 开始首次历史写入，条数=\(history.count)") }
         if let data = try? JSONEncoder().encode(history) {
             UserDefaults.standard.set(data, forKey: "player.history.v1")
-            if diagnose { log("[History] 首次历史写入完成") }
-        } else if diagnose {
-            log("[History] 首次历史编码失败")
         }
     }
 
@@ -1597,25 +1590,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var lastNowPlayingTitle: String?
     private var lastNowPlayingDuration: TimeInterval = -1
     private var lastNowPlayingPosition: TimeInterval = -1
-    private var lastSlowStateLog: TimeInterval = 0
 
     private func syncCoreState() {
-        let started = ProcessInfo.processInfo.systemUptime
-        var checkpoint = started
-        var slowSteps: [String] = []
-        func measure(_ name: String) {
-            let now = ProcessInfo.processInfo.systemUptime
-            let milliseconds = (now - checkpoint) * 1000
-            if milliseconds >= 4 { slowSteps.append("\(name)=\(Int(milliseconds))ms") }
-            checkpoint = now
-        }
-        defer {
-            let elapsed = ProcessInfo.processInfo.systemUptime - started
-            if elapsed > 0.016, started - lastSlowStateLog > 5 {
-                lastSlowStateLog = started
-                log("[Performance] 播放状态同步耗时 \(Int(elapsed * 1000))ms，\(slowSteps.joined(separator: ", "))")
-            }
-        }
         let state = core.snapshot
         if !hasLoadedMedia && !core.isTransitioning {
             switch state.phase {
@@ -1663,7 +1639,6 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             currentTime = duration; saveProgress(); recordPlaybackHistory()
             embySession?.finish()
         }
-        measure("timeline")
         embySession?.update(position: currentTime, paused: !isPlaying, rate: playbackRate,
                             remembersProgress: PlaybackPreferences.remembersProgress,
                             ready: !isLoading && (state.phase == .playing || state.phase == .paused || state.phase == .ended))
@@ -1671,14 +1646,11 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                              playing: isPlaying, ended: state.phase == .ended,
                              ready: !isLoading && !isSeeking && progressRestored &&
                                 (state.phase == .playing || state.phase == .paused || state.phase == .ended))
-        measure("serverProgress")
         refreshSkipMarkers()
         if applySkipMarkers() { return }
         prepareNextEpisodeIfNeeded()
-        measure("skipAndPreload")
         // Reuse this poll's snapshot instead of reading the engine a second time.
         refreshTracks(using: state); updateSubtitles(); configurePictureInPicture()
-        measure("tracksAndPiP")
         // SwiftVLC retains its native AVKit delegate; consume its observable PiP state.
         if isPictureInPicturePossible != state.pipPossible { isPictureInPicturePossible = state.pipPossible }
         if state.pipActive != previouslyActivePiP {
@@ -1690,7 +1662,6 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         restoreProgressIfNeeded()
         if Date().timeIntervalSince(lastProgressSave) >= 5 && !isSeeking { saveProgress() }
         if isPlaying && !isSeeking && Date().timeIntervalSince(lastHistorySave) >= 5 { recordPlaybackHistory() }
-        measure("persistProgress")
         if UIApplication.shared.isIdleTimerDisabled != isPlaying {
             UIApplication.shared.isIdleTimerDisabled = isPlaying
         }
@@ -1711,7 +1682,6 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? playbackRate : 0
             MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         }
-        measure("nowPlaying")
     }
 
     private func log(_ message: String) {

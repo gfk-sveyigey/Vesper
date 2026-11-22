@@ -207,7 +207,6 @@ internal import SwiftVLC
                     pendingSeekTime = configuration.position
                     seekClockDeadline = Date().addingTimeInterval(8)
                 }
-                player.selectedSubtitleTrack = nil
                 configure(configuration)
                 if !configuration.autoplay { player.pause() }
                 else if configuration.position > 0 { try player.play() }

@@ -35,6 +35,10 @@ final class AppLock: ObservableObject {
         }
     }
 
+    enum BiometricResult {
+        case success, failure, passwordFallback
+    }
+
     static let shared = AppLock()
     static let enabledKey = "appLock.enabled"
     static let biometricEnabledKey = "appLock.biometricEnabled"
@@ -151,22 +155,24 @@ final class AppLock: ObservableObject {
         SecItemDelete(query as CFDictionary)
     }
 
-    func authenticateBiometrically(reason: String = "解锁 Vesper") async -> Bool {
-        guard !isBiometricAuthenticationInProgress else { return false }
+    func authenticateBiometrically(reason: String = "解锁 Vesper") async -> BiometricResult {
+        guard !isBiometricAuthenticationInProgress else { return .failure }
         let context = LAContext()
         context.localizedFallbackTitle = VesperLocalization.string("使用密码")
         context.localizedCancelTitle = ""
         var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else { return false }
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else { return .failure }
         isBiometricAuthenticationInProgress = true
-        defer {
-            isBiometricAuthenticationInProgress = false
-            NotificationCenter.default.post(name: .appLockBiometricAttemptFinished, object: nil)
-        }
+        defer { isBiometricAuthenticationInProgress = false }
         do {
-            return try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
-                                                     localizedReason: VesperLocalization.string(reason))
-        } catch { return false }
+            let success = try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
+                                                            localizedReason: VesperLocalization.string(reason))
+            return success ? .success : .failure
+        } catch let error as LAError where error.code == .userFallback {
+            return .passwordFallback
+        } catch {
+            return .failure
+        }
     }
 
     func sceneChanged(_ phase: ScenePhase) {
@@ -255,10 +261,6 @@ final class AppLock: ObservableObject {
     }
 }
 
-private extension Notification.Name {
-    static let appLockBiometricAttemptFinished = Notification.Name("appLock.biometricAttemptFinished")
-}
-
 /// Window-level shielding also covers sheets and the full-screen player in app-switcher snapshots.
 struct AppPrivacyBlurHost: UIViewRepresentable {
     func makeUIView(context: Context) -> PrivacyBlurObserverView { PrivacyBlurObserverView(frame: .zero) }
@@ -273,8 +275,6 @@ struct AppPrivacyBlurHost: UIViewRepresentable {
                 name: UIApplication.willResignActiveNotification, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(reveal),
                 name: UIApplication.didBecomeActiveNotification, object: nil)
-            NotificationCenter.default.addObserver(self, selector: #selector(biometricAttemptFinished),
-                name: .appLockBiometricAttemptFinished, object: nil)
         }
 
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -303,11 +303,6 @@ struct AppPrivacyBlurHost: UIViewRepresentable {
         @objc private func reveal() {
             shield?.removeFromSuperview()
             shield = nil
-        }
-
-        @objc private func biometricAttemptFinished() {
-            guard UIApplication.shared.applicationState != .active else { return }
-            obscure()
         }
 
         override func didMoveToWindow() {
