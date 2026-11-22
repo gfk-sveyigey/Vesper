@@ -5,6 +5,17 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
+    def test_timeline_does_not_broadcast_through_shared_session(self):
+        session = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
+        screen = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
+        self.assertIn('@MainActor @Observable', session)
+        self.assertIn('let timeline = PlaybackTimelineState()', session)
+        for field in ('currentTime', 'bufferedTime', 'bufferedRanges', 'downloadBytesPerSecond'):
+            self.assertNotIn('@Published private(set) var ' + field, session)
+        self.assertIn('PlayerTimelineRegion { progressRowContent }', screen)
+        self.assertIn('PlayerTimelineRegion { Text(verbatim: session.downloadSpeedText) }', screen)
+        self.assertIn('lastNowPlayingPosition', session)
+
     def test_video_surface_can_be_detached_independently(self):
         navigation = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
         settings = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text()

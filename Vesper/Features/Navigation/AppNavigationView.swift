@@ -84,7 +84,6 @@ struct AppNavigationView: View {
             if appLock.authenticationRequest != nil {
                 AppLockScreen()
                     .environmentObject(appLock)
-                    .transition(.opacity)
                     .zIndex(100)
             }
         }
@@ -448,7 +447,7 @@ struct AppNavigationView: View {
                 .modifier(VesperNavigationHeaderLayer(isRoot: historyPath.isEmpty))
         case .settings:
             NavigationStack(path: $settingsPath) {
-                SettingsView()
+                SettingsView(path: $settingsPath)
             }
             .modifier(VesperNavigationHeaderLayer(isRoot: settingsPath.isEmpty))
         }

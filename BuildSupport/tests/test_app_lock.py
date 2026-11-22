@@ -16,6 +16,8 @@ class AppLockTests(unittest.TestCase):
         self.assertIn("appLock.sceneChanged(phase)", navigation)
         self.assertNotIn("appLock.sourceChanged()", navigation)
         self.assertIn("AppPrivacyBlurHost()", navigation)
+        auth_overlay = navigation.split('if appLock.authenticationRequest != nil', 1)[1].split('}', 1)[0]
+        self.assertNotIn('.transition(.opacity)', auth_overlay)
         self.assertIn("isSettingsVisible && !withinGrace", lock)
         self.assertIn("appLock.requestAuthentication(.resetPassword)", settings)
         self.assertIn('case .resetPassword: "输入旧密码以重置"', settings)

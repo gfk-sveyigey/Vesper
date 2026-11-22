@@ -9,17 +9,32 @@ import PlaybackContracts
 import VesperAetherBridge
 import VesperVLCBridge
 import UIKit
+import Observation
+
+/// High-frequency values are observed only by the timeline, speed label and danmaku.
+/// They must not broadcast through the app-wide PlaybackSession publisher.
+@MainActor @Observable
+final class PlaybackTimelineState {
+    var currentTime: TimeInterval = 0
+    var bufferedTime: TimeInterval = 0
+    var bufferedRanges: [ClosedRange<Double>] = []
+    var downloadBytesPerSecond: Double?
+}
 
 /// A single app-owned session. Tabs and player presentation never own or reset
 /// the decoder. PlaybackCore owns engine scheduling behind the existing UI API.
 @MainActor
 final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictureInPictureControllerDelegate {
+    let timeline = PlaybackTimelineState()
     @Published private(set) var currentEngine = PlaybackPreferences.preferredEngine
     var diagnosticEngineTitle: String { currentEngine.title }
     var diagnosticMetrics: [EngineDiagnosticMetric] {
         [.init("下载速度", downloadSpeedText)] + (core.driver?.diagnosticMetrics ?? [])
     }
-    @Published private(set) var downloadBytesPerSecond: Double?
+    private(set) var downloadBytesPerSecond: Double? {
+        get { timeline.downloadBytesPerSecond }
+        set { if timeline.downloadBytesPerSecond != newValue { timeline.downloadBytesPerSecond = newValue } }
+    }
     private var downloadSpeedSampler = DownloadSpeedSampler()
     var downloadSpeedText: String {
         if downloadBytesPerSecond == nil || downloadBytesPerSecond == 0 { return "0B/s" }
@@ -69,7 +84,10 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         guard currentItem != nil, core.driver != nil, errorMessage == nil else { return false }
         return core.playbackURL?.isFileURL == true || hasLoadedMedia
     }
-    @Published private(set) var currentTime: TimeInterval = 0
+    private(set) var currentTime: TimeInterval {
+        get { timeline.currentTime }
+        set { if timeline.currentTime != newValue { timeline.currentTime = newValue } }
+    }
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var errorMessage: String?
     @Published private(set) var videoView: UIView?
@@ -78,8 +96,14 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
     @Published private(set) var playbackRate: Float = 1
     @Published private(set) var fillsScreen = false
-    @Published private(set) var bufferedTime: TimeInterval = 0
-    @Published private(set) var bufferedRanges: [ClosedRange<Double>] = []
+    private(set) var bufferedTime: TimeInterval {
+        get { timeline.bufferedTime }
+        set { if timeline.bufferedTime != newValue { timeline.bufferedTime = newValue } }
+    }
+    private(set) var bufferedRanges: [ClosedRange<Double>] {
+        get { timeline.bufferedRanges }
+        set { if timeline.bufferedRanges != newValue { timeline.bufferedRanges = newValue } }
+    }
     @Published private(set) var isSeeking = false
     @Published private(set) var audioTracks: [PlaybackTrack] = []
     @Published private(set) var subtitleTracks: [PlaybackTrack] = []
@@ -1560,7 +1584,22 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         value.externalSubtitles = resource?.externalSubtitles ?? []
         return value
     }
+    private var lastNowPlayingUpdate = Date.distantPast
+    private var lastNowPlayingRate: Float?
+    private var lastNowPlayingTitle: String?
+    private var lastNowPlayingDuration: TimeInterval = -1
+    private var lastNowPlayingPosition: TimeInterval = -1
+    private var lastSlowStateLog: TimeInterval = 0
+
     private func syncCoreState() {
+        let started = ProcessInfo.processInfo.systemUptime
+        defer {
+            let elapsed = ProcessInfo.processInfo.systemUptime - started
+            if elapsed > 0.016, started - lastSlowStateLog > 5 {
+                lastSlowStateLog = started
+                log("[Performance] 播放状态同步耗时 \(Int(elapsed * 1000))ms")
+            }
+        }
         let state = core.snapshot
         if !hasLoadedMedia && !core.isTransitioning {
             switch state.phase {
@@ -1634,7 +1673,16 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         if UIApplication.shared.isIdleTimerDisabled != isPlaying {
             UIApplication.shared.isIdleTimerDisabled = isPlaying
         }
-        if !core.isTransitioning {
+        let nowPlayingRate: Float = isPlaying ? playbackRate : 0
+        let nowPlayingChanged = lastNowPlayingRate != nowPlayingRate
+            || lastNowPlayingTitle != currentItem?.title || lastNowPlayingDuration != duration
+            || abs(currentTime - lastNowPlayingPosition) > 2
+        if !core.isTransitioning && (nowPlayingChanged || (isPlaying && Date().timeIntervalSince(lastNowPlayingUpdate) >= 1)) {
+            lastNowPlayingUpdate = Date()
+            lastNowPlayingRate = nowPlayingRate
+            lastNowPlayingTitle = currentItem?.title
+            lastNowPlayingDuration = duration
+            lastNowPlayingPosition = currentTime
             var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
             info[MPMediaItemPropertyTitle] = currentItem?.title
             info[MPMediaItemPropertyPlaybackDuration] = duration

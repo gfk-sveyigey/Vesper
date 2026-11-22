@@ -4,6 +4,12 @@ import UniformTypeIdentifiers
 import AVFoundation
 import QuartzCore
 
+/// An Observation tracking boundary: timeline changes invalidate this region only.
+private struct PlayerTimelineRegion<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    var body: some View { content() }
+}
+
 private enum PlayerPanel: String, Identifiable {
     case queue, gestures, danmaku, danmakuSearch, subtitles, synopsis, details, more
     var id: String { rawValue }
@@ -184,10 +190,9 @@ struct PlayerScreen: View {
                     VStack(spacing: 12) {
                         ProgressView().controlSize(.large).tint(.white)
                             .accessibilityLabel("正在加载")
-                        Text(verbatim: session.downloadSpeedText)
+                        PlayerTimelineRegion { Text(verbatim: session.downloadSpeedText) }
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.white)
-                            .accessibilityLabel(VesperLocalization.string("下载速度") + " " + session.downloadSpeedText)
                     }
                     .allowsHitTesting(false)
                 }
@@ -425,6 +430,10 @@ struct PlayerScreen: View {
     }
 
     private var progressRow: some View {
+        PlayerTimelineRegion { progressRowContent }
+    }
+
+    private var progressRowContent: some View {
         HStack(spacing: 10) {
             Text(timeLabel(isScrubbing ? scrubTime : session.currentTime))
                 .frame(minWidth: 40, alignment: .leading)

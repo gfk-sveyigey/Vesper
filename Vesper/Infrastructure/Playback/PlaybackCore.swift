@@ -303,7 +303,13 @@ struct TranscodedPlaybackResource: Sendable {
             while !Task.isCancelled {
                 guard let self, self.token == generation, let driver = self.driver else { return }
                 let previous = self.snapshot
+                let snapshotStarted = ProcessInfo.processInfo.systemUptime
                 self.snapshot = driver.snapshot
+                let snapshotElapsed = ProcessInfo.processInfo.systemUptime - snapshotStarted
+                if snapshotElapsed > 0.016, snapshotStarted - self.lastSlowSnapshotLog > 5 {
+                    self.lastSlowSnapshotLog = snapshotStarted
+                    self.log?("[Performance] 引擎快照读取耗时 \(Int(snapshotElapsed * 1000))ms")
+                }
                 if self.timelineOffset > 0 || self.originalDuration > 0 {
                     self.snapshot.time += self.timelineOffset
                     self.snapshot.buffered += self.timelineOffset
@@ -348,6 +354,8 @@ struct TranscodedPlaybackResource: Sendable {
             }
         }
     }
+
+    private var lastSlowSnapshotLog: TimeInterval = 0
 
     private static func needsStateNotification(from old: EngineSnapshot, to new: EngineSnapshot) -> Bool {
         old.phase != new.phase

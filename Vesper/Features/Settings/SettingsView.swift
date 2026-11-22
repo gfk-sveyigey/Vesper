@@ -237,8 +237,8 @@ private final class DebugSettingsVisibility: ObservableObject {
 }
 
 struct SettingsView: View {
+    @Binding var path: NavigationPath
     @EnvironmentObject private var appLock: AppLock
-    @State private var showsLockSettings = false
     @EnvironmentObject private var playback: PlaybackSession
     @AppStorage("language.code") private var languageCode = "system"
     @ObservedObject private var debugVisibility = DebugSettingsVisibility.shared
@@ -315,11 +315,6 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 16)
         }
-        .navigationDestination(isPresented: $showsLockSettings) {
-            AppLockSettingsView()
-                .vesperNavigationTitle("密码保护")
-                .modifier(SettingsNavigationStyle(useSharedStyle: true))
-        }
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
@@ -356,8 +351,8 @@ struct SettingsView: View {
         if route == .appLock {
             Button {
                 if appLock.isEnabled {
-                    appLock.requestAuthentication(.settingsAccess) { showsLockSettings = true }
-                } else { showsLockSettings = true }
+                    appLock.requestAuthentication(.settingsAccess) { path.append(route) }
+                } else { path.append(route) }
             } label: { settingsLinkLabel(title, symbol: symbol) }
             .buttonStyle(.plain)
         } else {

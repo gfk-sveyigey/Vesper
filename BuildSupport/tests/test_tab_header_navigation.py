@@ -22,6 +22,14 @@ class TabHeaderNavigationTests(unittest.TestCase):
         self.assertIn('SourcesView { sourcesHeaderVisible = $0 }', navigation)
         self.assertIn('sourcesPath.isEmpty && sourcesHeaderVisible', navigation)
 
+    def test_password_protection_uses_settings_stack_path(self):
+        navigation = (ROOT / 'Navigation/AppNavigationView.swift').read_text()
+        settings = (ROOT / 'Settings/SettingsView.swift').read_text()
+        self.assertIn('SettingsView(path: $settingsPath)', navigation)
+        self.assertIn('VesperNavigationHeaderLayer(isRoot: settingsPath.isEmpty)', navigation)
+        self.assertIn('appLock.requestAuthentication(.settingsAccess) { path.append(route) }', settings)
+        self.assertNotIn('.navigationDestination(isPresented:', settings)
+
     def test_all_tab_roots_share_media_header_and_disable_native_edges(self):
         header = (ROOT.parent / 'Infrastructure/Navigation/VesperImmersiveTitle.swift').read_text()
         root = header.split('struct VesperRootScrollView<', 1)[1].split('private struct VesperHeaderMotionEffect', 1)[0]
