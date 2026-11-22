@@ -200,6 +200,8 @@ final class AppLock: ObservableObject {
         case .background:
             lastBackgroundDate = Date()
         case .active:
+            let isFirstActivation = !didInitializeLifecycle
+            didInitializeLifecycle = true
             // Biometric UI can cause lifecycle callbacks while the same
             // authentication request is still being presented. Keep that
             // request alive instead of treating the callback as a new unlock.
@@ -208,17 +210,11 @@ final class AppLock: ObservableObject {
                 lastBackgroundDate = nil
                 return
             }
-            guard didInitializeLifecycle else {
-                didInitializeLifecycle = true
+            if isFirstActivation {
                 isActive = true
-                // Startup can pass through background before the first active
-                // callback. That timestamp is not a real post-unlock background
-                // interval and must not relock on the immediately following active.
+                // init() already establishes the cold-start gate. An active
+                // callback must not create a second request after it succeeds.
                 lastBackgroundDate = nil
-                let scope = UserDefaults.standard.string(forKey: Self.scopeKey) ?? "launch"
-                if authenticationRequest == nil, scope == "launch" || scope == "both" {
-                    requestAuthentication(.appUnlock)
-                }
                 return
             }
             if !isActive {
@@ -243,6 +239,7 @@ final class AppLock: ObservableObject {
     }
 
     func didUnlock() {
+        didInitializeLifecycle = true
         isActive = true
         isLocked = false
         authenticationRequest = nil

@@ -213,10 +213,12 @@ struct AppLockScreen: View {
     private func authenticate() async {
         guard !isAuthenticating, !appLock.isBiometricAuthenticationInProgress else { return }
         let purpose = appLock.authenticationRequest
+        let requestID = appLock.authenticationRequestID
         isAuthenticating = true
         let result = await appLock.authenticateBiometrically(reason: biometricReason)
         isAuthenticating = false
-        guard !Task.isCancelled, appLock.authenticationRequest == purpose else { return }
+        guard appLock.authenticationRequestID == requestID,
+              appLock.authenticationRequest == purpose else { return }
         switch result {
         case .success:
             finish()

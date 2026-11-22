@@ -23,8 +23,14 @@ class AppLockTests(unittest.TestCase):
         auth_overlay = navigation.split('if appLock.authenticationRequest != nil', 1)[1].split('}', 1)[0]
         self.assertNotIn('.transition(.opacity)', auth_overlay)
         self.assertIn("isSettingsVisible && !withinGrace", lock)
-        first_active = lock.split("guard didInitializeLifecycle else", 1)[1].split("if !isActive", 1)[0]
+        first_active = lock.split("if isFirstActivation {", 1)[1].split("if !isActive", 1)[0]
         self.assertIn("lastBackgroundDate = nil", first_active)
+        self.assertNotIn("requestAuthentication", first_active)
+        active = lock.split("case .active:", 1)[1]
+        self.assertLess(active.index("didInitializeLifecycle = true"), active.index("if authenticationRequest != nil"))
+        unlock = lock.split("func didUnlock()", 1)[1].split("func didAuthenticate", 1)[0]
+        self.assertIn("didInitializeLifecycle = true", unlock)
+        self.assertIn("appLock.authenticationRequestID == requestID", settings)
         self.assertIn("appLock.requestAuthentication(.resetPassword)", settings)
         self.assertIn("claimAutomaticBiometricAttempt(for: requestID)", settings)
         self.assertIn("@Published private(set) var authenticationRequestID", lock)

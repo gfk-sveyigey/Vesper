@@ -300,20 +300,35 @@ struct TranscodedPlaybackResource: Sendable {
         guard let old else { return nil }
         if old.id.hasPrefix("emby-preference:") {
             let language = EmbyTrackPreferences.normalized(old.language ?? "")
-            let named = tracks.filter {
-                EmbyTrackPreferences.normalized($0.language ?? "") == language
-                    || $0.name.localizedCaseInsensitiveContains(old.name)
+            let sameLanguage = tracks.filter {
+                !language.isEmpty && EmbyTrackPreferences.normalized($0.language ?? "") == language
             }
-            if named.count == 1 { return named[0] }
+            if let requestedScript = Self.chineseScript(old.name) {
+                if let scriptMatch = sameLanguage.first(where: { Self.chineseScript($0.name) == requestedScript }) {
+                    return scriptMatch
+                }
+            }
+            if let ordinal = Int(old.id.dropFirst("emby-preference:".count)), tracks.indices.contains(ordinal) {
+                let candidate = tracks[ordinal]
+                if sameLanguage.isEmpty || sameLanguage.contains(where: { $0.id == candidate.id }) {
+                    return candidate
+                }
+            }
             if let exactName = tracks.first(where: { $0.name.localizedCaseInsensitiveCompare(old.name) == .orderedSame }) {
                 return exactName
             }
-            return nil
+            return sameLanguage.count == 1 ? sameLanguage[0] : nil
         }
         // IDs are engine-local. Match semantics, never an unrelated reused ID.
         return tracks.first { $0.language == old.language && $0.codec == old.codec && $0.name == old.name }
             ?? tracks.first { old.language != nil && $0.language == old.language && $0.codec == old.codec }
             ?? tracks.first { $0.name == old.name && !old.name.isEmpty }
+    }
+    private static func chineseScript(_ value: String) -> String? {
+        let text = value.lowercased()
+        if ["简体", "簡體", "simplified", "hans"].contains(where: text.contains) { return "hans" }
+        if ["繁体", "繁體", "traditional", "hant"].contains(where: text.contains) { return "hant" }
+        return nil
     }
     private func poll(generation: UUID) {
         monitor?.cancel()

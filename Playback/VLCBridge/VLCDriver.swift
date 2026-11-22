@@ -178,6 +178,9 @@ internal import SwiftVLC
             }
         }
         media.addOption(":no-video-title-show")
+        // Prefer the system CJK family. libVLC otherwise inherits Helvetica
+        // Neue from subtitle styles and cannot resolve Chinese glyphs on iOS.
+        media.addOption(":freetype-font=PingFang SC")
         let networkCachingMilliseconds: Int? = url.isFileURL ? nil : 5_000
         if let networkCachingMilliseconds {
             media.addOption(":network-caching=\(networkCachingMilliseconds)")
