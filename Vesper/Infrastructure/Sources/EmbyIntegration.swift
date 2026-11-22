@@ -18,7 +18,7 @@ struct EmbyPlaybackResource: Sendable {
     let sessionID: String
     let mediaSourceID: String
     let duration: Double
-    let resumePosition: Double
+    let resumePosition: Double?
     let subtitles: [EngineExternalSubtitle]
     var bitRate: Double? = nil
 }
