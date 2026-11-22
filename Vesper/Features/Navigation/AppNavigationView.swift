@@ -24,6 +24,8 @@ struct AppNavigationView: View {
     @StateObject private var library = SourceLibrary()
     @StateObject private var playback = PlaybackSession()
     @StateObject private var appLock = AppLock.shared
+    @AppStorage(AppLock.scopeKey) private var protectionScope = "launch"
+    @AppStorage(AppLock.enabledKey) private var protectionEnabled = false
     @State private var isInBackground = false
     @State private var mediaPath = NavigationPath()
     @State private var sourcesPath = NavigationPath()
@@ -79,17 +81,18 @@ struct AppNavigationView: View {
             }
         }
         .overlay {
-            if appLock.isLocked {
+            if appLock.authenticationRequest != nil {
                 AppLockScreen()
                     .environmentObject(appLock)
                     .transition(.opacity)
                     .zIndex(100)
             }
         }
-        .overlay {
-            if isInBackground && appLock.isEnabled && appLock.shouldBlurInBackground {
-                Rectangle().fill(.ultraThinMaterial).ignoresSafeArea().allowsHitTesting(false)
-            }
+        .background {
+            AppPrivacyBlurHost()
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .background {
             VideoImportPresentationProbe(controller: importPresentationHost)
@@ -103,7 +106,8 @@ struct AppNavigationView: View {
         }
         .onChange(of: library.isPrivacyModeEnabled) { _, enabled in
             guard !enabled else { return }
-            if let item = playback.currentItem, library.protectedSourceIDs.contains(item.id.sourceID) {
+            if let item = playback.currentItem, library.canUsePrivacyMode,
+               library.protectedSourceIDs.contains(item.id.sourceID) {
                 playback.stop()
             }
             // Discard detail/search routes that may retain a protected source.
@@ -112,6 +116,8 @@ struct AppNavigationView: View {
             historyPath = NavigationPath()
             searchPath = NavigationPath()
         }
+        .onChange(of: protectionScope) { _, _ in library.refreshProtectionScope() }
+        .onChange(of: protectionEnabled) { _, _ in library.refreshProtectionScope() }
         .onChange(of: ignoreLocalImageCache) { _, _ in
             Task {
                 await AppCacheStore.shared.invalidateImageWrites()
@@ -207,6 +213,11 @@ struct AppNavigationView: View {
             }) {
                 PlayerScreen(session: playback)
                     .interactiveDismissDisabled(true)
+                    .overlay {
+                        if appLock.authenticationRequest != nil {
+                            AppLockScreen().environmentObject(appLock)
+                        }
+                    }
             }
     }
 
@@ -299,12 +310,6 @@ struct AppNavigationView: View {
         .task {
             if scenePhase == .active { appLock.sceneChanged(.active) }
         }
-        .task {
-            if scenePhase == .active { appLock.sceneChanged(.active) }
-        }
-        .onChange(of: library.selectedID) { old, new in
-            if old != new { appLock.sourceChanged() }
-        }
         .background(VesperTheme.background.ignoresSafeArea())
 
     }
@@ -312,7 +317,7 @@ struct AppNavigationView: View {
     private var hasPlayableContent: Bool { playback.currentItem != nil }
 
     private func handleScenePhaseChange(_ phase: ScenePhase) {
-        isInBackground = phase == .background
+        isInBackground = phase != .active
         appLock.sceneChanged(phase)
         playback.handleScenePhase(phase)
         if phase == .active { presentNextIncomingVideo() }

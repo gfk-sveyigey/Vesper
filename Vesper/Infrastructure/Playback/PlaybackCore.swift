@@ -335,7 +335,9 @@ struct TranscodedPlaybackResource: Sendable {
                     self.transition = operation
                     return
                 }
-                self.onChange?()
+                if Self.needsStateNotification(from: previous, to: self.snapshot) {
+                    self.onChange?()
+                }
                 let shouldThrottleHiddenPause = UserDefaults.standard.bool(
                     forKey: PlaybackDiagnostics.throttleHiddenPausedPollingKey
                 ) && !self.isPlayerPresented && self.snapshot.phase == .paused
@@ -346,6 +348,24 @@ struct TranscodedPlaybackResource: Sendable {
             }
         }
     }
+
+    private static func needsStateNotification(from old: EngineSnapshot, to new: EngineSnapshot) -> Bool {
+        old.phase != new.phase
+            || abs(old.time - new.time) > 0.01
+            || abs(old.duration - new.duration) > 0.01
+            || abs(old.buffered - new.buffered) > 0.01
+            || old.bufferedRanges != new.bufferedRanges
+            || old.seekable != new.seekable
+            || old.actualDecoder != new.actualDecoder
+            || old.audio != new.audio
+            || old.subtitles != new.subtitles
+            || old.subtitleText != new.subtitleText
+            || old.subtitleImage !== new.subtitleImage
+            || old.pipPossible != new.pipPossible
+            || old.pipActive != new.pipActive
+            || old.requiresForegroundReload != new.requiresForegroundReload
+    }
+
     func waitUntilRetired() async { await transition?.value }
     func configure(_ value: EngineConfiguration) {
         var updated = value

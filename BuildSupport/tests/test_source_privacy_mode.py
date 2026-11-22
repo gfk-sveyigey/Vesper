@@ -10,7 +10,7 @@ class SourcePrivacyModeTests(unittest.TestCase):
         self.library = (ROOT / 'Vesper/Infrastructure/Sources/SourceLibrary.swift').read_text()
 
     def test_existing_password_and_distinct_icons(self):
-        self.assertIn('appLock.verify(digits)', self.view)
+        self.assertIn('appLock.requestAuthentication(.sourcePrivacy)', self.view)
         self.assertNotIn('setPassword(', self.view)
         self.assertIn('isPrivacyModeEnabled ? "eye" : "eye.slash"', self.view)
         actions = self.view.split('} actions: {', 1)[1].split('.alert(item:', 1)[0]
@@ -28,22 +28,24 @@ class SourcePrivacyModeTests(unittest.TestCase):
         self.assertIn('persist()', exit_mode)
 
     def test_visibility_and_latency_are_filtered(self):
-        self.assertIn('sources.filter { isPrivacyModeEnabled || !protectedSourceIDs.contains($0.id) }', self.library)
+        self.assertIn('sources.filter { !canUsePrivacyMode || isPrivacyModeEnabled || !isProtected($0) }', self.library)
+        self.assertIn('guard canUsePrivacyMode else { return }', self.library)
         self.assertIn('for source in visibleSources where source.kind == .emby', self.library)
-        self.assertIn('guard isPrivacyModeEnabled || !protectedSourceIDs.contains(id)', self.library)
+        self.assertIn('if canUsePrivacyMode, !isPrivacyModeEnabled,', self.library)
         self.assertIn('library.testProtectedRouteLatencies()', self.view)
         self.assertIn('ForEach(library.visibleSources)', self.view)
         media = (ROOT / 'Vesper/Features/Media/MediaView.swift').read_text()
         self.assertIn('ForEach(library.visibleSources)', media)
 
     def test_unlock_respects_biometric_preferences(self):
-        sheet = self.view.split('private struct SourcePrivacyUnlockSheet', 1)[1].split('private struct SourceOrderSheet', 1)[0]
-        self.assertIn('@AppStorage(AppLock.biometricEnabledKey)', sheet)
-        self.assertIn('@AppStorage(AppLock.biometricPriorityKey)', sheet)
-        self.assertIn('if biometricEnabled, biometricPriority', sheet)
-        self.assertIn('await appLock.authenticateBiometrically()', sheet)
-        self.assertIn('!Task.isCancelled, isVisible, appLock.isEnabled', sheet)
-        self.assertIn('pinFocused = true', sheet)
+        screen = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text().split('struct AppLockScreen: View', 1)[1]
+        self.assertNotIn('SourcePrivacyUnlockSheet', self.view)
+        self.assertIn('@AppStorage(AppLock.biometricEnabledKey)', screen)
+        self.assertIn('@AppStorage(AppLock.biometricPriorityKey)', screen)
+        self.assertIn('await appLock.authenticateBiometrically(reason: biometricReason)', screen)
+        self.assertIn('failures >= 2', screen)
+        self.assertIn('biometricType != .none', screen)
+
 
 
 if __name__ == '__main__':

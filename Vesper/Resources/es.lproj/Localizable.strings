@@ -1171,3 +1171,15 @@
 "密码保护" = "Protección con código";
 "正在使用" = "En uso";
 "当前使用中的线路不能删除；可编辑其地址，线路名称保持不变。" = "La ruta activa no se puede eliminar. Puedes cambiar su dirección, pero el nombre se conservará.";
+
+"密码保护范围" = "Ámbito de protección";
+
+"面容 ID" = "Face ID";
+
+"触控 ID" = "Touch ID";
+
+"需要 %@" = "Autentícate con %@";
+
+"使用 %@" = "Usar %@";
+
+"再次尝试 %@" = "Volver a intentar %@";

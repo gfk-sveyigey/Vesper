@@ -7,7 +7,7 @@ struct HistoryView: View {
 
     private var groups: [HistorySourceGroup] {
         Dictionary(grouping: playback.history.filter {
-            $0.hiddenFromHistory != true && (library.isPrivacyModeEnabled || !library.protectedSourceIDs.contains($0.source.id))
+            $0.hiddenFromHistory != true && (!library.canUsePrivacyMode || library.isPrivacyModeEnabled || !library.isProtected($0.source))
         }, by: { $0.source.id }).values.map { entries in
             HistorySourceGroup(source: entries[0].source, entries: entries.sorted { $0.watchedAt > $1.watchedAt })
         }.sorted { left, right in

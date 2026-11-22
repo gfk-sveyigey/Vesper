@@ -23,6 +23,15 @@ class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
         self.assertIn('didSet { core.isPlayerPresented = isPresented }', session)
         self.assertIn('隐藏且暂停时将状态轮询降至 1 Hz', settings)
 
+    def test_unchanged_engine_snapshots_do_not_publish_ui_updates(self):
+        core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
+        poll = core.split('private func poll(generation:', 1)[1].split('func waitUntilRetired()', 1)[0]
+        self.assertIn('needsStateNotification(from: previous, to: self.snapshot)', poll)
+        self.assertIn('old.phase != new.phase', core)
+        self.assertIn('old.subtitleImage !== new.subtitleImage', core)
+        session = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
+        self.assertIn('if abs(currentTime - nextTime) > 0.01 { currentTime = nextTime }', session)
+
 
 if __name__ == '__main__':
     unittest.main()

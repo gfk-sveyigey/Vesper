@@ -1171,3 +1171,15 @@
 "密码保护" = "Passcode Protection";
 "正在使用" = "In use";
 "当前使用中的线路不能删除；可编辑其地址，线路名称保持不变。" = "The active route can’t be deleted. You can edit its address; its name will stay the same.";
+
+"密码保护范围" = "Password protection scope";
+
+"面容 ID" = "Face ID";
+
+"触控 ID" = "Touch ID";
+
+"需要 %@" = "Authenticate with %@";
+
+"使用 %@" = "Use %@";
+
+"再次尝试 %@" = "Try %@ again";

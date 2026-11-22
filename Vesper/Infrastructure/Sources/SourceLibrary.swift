@@ -155,13 +155,23 @@ final class SourceLibrary: ObservableObject {
     @Published private(set) var protectedSourceIDs: Set<UUID> = []
     @Published private(set) var isPrivacyModeEnabled = false
 
-    var visibleSources: [MediaSource] {
-        sources.filter { isPrivacyModeEnabled || !protectedSourceIDs.contains($0.id) }
+    var canUsePrivacyMode: Bool { AppLock.shared.protectsSources }
+
+    func refreshProtectionScope() {
+        guard !canUsePrivacyMode else { return }
+        protectedSourceIDs.removeAll()
+        defaults.removeObject(forKey: Self.protectedSourceIDsKey)
+        isPrivacyModeEnabled = false
     }
 
-    func isProtected(_ source: MediaSource) -> Bool { protectedSourceIDs.contains(source.id) }
+    var visibleSources: [MediaSource] {
+        sources.filter { !canUsePrivacyMode || isPrivacyModeEnabled || !isProtected($0) }
+    }
+
+    func isProtected(_ source: MediaSource) -> Bool { canUsePrivacyMode && protectedSourceIDs.contains(source.id) }
 
     func setProtected(_ protected: Bool, for source: MediaSource) {
+        guard canUsePrivacyMode else { return }
         if protected { protectedSourceIDs.insert(source.id) }
         else { protectedSourceIDs.remove(source.id) }
         defaults.set(protectedSourceIDs.map(\.uuidString), forKey: Self.protectedSourceIDsKey)
@@ -172,6 +182,7 @@ final class SourceLibrary: ObservableObject {
     }
 
     func setPrivacyMode(_ enabled: Bool) {
+        guard AppLock.shared.protectsSources || !enabled else { return }
         guard enabled != isPrivacyModeEnabled else { return }
         isPrivacyModeEnabled = enabled
         if !enabled {
@@ -208,7 +219,7 @@ final class SourceLibrary: ObservableObject {
         ordered.insert(contentsOf: moved, at: destination - offsets.filter { $0 < destination }.count)
         var iterator = ordered.makeIterator()
         sources = sources.map { source in
-            isPrivacyModeEnabled || !protectedSourceIDs.contains(source.id) ? iterator.next()! : source
+            !canUsePrivacyMode || isPrivacyModeEnabled || !isProtected(source) ? iterator.next()! : source
         }
         persist()
     }
@@ -230,7 +241,8 @@ final class SourceLibrary: ObservableObject {
 
     /// Feedback only: verification never blocks or rolls back the selected route.
     func verifyEmbyConnection(_ id: UUID) {
-        guard isPrivacyModeEnabled || !protectedSourceIDs.contains(id) else { return }
+        if canUsePrivacyMode, !isPrivacyModeEnabled,
+           let source = sources.first(where: { $0.id == id }), isProtected(source) { return }
         guard let source = sources.first(where: { $0.id == id }), let configuration = source.emby else { return }
         connectionChecks[id]?.cancel()
         connectionStatuses[id] = connectionStatuses[id]?.mapValues { $0 == .checking ? .normal : $0 }

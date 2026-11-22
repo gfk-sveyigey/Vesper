@@ -39,7 +39,6 @@ struct SourcesView: View {
     @State private var sourceManagement: SourceManagementRequest?
     @State private var refreshingRoutes: Set<UUID> = []
     @State private var showingOrder = false
-    @State private var showingPrivacyUnlock = false
 
     var body: some View {
         VesperRootScrollView(title: "来源") {
@@ -103,10 +102,12 @@ struct SourcesView: View {
             }
         } actions: {
             HStack(spacing: 0) {
-                Button { togglePrivacyMode() } label: {
-                    actionIcon(library.isPrivacyModeEnabled ? "eye" : "eye.slash")
+                if library.canUsePrivacyMode {
+                    Button { togglePrivacyMode() } label: {
+                        actionIcon(library.isPrivacyModeEnabled ? "eye" : "eye.slash")
+                    }
+                    .accessibilityLabel(library.isPrivacyModeEnabled ? "退出隐私模式" : "进入隐私模式")
                 }
-                .accessibilityLabel(library.isPrivacyModeEnabled ? "退出隐私模式" : "进入隐私模式")
                 Button { showingOrder = true } label: { actionIcon("arrow.up.arrow.down") }
                     .accessibilityLabel("调整来源顺序")
                     .disabled(library.visibleSources.count < 2)
@@ -139,7 +140,7 @@ struct SourcesView: View {
                       secondaryButton: .cancel(Text("取消")))
             }
         }
-        .onChange(of: isShowingEmbyEditor || editingEmby != nil || sourceManagement != nil || showingOrder || showingPrivacyUnlock, initial: true) { _, presentsEditor in
+        .onChange(of: isShowingEmbyEditor || editingEmby != nil || sourceManagement != nil || showingOrder, initial: true) { _, presentsEditor in
             headerVisibilityChanged(!presentsEditor)
         }
         .sheet(isPresented: $isShowingEmbyEditor) { EmbySourceEditor(source: nil) }
@@ -155,23 +156,21 @@ struct SourcesView: View {
             }
         }
         .sheet(isPresented: $showingOrder) { SourceOrderSheet() }
-        .sheet(isPresented: $showingPrivacyUnlock) {
-            SourcePrivacyUnlockSheet {
-                library.setPrivacyMode(true)
-                library.testProtectedRouteLatencies()
-            }
-        }
     }
 
     private func togglePrivacyMode() {
         if library.isPrivacyModeEnabled {
             // Playback can belong to a source other than the selected browsing source.
-            if let item = playback.currentItem, library.protectedSourceIDs.contains(item.id.sourceID) {
+            if let item = playback.currentItem, library.canUsePrivacyMode,
+               library.protectedSourceIDs.contains(item.id.sourceID) {
                 playback.stop()
             }
             library.setPrivacyMode(false)
         } else if appLock.isEnabled {
-            showingPrivacyUnlock = true
+            appLock.requestAuthentication(.sourcePrivacy) {
+                library.setPrivacyMode(true)
+                library.testProtectedRouteLatencies()
+            }
         } else {
             activeAlert = .privacyPasswordRequired
         }
@@ -254,88 +253,6 @@ struct SourcesView: View {
             )
         } catch {
             activeAlert = .addSource
-        }
-    }
-}
-
-private struct SourcePrivacyUnlockSheet: View {
-    let onUnlock: () -> Void
-    @EnvironmentObject private var appLock: AppLock
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage(AppLock.biometricEnabledKey) private var biometricEnabled = false
-    @AppStorage(AppLock.biometricPriorityKey) private var biometricPriority = false
-    @State private var pin = ""
-    @State private var hasError = false
-    @State private var isAuthenticating = false
-    @State private var hasUnlocked = false
-    @State private var isVisible = false
-    @FocusState private var pinFocused: Bool
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                SecureField("六位数字密码", text: $pin)
-                    .keyboardType(.numberPad)
-                    .textContentType(.oneTimeCode)
-                    .focused($pinFocused)
-                    .onChange(of: pin) { _, value in
-                        let digits = String(value.filter { $0 >= "0" && $0 <= "9" }.prefix(6))
-                        if digits != value { pin = digits; return }
-                        guard digits.count == 6, !isAuthenticating, !hasUnlocked else { return }
-                        if appLock.isEnabled, appLock.verify(digits) {
-                            pin = ""
-                            finishUnlock()
-                        } else {
-                            pin = ""
-                            hasError = true
-                        }
-                    }
-                if hasError { Text("密码错误，请重试。").foregroundStyle(.red) }
-                if biometricEnabled {
-                    Button("使用生物识别", systemImage: "faceid") {
-                        Task { await authenticate() }
-                    }
-                    .disabled(isAuthenticating)
-                }
-            }
-            .navigationTitle("进入隐私模式")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly)
-                }
-            }
-            .onAppear { isVisible = true }
-            .onDisappear { isVisible = false }
-            .task {
-                if biometricEnabled, biometricPriority {
-                    await authenticate()
-                } else {
-                    pinFocused = true
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-
-    private func finishUnlock() {
-        guard !hasUnlocked else { return }
-        hasUnlocked = true
-        onUnlock()
-        dismiss()
-    }
-
-    private func authenticate() async {
-        guard appLock.isEnabled, biometricEnabled, !isAuthenticating, !hasUnlocked else { return }
-        isAuthenticating = true
-        pinFocused = false
-        let authenticated = await appLock.authenticateBiometrically()
-        isAuthenticating = false
-        guard !Task.isCancelled, isVisible, appLock.isEnabled else { return }
-        if authenticated {
-            finishUnlock()
-        } else {
-            pinFocused = true
         }
     }
 }

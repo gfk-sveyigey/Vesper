@@ -33,15 +33,6 @@ private struct AppLockSettingsView: View {
     @AppStorage(AppLock.scopeKey) private var scope = "launch"
     @AppStorage(AppLock.timeoutKey) private var timeout = 0.0
     @AppStorage(AppLock.blurKey) private var backgroundBlur = true
-    @State private var prompt: LockPrompt?
-    @State private var pin = ""
-    @State private var errorMessage: String?
-
-    private enum LockPrompt: Identifiable, Equatable {
-        case create, reset, disable
-        var id: Self { self }
-    }
-
     var body: some View {
         SettingsPage {
             SettingsIntroCard(title: "密码保护", symbol: "lock",
@@ -49,10 +40,7 @@ private struct AppLockSettingsView: View {
             SettingsSection {
                 Toggle("密码保护", isOn: Binding(get: { enabled }, set: changeEnabled))
                 if enabled {
-                    Button("重置密码", systemImage: "key") {
-                        pin = ""
-                        prompt = .reset
-                    }
+                    Button("重置密码", systemImage: "key") { appLock.requestAuthentication(.resetPassword) }
                     Toggle("启用生物识别", isOn: $biometricEnabled)
                         .disabled(!biometricAvailable)
                     Toggle("优先使用生物识别", isOn: $biometricPriority)
@@ -60,7 +48,7 @@ private struct AppLockSettingsView: View {
                 }
             }
             if enabled {
-                SettingsSection("隐私保护范围") {
+                SettingsSection("密码保护范围") {
                     SettingsPicker("保护范围", selection: $scope) {
                         Text("App 启动").tag("launch")
                         Text("媒体来源").tag("source")
@@ -76,15 +64,21 @@ private struct AppLockSettingsView: View {
                 }
             }
         }
+        .onAppear {
+            appLock.settingsVisibleProvider = { true }
+            if enabled, appLock.authenticationRequest == nil {
+                appLock.settingsAuthorized = false
+                appLock.requestAuthentication(.settingsAccess)
+            }
+        }
+        .onDisappear {
+            appLock.settingsVisibleProvider = { false }
+            appLock.revokeSettingsAuthorization()
+        }
         .onChange(of: biometricEnabled) { _, value in
             if !value { biometricPriority = false }
         }
         .onChange(of: backgroundBlur) { _, value in appLock.setBackgroundBlur(value) }
-        .sheet(item: $prompt, onDismiss: { pin = ""; errorMessage = nil }) { operation in
-            pinSheet(operation)
-                .presentationDetents([.height(330)])
-                .presentationDragIndicator(.visible)
-        }
     }
 
     private var biometricAvailable: Bool {
@@ -93,67 +87,12 @@ private struct AppLockSettingsView: View {
 
     private func changeEnabled(_ value: Bool) {
         guard !value else {
-            pin = ""
-            prompt = .create
+            appLock.requestAuthentication(.createPassword)
             return
         }
-        pin = ""
-        prompt = .disable
+        appLock.requestAuthentication(.disableProtection)
     }
 
-    private func pinSheet(_ operation: LockPrompt) -> some View {
-        NavigationStack {
-            VStack(spacing: 22) {
-                Text(operation == .disable ? "输入密码以关闭保护" :
-                     operation == .reset ? "设置新的六位数字密码" : "设置六位数字密码")
-                    .font(.headline)
-                SecureField("六位数字密码", text: $pin)
-                    .keyboardType(.numberPad)
-                    .textContentType(.newPassword)
-                    .multilineTextAlignment(.center)
-                    .font(.title2.monospacedDigit())
-                    .onChange(of: pin) { _, value in pin = String(value.filter(\.isNumber).prefix(6)) }
-                if let errorMessage {
-                    Text(verbatim: errorMessage).font(.footnote).foregroundStyle(.red)
-                }
-                Button(operation == .disable ? "确认关闭" : "保存密码", action: submitPin)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(pin.count != 6)
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(uiColor: .systemGroupedBackground))
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("取消", systemImage: "xmark") { prompt = nil }
-                }
-            }
-        }
-    }
-
-    private func submitPin() {
-        guard let operation = prompt else { return }
-        switch operation {
-        case .create, .reset:
-            do {
-                try appLock.setPassword(pin)
-                enabled = true
-                if operation == .reset { biometricEnabled = false; biometricPriority = false }
-                prompt = nil
-            } catch { errorMessage = error.localizedDescription }
-        case .disable:
-            guard appLock.verify(pin) else {
-                errorMessage = VesperLocalization.string("密码错误，请重试。")
-                return
-            }
-            enabled = false
-            biometricEnabled = false
-            biometricPriority = false
-            appLock.removePassword()
-            appLock.activate()
-            prompt = nil
-        }
-    }
 }
 
 struct AppLockScreen: View {
@@ -163,51 +102,137 @@ struct AppLockScreen: View {
     @State private var pin = ""
     @State private var errorMessage: String?
     @State private var isAuthenticating = false
+    @State private var failures = 0
+    @State private var showPassword = false
+    @State private var biometricType = AppLock.shared.biometricType
+
+    private var passwordOnly: Bool {
+        [.createPassword, .resetPassword, .disableProtection].contains(appLock.authenticationRequest)
+    }
+    private var displaysPassword: Bool {
+        passwordOnly || !biometricEnabled || !biometricPriority || showPassword || biometricType == .none
+    }
+    private var passwordPrompt: String {
+        switch appLock.authenticationRequest {
+        case .createPassword: "设置六位数字密码"
+        case .resetPassword: "输入旧密码以重置"
+        case .disableProtection: "输入密码以关闭保护"
+        default: "输入密码以继续"
+        }
+    }
 
     var body: some View {
         VStack(spacing: 24) {
-            Image(systemName: "lock.fill").font(.system(size: 42)).foregroundStyle(.secondary)
-            Text("输入密码以继续").font(.title3.weight(.semibold))
-            SecureField("六位数字密码", text: $pin)
-                .keyboardType(.numberPad)
-                .textContentType(.oneTimeCode)
-                .multilineTextAlignment(.center)
-                .font(.title2.monospacedDigit())
-                .onChange(of: pin) { _, value in pin = String(value.filter(\.isNumber).prefix(6)) }
-                .onChange(of: pin) { _, value in if value.count == 6 { unlockWithPassword() } }
-            if let errorMessage { Text(verbatim: errorMessage).foregroundStyle(.red).font(.footnote) }
-            if biometricEnabled {
-                Button("使用生物识别", systemImage: "faceid") {
+            Image(systemName: displaysPassword ? "lock.fill" : biometricType.symbol)
+                .font(.system(size: 42)).foregroundStyle(.secondary)
+            if displaysPassword {
+                Text(passwordPrompt).font(.title3.weight(.semibold))
+                SecureField("六位数字密码", text: $pin)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .multilineTextAlignment(.center)
+                    .font(.title2.monospacedDigit())
+                    .onChange(of: pin) { _, value in
+                        pin = String(value.filter { $0 >= "0" && $0 <= "9" }.prefix(6))
+                        if pin.count == 6 {
+                            if appLock.authenticationRequest == .createPassword { saveNewPassword() }
+                            else { unlockWithPassword() }
+                        }
+                    }
+                if let errorMessage { Text(verbatim: errorMessage).foregroundStyle(.red).font(.footnote) }
+            } else if failures == 0 {
+                Text(verbatim: String(format: VesperLocalization.string("需要 %@"), biometricType.title))
+            }
+            if !passwordOnly, biometricEnabled, biometricType != .none, failures < 2 {
+                Button {
                     Task { await authenticate() }
+                } label: {
+                    Label {
+                        Text(verbatim: String(format: VesperLocalization.string(failures == 0 ? "使用 %@" : "再次尝试 %@"), biometricType.title))
+                    } icon: { Image(systemName: biometricType.symbol) }
                 }
-                    .disabled(isAuthenticating)
+                .disabled(isAuthenticating)
+            }
+            if appLock.authenticationRequest != .appUnlock && appLock.authenticationRequest != .settingsAccess {
+                Button("取消", systemImage: "xmark") { appLock.cancelAuthentication() }
             }
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial)
-        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
-        .task {
-            guard biometricEnabled, biometricPriority else { return }
-            await authenticate()
+        .background { Rectangle().fill(.regularMaterial).ignoresSafeArea() }
+        .contentShape(Rectangle())
+        .task(id: appLock.authenticationRequest) {
+            pin = ""
+            errorMessage = nil
+            failures = 0
+            showPassword = false
+            biometricType = appLock.biometricType
+            if !passwordOnly, biometricEnabled, biometricPriority, biometricType != .none {
+                await authenticate()
+            }
         }
+    }
+
+    private func finish() {
+        guard let purpose = appLock.authenticationRequest else { return }
+        appLock.didAuthenticate(purpose)
     }
 
     private func unlockWithPassword() {
         if appLock.verify(pin) {
-            pin = ""
-            appLock.didUnlock()
-        } else {
+            switch appLock.authenticationRequest {
+            case .resetPassword:
+                appLock.requestAuthentication(.createPassword)
+            case .disableProtection:
+                appLock.didAuthenticate(.disableProtection)
+                biometricEnabled = false
+                biometricPriority = false
+                appLock.removePassword()
+                UserDefaults.standard.set(false, forKey: AppLock.enabledKey)
+                appLock.activate()
+            default: finish()
+            }
+        }
+        else {
             pin = ""
             errorMessage = VesperLocalization.string("密码错误，请重试。")
         }
     }
 
+    private func saveNewPassword() {
+        do {
+            try appLock.setPassword(pin)
+            UserDefaults.standard.set(true, forKey: AppLock.enabledKey)
+            biometricEnabled = false
+            biometricPriority = false
+            finish()
+        } catch {
+            pin = ""
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func authenticate() async {
         guard !isAuthenticating else { return }
+        let purpose = appLock.authenticationRequest
         isAuthenticating = true
-        defer { isAuthenticating = false }
-        if await appLock.authenticateBiometrically() { appLock.didUnlock() }
+        let success = await appLock.authenticateBiometrically(reason: biometricReason)
+        isAuthenticating = false
+        guard !Task.isCancelled, appLock.authenticationRequest == purpose else { return }
+        if success { finish() }
+        else {
+            failures += 1
+            if failures >= 2 { showPassword = true }
+        }
+    }
+
+    private var biometricReason: String {
+        switch appLock.authenticationRequest {
+        case .sourcePrivacy: "进入来源隐私模式"
+        case .settingsAccess: "访问密码保护设置"
+        case .resetPassword, .disableProtection, .createPassword: "验证密码保护"
+        default: "解锁 Vesper"
+        }
     }
 }
 
@@ -218,6 +243,8 @@ private final class DebugSettingsVisibility: ObservableObject {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject private var appLock: AppLock
+    @State private var showsLockSettings = false
     @EnvironmentObject private var playback: PlaybackSession
     @AppStorage("language.code") private var languageCode = "system"
     @ObservedObject private var debugVisibility = DebugSettingsVisibility.shared
@@ -294,6 +321,11 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 16)
         }
+        .navigationDestination(isPresented: $showsLockSettings) {
+            AppLockSettingsView()
+                .vesperNavigationTitle("密码保护")
+                .modifier(SettingsNavigationStyle(useSharedStyle: true))
+        }
         .navigationDestination(for: SettingsRoute.self) { route in
             Group {
                 switch route {
@@ -325,8 +357,22 @@ struct SettingsView: View {
         VStack(spacing: 0) { content() }
     }
 
+    @ViewBuilder
     private func settingsLink(_ route: SettingsRoute, title: LocalizedStringKey, symbol: String) -> some View {
-        NavigationLink(value: route) {
+        if route == .appLock {
+            Button {
+                if appLock.isEnabled {
+                    appLock.requestAuthentication(.settingsAccess) { showsLockSettings = true }
+                } else { showsLockSettings = true }
+            } label: { settingsLinkLabel(title, symbol: symbol) }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: route) { settingsLinkLabel(title, symbol: symbol) }
+                .buttonStyle(.plain)
+        }
+    }
+
+    private func settingsLinkLabel(_ title: LocalizedStringKey, symbol: String) -> some View {
             HStack {
                 SettingsLabel(title, symbol: symbol)
                     .foregroundStyle(Color(uiColor: .label))
@@ -338,8 +384,6 @@ struct SettingsView: View {
             }
             .padding(12)
             .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
 }

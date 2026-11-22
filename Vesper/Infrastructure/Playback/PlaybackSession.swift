@@ -1590,7 +1590,10 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         if !state.requiresForegroundReload && !isSeeking && !core.isTransitioning {
             if let landing = seekLanding {
                 if abs(state.time - landing.time) < 1.5 || Date() >= landing.deadline { seekLanding = nil; currentTime = max(0, state.time) }
-            } else { currentTime = state.time.isFinite ? max(0, state.time) : 0 }
+            } else {
+                let nextTime = state.time.isFinite ? max(0, state.time) : 0
+                if abs(currentTime - nextTime) > 0.01 { currentTime = nextTime }
+            }
         }
         if !state.requiresForegroundReload && (!isLoading || state.duration > 0) {
             let engineDuration = state.duration.isFinite ? max(0, state.duration) : 0
