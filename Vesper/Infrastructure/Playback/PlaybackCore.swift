@@ -6,6 +6,11 @@ import PlaybackContracts
 import VesperAetherBridge
 import VesperVLCBridge
 
+enum PlaybackDiagnostics {
+    static let detachHiddenVideoSurfaceKey = "debug.playback.detachHiddenVideoSurface"
+    static let throttleHiddenPausedPollingKey = "debug.playback.throttleHiddenPausedPolling"
+}
+
 /// Server fallback is supplied only for an authenticated server-backed item.
 /// Local/Photos sources must never be silently uploaded to a server.
 struct TranscodedPlaybackResource: Sendable {
@@ -30,6 +35,7 @@ struct TranscodedPlaybackResource: Sendable {
     private(set) var engineID: EngineID = .aether
     private(set) var snapshot = EngineSnapshot()
     private(set) var isTransitioning = false
+    var isPlayerPresented = false
     var onChange: (() -> Void)?
     var restoreUI: ((@escaping (Bool) -> Void) -> Void)?
     var log: ((String) -> Void)?
@@ -330,7 +336,13 @@ struct TranscodedPlaybackResource: Sendable {
                     return
                 }
                 self.onChange?()
-                do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+                let shouldThrottleHiddenPause = UserDefaults.standard.bool(
+                    forKey: PlaybackDiagnostics.throttleHiddenPausedPollingKey
+                ) && !self.isPlayerPresented && self.snapshot.phase == .paused
+                do {
+                    if shouldThrottleHiddenPause { try await Task.sleep(for: .seconds(1)) }
+                    else { try await Task.sleep(for: .milliseconds(150)) }
+                } catch { return }
             }
         }
     }

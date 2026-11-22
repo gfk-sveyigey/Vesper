@@ -55,6 +55,7 @@ struct PlayerScreen: View {
             && !isScrubbing && !importingDanmaku && !volumeExpanded && volumeDragStart == nil && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
     }
     private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
+    private var showsOtherControls: Bool { controlsVisible && !isScrubbing }
 
     var body: some View {
         observedPlayer
@@ -136,7 +137,7 @@ struct PlayerScreen: View {
                 }
                 DanmakuOverlay(session: session, document: session.danmaku)
                     .id(ObjectIdentifier(session.danmaku))
-                if debugInfoVisible {
+                if debugInfoVisible && !isScrubbing {
                     diagnosticOverlay
                         .padding(12)
                         .padding(safeGeometry.safeAreaInsets)
@@ -154,17 +155,20 @@ struct PlayerScreen: View {
                 LinearGradient(colors: [.black.opacity(0.6), .clear, .clear, .black.opacity(0.75)],
                                startPoint: .top, endPoint: .bottom)
                     .ignoresSafeArea()
-                    .opacity(controlsVisible ? 1 : 0)
+                    .opacity(showsOtherControls ? 1 : 0)
                     .allowsHitTesting(false)
                 // Independent placement keeps the transport centered on the
                 // actual video, regardless of header/title/progress height.
                 transportControls
                     .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                    .opacity(controlsVisible && session.errorMessage == nil && !session.isLoading ? 1 : 0)
-                    .allowsHitTesting(controlsVisible && session.errorMessage == nil && !session.isLoading)
-                    .accessibilityHidden(!controlsVisible || session.errorMessage != nil || session.isLoading)
+                    .opacity(showsOtherControls && session.errorMessage == nil && !session.isLoading ? 1 : 0)
+                    .allowsHitTesting(showsOtherControls && session.errorMessage == nil && !session.isLoading)
+                    .accessibilityHidden(!showsOtherControls || session.errorMessage != nil || session.isLoading)
                 VStack {
                     topControls(availableWidth: max(0, geometry.size.width - safeGeometry.safeAreaInsets.leading - safeGeometry.safeAreaInsets.trailing - (geometry.size.width > geometry.size.height ? 24 : 40)), landscape: geometry.size.width > geometry.size.height)
+                        .opacity(showsOtherControls ? 1 : 0)
+                        .allowsHitTesting(showsOtherControls)
+                        .accessibilityHidden(!showsOtherControls)
                     Spacer(minLength: 0)
                     bottomControls(landscape: geometry.size.width > geometry.size.height)
                 }
@@ -173,7 +177,7 @@ struct PlayerScreen: View {
                 .padding(safeGeometry.safeAreaInsets)
                 // Keep the Menu mounted while fading the controls, so a
                 // system menu never loses its presentation anchor mid-use.
-                .opacity(controlsVisible ? 1 : 0)
+                .opacity(controlsVisible || isScrubbing ? 1 : 0)
                 .allowsHitTesting(controlsVisible)
                 .accessibilityHidden(!controlsVisible)
                 if (session.isLoading || session.isSeeking) && !isScrubbing {
@@ -187,7 +191,7 @@ struct PlayerScreen: View {
                     }
                     .allowsHitTesting(false)
                 }
-                if !hudText.isEmpty {
+                if !hudText.isEmpty && !(isScrubbing && scrubShowsControls) {
                     VStack {
                         HStack(spacing: 8) {
                             Image(systemName: hudSymbol)
@@ -205,19 +209,8 @@ struct PlayerScreen: View {
                     }
                     .allowsHitTesting(false)
                 }
-                if isScrubbing && !controlsVisible {
-                    VStack {
-                        Spacer()
-                        progressRow
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .glassEffect(.regular, in: Capsule())
-                    }
-                    .padding(.horizontal, 28).padding(.bottom, safeGeometry.safeAreaInsets.bottom + 12)
-                    .allowsHitTesting(false).accessibilityHidden(true)
-                }
-                if regionsVisible { regionOverlay.ignoresSafeArea() }
-                if let message = session.errorMessage { errorContent(message) }
+                if regionsVisible && !isScrubbing { regionOverlay.ignoresSafeArea() }
+                if let message = session.errorMessage, !isScrubbing { errorContent(message) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .foregroundStyle(.white).tint(.white)
@@ -398,28 +391,35 @@ struct PlayerScreen: View {
 
     private func bottomControls(landscape: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !isScrubbing {
-                HStack(alignment: .bottom, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        if let subtitle = session.playbackSubtitle, !subtitle.isEmpty {
-                            Text(verbatim: subtitle).font(.caption).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
-                        }
-                        Text(verbatim: session.currentItem?.title ?? VesperLocalization.string("未在播放"))
-                            .font(landscape ? .headline : .title3.weight(.semibold))
-                            .lineLimit(1).truncationMode(.middle)
+            HStack(alignment: .bottom, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    if let subtitle = session.playbackSubtitle, !subtitle.isEmpty {
+                        Text(verbatim: subtitle).font(.caption).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    if landscape { expandedPlaybackOptions }
-                    else { playbackOptionsMenu }
+                    Text(verbatim: session.currentItem?.title ?? VesperLocalization.string("未在播放"))
+                        .font(landscape ? .headline : .title3.weight(.semibold))
+                        .lineLimit(1).truncationMode(.middle)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if landscape { expandedPlaybackOptions }
+                else { playbackOptionsMenu }
             }
+            .opacity(showsOtherControls ? 1 : 0)
+            .allowsHitTesting(showsOtherControls)
+            .accessibilityHidden(!showsOtherControls)
             progressRow
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .glassEffect(.regular, in: Capsule())
-            if !isScrubbing {
-                bottomActions(landscape: landscape)
-            }
+                .background {
+                    Color.clear
+                        .frame(height: 56.0 * 2 / 3)
+                        .glassEffect(.regular, in: Capsule())
+                        .allowsHitTesting(false)
+                }
+                .scaleEffect(isScrubbing ? 1.06 : 1)
+            bottomActions(landscape: landscape)
+                .opacity(showsOtherControls ? 1 : 0)
+                .allowsHitTesting(showsOtherControls)
+                .accessibilityHidden(!showsOtherControls)
         }
         .animation(.easeInOut(duration: 0.18), value: isScrubbing)
     }
@@ -447,12 +447,12 @@ struct PlayerScreen: View {
         }
         return GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.25)).frame(height: isScrubbing ? 12 : 8)
+                Capsule().fill(.white.opacity(0.25)).frame(height: 8)
                 Capsule().fill(.white.opacity(0.35))
-                    .frame(height: isScrubbing ? 12 : 8)
+                    .frame(height: 8)
                     .mask { PlayerBufferMask(segments: segments) }
                 Capsule().fill(.white)
-                    .frame(height: isScrubbing ? 12 : 8)
+                    .frame(height: 8)
                     .frame(maxWidth: .infinity)
                     .mask(alignment: .leading) {
                         Rectangle().frame(width: geometry.size.width * fraction(isScrubbing ? scrubTime : session.currentTime))
@@ -460,7 +460,7 @@ struct PlayerScreen: View {
             }
             .frame(height: 44)
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
                 .onChanged { value in
                     guard session.canSeek else { return }
                     if !isScrubbing { beginScrubbing() }

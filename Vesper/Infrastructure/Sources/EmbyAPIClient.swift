@@ -110,6 +110,25 @@ struct EmbyServerRoute: Equatable, Sendable {
     let address: String
 }
 
+struct EmbyRouteDraft: Identifiable, Equatable {
+    let id: UUID
+    var address: String
+    var name: String
+    var fromServer: Bool
+
+    init(id: UUID = UUID(), address: String = "", name: String = "", fromServer: Bool = false) {
+        self.id = id
+        self.address = address
+        self.name = name
+        self.fromServer = fromServer
+    }
+
+    var displayName: String {
+        if !name.isEmpty { return name }
+        return URLComponents(string: address)?.host ?? address
+    }
+}
+
 enum EmbyRouteOptions {
     static func key(_ address: String) -> String {
         let value = address.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -8,7 +8,7 @@ class MediaLibraryListLayoutTests(unittest.TestCase):
     def test_row_has_requested_metadata_and_tunable_geometry(self):
         source = (ROOT / "Vesper/Features/Media/MediaView.swift").read_text()
         settings = (ROOT / "Vesper/Features/Settings/SettingsView.swift").read_text()
-        row = source.split("private func libraryRow(", 1)[1].split("private var detailOrigin", 1)[0]
+        row = source.split("struct MediaLibraryListRow:", 1)[1].split("private struct ListArtworkTransition", 1)[0]
         for metric in (
             "browserListRowHeight",
             "browserListImageTop",

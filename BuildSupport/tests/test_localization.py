@@ -66,4 +66,4 @@ class LocalizationTests(unittest.TestCase):
                 self.assertNotIn('SettingsIntroCard(', block, view)
     def test_danmaku_submenu(self):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
-        self.assertIn('[speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu()]', source)
+        self.assertIn('[speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu(), introOutroMenu()]', source)

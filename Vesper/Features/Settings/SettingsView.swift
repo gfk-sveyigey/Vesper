@@ -1,9 +1,10 @@
 import SwiftUI
 import UIKit
 import Photos
+import LocalAuthentication
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku, debug, cache, emby, permissions
+    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku, debug, cache, emby, permissions, appLock
 
     var title: LocalizedStringKey {
         switch self {
@@ -19,7 +20,194 @@ private enum SettingsRoute: Hashable {
         case .cache: "缓存管理"
         case .emby: "Emby 设置"
         case .permissions: "应用权限"
+        case .appLock: "密码保护"
         }
+    }
+}
+
+private struct AppLockSettingsView: View {
+    @EnvironmentObject private var appLock: AppLock
+    @AppStorage(AppLock.enabledKey) private var enabled = false
+    @AppStorage(AppLock.biometricEnabledKey) private var biometricEnabled = false
+    @AppStorage(AppLock.biometricPriorityKey) private var biometricPriority = false
+    @AppStorage(AppLock.scopeKey) private var scope = "launch"
+    @AppStorage(AppLock.timeoutKey) private var timeout = 0.0
+    @AppStorage(AppLock.blurKey) private var backgroundBlur = true
+    @State private var prompt: LockPrompt?
+    @State private var pin = ""
+    @State private var errorMessage: String?
+
+    private enum LockPrompt: Identifiable, Equatable {
+        case create, reset, disable
+        var id: Self { self }
+    }
+
+    var body: some View {
+        SettingsPage {
+            SettingsIntroCard(title: "密码保护", symbol: "lock",
+                              description: "使用设备密码保护 Vesper，并控制重新验证与后台隐私显示。")
+            SettingsSection {
+                Toggle("密码保护", isOn: Binding(get: { enabled }, set: changeEnabled))
+                if enabled {
+                    Button("重置密码", systemImage: "key") {
+                        pin = ""
+                        prompt = .reset
+                    }
+                    Toggle("启用生物识别", isOn: $biometricEnabled)
+                        .disabled(!biometricAvailable)
+                    Toggle("优先使用生物识别", isOn: $biometricPriority)
+                        .disabled(!biometricEnabled || !biometricAvailable)
+                }
+            }
+            if enabled {
+                SettingsSection("隐私保护范围") {
+                    SettingsPicker("保护范围", selection: $scope) {
+                        Text("App 启动").tag("launch")
+                        Text("媒体来源").tag("source")
+                        Text("App 启动和媒体来源").tag("both")
+                    }
+                    SettingsPicker("重新验证时间", selection: $timeout) {
+                        Text("立即").tag(0.0)
+                        Text("1 分钟").tag(60.0)
+                        Text("5 分钟").tag(300.0)
+                        Text("15 分钟").tag(900.0)
+                    }
+                    Toggle("后台高斯模糊", isOn: $backgroundBlur)
+                }
+            }
+        }
+        .onChange(of: biometricEnabled) { _, value in
+            if !value { biometricPriority = false }
+        }
+        .onChange(of: backgroundBlur) { _, value in appLock.setBackgroundBlur(value) }
+        .sheet(item: $prompt, onDismiss: { pin = ""; errorMessage = nil }) { operation in
+            pinSheet(operation)
+                .presentationDetents([.height(330)])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    private var biometricAvailable: Bool {
+        LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+    }
+
+    private func changeEnabled(_ value: Bool) {
+        guard !value else {
+            pin = ""
+            prompt = .create
+            return
+        }
+        pin = ""
+        prompt = .disable
+    }
+
+    private func pinSheet(_ operation: LockPrompt) -> some View {
+        NavigationStack {
+            VStack(spacing: 22) {
+                Text(operation == .disable ? "输入密码以关闭保护" :
+                     operation == .reset ? "设置新的六位数字密码" : "设置六位数字密码")
+                    .font(.headline)
+                SecureField("六位数字密码", text: $pin)
+                    .keyboardType(.numberPad)
+                    .textContentType(.newPassword)
+                    .multilineTextAlignment(.center)
+                    .font(.title2.monospacedDigit())
+                    .onChange(of: pin) { _, value in pin = String(value.filter(\.isNumber).prefix(6)) }
+                if let errorMessage {
+                    Text(verbatim: errorMessage).font(.footnote).foregroundStyle(.red)
+                }
+                Button(operation == .disable ? "确认关闭" : "保存密码", action: submitPin)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(pin.count != 6)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("取消", systemImage: "xmark") { prompt = nil }
+                }
+            }
+        }
+    }
+
+    private func submitPin() {
+        guard let operation = prompt else { return }
+        switch operation {
+        case .create, .reset:
+            do {
+                try appLock.setPassword(pin)
+                enabled = true
+                if operation == .reset { biometricEnabled = false; biometricPriority = false }
+                prompt = nil
+            } catch { errorMessage = error.localizedDescription }
+        case .disable:
+            guard appLock.verify(pin) else {
+                errorMessage = VesperLocalization.string("密码错误，请重试。")
+                return
+            }
+            enabled = false
+            biometricEnabled = false
+            biometricPriority = false
+            appLock.removePassword()
+            appLock.activate()
+            prompt = nil
+        }
+    }
+}
+
+private struct AppLockScreen: View {
+    @EnvironmentObject private var appLock: AppLock
+    @AppStorage(AppLock.biometricEnabledKey) private var biometricEnabled = false
+    @AppStorage(AppLock.biometricPriorityKey) private var biometricPriority = false
+    @State private var pin = ""
+    @State private var errorMessage: String?
+    @State private var isAuthenticating = false
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "lock.fill").font(.system(size: 42)).foregroundStyle(.secondary)
+            Text("输入密码以继续").font(.title3.weight(.semibold))
+            SecureField("六位数字密码", text: $pin)
+                .keyboardType(.numberPad)
+                .textContentType(.oneTimeCode)
+                .multilineTextAlignment(.center)
+                .font(.title2.monospacedDigit())
+                .onChange(of: pin) { _, value in pin = String(value.filter(\.isNumber).prefix(6)) }
+                .onChange(of: pin) { _, value in if value.count == 6 { unlockWithPassword() } }
+            if let errorMessage { Text(verbatim: errorMessage).foregroundStyle(.red).font(.footnote) }
+            if biometricEnabled {
+                Button("使用生物识别", systemImage: "faceid") {
+                    Task { await authenticate() }
+                }
+                    .disabled(isAuthenticating)
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.regularMaterial)
+        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+        .task {
+            guard biometricEnabled, biometricPriority else { return }
+            await authenticate()
+        }
+    }
+
+    private func unlockWithPassword() {
+        if appLock.verify(pin) {
+            pin = ""
+            appLock.didUnlock()
+        } else {
+            pin = ""
+            errorMessage = VesperLocalization.string("密码错误，请重试。")
+        }
+    }
+
+    private func authenticate() async {
+        guard !isAuthenticating else { return }
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+        if await appLock.authenticateBiometrically() { appLock.didUnlock() }
     }
 }
 
@@ -43,6 +231,8 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 32) {
                 settingsGroup {
                     settingsLink(.permissions, title: "应用权限", symbol: "hand.raised")
+                    Divider().padding(.leading, 52)
+                    settingsLink(.appLock, title: "密码保护", symbol: "lock")
                     Divider().padding(.leading, 52)
                     settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
                     Divider().padding(.leading, 52)
@@ -118,6 +308,7 @@ struct SettingsView: View {
                 case .debug: DebugSettingsView()
                 case .emby: EmbySettingsView()
                 case .permissions: AppPermissionsView()
+                case .appLock: AppLockSettingsView()
                 case .cache:
                     CacheManagementView()
                         .navigationBarTitleDisplayMode(.inline)
@@ -1330,6 +1521,8 @@ private struct DebugSettingsView: View {
     @AppStorage(EmbyUserAgentPolicy.enabledKey) private var enabled = false
     @AppStorage(EmbyUserAgentPolicy.nameKey) private var clientName = ""
     @AppStorage(EmbyUserAgentPolicy.versionKey) private var clientVersion = ""
+    @AppStorage(PlaybackDiagnostics.detachHiddenVideoSurfaceKey) private var detachHiddenVideoSurface = false
+    @AppStorage(PlaybackDiagnostics.throttleHiddenPausedPollingKey) private var throttleHiddenPausedPolling = false
 
     var body: some View {
         SettingsPage {
@@ -1353,6 +1546,12 @@ private struct DebugSettingsView: View {
                 Toggle("图片不使用本地缓存", isOn: $ignoreLocalImageCache)
             } footer: {
                 Text("启用后，图片会直接从来源加载，且不会写入本地图片缓存。")
+            }
+            DebugSettingsSection(title: "播放刷新率排查") {
+                Toggle("隐藏播放器时卸载视频画面", isOn: $detachHiddenVideoSurface)
+                Toggle("隐藏且暂停时将状态轮询降至 1 Hz", isOn: $throttleHiddenPausedPolling)
+            } footer: {
+                Text("一次只开启一个开关并观察 App 刷新率。前者临时移除窗口中的视频渲染视图；后者只在播放器隐藏且暂停时降低状态轮询频率。")
             }
             DebugSettingsSection(title: "界面设计") {
                 ForEach(Self.interfaceMetrics, id: \.self) { metric in

@@ -22,7 +22,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     @Published private(set) var downloadBytesPerSecond: Double?
     private var downloadSpeedSampler = DownloadSpeedSampler()
     var downloadSpeedText: String {
-        DownloadSpeedSampler.megabytesPerSecond(downloadBytesPerSecond)
+        if downloadBytesPerSecond == nil || downloadBytesPerSecond == 0 { return "0B/s" }
+        return DownloadSpeedSampler.megabytesPerSecond(downloadBytesPerSecond)
     }
 
     // Runs while PlayerScreen is mounted, including the initial async engine load.
@@ -72,7 +73,9 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var errorMessage: String?
     @Published private(set) var videoView: UIView?
-    @Published var isPresented = false
+    @Published var isPresented = false {
+        didSet { core.isPlayerPresented = isPresented }
+    }
     @Published private(set) var playbackRate: Float = 1
     @Published private(set) var fillsScreen = false
     @Published private(set) var bufferedTime: TimeInterval = 0

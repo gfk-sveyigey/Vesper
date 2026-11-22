@@ -17,7 +17,7 @@ class TabHeaderNavigationTests(unittest.TestCase):
     def test_source_editor_hides_root_header(self):
         sources = (ROOT / 'Sources/SourcesView.swift').read_text()
         navigation = (ROOT / 'Navigation/AppNavigationView.swift').read_text()
-        self.assertIn('isShowingEmbyEditor || editingEmby != nil || showingOrder, initial: true', sources)
+        self.assertIn('isShowingEmbyEditor || editingEmby != nil || sourceManagement != nil || showingOrder || showingPrivacyUnlock, initial: true', sources)
         self.assertIn('headerVisibilityChanged(!presentsEditor)', sources)
         self.assertIn('SourcesView { sourcesHeaderVisible = $0 }', navigation)
         self.assertIn('sourcesPath.isEmpty && sourcesHeaderVisible', navigation)

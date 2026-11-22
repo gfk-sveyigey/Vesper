@@ -6,7 +6,9 @@ struct HistoryView: View {
     @Binding var path: NavigationPath
 
     private var groups: [HistorySourceGroup] {
-        Dictionary(grouping: playback.history.filter { $0.hiddenFromHistory != true }, by: { $0.source.id }).values.map { entries in
+        Dictionary(grouping: playback.history.filter {
+            $0.hiddenFromHistory != true && (library.isPrivacyModeEnabled || !library.protectedSourceIDs.contains($0.source.id))
+        }, by: { $0.source.id }).values.map { entries in
             HistorySourceGroup(source: entries[0].source, entries: entries.sorted { $0.watchedAt > $1.watchedAt })
         }.sorted { left, right in
             if left.id == library.selectedID { return true }

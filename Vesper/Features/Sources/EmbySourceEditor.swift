@@ -131,6 +131,10 @@ struct EmbySourceEditor: View {
             }
             .buttonStyle(.plain)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(uiColor: .secondarySystemGroupedBackground),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var settingsForm: some View {
@@ -253,19 +257,7 @@ struct EmbySourceEditor: View {
     }
 }
 
-private struct EmbyRouteDraft: Identifiable {
-    let id = UUID()
-    var address = ""
-    var name = ""
-    var fromServer = false
-
-    var displayName: String {
-        if !name.isEmpty { return name }
-        return URLComponents(string: address)?.host ?? address
-    }
-}
-
-private struct EmbyRouteEditor: View {
+struct EmbyRouteEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: EmbyRouteDraft
     @State private var host: String

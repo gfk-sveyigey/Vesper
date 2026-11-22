@@ -341,7 +341,7 @@ struct MediaView: View {
                     .frame(width: 44, height: 44)
                     .glassEffect(.regular.interactive(), in: .circle)
             }
-            if !library.sources.isEmpty {
+            if !library.visibleSources.isEmpty {
                 mediaSourceMenu()
             }
         }
@@ -668,7 +668,7 @@ struct MediaView: View {
     private func refreshButton(inMenu: Bool = true) -> some View {
         Button { library.reload() } label: {
             Label { Text("刷新页面") } icon: {
-                if inMenu { menuSymbol("arrow.clockwise", source: library.selectedSource) }
+                if inMenu { menuSymbol("arrow.clockwise") }
                 else { Image(systemName: "arrow.clockwise") }
             }
         }
@@ -678,7 +678,7 @@ struct MediaView: View {
     private func favoritesButton(_ source: MediaSource, inMenu: Bool = true) -> some View {
         Button { path.append(EmbyMediaRoute.favorites(source)) } label: {
             Label { Text("收藏媒体") } icon: {
-                if inMenu { menuSymbol("heart", source: source) }
+                if inMenu { menuSymbol("heart") }
                 else { Image(systemName: "heart") }
             }
         }
@@ -694,20 +694,11 @@ struct MediaView: View {
         }
     }
 
-    private func statusTint(_ source: MediaSource?, address: String? = nil) -> UIColor? {
-        guard let source else { return nil }
-        switch library.connectionStatus(for: source, address: address) {
-        case .normal, .verified: return nil
-        case .checking: return .systemGray
-        case .failed: return .black
-        }
-    }
-
-    // Bake colors into original-rendering images so native menus retain them.
-    private func menuSymbol(_ name: String, source: MediaSource?, address: String? = nil) -> Image {
+    // Bake the theme color into original-rendering images so native menus retain it.
+    private func menuSymbol(_ name: String) -> Image {
         let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
         let icon = UIImage(systemName: name, withConfiguration: configuration)?
-            .withTintColor(statusTint(source, address: address) ?? UIColor(VesperTheme.accent(accent)), renderingMode: .alwaysOriginal)
+            .withTintColor(UIColor(VesperTheme.accent(accent)), renderingMode: .alwaysOriginal)
         return icon.map { Image(uiImage: $0).renderingMode(.original) } ?? Image(systemName: name)
     }
 
@@ -715,7 +706,7 @@ struct MediaView: View {
         let configuredIcon = source.emby?.iconData.flatMap { UIImage(data: $0) }
         let image = configuredIcon ?? UIImage(named: "EmbyLogo")
         guard let image, image.size.width > 0, image.size.height > 0 else {
-            return inMenu ? menuSymbol(sourceSymbol(source), source: source) : Image(systemName: sourceSymbol(source))
+            return inMenu ? menuSymbol(sourceSymbol(source)) : Image(systemName: sourceSymbol(source))
         }
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
@@ -730,8 +721,7 @@ struct MediaView: View {
             let height = image.size.height * scale
             image.draw(in: CGRect(x: (size - width) / 2, y: (size - height) / 2, width: width, height: height))
         }
-        let rendered = statusTint(source).map { icon.withTintColor($0, renderingMode: .alwaysOriginal) } ?? icon
-        return Image(uiImage: rendered).renderingMode(.original)
+        return Image(uiImage: icon).renderingMode(.original)
     }
 
     private func selectSource(_ source: MediaSource) {
@@ -755,7 +745,7 @@ struct MediaView: View {
             library.switchEmbyRoute(source.id, address: address)
         } label: {
             Label { Text(verbatim: title) } icon: {
-                menuSymbol("network", source: source, address: address)
+                menuSymbol("network")
             }
         }
     }
@@ -773,7 +763,7 @@ struct MediaView: View {
                 Section { favoritesButton(source) }
             }
             Section {
-                ForEach(library.sources) { source in
+                ForEach(library.visibleSources) { source in
                     Button {
                         selectSource(source)
                     } label: {
@@ -784,7 +774,7 @@ struct MediaView: View {
                             if source.kind == .emby {
                                 sourceMenuIcon(source, size: 22)
                             } else {
-                                menuSymbol(sourceSymbol(source), source: source)
+                                menuSymbol(sourceSymbol(source))
                             }
                         }
                     }
@@ -803,7 +793,7 @@ struct MediaView: View {
                             routeMenuItem(source, address: address, title: title)
                         }
                     } label: {
-                        Label { Text("切换线路") } icon: { menuSymbol("network", source: source) }
+                        Label { Text("切换线路") } icon: { menuSymbol("network") }
                     }
                 }
             }
@@ -2025,7 +2015,7 @@ private struct EmbySeriesBrowserView: View {
                         .mediaArtworkBorder()
                         .matchedTransitionSource(id: route, in: artworkZoom)
                 } else {
-                    libraryRow(item, route: route)
+                    MediaLibraryListRow(source: source, item: item, transition: (route, artworkZoom))
                 }
             }
             .buttonStyle(.plain)
@@ -2038,71 +2028,9 @@ private struct EmbySeriesBrowserView: View {
                 }
             }
             if displayLayout == .list, index < items.count - 1 {
-                Divider().padding(.leading, libraryListArtworkWidth + libraryListColumnSpacing)
+                Divider().padding(.leading, MediaLibraryListRow(source: source, item: item).dividerInset)
             }
         }
-    }
-
-    private var libraryListImageHeight: CGFloat {
-        max(24, CGFloat(layout[.browserListRowHeight] - layout[.browserListImageTop] - layout[.browserListImageBottom]))
-    }
-
-    private var libraryListImageWidth: CGFloat { libraryListImageHeight * 2 / 3 }
-
-    private var libraryListArtworkWidth: CGFloat {
-        libraryListImageWidth + CGFloat(layout[.browserListImageLeading]) + CGFloat(layout[.browserListImageTrailing])
-    }
-
-    private let libraryListColumnSpacing: CGFloat = 12
-
-    private func libraryRow(_ item: MediaItem, route: EmbyMediaRoute) -> some View {
-        let rowHeight = CGFloat(layout[.browserListRowHeight])
-        let imageTop = CGFloat(layout[.browserListImageTop])
-        let imageLeading = CGFloat(layout[.browserListImageLeading])
-        let imageBottom = CGFloat(layout[.browserListImageBottom])
-        let imageTrailing = CGFloat(layout[.browserListImageTrailing])
-        let imageHeight = libraryListImageHeight
-        let imageWidth = libraryListImageWidth
-        let kind = item.embyItemType == "Movie" ? "电影" : "剧集"
-        let genres = item.embyPresentation?.genres.prefix(3).joined(separator: " · ")
-        let year = item.subtitle ?? item.embyPresentation?.premiereDate.map {
-            String(Calendar.current.component(.year, from: $0))
-        } ?? "—"
-        let rating = item.embyPresentation?.communityRating.map { String(format: "%.1f", $0) }
-        let details = [kind, genres].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-        let yearAndRating = [year, rating.map { "★ \($0)" }].compactMap { $0 }.joined(separator: " · ")
-
-        return HStack(spacing: libraryListColumnSpacing) {
-            ZStack {
-                MediaThumbnail(source: source, item: item, imageOrientation: .portrait, fixedHeight: imageHeight)
-                    .frame(width: imageWidth, height: imageHeight)
-                    .mediaArtworkBorder()
-                    .matchedTransitionSource(id: route, in: artworkZoom)
-                    .padding(.top, imageTop)
-                    .padding(.leading, imageLeading)
-                    .padding(.bottom, imageBottom)
-                    .padding(.trailing, imageTrailing)
-            }
-            .frame(width: libraryListArtworkWidth, height: rowHeight)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: item.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Text(verbatim: details)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text(verbatim: yearAndRating)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight, alignment: .leading)
-        .contentShape(Rectangle())
     }
 
     private var detailOrigin: EmbyMediaRoute.Origin {
@@ -2147,6 +2075,113 @@ private struct EmbySeriesBrowserView: View {
             await AppCacheStore.shared.save(items, scope: cacheScope, key: key, generation: generation)
         } catch {
             if !Task.isCancelled, loadGeneration == token { errorMessage = error.localizedDescription }
+        }
+    }
+}
+
+struct MediaLibraryListRow: View {
+    let source: MediaSource
+    let item: MediaItem
+    private let playback: PlaybackSession?
+    private var transition: (id: EmbyMediaRoute, namespace: Namespace.ID)?
+    @ObservedObject private var layout = MediaLayoutSettings.shared
+
+    init(source: MediaSource, item: MediaItem, playback: PlaybackSession? = nil) {
+        self.source = source
+        self.item = item
+        self.playback = playback
+        self.transition = nil
+    }
+
+    fileprivate init(source: MediaSource, item: MediaItem, transition: (id: EmbyMediaRoute, namespace: Namespace.ID)) {
+        self.source = source
+        self.item = item
+        self.playback = nil
+        self.transition = transition
+    }
+
+    private var kindKey: String {
+        switch item.embyItemType {
+        case "Movie": "电影"
+        case "Series": "剧集"
+        case "Episode": "单集"
+        default: "视频"
+        }
+    }
+
+    private var libraryListImageHeight: CGFloat {
+        max(24, CGFloat(layout[.browserListRowHeight] - layout[.browserListImageTop] - layout[.browserListImageBottom]))
+    }
+
+    private var libraryListImageWidth: CGFloat { libraryListImageHeight * 2 / 3 }
+
+    private var libraryListArtworkWidth: CGFloat {
+        libraryListImageWidth + CGFloat(layout[.browserListImageLeading]) + CGFloat(layout[.browserListImageTrailing])
+    }
+
+    private let libraryListColumnSpacing: CGFloat = 12
+    var dividerInset: CGFloat { libraryListArtworkWidth + libraryListColumnSpacing }
+
+    var body: some View {
+        let rowHeight = CGFloat(layout[.browserListRowHeight])
+        let imageTop = CGFloat(layout[.browserListImageTop])
+        let imageLeading = CGFloat(layout[.browserListImageLeading])
+        let imageBottom = CGFloat(layout[.browserListImageBottom])
+        let imageTrailing = CGFloat(layout[.browserListImageTrailing])
+        let imageHeight = libraryListImageHeight
+        let imageWidth = libraryListImageWidth
+        let kind = VesperLocalization.string(kindKey)
+        let genres = item.embyPresentation?.genres.prefix(3).joined(separator: " · ")
+        let year = (source.kind == .emby ? item.subtitle : nil) ?? item.embyPresentation?.premiereDate.map {
+            String(Calendar.current.component(.year, from: $0))
+        } ?? "—"
+        let rating = item.embyPresentation?.communityRating.map { String(format: "%.1f", $0) }
+        let details = [kind, genres].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        let yearAndRating = [year, rating.map { "★ \($0)" }].compactMap { $0 }.joined(separator: " · ")
+
+        return HStack(spacing: libraryListColumnSpacing) {
+            ZStack {
+                MediaThumbnail(source: source, item: item, playback: playback, imageOrientation: .portrait,
+                               fixedHeight: imageHeight, usesMediaCardBackdrop: source.kind == .emby)
+                    .frame(width: imageWidth, height: imageHeight)
+                    .mediaArtworkBorder()
+                    .modifier(ListArtworkTransition(transition: transition))
+                    .padding(.top, imageTop)
+                    .padding(.leading, imageLeading)
+                    .padding(.bottom, imageBottom)
+                    .padding(.trailing, imageTrailing)
+            }
+            .frame(width: libraryListArtworkWidth, height: rowHeight)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: item.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(verbatim: details)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text(verbatim: source.kind == .emby ? yearAndRating : item.subtitle ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct ListArtworkTransition: ViewModifier {
+    let transition: (id: EmbyMediaRoute, namespace: Namespace.ID)?
+
+    func body(content: Content) -> some View {
+        if let transition {
+            content.matchedTransitionSource(id: transition.id, in: transition.namespace)
+        } else {
+            content
         }
     }
 }

@@ -1,50 +1,72 @@
 import SwiftUI
 import Photos
+import PhotosUI
 import UIKit
 
 private enum SourcesAlert: Hashable, Identifiable {
     case addSource
     case localNetwork
     case refreshRoutes(String)
+    case privacyPasswordRequired
     var id: Self { self }
 }
 
 struct SourcesView: View {
+    private enum SourceManagementRequest: Identifiable {
+        case icon(MediaSource)
+        case routes(MediaSource)
+        var id: String {
+            switch self {
+            case .icon(let source): "icon-\(source.id)"
+            case .routes(let source): "routes-\(source.id)"
+            }
+        }
+    }
+
     private struct EditorRequest: Identifiable {
         let source: MediaSource
-        let entry: EmbySourceEditor.Entry
         var id: UUID { source.id }
     }
 
     var headerVisibilityChanged: (Bool) -> Void = { _ in }
     @EnvironmentObject private var library: SourceLibrary
+    @EnvironmentObject private var playback: PlaybackSession
+    @EnvironmentObject private var appLock: AppLock
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var activeAlert: SourcesAlert?
     @State private var isShowingEmbyEditor = false
     @State private var editingEmby: EditorRequest?
+    @State private var sourceManagement: SourceManagementRequest?
     @State private var refreshingRoutes: Set<UUID> = []
     @State private var showingOrder = false
+    @State private var showingPrivacyUnlock = false
 
     var body: some View {
         VesperRootScrollView(title: "来源") {
-            if library.sources.isEmpty {
+            if library.visibleSources.isEmpty {
                 VesperCenteredEmptyContent(message: "未配置来源", symbol: AppSection.sources.symbol)
             } else {
                 VStack(spacing: 0) {
-                    ForEach(library.sources) { source in
+                    ForEach(library.visibleSources) { source in
                         SourceListRow(source: source, isSelected: source.id == library.selectedID,
                                       latency: library.routeLatencies[source.id], select: {
                             selectSource(source)
                         }) {
+                            if library.isPrivacyModeEnabled {
+                                Button(library.isProtected(source) ? "取消保护" : "保护",
+                                       systemImage: library.isProtected(source) ? "lock.open" : "lock") {
+                                    library.setProtected(!library.isProtected(source), for: source)
+                                }
+                            }
                             if let configuration = source.emby {
                                 Button("编辑来源", systemImage: "pencil") {
-                                    editingEmby = EditorRequest(source: source, entry: .general)
+                                    editingEmby = EditorRequest(source: source)
                                 }
                                 Button("修改图标", systemImage: "photo") {
-                                    editingEmby = EditorRequest(source: source, entry: .icon)
+                                    sourceManagement = .icon(source)
                                 }
                                 Button("编辑线路", systemImage: "point.3.connected.trianglepath.dotted") {
-                                    editingEmby = EditorRequest(source: source, entry: .routes)
+                                    sourceManagement = .routes(source)
                                 }
                                 Button("刷新线路", systemImage: "arrow.clockwise") { refreshRoutes(source.id) }
                                     .disabled(refreshingRoutes.contains(source.id))
@@ -57,10 +79,12 @@ struct SourcesView: View {
                                         Button {
                                             library.switchEmbyRoute(source.id, address: address)
                                         } label: {
-                                            if key == EmbyRouteOptions.key(configuration.serverAddress) {
-                                                Label(name, systemImage: "checkmark")
-                                            } else {
+                                            Label {
                                                 Text(verbatim: name)
+                                            } icon: {
+                                                Image(systemName: "checkmark")
+                                                    .opacity(key == EmbyRouteOptions.key(configuration.serverAddress) ? 1 : 0)
+                                                    .accessibilityHidden(key != EmbyRouteOptions.key(configuration.serverAddress))
                                             }
                                         }
                                     }
@@ -69,7 +93,7 @@ struct SourcesView: View {
                             Button("移除来源", systemImage: "trash", role: .destructive) { library.remove(source.id) }
                         }
                         .accessibilityAction(named: Text("移除来源")) { library.remove(source.id) }
-                        if source.id != library.sources.last?.id {
+                        if source.id != library.visibleSources.last?.id {
                             Divider().padding(.leading, iconInset)
                         }
                     }
@@ -78,21 +102,27 @@ struct SourcesView: View {
                 .padding(.horizontal, 20)
             }
         } actions: {
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 8) {
-                    Button { showingOrder = true } label: { actionIcon("arrow.up.arrow.down") }
-                        .accessibilityLabel("调整来源顺序")
-                        .disabled(library.sources.count < 2)
-                    Button { library.testRouteLatencies() } label: { actionIcon("arrow.clockwise") }
-                        .accessibilityLabel("测试延迟")
-                        .disabled(library.isTestingRouteLatency || !library.sources.contains { $0.kind == .emby })
-                    addMenu
+            HStack(spacing: 0) {
+                Button { togglePrivacyMode() } label: {
+                    actionIcon(library.isPrivacyModeEnabled ? "eye" : "eye.slash")
                 }
-                .buttonStyle(.plain)
+                .accessibilityLabel(library.isPrivacyModeEnabled ? "退出隐私模式" : "进入隐私模式")
+                Button { showingOrder = true } label: { actionIcon("arrow.up.arrow.down") }
+                    .accessibilityLabel("调整来源顺序")
+                    .disabled(library.visibleSources.count < 2)
+                Button { library.testRouteLatencies() } label: { actionIcon("arrow.clockwise") }
+                    .accessibilityLabel("测试延迟")
+                    .disabled(library.isTestingRouteLatency || !library.visibleSources.contains { $0.kind == .emby })
+                addMenu
             }
+            .buttonStyle(.plain)
+            .glassEffect(.regular, in: Capsule())
         }
         .alert(item: $activeAlert) { alert in
             switch alert {
+            case .privacyPasswordRequired:
+                Alert(title: Text("密码保护未开启"), message: Text("请先在设置中启用密码保护。"),
+                      dismissButton: .cancel(Text("好")))
             case .addSource:
                 Alert(title: Text("无法添加来源"), message: Text("请检查相册访问权限或本地视频文件。"),
                       dismissButton: .cancel(Text("好")))
@@ -109,14 +139,42 @@ struct SourcesView: View {
                       secondaryButton: .cancel(Text("取消")))
             }
         }
-        .onChange(of: isShowingEmbyEditor || editingEmby != nil || showingOrder, initial: true) { _, presentsEditor in
+        .onChange(of: isShowingEmbyEditor || editingEmby != nil || sourceManagement != nil || showingOrder || showingPrivacyUnlock, initial: true) { _, presentsEditor in
             headerVisibilityChanged(!presentsEditor)
         }
         .sheet(isPresented: $isShowingEmbyEditor) { EmbySourceEditor(source: nil) }
         .sheet(item: $editingEmby) { request in
-            EmbySourceEditor(source: request.source, entry: request.entry)
+            EmbySourceEditor(source: request.source)
+        }
+        .sheet(item: $sourceManagement) { request in
+            switch request {
+            case .icon(let source):
+                SourceIconEditSheet(source: source)
+            case .routes(let source):
+                SourceRouteManagementSheet(source: source)
+            }
         }
         .sheet(isPresented: $showingOrder) { SourceOrderSheet() }
+        .sheet(isPresented: $showingPrivacyUnlock) {
+            SourcePrivacyUnlockSheet {
+                library.setPrivacyMode(true)
+                library.testProtectedRouteLatencies()
+            }
+        }
+    }
+
+    private func togglePrivacyMode() {
+        if library.isPrivacyModeEnabled {
+            // Playback can belong to a source other than the selected browsing source.
+            if let item = playback.currentItem, library.protectedSourceIDs.contains(item.id.sourceID) {
+                playback.stop()
+            }
+            library.setPrivacyMode(false)
+        } else if appLock.isEnabled {
+            showingPrivacyUnlock = true
+        } else {
+            activeAlert = .privacyPasswordRequired
+        }
     }
 
     private var iconInset: CGFloat {
@@ -128,8 +186,7 @@ struct SourcesView: View {
         Image(systemName: symbol)
             .font(.system(size: 17, weight: .medium))
             .frame(width: 44, height: 44)
-            .contentShape(Circle())
-            .glassEffect(.regular.interactive(), in: .circle)
+            .contentShape(Rectangle())
     }
 
     private func selectSource(_ source: MediaSource) {
@@ -201,6 +258,88 @@ struct SourcesView: View {
     }
 }
 
+private struct SourcePrivacyUnlockSheet: View {
+    let onUnlock: () -> Void
+    @EnvironmentObject private var appLock: AppLock
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage(AppLock.biometricEnabledKey) private var biometricEnabled = false
+    @AppStorage(AppLock.biometricPriorityKey) private var biometricPriority = false
+    @State private var pin = ""
+    @State private var hasError = false
+    @State private var isAuthenticating = false
+    @State private var hasUnlocked = false
+    @State private var isVisible = false
+    @FocusState private var pinFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                SecureField("六位数字密码", text: $pin)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .focused($pinFocused)
+                    .onChange(of: pin) { _, value in
+                        let digits = String(value.filter { $0 >= "0" && $0 <= "9" }.prefix(6))
+                        if digits != value { pin = digits; return }
+                        guard digits.count == 6, !isAuthenticating, !hasUnlocked else { return }
+                        if appLock.isEnabled, appLock.verify(digits) {
+                            pin = ""
+                            finishUnlock()
+                        } else {
+                            pin = ""
+                            hasError = true
+                        }
+                    }
+                if hasError { Text("密码错误，请重试。").foregroundStyle(.red) }
+                if biometricEnabled {
+                    Button("使用生物识别", systemImage: "faceid") {
+                        Task { await authenticate() }
+                    }
+                    .disabled(isAuthenticating)
+                }
+            }
+            .navigationTitle("进入隐私模式")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly)
+                }
+            }
+            .onAppear { isVisible = true }
+            .onDisappear { isVisible = false }
+            .task {
+                if biometricEnabled, biometricPriority {
+                    await authenticate()
+                } else {
+                    pinFocused = true
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func finishUnlock() {
+        guard !hasUnlocked else { return }
+        hasUnlocked = true
+        onUnlock()
+        dismiss()
+    }
+
+    private func authenticate() async {
+        guard appLock.isEnabled, biometricEnabled, !isAuthenticating, !hasUnlocked else { return }
+        isAuthenticating = true
+        pinFocused = false
+        let authenticated = await appLock.authenticateBiometrically()
+        isAuthenticating = false
+        guard !Task.isCancelled, isVisible, appLock.isEnabled else { return }
+        if authenticated {
+            finishUnlock()
+        } else {
+            pinFocused = true
+        }
+    }
+}
+
 private struct SourceOrderSheet: View {
     @EnvironmentObject private var library: SourceLibrary
     @Environment(\.dismiss) private var dismiss
@@ -209,7 +348,7 @@ private struct SourceOrderSheet: View {
         NavigationStack {
             SettingsPage {
                 SettingsSection {
-                    ForEach(library.sources) { source in
+                    ForEach(library.visibleSources) { source in
                         Text(verbatim: source.localizedSourceName)
                     }
                     .onMove(perform: library.moveSources)
@@ -223,6 +362,176 @@ private struct SourceOrderSheet: View {
                     Button("关闭", systemImage: "xmark") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+private struct SourceIconEditSheet: View {
+    let source: MediaSource
+    @EnvironmentObject private var library: SourceLibrary
+    @Environment(\.dismiss) private var dismiss
+    @State private var iconData: Data?
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showingIconLibrary = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack {
+                        Spacer()
+                        Group {
+                            if let iconData, let image = UIImage(data: iconData) {
+                                Image(uiImage: image).resizable().scaledToFit()
+                            } else {
+                                Image("EmbyLogo").resizable().scaledToFit().padding(8)
+                            }
+                        }
+                        .frame(width: 88, height: 88)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
+                        Spacer()
+                    }
+                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                        Label("从照片选择", systemImage: "photo")
+                    }
+                    Button("从图标库选择", systemImage: "square.grid.2x2") {
+                        showingIconLibrary = true
+                    }
+                    Button("使用默认图标", systemImage: "arrow.counterclockwise", role: .destructive) {
+                        iconData = nil
+                    }
+                }
+            }
+            .navigationTitle("修改图标")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭", systemImage: "xmark") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("保存", systemImage: "checkmark") {
+                        library.updateEmbyIcon(source.id, iconData: iconData)
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .onAppear { iconData = source.emby?.iconData }
+        .onChange(of: selectedPhoto) { _, photo in
+            guard let photo else { return }
+            Task {
+                if let data = try? await photo.loadTransferable(type: Data.self),
+                   UIImage(data: data) != nil, !Task.isCancelled {
+                    iconData = data
+                }
+            }
+        }
+        .sheet(isPresented: $showingIconLibrary) {
+            EmbyLibraryIconPicker { iconData = $0 }
+        }
+    }
+}
+
+private struct SourceRouteManagementSheet: View {
+    let source: MediaSource
+    @EnvironmentObject private var library: SourceLibrary
+    @Environment(\.dismiss) private var dismiss
+    @State private var routes: [EmbyRouteDraft] = []
+    @State private var editingRoute: EmbyRouteDraft?
+    @State private var errorMessage: String?
+
+    private var activeKey: String { EmbyRouteOptions.key(source.emby?.serverAddress ?? "") }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("线路") {
+                    ForEach(routes) { route in
+                        Button { editingRoute = route } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(route.id == routes.first?.id
+                                         ? VesperLocalization.string("主线路") : route.displayName)
+                                    if EmbyRouteOptions.key(route.address) == activeKey {
+                                        Spacer()
+                                        Text("正在使用").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                Text(verbatim: route.address)
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions {
+                            Button("删除", systemImage: "trash", role: .destructive) {
+                                routes.removeAll { $0.id == route.id }
+                            }
+                            .disabled(routes.count <= 1 || EmbyRouteOptions.key(route.address) == activeKey)
+                        }
+                    }
+                    Button("添加线路", systemImage: "plus") { editingRoute = EmbyRouteDraft() }
+                }
+                Section {
+                    Text("当前使用中的线路不能删除；可编辑其地址，线路名称保持不变。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("编辑线路")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭", systemImage: "xmark") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("保存", systemImage: "checkmark", action: saveRoutes)
+                        .disabled(routes.isEmpty)
+                }
+            }
+            .sheet(item: $editingRoute) { route in
+                EmbyRouteEditor(draft: route, otherAddresses: routes.filter { $0.id != route.id }.map(\.address)) { updated in
+                    if EmbyRouteOptions.key(route.address) == activeKey {
+                        updated.name = route.name
+                        updated.fromServer = route.fromServer
+                    }
+                    if let index = routes.firstIndex(where: { $0.id == updated.id }) {
+                        routes[index] = updated
+                    } else {
+                        routes.append(updated)
+                    }
+                }
+            }
+            .alert("无法保存线路", isPresented: Binding(
+                get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("好", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(verbatim: errorMessage ?? "")
+            }
+        }
+        .onAppear(perform: loadRoutes)
+    }
+
+    private func loadRoutes() {
+        guard let configuration = library.embyConfiguration(for: source.id) else { return }
+        let serverKeys = Set((configuration.serverRouteAddresses ?? []).map(EmbyRouteOptions.key))
+        routes = ([configuration.primaryRoute] + configuration.backupRoutes).map { address in
+            let key = EmbyRouteOptions.key(address)
+            return EmbyRouteDraft(address: address,
+                                  name: configuration.alternateRouteNames?[key] ?? "",
+                                  fromServer: serverKeys.contains(key))
+        }
+    }
+
+    private func saveRoutes() {
+        do {
+            try library.updateEmbyRoutes(source.id, routes: routes)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }

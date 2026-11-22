@@ -152,14 +152,64 @@ final class SourceLibrary: ObservableObject {
         var selectedID: UUID?
     }
     @Published private(set) var sources: [MediaSource]
+    @Published private(set) var protectedSourceIDs: Set<UUID> = []
+    @Published private(set) var isPrivacyModeEnabled = false
+
+    var visibleSources: [MediaSource] {
+        sources.filter { isPrivacyModeEnabled || !protectedSourceIDs.contains($0.id) }
+    }
+
+    func isProtected(_ source: MediaSource) -> Bool { protectedSourceIDs.contains(source.id) }
+
+    func setProtected(_ protected: Bool, for source: MediaSource) {
+        if protected { protectedSourceIDs.insert(source.id) }
+        else { protectedSourceIDs.remove(source.id) }
+        defaults.set(protectedSourceIDs.map(\.uuidString), forKey: Self.protectedSourceIDsKey)
+        if !isPrivacyModeEnabled, selectedID == source.id, protected {
+            selectedID = visibleSources.first?.id
+            reload()
+        }
+    }
+
+    func setPrivacyMode(_ enabled: Bool) {
+        guard enabled != isPrivacyModeEnabled else { return }
+        isPrivacyModeEnabled = enabled
+        if !enabled {
+            for id in protectedSourceIDs {
+                connectionChecks.removeValue(forKey: id)?.cancel()
+                connectionGenerations[id] = nil
+            }
+        }
+        if !enabled, let selectedID, protectedSourceIDs.contains(selectedID) {
+            self.selectedID = visibleSources.first?.id
+            embyParentStack.removeAll()
+            currentEmbyParentID = nil
+            hasMoreEmbyItems = false
+            content = .unselected
+            embyHome = nil
+            persist()
+            reload()
+        }
+    }
+
+    func testProtectedRouteLatencies() {
+        guard isPrivacyModeEnabled else { return }
+        for source in visibleSources where protectedSourceIDs.contains(source.id) && source.kind == .emby {
+            verifyEmbyConnection(source.id)
+        }
+    }
 
     func moveSources(from offsets: IndexSet, to destination: Int) {
-        guard !offsets.isEmpty, offsets.allSatisfy({ sources.indices.contains($0) }),
-              (0...sources.count).contains(destination) else { return }
-        let moved = offsets.map { sources[$0] }
-        var ordered = sources.enumerated().filter { !offsets.contains($0.offset) }.map(\.element)
+        let visible = visibleSources
+        guard !offsets.isEmpty, offsets.allSatisfy({ visible.indices.contains($0) }),
+              (0...visible.count).contains(destination) else { return }
+        let moved = offsets.map { visible[$0] }
+        var ordered = visible.enumerated().filter { !offsets.contains($0.offset) }.map(\.element)
         ordered.insert(contentsOf: moved, at: destination - offsets.filter { $0 < destination }.count)
-        sources = ordered
+        var iterator = ordered.makeIterator()
+        sources = sources.map { source in
+            isPrivacyModeEnabled || !protectedSourceIDs.contains(source.id) ? iterator.next()! : source
+        }
         persist()
     }
     @Published private(set) var selectedID: UUID?
@@ -180,6 +230,7 @@ final class SourceLibrary: ObservableObject {
 
     /// Feedback only: verification never blocks or rolls back the selected route.
     func verifyEmbyConnection(_ id: UUID) {
+        guard isPrivacyModeEnabled || !protectedSourceIDs.contains(id) else { return }
         guard let source = sources.first(where: { $0.id == id }), let configuration = source.emby else { return }
         connectionChecks[id]?.cancel()
         connectionStatuses[id] = connectionStatuses[id]?.mapValues { $0 == .checking ? .normal : $0 }
@@ -213,6 +264,7 @@ final class SourceLibrary: ObservableObject {
     private var request: Task<Void, Never>?
     private var generation = UUID()
     private static let storageKey = "sources.snapshot.v1"
+    private static let protectedSourceIDsKey = "sources.protectedIDs.v1"
     private var embyParentStack: [(MediaItem, [MediaItem], Bool)] = []
     private var currentEmbyParentID: String?
     @Published private(set) var hasMoreEmbyItems = false
@@ -229,6 +281,7 @@ final class SourceLibrary: ObservableObject {
     @Published private(set) var embyHome: EmbyHome?
     @Published private(set) var isLoadingEmbyHome = false
     private var moreRequest: Task<Void, Never>?
+    private static var didRunColdStartRouteTest = false
 
     var canNavigateBack: Bool { !embyParentStack.isEmpty }
 
@@ -240,14 +293,20 @@ final class SourceLibrary: ObservableObject {
         let saved = defaults.data(forKey: Self.storageKey)
             .flatMap { try? JSONDecoder().decode(Snapshot.self, from: $0) }
         sources = saved?.sources ?? []
+        protectedSourceIDs = Set((defaults.stringArray(forKey: Self.protectedSourceIDsKey) ?? [])
+            .compactMap(UUID.init(uuidString:))).intersection(Set(sources.map(\.id)))
         selectedID = saved?.selectedID
+        if let id = selectedID, protectedSourceIDs.contains(id) { selectedID = visibleSources.first?.id }
         if !sources.contains(where: { $0.id == selectedID }) { selectedID = nil }
         reload()
-        testRouteLatencies()
+        if !Self.didRunColdStartRouteTest {
+            Self.didRunColdStartRouteTest = true
+            testRouteLatencies()
+        }
     }
 
     func testRouteLatencies() {
-        for source in sources where source.kind == .emby {
+        for source in visibleSources where source.kind == .emby {
             verifyEmbyConnection(source.id)
         }
     }
@@ -281,7 +340,7 @@ final class SourceLibrary: ObservableObject {
     }
 
     func select(_ id: UUID) {
-        guard sources.contains(where: { $0.id == id }) else { return }
+        guard visibleSources.contains(where: { $0.id == id }) else { return }
         let didSwitchSource = selectedID != id
         selectedID = id
         if didSwitchSource { verifyEmbyConnection(id) }
@@ -406,6 +465,47 @@ final class SourceLibrary: ObservableObject {
         if selectedID == sourceID { reload() }
     }
 
+    func updateEmbyIcon(_ id: UUID, iconData: Data?) {
+        guard let index = sources.firstIndex(where: { $0.id == id }),
+              var configuration = sources[index].emby else { return }
+        configuration.iconData = iconData
+        sources[index].emby = configuration
+        persist()
+    }
+
+    func updateEmbyRoutes(_ id: UUID, routes: [EmbyRouteDraft]) throws {
+        guard let index = sources.firstIndex(where: { $0.id == id }),
+              var configuration = sources[index].emby,
+              let primary = routes.first,
+              routes.allSatisfy({ isValidEmbyRoute($0.address) }) else {
+            throw EmbyError.invalidAddress
+        }
+        let oldAddress = configuration.serverAddress
+        let oldAddressKey = EmbyRouteOptions.key(oldAddress)
+        let activeRoute = routes.first(where: { EmbyRouteOptions.key($0.address) == oldAddressKey })
+            ?? (oldAddressKey == EmbyRouteOptions.key(configuration.primaryRoute) ? routes.first : nil)
+        guard let activeRoute else { throw EmbyError.invalidAddress }
+        configuration.primaryRouteAddress = primary.address
+        configuration.serverAddress = activeRoute.address
+        configuration.alternateAddresses = EmbyRouteOptions.unique(routes.map(\.address))
+        configuration.serverRouteAddresses = routes.filter(\.fromServer).map(\.address)
+        configuration.alternateRouteNames = Dictionary(
+            routes.filter { !$0.name.isEmpty }.map { (EmbyRouteOptions.key($0.address), $0.name) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        sources[index].emby = configuration
+        persist()
+        if oldAddressKey != EmbyRouteOptions.key(configuration.serverAddress) {
+            verifyEmbyConnection(id)
+            if selectedID == id { reload() }
+        }
+    }
+
+    private func isValidEmbyRoute(_ address: String) -> Bool {
+        (try? EmbyAPIClient(configuration: .init(title: "", note: "", serverAddress: address, username: ""),
+                            token: nil, deviceID: "route-validation")) != nil
+    }
+
     /// Route selection is immediate; verification only updates its status icon.
     func switchEmbyRoute(_ id: UUID, address: String) {
         guard let index = sources.firstIndex(where: { $0.id == id && $0.kind == .emby }),
@@ -462,6 +562,8 @@ final class SourceLibrary: ObservableObject {
             EmbyAccountStore.shared.logout(source: source)
         }
         sources.removeAll { $0.id == id }
+        protectedSourceIDs.remove(id)
+        defaults.set(protectedSourceIDs.map(\.uuidString), forKey: Self.protectedSourceIDsKey)
         if selectedID == id { selectedID = nil; reload() }
         persist()
     }

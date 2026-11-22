@@ -5,17 +5,18 @@ ROOT = Path(__file__).resolve().parents[2]
 class PlayerPresentationTests(unittest.TestCase):
     def test_detail_anchor_and_menu_groups(self):
         source = (ROOT / 'Vesper/Features/Media/EmbySeriesDetailView.swift').read_text()
-        toolbar = source.split('GlassEffectContainer(', 1)[1].split('.sharedBackgroundVisibility(.hidden)', 1)[0]
-        self.assertEqual(toolbar.count('.glassEffectID("detailActionAnchor"'), 1)
+        toolbar = source.split('private var detailToolbar:', 1)[1].split('private func toggleFavorite()', 1)[0]
+        self.assertEqual(toolbar.count('.glassEffectID("tracks"'), 1)
+        self.assertEqual(toolbar.count('.glassEffectID("primary"'), 1)
         self.assertIn('.glassEffectTransition(.matchedGeometry)', toolbar)
         self.assertIn('if !hasScrolled {', toolbar)
         self.assertIn('HStack(spacing: 0) {', toolbar)
-        self.assertIn('.padding(.trailing, 12)', toolbar)
+        self.assertIn('.offset(x: -56)', toolbar)
         self.assertNotIn('DetailActionFan', source)
         self.assertIn('@State private var hasScrolled = false', source)
         self.assertIn('Image(systemName: hasScrolled ? "ellipsis"', toolbar)
         self.assertIn('.contentTransition(.symbolEffect(.replace))', toolbar)
-        self.assertIn('.animation(reduceMotion ? nil : .default, value: hasScrolled)', toolbar)
+        self.assertIn('.animation(reduceMotion ? nil : .snappy(duration: 0.3), value: hasScrolled)', toolbar)
         self.assertIn('Section { favoriteButton }', toolbar)
         self.assertIn('versionMenu(inMenu: true)', toolbar)
         # Toolbar icons must not turn into menu text while collapsing.
@@ -37,9 +38,11 @@ class PlayerPresentationTests(unittest.TestCase):
         bottom = source.split('private func bottomControls', 1)[1].split('private var progressBar', 1)[0]
         self.assertIn('progressRow', bottom)
         self.assertIn('.glassEffect(.regular, in: Capsule())', bottom)
-        self.assertIn('if !isScrubbing {', bottom)
+        self.assertIn('.frame(height: 56.0 * 2 / 3)', bottom)
+        self.assertIn('.scaleEffect(isScrubbing ? 1.06 : 1)', bottom)
+        self.assertIn('.allowsHitTesting(showsOtherControls)', bottom)
         self.assertIn('bottomActions(landscape: landscape)', bottom)
-        self.assertIn('progressRow', source.split('if isScrubbing && !controlsVisible {', 1)[1].split('if regionsVisible', 1)[0])
+        self.assertNotIn('if isScrubbing && !controlsVisible {', source)
         self.assertIn('finishScrubbing(commit: scrubPreviews)', source)
         self.assertIn('phase == .ended', source)
     def test_sources_are_tunable_transparent_rows(self):

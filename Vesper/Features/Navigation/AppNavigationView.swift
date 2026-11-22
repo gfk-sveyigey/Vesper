@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Combine
 
 private enum NavigationTab: Hashable {
     case section(AppSection)
@@ -16,11 +17,14 @@ struct AppNavigationView: View {
     @AppStorage("search.recent") private var recentSearchesData = "[]"
     @AppStorage("miniPlayer.enabled") private var miniPlayerEnabled = true
     @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
+    @AppStorage(PlaybackDiagnostics.detachHiddenVideoSurfaceKey) private var detachHiddenVideoSurface = false
     @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
     @AppStorage(ImageCacheDebugSettings.ignoreLocalCacheKey) private var ignoreLocalImageCache = false
     @State private var selection: NavigationTab
     @StateObject private var library = SourceLibrary()
     @StateObject private var playback = PlaybackSession()
+    @StateObject private var appLock = AppLock.shared
+    @State private var isInBackground = false
     @State private var mediaPath = NavigationPath()
     @State private var sourcesPath = NavigationPath()
     @State private var sourcesHeaderVisible = true
@@ -68,10 +72,23 @@ struct AppNavigationView: View {
         .background {
             // Retain a window-attached rendering surface while PiP is active
             // or the full-screen player is closed by an external presentation.
-            if !playback.isPresented, let view = playback.videoView {
+            if !playback.isPresented, !detachHiddenVideoSurface, let view = playback.videoView {
                 PlayerVideoSurface(videoView: view)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
+            }
+        }
+        .overlay {
+            if appLock.isLocked {
+                AppLockScreen()
+                    .environmentObject(appLock)
+                    .transition(.opacity)
+                    .zIndex(100)
+            }
+        }
+        .overlay {
+            if isInBackground && appLock.isEnabled && appLock.shouldBlurInBackground {
+                Rectangle().fill(.ultraThinMaterial).ignoresSafeArea().allowsHitTesting(false)
             }
         }
         .background {
@@ -84,6 +101,17 @@ struct AppNavigationView: View {
             if presented { playerPresentationDismissed = false }
             PlayerOrientationPolicy.update(presented)
         }
+        .onChange(of: library.isPrivacyModeEnabled) { _, enabled in
+            guard !enabled else { return }
+            if let item = playback.currentItem, library.protectedSourceIDs.contains(item.id.sourceID) {
+                playback.stop()
+            }
+            // Discard detail/search routes that may retain a protected source.
+            mediaPath = NavigationPath()
+            sourcesPath = NavigationPath()
+            historyPath = NavigationPath()
+            searchPath = NavigationPath()
+        }
         .onChange(of: ignoreLocalImageCache) { _, _ in
             Task {
                 await AppCacheStore.shared.invalidateImageWrites()
@@ -91,6 +119,8 @@ struct AppNavigationView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            isInBackground = phase == .background
+            appLock.sceneChanged(phase)
             playback.handleScenePhase(phase)
             if phase == .active { presentNextIncomingVideo() }
         }
@@ -230,6 +260,14 @@ struct AppNavigationView: View {
                                                 .contentShape(Rectangle())
                                         }
                                         .buttonStyle(.plain)
+                                        .contextMenu {
+                                            Button("删除", systemImage: "trash", role: .destructive) {
+                                                saveRecentSearches(recentSearches.filter { $0 != query })
+                                            }
+                                        }
+                                        .accessibilityAction(named: Text("删除")) {
+                                            saveRecentSearches(recentSearches.filter { $0 != query })
+                                        }
                                         if query != recentSearches.last { Divider().padding(.leading, 28) }
                                     }
                                 }
@@ -260,6 +298,16 @@ struct AppNavigationView: View {
         .tabViewSearchActivation(.searchTabSelection)
         .environmentObject(library)
         .environmentObject(playback)
+        .environmentObject(appLock)
+        .task {
+            if scenePhase == .active { appLock.sceneChanged(.active) }
+        }
+        .task {
+            if scenePhase == .active { appLock.sceneChanged(.active) }
+        }
+        .onChange(of: library.selectedID) { old, new in
+            if old != new { appLock.sourceChanged() }
+        }
         .background(VesperTheme.background.ignoresSafeArea())
 
     }
@@ -358,6 +406,10 @@ struct AppNavigationView: View {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
         let values = Array(([query] + recentSearches.filter { $0 != query }).prefix(20))
+        saveRecentSearches(values)
+    }
+
+    private func saveRecentSearches(_ values: [String]) {
         if let data = try? JSONEncoder().encode(values), let value = String(data: data, encoding: .utf8) {
             recentSearchesData = value
         }
@@ -502,6 +554,7 @@ private struct MediaSearchRequest: Equatable {
 }
 
 private struct MediaSearchResultsView: View {
+    @ObservedObject private var layout = MediaLayoutSettings.shared
     let query: String
     let refreshID: UUID
     let openDetail: (MediaSource, MediaItem) -> Void
@@ -561,13 +614,15 @@ private struct MediaSearchResultsView: View {
                 Button {
                     open(item, source: source)
                 } label: {
-                    resultRow(item, source: source)
+                    MediaLibraryListRow(source: source, item: item, playback: playback)
                 }
                 .buttonStyle(.plain)
                 .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
                                              showsEmbyFacts: source.kind == .emby,
                                              openEmbyDetails: { open(item, source: source) }) { EmptyView() })
-                if item.id != items.last?.id { Divider().padding(.leading, 78) }
+                if item.id != items.last?.id {
+                    Divider().padding(.leading, MediaLibraryListRow(source: source, item: item).dividerInset)
+                }
             }
             if items.isEmpty {
                 VesperCenteredEmptyContent(message: "暂无搜索结果", symbol: "magnifyingglass")
@@ -588,32 +643,10 @@ private struct MediaSearchResultsView: View {
                 .padding(.vertical, 12)
             }
         }
-        .padding(.horizontal, 20)
-    }
-
-    private func resultRow(_ item: MediaItem, source: MediaSource) -> some View {
-        HStack(spacing: 14) {
-            MediaThumbnail(source: source, item: item, playback: playback,
-                           usesMediaCardBackdrop: source.kind == .emby)
-                .frame(width: 64, height: 96)
-                .clipped()
-            VStack(alignment: .leading, spacing: 6) {
-                Text(verbatim: item.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
-                if source.kind == .emby {
-                    Text(LocalizedStringKey(item.embyItemType == "Series" ? "剧集"
-                                            : item.embyItemType == "Movie" ? "电影"
-                                            : item.embyItemType == "Episode" ? "单集" : "视频"))
-                        .font(.subheadline).foregroundStyle(.secondary)
-                }
-                if let subtitle = item.subtitle, !subtitle.isEmpty {
-                    Text(verbatim: subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
+        .padding(.top, CGFloat(layout[.browserListTop]))
+        .padding(.leading, CGFloat(layout[.browserListLeading]))
+        .padding(.bottom, CGFloat(layout[.browserListBottom]))
+        .padding(.trailing, CGFloat(layout[.browserListTrailing]))
     }
 
     private func open(_ item: MediaItem, source: MediaSource) {
