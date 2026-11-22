@@ -475,10 +475,7 @@ private struct SourceRouteManagementSheet: View {
                         }
                         .buttonStyle(.plain)
                         .swipeActions {
-                            Button("删除", systemImage: "trash", role: .destructive) {
-                                routes.removeAll { $0.id == route.id }
-                            }
-                            .disabled(routes.count <= 1 || EmbyRouteOptions.key(route.address) == activeKey)
+                            deleteRouteButton(route)
                         }
                     }
                     Button("添加线路", systemImage: "plus") { editingRoute = EmbyRouteDraft() }
@@ -532,6 +529,16 @@ private struct SourceRouteManagementSheet: View {
                                   name: configuration.alternateRouteNames?[key] ?? "",
                                   fromServer: serverKeys.contains(key))
         }
+    }
+
+    private func deleteRouteButton(_ route: EmbyRouteDraft) -> some View {
+        let isActive = EmbyRouteOptions.key(route.address) == activeKey
+        return Button(role: .destructive) {
+            routes.removeAll { $0.id == route.id }
+        } label: {
+            Label("删除", systemImage: "trash")
+        }
+        .disabled(routes.count <= 1 || isActive)
     }
 
     private func saveRoutes() {
