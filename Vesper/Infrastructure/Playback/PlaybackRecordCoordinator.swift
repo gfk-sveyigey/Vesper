@@ -47,7 +47,7 @@ final class PlaybackRecordCoordinator {
     /// Serialize writes for the same item while allowing unrelated items to
     /// update independently. This keeps remote ordering out of UI state code.
     func enqueue(_ change: EmbyPlaybackRecordChange, for item: MediaItem,
-                 source: MediaSource, log: @MainActor @Sendable (String) -> Void) -> Task<Void, Error> {
+                 source: MediaSource, log: @escaping @MainActor @Sendable (String) -> Void) -> Task<Void, Error> {
         let previous = writes[item.id]?.task
         let writeID = UUID()
         let service = self.service
