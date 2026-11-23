@@ -471,6 +471,7 @@ struct EmbyFeaturedPage: View {
 }
 
 struct EmbySeriesPosterCard: View {
+    @EnvironmentObject private var library: SourceLibrary
     let source: MediaSource
     let item: MediaItem
     @ObservedObject var playback: PlaybackSession
