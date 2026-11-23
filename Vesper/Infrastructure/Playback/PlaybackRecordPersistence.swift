@@ -92,7 +92,7 @@ final class PlaybackRecordPersistence {
     }
 
     static func mediaID(from storageKey: String) -> MediaID? {
-        guard let separator = storageKey.firstIndex(of ":"),
+        guard let separator = storageKey.firstIndex(of: ":"),
               let sourceID = UUID(uuidString: String(storageKey[..<separator])) else { return nil }
         return MediaID(sourceID: sourceID, localID: String(storageKey[storageKey.index(after: separator)...]))
     }
