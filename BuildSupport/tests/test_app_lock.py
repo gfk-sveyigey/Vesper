@@ -33,6 +33,10 @@ class AppLockTests(unittest.TestCase):
         self.assertIn("appLock.authenticationRequestID == requestID", settings)
         self.assertIn("appLock.requestAuthentication(.resetPassword)", settings)
         self.assertIn("claimAutomaticBiometricAttempt(for: requestID)", settings)
+        automatic = settings.split("if appLock.claimAutomaticBiometricAttempt(for: requestID)", 1)[1].split("}\n            }", 1)[0]
+        self.assertIn("await Task.yield()", automatic)
+        self.assertIn("Task { @MainActor in await authenticate() }", automatic)
+        self.assertNotIn('context.localizedCancelTitle = ""', lock)
         self.assertIn("@Published private(set) var authenticationRequestID", lock)
         self.assertIn("if authenticationRequest == purpose", lock)
         self.assertIn("if authenticationRequest != nil {", lock)

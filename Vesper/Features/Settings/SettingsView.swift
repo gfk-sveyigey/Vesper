@@ -165,7 +165,10 @@ struct AppLockScreen: View {
             if !passwordOnly, biometricEnabled, biometricPriority, biometricType != .none {
                 let requestID = appLock.authenticationRequestID
                 if appLock.claimAutomaticBiometricAttempt(for: requestID) {
-                    await authenticate()
+                    await Task.yield()
+                    guard appLock.authenticationRequestID == requestID,
+                          appLock.authenticationRequest != nil else { return }
+                    Task { @MainActor in await authenticate() }
                 }
             }
         }

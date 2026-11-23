@@ -185,7 +185,6 @@ final class AppLock: ObservableObject {
         guard !isBiometricAuthenticationInProgress else { return .failure }
         let context = LAContext()
         context.localizedFallbackTitle = VesperLocalization.string("使用密码")
-        context.localizedCancelTitle = ""
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else { return .failure }
         isBiometricAuthenticationInProgress = true
