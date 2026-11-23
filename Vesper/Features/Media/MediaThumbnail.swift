@@ -71,10 +71,12 @@ struct MediaThumbnail: View {
             guard !artworkIsPrepared else { return }
             let key = loadKey
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.begin source=\(source.kind.rawValue) item=\(item.id.localID)") }
-            let data = await MediaThumbnailLoader.shared.load(item, source: source, service: MediaSourceServices.artwork, aspectRatio: aspectRatio,
-                                                             imageOrientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary,
-                                                             diagnostics: logsQueueDiagnostics, cacheOnly: cacheOnly,
-                                                             prefersLandscapeMovieArtwork: prefersLandscapeMovieArtwork)
+            let data = await MediaThumbnailLoader.shared.load(
+                item, source: source, service: MediaSourceServices.artwork, aspectRatio: aspectRatio,
+                imageOrientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary,
+                diagnostics: logsQueueDiagnostics, cacheOnly: cacheOnly,
+                prefersLandscapeMovieArtwork: prefersLandscapeMovieArtwork
+            )
             guard !Task.isCancelled else {
                 if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.cancelled item=\(item.id.localID)") }
                 return

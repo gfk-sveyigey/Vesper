@@ -202,6 +202,7 @@ struct MediaDetailView: View {
     @State private var similar: [MediaItem] = []
     @State private var leadingEpisode: MediaID?
     @State private var selectedEpisodeID: MediaID?
+    @State private var clearedServerProgressIDs: Set<MediaID> = []
     @State private var pendingInitialEpisodeID: MediaID?
     @State private var episodeShelfAtEnd = false
     @State private var selectedSeason: Int?
@@ -420,17 +421,17 @@ struct MediaDetailView: View {
                                                                selectedEpisodeIsPlayed: episodes.first { $0.id == selectedEpisodeID }
                                                                 .map { playback.effectivePlayed(for: $0.item) } ?? false,
                                                                selectedEpisodeResumePosition: episodes.first { $0.id == selectedEpisodeID }
-                                                                .map(resumePosition) ?? 0,
+                                                                .map { resumePosition($0.item) } ?? 0,
                                                                playSelectedEpisode: playSelectedEpisode,
                                                                toggleSelectedEpisodePlayed: toggleSelectedEpisodePlayed,
                                                                mediaFacts: series.isEmbySeries ? nil : heroMediaFacts,
                                                                showsItemActions: !series.isEmbySeries,
                                                                itemIsPlayed: playback.effectivePlayed(for: item),
-                                                               itemResumePosition: clearedServerProgress ? 0 : playback.resumePosition(for: item),
+                                                               itemResumePosition: resumePosition(for: item),
                                                                playItem: playCurrentItem,
                                                                toggleItemPlayed: {
                                                                    let played = playback.effectivePlayed(for: item)
-                                                                   playback.setPlayed(!played, for: item, source: source) { actionError = $0 }
+                                                                   setPlayed(!played, for: item)
                                                                }),
                              seriesFooterOpacity: detailContentReady
                                 && (!startsWithCarouselInformationHidden || carouselDetailReady) ? 1 : 0)
@@ -455,7 +456,7 @@ struct MediaDetailView: View {
 
     private func playCurrentItem() {
         var playable = playableItem
-        if clearedServerProgress { playable.resumePosition = 0 }
+        if hasClearedServerProgress(for: item) { playable.resumePosition = 0 }
         let audio = selectedVersion?.streams.first { $0.type == "Audio" && $0.id == selectedAudioIndex }
         let subtitle = selectedVersion?.streams.first { $0.type == "Subtitle" && $0.id == selectedSubtitleIndex }
         let streams = selectedVersion?.streams ?? []
@@ -867,7 +868,7 @@ struct MediaDetailView: View {
                                     artworkIsPrepared: detailDataReady && initialEpisodeArtworkIDs.contains(episode.id),
                                     allowsArtworkLoading: detailContentReady,
                                     setPlayed: { played in
-                                        playback.setPlayed(played, for: episode.item, source: source) { actionError = $0 }
+                                        setPlayed(played, for: episode.item)
                                     })
                         .id(episode.id)
                 }
@@ -1066,7 +1067,34 @@ struct MediaDetailView: View {
     }
 
     private func resumePosition(_ episode: EmbyEpisode) -> Double {
-        playback.resumePosition(for: episode.item)
+        resumePosition(for: episode.item)
+    }
+
+    private func resumePosition(for item: MediaItem) -> Double {
+        if hasClearedServerProgress(for: item) { return 0 }
+        return playback.resumePosition(for: item)
+    }
+
+    private func hasClearedServerProgress(for item: MediaItem) -> Bool {
+        (item.id == series.id && clearedServerProgress) || clearedServerProgressIDs.contains(item.id)
+    }
+
+    private func setPlayed(_ played: Bool, for item: MediaItem) {
+        let clearsEmbyProgress = !played && source.kind == .emby && source.emby?.userID != nil
+        let wasCleared = item.id == series.id
+            ? clearedServerProgress
+            : clearedServerProgressIDs.contains(item.id)
+        if clearsEmbyProgress {
+            if item.id == series.id { clearedServerProgress = true }
+            else { clearedServerProgressIDs.insert(item.id) }
+        }
+        playback.setPlayed(played, for: item, source: source) { error in
+            guard let error else { return }
+            if item.id == series.id { clearedServerProgress = wasCleared }
+            else if wasCleared { clearedServerProgressIDs.insert(item.id) }
+            else { clearedServerProgressIDs.remove(item.id) }
+            actionError = error
+        }
     }
 
     private func loadDetail() async {
@@ -1222,7 +1250,7 @@ struct MediaDetailView: View {
     private func toggleSelectedEpisodePlayed() {
         guard let selected = episodes.first(where: { $0.id == selectedEpisodeID }) else { return }
         let played = playback.effectivePlayed(for: selected.item)
-        playback.setPlayed(!played, for: selected.item, source: source) { actionError = $0 }
+        setPlayed(!played, for: selected.item)
     }
 
     private func clearProgress(for episode: EmbyEpisode) {

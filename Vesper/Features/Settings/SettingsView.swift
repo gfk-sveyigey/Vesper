@@ -605,7 +605,7 @@ struct AppIconChoices: View {
     private func iconChoice(name: String, title: LocalizedStringKey, iconName: String?) -> some View {
         let selected = currentIcon == iconName
         return Button {
-            guard UIApplication.shared.supportsAlternateIcons else { return }
+            guard UIApplication.shared.supportsAlternateIcons, !selected else { return }
             UIApplication.shared.setAlternateIconName(iconName) { error in
                 if let error {
                     iconChangeError = error.localizedDescription
@@ -625,12 +625,12 @@ struct AppIconChoices: View {
                     }
                 Text(title)
                     .font(.footnote)
-                    .foregroundStyle(selected ? Color.accentColor : Color.primary)
+                    .foregroundStyle(Color.primary)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!UIApplication.shared.supportsAlternateIcons || selected)
+        .disabled(!UIApplication.shared.supportsAlternateIcons)
         .accessibilityLabel(title)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }

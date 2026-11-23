@@ -27,8 +27,10 @@ class MediaSearchTests(unittest.TestCase):
     def test_search_loading_uses_centered_empty_content_style(self):
         navigation = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
         search = navigation.split('struct MediaSearchResultsView:', 1)[1].split('private func resultList', 1)[0]
-        self.assertIn('VesperCenteredEmptyContent(message: "正在搜索", symbol: "magnifyingglass")', search)
-        self.assertNotIn('ProgressView("正在搜索")', search)
+        self.assertIn('ProgressView()\n                        .controlSize(.large)', search)
+        self.assertIn('Text("正在搜索")\n                        .font(.title3.weight(.semibold))', search)
+        self.assertIn('.offset(y: -rootHeaderHeight / 2)', search)
+        self.assertNotIn('symbol: "magnifyingglass"', search)
 
     @unittest.skipUnless(SWIFTC, 'Swift compiler is required')
     def test_emby_search_pagination_and_query_encoding(self):

@@ -12,6 +12,14 @@ class PlaybackRecordSemanticsTests(unittest.TestCase):
         self.assertNotIn("clearSavedProgress", change)
         self.assertNotIn("shouldClearProgress", change)
 
+    def test_emby_mark_unplayed_suppresses_stale_detail_resume_position(self):
+        detail = (ROOT / "Vesper/Features/Media/EmbySeriesDetailView.swift").read_text()
+        self.assertIn('let clearsEmbyProgress = !played && source.kind == .emby && source.emby?.userID != nil', detail)
+        self.assertIn('if hasClearedServerProgress(for: item) { return 0 }', detail)
+        self.assertIn('(item.id == series.id && clearedServerProgress) || clearedServerProgressIDs.contains(item.id)', detail)
+        self.assertIn('setPlayed(!played, for: item)', detail)
+        self.assertIn('setPlayed(!played, for: selected.item)', detail)
+
     def test_clear_progress_deletes_history_but_persists_local_watched_state(self):
         persistence = (ROOT / "Vesper/Infrastructure/Playback/PlaybackRecordPersistence.swift").read_text()
         source = (ROOT / "Vesper/Infrastructure/Playback/PlaybackSession.swift").read_text()

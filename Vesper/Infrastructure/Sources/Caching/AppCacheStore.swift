@@ -53,6 +53,16 @@ actor AppCacheStore {
         write(data, key: "image|\(key)", category: .images)
     }
 
+    func imageMetadata(key: String) -> (Data?, UUID) {
+        migrateIfNeeded()
+        return (read("image-metadata|\(key)", category: .images), imageGeneration)
+    }
+
+    func saveImageMetadata(_ data: Data, key: String, generation: UUID) {
+        guard generation == imageGeneration else { return }
+        write(data, key: "image-metadata|\(key)", category: .images)
+    }
+
     func sizes() -> [AppCacheCategory: Int64] {
         migrateIfNeeded()
         return Dictionary(uniqueKeysWithValues: AppCacheCategory.allCases.map { category in

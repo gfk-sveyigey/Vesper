@@ -611,6 +611,7 @@ private struct MediaSearchResultsView: View {
     let refreshID: UUID
     let openDetail: (MediaSource, MediaItem) -> Void
     @Environment(\.vesperEmptyContentHeight) private var emptyHeight
+    @Environment(\.vesperRootHeaderHeight) private var rootHeaderHeight
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
     @State private var items: [MediaItem] = []
@@ -637,7 +638,16 @@ private struct MediaSearchResultsView: View {
                                        description: Text("请先在来源标签页选择一个媒体来源。"))
                     .frame(minHeight: emptyHeight)
             } else if loading {
-                VesperCenteredEmptyContent(message: "正在搜索", symbol: "magnifyingglass")
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .controlSize(.large)
+                        .accessibilityHidden(true)
+                    Text("正在搜索")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Color(uiColor: .label))
+                }
+                .frame(maxWidth: .infinity, minHeight: emptyHeight)
+                .offset(y: -rootHeaderHeight / 2)
             } else if let errorMessage {
                 ContentUnavailableView {
                     Label("搜索失败", systemImage: "exclamationmark.magnifyingglass")

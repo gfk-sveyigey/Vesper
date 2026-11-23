@@ -7,41 +7,89 @@ struct EmbySkipDatabasesView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var databases = EmbySkipSettings.databases
     @State private var editing: EmbySkipDatabase?
+    @State private var deleting: EmbySkipDatabase?
     @State private var adding = false
 
     var body: some View {
         NavigationStack {
             SettingsPage {
 
-                SettingsSection {
+                SettingsSection("查询顺序") {
                     ForEach($databases) { $database in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Toggle(database.name, isOn: $database.enabled)
-                            Text(database.address).font(.caption).foregroundStyle(.secondary)
-                            HStack {
-                                Text(database.format.title).font(.caption).foregroundStyle(.secondary)
-                                Spacer()
-                                if database.isBuiltin { Text("内置").font(.caption).foregroundStyle(.secondary) }
-                                else { Button("编辑") { editing = database }.buttonStyle(.borderless) }
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(alignment: .top, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(verbatim: database.name)
+                                        .font(.headline)
+                                    Text(verbatim: database.address)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                        .lineLimit(2)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Toggle("", isOn: $database.enabled)
+                                    .labelsHidden()
+                                    .accessibilityLabel(Text(verbatim: database.name))
                             }
+
+                            HStack(spacing: 12) {
+                                Text(database.format.title)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if database.isBuiltin {
+                                    Text("内置")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button {
+                                    editing = database
+                                } label: {
+                                    Image(systemName: "pencil")
+                                }
+                                .accessibilityLabel("编辑数据库")
+                                .disabled(database.isBuiltin)
+
+                                Button {
+                                    move(database.id, by: -1)
+                                } label: {
+                                    Image(systemName: "arrow.up")
+                                }
+                                .accessibilityLabel("上移数据库")
+                                .disabled(databases.first?.id == database.id)
+
+                                Button {
+                                    move(database.id, by: 1)
+                                } label: {
+                                    Image(systemName: "arrow.down")
+                                }
+                                .accessibilityLabel("下移数据库")
+                                .disabled(databases.last?.id == database.id)
+
+                                Button(role: .destructive) {
+                                    deleting = database
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .accessibilityLabel("删除数据库")
+                                .disabled(database.isBuiltin)
+                            }
+                            .buttonStyle(.borderless)
                         }
-                        .deleteDisabled(database.isBuiltin)
-                    }
-                    .onMove { databases.move(fromOffsets: $0, toOffset: $1) }
-                    .onDelete { offsets in
-                        for index in offsets.sorted(by: >) where !databases[index].isBuiltin { databases.remove(at: index) }
+                        .padding(.vertical, 6)
                     }
                 } footer: {
-                    Text("从上到下查询。内置数据库只能启用、停用和调整顺序，不能修改或删除。自定义地址需使用 HTTPS。")
+                    Text("从上到下查询。内置数据库可启用、停用和调整顺序；自定义数据库支持编辑和删除，地址需使用 HTTPS。")
                 }
                 SettingsSection {
                     Button("添加数据库", systemImage: "plus") { adding = true }
                 }
             }
-            .environment(\.editMode, .constant(.active))
             .navigationTitle("片头片尾数据库")
             .vesperNavigationStyle(.inline)
-            .toolbarRole(.automatic)
             .navigationBarBackButtonHidden(true)
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -54,6 +102,16 @@ struct EmbySkipDatabasesView: View {
                 }
             }
             .onChange(of: databases) { _, value in EmbySkipSettings.save(value) }
+            .alert(item: $deleting) { database in
+                Alert(
+                    title: Text("删除数据库？"),
+                    message: Text(verbatim: database.name),
+                    primaryButton: .destructive(Text("删除")) {
+                        databases.removeAll { $0.id == database.id }
+                    },
+                    secondaryButton: .cancel(Text("取消"))
+                )
+            }
             .sheet(isPresented: $adding) {
                 EmbySkipDatabaseEditor(database: .init(name: "", address: "https://", format: .introDB)) { databases.append($0) }
             }
@@ -66,6 +124,13 @@ struct EmbySkipDatabasesView: View {
         .presentationDetents([.custom(TabOrderDetent.self), .large])
         .presentationDragIndicator(.hidden)
         .presentationBackground(VesperTheme.background)
+    }
+
+    private func move(_ id: String, by offset: Int) {
+        guard let index = databases.firstIndex(where: { $0.id == id }) else { return }
+        let destination = index + offset
+        guard databases.indices.contains(destination) else { return }
+        databases.swapAt(index, destination)
     }
 }
 
