@@ -87,5 +87,4 @@ protocol MediaSourceIdentityService: Sendable {
     func traktShowIdentity(for show: MediaItem, source: MediaSource) async throws -> TraktMediaIdentity?
     func traktIdentity(for item: MediaItem, source: MediaSource) async throws -> TraktMediaIdentity?
     func skipIdentity(for item: MediaItem, source: MediaSource) async throws -> EmbySkipIdentity?
-    func markers(for item: MediaItem, source: MediaSource, duration: Double) async -> EmbySkipMarkers
 }

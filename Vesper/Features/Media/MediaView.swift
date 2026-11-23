@@ -1039,7 +1039,7 @@ private struct ConditionalMediaRefresh: ViewModifier {
 
 
 
-private struct EmbyMediaRoute: Hashable {
+struct EmbyMediaRoute: Hashable {
     enum Origin: Hashable {
         case carousel
         case shelf(String)
