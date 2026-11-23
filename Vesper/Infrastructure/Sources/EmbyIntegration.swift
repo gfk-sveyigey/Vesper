@@ -7,55 +7,6 @@ import FoundationNetworking
 #endif
 import PlaybackContracts
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/// Explicit artwork purpose; layout dimensions never choose server image types.
-
-
-
-
-
-
-
-
-
-
-
-
 @MainActor
 enum MediaSourceServices {
     static var catalog: any MediaSourceCatalogService = EmbyRepository.shared

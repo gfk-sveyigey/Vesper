@@ -26,7 +26,7 @@ final class PlaybackTimelineState {
 @MainActor
 final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictureInPictureControllerDelegate {
     private let playbackStatusService: any PlaybackStatusService
-    private let mediaCatalogService: any MediaSourceCatalogService
+    private let mediaCatalogService: any SeriesMediaCatalogService
     private let mediaIdentityService: any MediaSourceIdentityService
     private let mediaReadRecordService: any MediaSourcePlaybackRecordReadService
     let timeline = PlaybackTimelineState()
@@ -155,7 +155,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
 
     override init() {
         playbackStatusService = TraktPlaybackStatusService()
-        mediaCatalogService = MediaSourceServices.catalog
+        mediaCatalogService = MediaSourceServices.seriesCatalog
         mediaIdentityService = MediaSourceServices.identity
         mediaReadRecordService = MediaSourceServices.recordRead
         let persistence = PlaybackRecordPersistence()

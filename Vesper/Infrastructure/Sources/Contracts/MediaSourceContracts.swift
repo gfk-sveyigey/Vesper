@@ -57,14 +57,13 @@ protocol MediaSourceCatalogService: Sendable {
     func sourceSummary(for source: MediaSource) async throws -> MediaSourceSummary
     func items(for source: MediaSource, parentID: String?, startIndex: Int, limit: Int, sortBy: String, sortOrder: String, scope: MediaBrowseScope) async throws -> [MediaItem]
 }
-protocol SeriesMediaCatalogService: Sendable {
-    func detailMetadata(for item: MediaItem, source: MediaSource) async throws -> EmbyDetailMetadata
-    func seriesSeasonCount(for series: MediaItem, source: MediaSource) async throws -> Int
-    func seriesEpisodes(for series: MediaItem, source: MediaSource, limit: Int?) async throws -> [EmbyEpisode]
-    func similarTitles(for item: MediaItem, source: MediaSource) async throws -> [MediaItem]
-    func details(for item: MediaItem, source: MediaSource) async throws -> EmbyItemDetails
-    func screenshotData(for item: MediaItem, source: MediaSource) async -> [Data]
+
+extension MediaSourceCatalogService {
+    func search(for source: MediaSource, query: String, startIndex: Int = 0) async throws -> MediaSearchPage {
+        try await search(for: source, query: query, startIndex: startIndex, limit: 40)
+    }
 }
+
 protocol MediaSourcePlaybackService: Sendable {
     func playbackResource(item: MediaItem, source: MediaSource, position: Double) async throws -> EmbyPlaybackResource
 }

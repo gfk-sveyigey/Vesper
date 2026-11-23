@@ -550,7 +550,7 @@ struct EmbySeriesPosterCard: View {
         .frame(width: width, alignment: .leading)
         .contentShape(Rectangle())
         .task(id: item.id) {
-            episodes = (try? await library.catalog.seriesEpisodes(for: item, source: source, limit: 1)) ?? []
+            episodes = (try? await library.seriesCatalog.seriesEpisodes(for: item, source: source, limit: 1)) ?? []
         }
     }
 

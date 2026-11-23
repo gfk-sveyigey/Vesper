@@ -116,16 +116,16 @@ private struct HistoryMediaCard: View {
         .task(id: "\(AppCacheStore.scope(for: source))|\(entry.mediaID.localID)") {
             guard source.kind == .emby, resolvedItem == nil else { return }
             do {
-                let metadata = try await library.catalog.detailMetadata(for: entry.item, source: source)
+                let metadata = try await library.seriesCatalog.detailMetadata(for: entry.item, source: source)
                 var poster = metadata.item
                 var title: String? = nil
                 if metadata.item.embyItemType == "Episode", let series = metadata.series {
-                    let parent = try? await library.catalog.detailMetadata(for: series, source: source)
+                    let parent = try? await library.seriesCatalog.detailMetadata(for: series, source: source)
                     try Task.checkCancellation()
                     poster = parent?.item ?? series
                     var seasonCount = poster.embyPresentation?.seasonCount
                     if seasonCount == nil {
-                        seasonCount = try? await library.catalog.seriesSeasonCount(for: series, source: source)
+                        seasonCount = try? await library.seriesCatalog.seriesSeasonCount(for: series, source: source)
                     }
                     try Task.checkCancellation()
                     let multipleSeasons = (seasonCount ?? 0) > 1 || (metadata.seasonNumber ?? 0) > 1

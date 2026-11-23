@@ -8,3 +8,9 @@ protocol SeriesMediaCatalogService: Sendable {
     func details(for item: MediaItem, source: MediaSource) async throws -> EmbyItemDetails
     func screenshotData(for item: MediaItem, source: MediaSource) async -> [Data]
 }
+
+extension SeriesMediaCatalogService {
+    func seriesEpisodes(for series: MediaItem, source: MediaSource) async throws -> [EmbyEpisode] {
+        try await seriesEpisodes(for: series, source: source, limit: nil)
+    }
+}

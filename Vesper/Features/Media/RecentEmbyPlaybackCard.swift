@@ -40,13 +40,13 @@ struct RecentEmbyPlaybackCard: View {
             }
             .task(id: "\(source.id)|\(entry.mediaID.localID)") {
                 do {
-                    let details = try await library.catalog.detailMetadata(for: entry.item, source: source)
+                    let details = try await library.seriesCatalog.detailMetadata(for: entry.item, source: source)
                     guard !Task.isCancelled else { return }
                     item = details.item
                     if details.item.embyItemType == "Episode", let series = details.series {
                         var seasonCount = series.embyPresentation?.seasonCount
                         if seasonCount == nil {
-                            seasonCount = try? await library.catalog.seriesSeasonCount(for: series, source: source)
+                            seasonCount = try? await library.seriesCatalog.seriesSeasonCount(for: series, source: source)
                         }
                         guard !Task.isCancelled else { return }
                         let count = seasonCount ?? 1

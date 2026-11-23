@@ -372,7 +372,7 @@ struct MediaDetailView: View {
             selectedSubtitleIndex = nil
             guard let selected = episodes.first(where: { $0.id == selectedEpisodeID }) else { return }
             do {
-                let details = try await library.catalog.detailMetadata(for: selected.item, source: source)
+                let details = try await library.seriesCatalog.detailMetadata(for: selected.item, source: source)
                 guard !Task.isCancelled, selectedEpisodeID == selected.id else { return }
                 episodeVersions = details.mediaVersions
                 versionsEpisodeID = selected.id
@@ -467,7 +467,7 @@ struct MediaDetailView: View {
         Task {
             let queue: [MediaItem]
             do {
-                let episodes = try await library.catalog.seriesEpisodes(for: parent, source: source)
+                let episodes = try await library.seriesCatalog.seriesEpisodes(for: parent, source: source)
                 if let index = episodes.firstIndex(where: { $0.id == playable.id }) {
                     queue = [playable] + episodes.dropFirst(index + 1).map(\.item)
                 } else {
@@ -1169,7 +1169,7 @@ struct MediaDetailView: View {
         loadError = nil
         defer { isLoading = false }
         do {
-            let fetched = try await library.catalog.seriesEpisodes(for: series, source: source)
+            let fetched = try await library.seriesCatalog.seriesEpisodes(for: series, source: source)
             try Task.checkCancellation()
             await playback.refreshTraktPlaybackState(for: series, source: source, episodes: fetched)
             try Task.checkCancellation()
