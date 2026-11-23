@@ -421,7 +421,7 @@ struct MediaDetailView: View {
                                                                selectedEpisodeIsPlayed: episodes.first { $0.id == selectedEpisodeID }
                                                                 .map { playback.effectivePlayed(for: $0.item) } ?? false,
                                                                selectedEpisodeResumePosition: episodes.first { $0.id == selectedEpisodeID }
-                                                                .map { resumePosition($0.item) } ?? 0,
+                                                                .map { resumePosition(for: $0.item) } ?? 0,
                                                                playSelectedEpisode: playSelectedEpisode,
                                                                toggleSelectedEpisodePlayed: toggleSelectedEpisodePlayed,
                                                                mediaFacts: series.isEmbySeries ? nil : heroMediaFacts,
@@ -1089,7 +1089,6 @@ struct MediaDetailView: View {
             else { clearedServerProgressIDs.insert(item.id) }
         }
         playback.setPlayed(played, for: item, source: source) { error in
-            guard let error else { return }
             if item.id == series.id { clearedServerProgress = wasCleared }
             else if wasCleared { clearedServerProgressIDs.insert(item.id) }
             else { clearedServerProgressIDs.remove(item.id) }
