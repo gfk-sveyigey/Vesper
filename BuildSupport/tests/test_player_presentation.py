@@ -48,7 +48,7 @@ class PlayerPresentationTests(unittest.TestCase):
     def test_sources_are_tunable_transparent_rows(self):
         source = (ROOT / 'Vesper/Features/Sources/SourcesView.swift').read_text()
         media = (ROOT / 'Vesper/Features/Media/MediaView.swift').read_text()
-        settings = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text()
+        settings = (ROOT / 'Vesper/Features/Media/MediaView.swift').read_text()
         row = source.split('private struct SourceListRow', 1)[1]
         self.assertIn('.frame(height: rowHeight, alignment: .center)', row)
         self.assertIn('private var iconSide:', row)

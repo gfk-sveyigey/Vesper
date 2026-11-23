@@ -439,7 +439,7 @@ final class TraktPlaybackReporter {
             revision = account.accountRevision
             state = TraktScrobbleState()
             identity = Task {
-                do { return try await EmbyRepository.shared.traktIdentity(for: item, source: source) }
+                do { return try await MediaSourceServices.identity.traktIdentity(for: item, source: source) }
                 catch {
                     Self.log("媒体标识查询失败，跳过本次上报")
                     return nil
@@ -593,7 +593,7 @@ extension TraktAccountStore {
     func setPlayed(_ played: Bool, for item: MediaItem, source: MediaSource) async throws {
         guard isConnected, source.kind == .emby else { return }
         let revision = accountRevision
-        guard let identity = try await EmbyRepository.shared.traktIdentity(for: item, source: source) else { return }
+        guard let identity = try await MediaSourceServices.identity.traktIdentity(for: item, source: source) else { return }
         let payload = try await historyPayload(for: identity, revision: revision)
         let body = try JSONSerialization.data(withJSONObject: payload)
         _ = try await api("sync/history", method: played ? "POST" : "DELETE", body: body, revision: revision)
@@ -626,7 +626,7 @@ extension TraktAccountStore {
     func clearPlaybackProgress(for item: MediaItem, source: MediaSource) async throws {
         guard isConnected, source.kind == .emby else { return }
         let revision = accountRevision
-        guard let identity = try await EmbyRepository.shared.traktIdentity(for: item, source: source) else { return }
+        guard let identity = try await MediaSourceServices.identity.traktIdentity(for: item, source: source) else { return }
         let category = identity.kind == "movie" ? "movies" : "episodes"
         let data = try await api("sync/playback/\(category)", revision: revision)
         guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
@@ -642,7 +642,7 @@ extension TraktAccountStore {
         guard isConnected, duration.isFinite, duration > 0 else { return nil }
         let revision = accountRevision
         do {
-            guard let identity = try await EmbyRepository.shared.traktIdentity(for: item, source: source) else { return nil }
+            guard let identity = try await MediaSourceServices.identity.traktIdentity(for: item, source: source) else { return nil }
             let category = identity.kind == "movie" ? "movies" : "episodes"
             try Task.checkCancellation()
             // Without pagination parameters Trakt returns the complete paused-progress set.
@@ -667,7 +667,7 @@ extension TraktAccountStore {
         guard isConnected, source.kind == .emby else { return [:] }
         let revision = accountRevision
         do {
-            guard let identity = try await EmbyRepository.shared.traktShowIdentity(for: show, source: source),
+            guard let identity = try await MediaSourceServices.identity.traktShowIdentity(for: show, source: source),
                   let showID = identity.apiID else { return [:] }
             async let watchedData = try? api("shows/\(showID)/progress/watched?specials=true", revision: revision)
             async let playbackData = try? api("sync/playback/episodes", revision: revision)

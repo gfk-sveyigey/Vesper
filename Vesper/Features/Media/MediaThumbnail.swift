@@ -3,15 +3,11 @@ import UIKit
 import AVFoundation
 @preconcurrency import Photos
 
-enum ImageCacheDebugSettings {
-    static let ignoreLocalCacheKey = "debug.images.ignoreLocalCache"
-    static var ignoresLocalCache: Bool { UserDefaults.standard.bool(forKey: ignoreLocalCacheKey) }
-}
-
 /// Shared by the Photos grid and local folder browser.
 struct MediaThumbnail: View {
     let source: MediaSource
     let item: MediaItem
+    @EnvironmentObject private var library: SourceLibrary
     var playback: PlaybackSession? = nil
     var historyEntry: PlaybackHistoryEntry? = nil
     var aspectRatio: CGFloat = 2.0 / 3.0
@@ -76,7 +72,7 @@ struct MediaThumbnail: View {
             guard !artworkIsPrepared else { return }
             let key = loadKey
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.begin source=\(source.kind.rawValue) item=\(item.id.localID)") }
-            let data = await MediaThumbnailLoader.shared.load(item, source: source, aspectRatio: aspectRatio,
+            let data = await MediaThumbnailLoader.shared.load(item, source: source, service: library.artwork, aspectRatio: aspectRatio,
                                                              imageOrientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary,
                                                              diagnostics: logsQueueDiagnostics, cacheOnly: cacheOnly,
                                                              prefersLandscapeMovieArtwork: prefersLandscapeMovieArtwork)
@@ -179,66 +175,6 @@ struct MediaThumbnail: View {
     }
 }
 
-/// Visible card surface for device media; keep Emby poster layouts unchanged.
-struct DeviceMediaCardBackground: ViewModifier {
-    var enabled = true
-    func body(content: Content) -> some View {
-        content
-            .background {
-                if enabled {
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(VesperTheme.mediaCardBackground)
-                }
-            }
-    }
-}
-
-struct MediaCardBackdrop: View {
-    var showsMissingArtwork = false
-    var iconCenterY: CGFloat = 0.5
-    var missingArtworkSymbol: String? = nil
-
-    var body: some View {
-        VesperTheme.mediaCardBackground
-            .overlay {
-                if showsMissingArtwork {
-                    GeometryReader { geometry in
-                        let size = geometry.size
-                        Image(systemName: missingArtworkSymbol ?? AppSection.media.symbol)
-                            .font(.system(size: min(44, min(size.width, size.height) * 0.28)))
-                            .foregroundStyle(.secondary)
-                            .position(x: size.width / 2, y: size.height * iconCenterY)
-                    }
-                }
-            }
-            .accessibilityHidden(true)
-    }
-}
-
-private struct MediaArtworkBorder: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
-    let cornerRadius: CGFloat
-    var isSelected = false
-
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius)
-        let stroke = colorScheme == .dark ? Color.white : Color.black
-        content
-            .clipShape(shape)
-            .overlay {
-                shape.strokeBorder((isSelected ? Color.accentColor : stroke).opacity(0.5), lineWidth: 1)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-    }
-}
-
-extension View {
-    func mediaArtworkBorder(cornerRadius: CGFloat = 12, isSelected: Bool = false) -> some View {
-        modifier(MediaArtworkBorder(cornerRadius: cornerRadius, isSelected: isSelected))
-    }
-}
-
 struct EmbyFeaturedArtwork: Sendable {
     var poster: Data?
     var logo: Data?
@@ -268,6 +204,7 @@ final class MediaThumbnailLoader {
     func prepareCarouselArtwork(
         _ items: [MediaItem],
         source: MediaSource,
+        service: any MediaSourceArtworkService = MediaSourceServices.artwork,
         onArtworkReady: (@MainActor (MediaID, EmbyFeaturedArtwork) -> Void)? = nil
     ) async -> [MediaID: EmbyFeaturedArtwork] {
         await withTaskGroup(of: CarouselArtworkPartResult.self) { group in
@@ -276,11 +213,11 @@ final class MediaThumbnailLoader {
                     CarouselArtworkPartResult(
                         id: item.id,
                         part: .logo,
-                        data: await self.featuredLogo(for: item, source: source)
+                        data: await self.featuredLogo(for: item, source: source, service: service)
                     )
                 }
                 group.addTask {
-                    var poster = await self.textlessPoster(for: item, source: source)
+                    var poster = await self.textlessPoster(for: item, source: source, service: service)
                     if poster == nil, !Task.isCancelled {
                         poster = await self.load(item, source: source, aspectRatio: 3.0 / 5.0,
                                                  imageOrientation: .portrait)
@@ -310,19 +247,19 @@ final class MediaThumbnailLoader {
         }
     }
 
-    func featuredArtwork(for item: MediaItem, source: MediaSource) async -> EmbyFeaturedArtwork {
+    func featuredArtwork(for item: MediaItem, source: MediaSource, service: any MediaSourceArtworkService = MediaSourceServices.artwork) async -> EmbyFeaturedArtwork {
         guard item.id.sourceID == source.id else { return .init() }
-        async let logo = featuredLogo(for: item, source: source)
-        async let poster = textlessPoster(for: item, source: source)
+        async let logo = featuredLogo(for: item, source: source, service: service)
+        async let poster = textlessPoster(for: item, source: source, service: service)
         return await EmbyFeaturedArtwork(poster: poster, logo: logo)
     }
 
-    private func featuredLogo(for item: MediaItem, source: MediaSource) async -> Data? {
+    private func featuredLogo(for item: MediaItem, source: MediaSource, service: any MediaSourceArtworkService) async -> Data? {
         let key = "featured-logo|\(AppCacheStore.scope(for: source))|\(item.id.localID)"
         let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
         let (cached, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
         if let cached, UIImage(data: cached) != nil { return cached }
-        guard let data = await EmbyRepository.shared.artworkData(for: item, source: source, purpose: .logo),
+        guard let data = await service.artworkData(for: item, source: source, purpose: .logo, orientation: .landscape, allowsRemotePrimary: false, prefersLandscapeMovieArtwork: false),
               UIImage(data: data) != nil, !Task.isCancelled else { return nil }
         if !ignoresCache {
             await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
@@ -330,12 +267,12 @@ final class MediaThumbnailLoader {
         return data
     }
 
-    private func textlessPoster(for item: MediaItem, source: MediaSource) async -> Data? {
+    private func textlessPoster(for item: MediaItem, source: MediaSource, service: any MediaSourceArtworkService) async -> Data? {
         let key = "featured-textless|\(AppCacheStore.embyArtworkKey(for: item, source: source))"
         let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
         let (cached, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
         if let cached, UIImage(data: cached) != nil { return cached }
-        for url in await EmbyRepository.shared.featuredPosterCandidates(for: item, source: source) {
+        for url in await service.featuredPosterCandidates(for: item, source: source) {
             guard !Task.isCancelled else { return nil }
             // Provider artwork uses an unauthenticated request.
             var request = URLRequest(url: url, timeoutInterval: 8)
@@ -352,7 +289,7 @@ final class MediaThumbnailLoader {
         return nil
     }
 
-    func load(_ item: MediaItem, source: MediaSource, aspectRatio: CGFloat = 2.0 / 3.0,
+    func load(_ item: MediaItem, source: MediaSource, service: any MediaSourceArtworkService = MediaSourceServices.artwork, aspectRatio: CGFloat = 2.0 / 3.0,
               imageOrientation: EmbyImageOrientation = .portrait,
               allowsRemotePrimary: Bool = true, diagnostics: Bool = false, cacheOnly: Bool = false,
               prefersLandscapeMovieArtwork: Bool = false) async -> Data? {
@@ -371,7 +308,7 @@ final class MediaThumbnailLoader {
             guard !cacheOnly, !Task.isCancelled else { return nil }
             let task = Task { () -> Data? in
                 defer { pendingEmbyImages[requestKey] = nil }
-                guard let data = await EmbyRepository.shared.artworkData(for: item, source: source,
+                guard let data = await service.artworkData(for: item, source: source,
                             purpose: item.embyItemType == "Person" ? .avatar : imageOrientation == .landscape ? .thumbnail : .poster,
                             orientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary,
                             prefersLandscapeMovieArtwork: prefersLandscape),
@@ -446,100 +383,7 @@ final class MediaThumbnailLoader {
     }
 }
 
-/// Only persisted progress is shown, and only while progress retention is enabled.
-private struct ThumbnailPlaybackProgress: View {
-    @ObservedObject var session: PlaybackSession
-    let source: MediaSource
-    let item: MediaItem
-    @AppStorage("player.rememberProgress") private var remembersProgress = true
-    @State private var duration: Double = 0
-    private var progress: Double {
-        guard remembersProgress else { return 0 }
-        return session.resumePosition(for: item)
-    }
-    private var total: Double { duration > 0 ? duration : session.savedDuration(for: item) }
-    var body: some View {
-        Group {
-            if progress > 0 && total > 0 {
-                ThumbnailProgressBadge(position: progress, total: total)
-            }
-        }
-        .task(id: progress > 0 ? item.id : nil) {
-            guard progress > 0 else { return }
-            let result = await MediaThumbnailLoader.shared.duration(item, source: source)
-            guard !Task.isCancelled else { return }
-            duration = result
-        }
-    }
-}
 
-struct MediaPlaybackStatus: View {
-    let position: Double
-    let duration: Double?
-    var played = false
-
-    var body: some View {
-        HStack(spacing: 7) {
-            if played {
-                Image(systemName: "arrow.clockwise").accessibilityLabel("已观看")
-            } else if position.isFinite && position > 0 {
-                Image(systemName: "play.fill").accessibilityLabel("有播放进度")
-                if let duration, duration.isFinite, duration > 0 {
-                    ProgressView(value: min(position / duration, 1)).frame(width: 38)
-                }
-            }
-            if let duration, duration.isFinite, duration > 0 {
-                Text(verbatim: mediaTimeLabel(duration)).monospacedDigit()
-                    .lineLimit(1).minimumScaleFactor(0.75)
-            } else {
-                Text("未知时长").lineLimit(1)
-            }
-        }
-    }
-}
-
-private struct ThumbnailProgressBadge: View {
-    let position: Double
-    let total: Double
-    @ScaledMetric(relativeTo: .caption2) private var progressWidth = 20.0
-    private var fraction: CGFloat {
-        guard total.isFinite, position.isFinite, total > 0 else { return 0 }
-        return CGFloat(min(1, max(0, position / total)))
-    }
-    var body: some View {
-        HStack(spacing: 5) {
-            if total > 0 {
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.35))
-                        Capsule().fill(.white)
-                            .mask(alignment: .leading) {
-                                Rectangle().frame(width: geometry.size.width * fraction)
-                            }
-                    }
-                }
-                .frame(width: progressWidth, height: 4)
-            }
-            Text(verbatim: mediaTimeLabel(total))
-                .font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
-        }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 8).padding(.bottom, 8)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .bottomLeading)
-        .background {
-            Rectangle().fill(.ultraThinMaterial)
-                .overlay {
-                    LinearGradient(colors: [.clear, .black.opacity(0.3)], startPoint: .top, endPoint: .bottom)
-                }
-                .mask {
-                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                }
-                .environment(\.colorScheme, .dark)
-        }
-    }
-}
-
-/// Ignore degraded previews and resume exactly once, including cancellation.
 @MainActor
 private final class PhotoThumbnailRequest {
     private var continuation: CheckedContinuation<Data?, Never>?
@@ -678,7 +522,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                            systemImage: played ? "circle" : "checkmark.circle") {
                         playback.setPlayed(!played, for: item, source: source) { watchError = $0 }
                     }
-                    .disabled(source.emby?.userID == nil)
+                    .disabled(!playback.canSetPlayed(for: source))
                 }
                 actions()
             } preview: {

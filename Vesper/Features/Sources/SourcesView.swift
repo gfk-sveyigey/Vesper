@@ -565,7 +565,7 @@ private struct SourceListRow<Actions: View>: View {
         }
         .task(id: source.emby?.serverAddress) {
             guard source.kind == .emby else { summary = nil; return }
-            let updatedSummary = try? await EmbyRepository.shared.sourceSummary(for: source)
+            let updatedSummary = try? await library.catalog.sourceSummary(for: source)
             if !Task.isCancelled { summary = updatedSummary }
         }
     }

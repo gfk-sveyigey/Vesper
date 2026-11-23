@@ -60,7 +60,7 @@ class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
 
     def test_video_surface_can_be_detached_independently(self):
         navigation = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
-        settings = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text()
+        settings = (ROOT / 'Vesper/Features/Settings/DebugSettingsView.swift').read_text()
         core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
         self.assertIn('!detachHiddenVideoSurface', navigation)
         self.assertIn('debug.playback.detachHiddenVideoSurface', core)
@@ -69,7 +69,7 @@ class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
     def test_hidden_paused_polling_can_be_throttled_independently(self):
         core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
         session = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
-        settings = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text()
+        settings = (ROOT / 'Vesper/Features/Settings/DebugSettingsView.swift').read_text()
         self.assertIn('debug.playback.throttleHiddenPausedPolling', core)
         self.assertIn('!self.isPlayerPresented && self.snapshot.phase == .paused', core)
         self.assertIn('try await Task.sleep(for: .seconds(1))', core)

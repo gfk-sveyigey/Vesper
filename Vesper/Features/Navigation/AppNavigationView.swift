@@ -693,7 +693,7 @@ private struct MediaSearchResultsView: View {
             var page: EmbySearchPage?
             switch source.kind {
             case .emby:
-                let result = try await EmbyRepository.shared.search(for: source, query: snapshot.query)
+                let result = try await library.catalog.search(for: source, query: snapshot.query)
                 page = result
                 found = result.items
             case .local:
@@ -730,7 +730,7 @@ private struct MediaSearchResultsView: View {
         loadingMore = true
         moreError = nil
         do {
-            let result = try await EmbyRepository.shared.search(for: source, query: snapshot.query, startIndex: nextIndex)
+            let result = try await library.catalog.search(for: source, query: snapshot.query, startIndex: nextIndex)
             try Task.checkCancellation()
             guard generation == token, request == snapshot else { return }
             var seen = Set(items.map(\.id))

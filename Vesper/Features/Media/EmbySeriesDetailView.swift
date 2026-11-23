@@ -177,92 +177,6 @@ private func embySeasonName(_ number: Int) -> String {
     number == 0 ? VesperLocalization.string("特别篇") : VesperLocalization.localized("第\(number)季")
 }
 
-private struct EmbyMediaStreamRow: View {
-    let stream: EmbyMediaStreamDetails
-
-    private var title: String {
-        stream.displayTitle ?? stream.title ?? "\(stream.type) \(stream.id + 1)"
-    }
-
-    private var details: [String] {
-        [stream.displayLanguage, stream.language, stream.codec?.uppercased(), stream.profile,
-         stream.resolution, stream.aspectRatio, stream.videoRangeType, stream.videoRange,
-         stream.colorPrimaries, stream.colorTransfer, stream.colorSpace, stream.channelSummary,
-         stream.sampleRate.map { "\($0) Hz" },
-         stream.bitDepth.map { "\($0) bit" }, stream.bitRate.map(Self.bitRateLabel),
-         stream.frameRate.map { String(format: "%.3g fps", $0) }, stream.mimeType,
-         stream.deliveryMethod, stream.subtitleLocationType, stream.fileName]
-            .compactMap { $0 }
-    }
-
-    private var flags: [String] {
-        [stream.isDefault ? "默认" : nil,
-         stream.isForced ? "强制" : nil,
-         stream.isHearingImpaired ? "SDH/CC" : nil,
-         stream.isExternal ? "外置" : nil,
-         stream.isInterlaced ? "隔行扫描" : nil,
-         stream.supportsExternalStream ? "支持外置读取" : nil,
-         stream.isTextSubtitleStream ? "文本字幕" : nil]
-            .compactMap { $0 }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(verbatim: title)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(2)
-                Spacer(minLength: 4)
-                if !flags.isEmpty {
-                    Text(verbatim: flags.joined(separator: " · "))
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(Color.accentColor)
-                        .multilineTextAlignment(.trailing)
-                }
-            }
-            if !details.isEmpty {
-                Text(verbatim: details.joined(separator: " · "))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if let comment = stream.comment {
-                Text(verbatim: comment)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 7)
-        .accessibilityElement(children: .combine)
-    }
-
-    private static func bitRateLabel(_ value: Int) -> String {
-        value >= 1_000_000
-            ? String(format: "%.1f Mbit/s", Double(value) / 1_000_000)
-            : String(format: "%.0f kbit/s", Double(value) / 1_000)
-    }
-}
-
-private extension EmbyMediaStreamDetails {
-    var resolution: String? {
-        guard let width, let height else { return nil }
-        return "\(width) × \(height)"
-    }
-
-    var channelSummary: String? {
-        let value = [channels.map { "\($0) 声道" }, channelLayout].compactMap { $0 }.joined(separator: " ")
-        return value.isEmpty ? nil : value
-    }
-
-    var frameRate: Double? { realFrameRate ?? averageFrameRate }
-
-    var fileName: String? {
-        guard isExternal, let path, !path.isEmpty else { return nil }
-        return URL(fileURLWithPath: path).lastPathComponent
-    }
-}
 
 struct MediaDetailView: View {
     let source: MediaSource
@@ -276,6 +190,7 @@ struct MediaDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var playback: PlaybackSession
+    @EnvironmentObject private var library: SourceLibrary
     @AppStorage("appearance.accent") private var accent = "vesper"
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @State private var metadata: EmbyDetailMetadata?
@@ -457,7 +372,7 @@ struct MediaDetailView: View {
             selectedSubtitleIndex = nil
             guard let selected = episodes.first(where: { $0.id == selectedEpisodeID }) else { return }
             do {
-                let details = try await EmbyRepository.shared.detailMetadata(for: selected.item, source: source)
+                let details = try await library.catalog.detailMetadata(for: selected.item, source: source)
                 guard !Task.isCancelled, selectedEpisodeID == selected.id else { return }
                 episodeVersions = details.mediaVersions
                 versionsEpisodeID = selected.id
@@ -552,7 +467,7 @@ struct MediaDetailView: View {
         Task {
             let queue: [MediaItem]
             do {
-                let episodes = try await EmbyRepository.shared.seriesEpisodes(for: parent, source: source)
+                let episodes = try await library.catalog.seriesEpisodes(for: parent, source: source)
                 if let index = episodes.firstIndex(where: { $0.id == playable.id }) {
                     queue = [playable] + episodes.dropFirst(index + 1).map(\.item)
                 } else {
@@ -1155,7 +1070,7 @@ struct MediaDetailView: View {
     }
 
     private func loadDetail() async {
-        let repository = EmbyRepository.shared
+        let repository = library.catalog
         loadError = nil
         detailDataReady = false
         pendingInitialEpisodeID = nil
@@ -1254,7 +1169,7 @@ struct MediaDetailView: View {
         loadError = nil
         defer { isLoading = false }
         do {
-            let fetched = try await EmbyRepository.shared.seriesEpisodes(for: series, source: source)
+            let fetched = try await library.catalog.seriesEpisodes(for: series, source: source)
             try Task.checkCancellation()
             await playback.refreshTraktPlaybackState(for: series, source: source, episodes: fetched)
             try Task.checkCancellation()
@@ -1350,197 +1265,5 @@ extension EmbyEpisode {
     var displayTitle: String {
         let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return title.isEmpty ? numberLabel : title
-    }
-}
-
-private struct EmbyEpisodeCard: View {
-    let source: MediaSource
-    let episode: EmbyEpisode
-    let width: CGFloat
-    let height: CGFloat
-    let position: Double
-    let isBusy: Bool
-    let isSelected: Bool
-    let open: () -> Void
-    let clear: () -> Void
-    var preloadedData: Data? = nil
-    var artworkIsPrepared = false
-    var allowsArtworkLoading = true
-    let setPlayed: (Bool) -> Void
-
-    @EnvironmentObject private var playback: PlaybackSession
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var loadedArtwork: EpisodeArtwork?
-
-    private struct EpisodeArtwork {
-        let key: String
-        let image: UIImage?
-    }
-
-    private var artworkKey: String {
-        "\(AppCacheStore.embyArtworkKey(for: episode.item, source: source))|landscape"
-    }
-
-    private var artwork: EpisodeArtwork? {
-        loadedArtwork?.key == artworkKey ? loadedArtwork : nil
-    }
-
-    private var title: String { episode.displayTitle }
-    private var showsEpisodeNumber: Bool { episode.displayTitle != episode.numberLabel }
-
-    var body: some View {
-        let showsMissingArtwork = artwork != nil && artwork?.image == nil
-
-        MediaCardBackdrop(showsMissingArtwork: showsMissingArtwork, iconCenterY: 1.0 / 3)
-        .frame(width: width, height: height)
-        .overlay {
-            EmbyEpisodeArtworkSurface(image: artwork?.image, size: CGSize(width: width, height: height))
-        }
-        .overlay(alignment: .bottomLeading) { details }
-        .overlay(alignment: .bottomTrailing) { moreButton.padding(.trailing, 10).padding(.bottom, 10) }
-        .mediaArtworkBorder(cornerRadius: 16, isSelected: isSelected)
-        .contentShape(RoundedRectangle(cornerRadius: 16))
-        .onTapGesture(perform: open)
-        .accessibilityAddTraits(.isButton)
-        .contextMenu { actions } preview: {
-            VStack(alignment: .leading, spacing: 8) {
-                MediaCardBackdrop(showsMissingArtwork: showsMissingArtwork)
-                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                    .overlay {
-                        if let image = artwork?.image {
-                            Image(uiImage: image).resizable().scaledToFit()
-                        }
-                    }
-                    .mediaArtworkBorder()
-                if showsEpisodeNumber {
-                    Text(verbatim: episode.numberLabel).font(.caption).foregroundStyle(.secondary)
-                }
-                Text(verbatim: title).font(.headline).lineLimit(2)
-            }
-            .frame(width: 280)
-            .padding(12)
-        }
-        .task(id: "\(artworkKey)|\(artworkIsPrepared)|\(allowsArtworkLoading)") {
-            guard artworkIsPrepared || allowsArtworkLoading else { return }
-            let key = artworkKey
-            if loadedArtwork?.key == key { return }
-            let data: Data?
-            if artworkIsPrepared {
-                data = preloadedData
-            } else {
-                data = await MediaThumbnailLoader.shared.load(episode.item, source: source,
-                                                              imageOrientation: .landscape)
-            }
-            guard !Task.isCancelled else { return }
-            let image = data.flatMap { UIImage(data: $0) }
-            loadedArtwork = EpisodeArtwork(key: key, image: image)
-        }
-    }
-
-    private var details: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if showsEpisodeNumber {
-                Text(verbatim: episode.numberLabel).font(.caption).foregroundStyle(.secondary)
-            }
-            Text(verbatim: title).font(.system(size: 16, weight: .semibold)).lineLimit(1)
-            Text(verbatim: episode.item.embyPresentation?.overview ?? "")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(3, reservesSpace: true)
-            playbackRow
-        }
-        .foregroundStyle(.primary)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: height * 0.5, alignment: .bottomLeading)
-        .offset(y: 4)
-    }
-
-    private var playbackRow: some View {
-        HStack(spacing: 7) {
-            MediaPlaybackStatus(position: position, duration: episode.item.duration, played: effectivePlayed)
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-    }
-
-    private var moreButton: some View {
-        Menu { actions } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 36, height: 30)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("更多操作")
-    }
-
-    @ViewBuilder
-    private var actions: some View {
-        Button("前往单集", systemImage: "info.circle", action: open)
-        if position > 0 {
-            Button("清除播放进度", systemImage: "clock.arrow.circlepath", action: clear)
-                .disabled(isBusy || (playback.resumePosition(for: episode.item) > 0 && source.emby?.userID == nil))
-        }
-        let played = effectivePlayed
-        Button(played ? "标记为未观看" : "标记为已观看",
-               systemImage: played ? "circle" : "checkmark.circle") {
-            setPlayed(!played)
-        }
-        .disabled(source.emby?.userID == nil)
-    }
-
-    private var effectivePlayed: Bool {
-        playback.effectivePlayed(for: episode.item)
-    }
-}
-
-
-// Shared image fill and bottom-edge extension for episode cards and detail heroes.
-struct EmbyEpisodeArtworkSurface: View {
-    let image: UIImage?
-    let size: CGSize
-    @Environment(\.colorScheme) private var colorScheme
-
-    private var bottomStrip: UIImage? {
-        guard let cgImage = image?.cgImage else { return nil }
-        let depth = max(1, cgImage.height / 6)
-        return cgImage.cropping(to: CGRect(x: 0, y: cgImage.height - depth,
-                                          width: cgImage.width, height: depth))
-            .map { UIImage(cgImage: $0) }
-    }
-
-    var body: some View {
-        if let image {
-            let artworkHeight = size.width * image.size.height / max(1, image.size.width)
-            let blendStart = min(size.height * 0.38, max(0, artworkHeight - 32))
-            let blurHeight = size.height - blendStart
-            ZStack(alignment: .top) {
-                Image(uiImage: image)
-                    .resizable()
-                    .frame(width: size.width, height: artworkHeight)
-                    .frame(width: size.width, height: size.height, alignment: .top)
-                    .clipped()
-                ZStack {
-                    if let bottomStrip {
-                        Image(uiImage: bottomStrip).resizable()
-                            .frame(width: size.width + 44, height: blurHeight + 44)
-                            .blur(radius: 22)
-                    }
-                    (colorScheme == .dark ? Color.black.opacity(0.66) : Color.white.opacity(0.74))
-                }
-                .frame(width: size.width, height: blurHeight)
-                .clipped()
-                .mask {
-                    LinearGradient(colors: [.clear, .black], startPoint: .top,
-                                   endPoint: UnitPoint(x: 0.5, y: min(1, 45 / max(1, blurHeight))))
-                }
-                .offset(y: blendStart)
-            }
-            .frame(width: size.width, height: size.height)
-            .clipped()
-            .allowsHitTesting(false)
-        }
     }
 }

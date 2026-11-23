@@ -7,291 +7,69 @@ import FoundationNetworking
 #endif
 import PlaybackContracts
 
-struct EmbyAuthentication: Sendable {
-    let serverID: String
-    let userID: String?
-    let serverName: String?
-}
 
-struct EmbyPlaybackResource: Sendable {
-    let resource: PlayableResource
-    let sessionID: String
-    let mediaSourceID: String
-    let duration: Double
-    let resumePosition: Double?
-    let subtitles: [EngineExternalSubtitle]
-    var bitRate: Double? = nil
-}
 
-struct EmbyTranscodeResult: Sendable {
-    let resource: TranscodedPlaybackResource
-    let sessionID: String
-}
 
-struct EmbyItemDetails: Sendable {
-    let video: PlaybackVideoDetails
-    let versions: [MediaItem]
-    let mediaVersions: [EmbyMediaVersionDetails]
-}
 
-struct EmbyMediaStreamDetails: Hashable, Sendable, Identifiable {
-    let id: Int
-    let type: String
-    let displayTitle: String?
-    let title: String?
-    let language: String?
-    let displayLanguage: String?
-    let codec: String?
-    let profile: String?
-    let channels: Int?
-    let channelLayout: String?
-    let sampleRate: Int?
-    let bitDepth: Int?
-    let bitRate: Int?
-    let width: Int?
-    let height: Int?
-    let aspectRatio: String?
-    let videoRange: String?
-    let videoRangeType: String?
-    let colorTransfer: String?
-    let colorPrimaries: String?
-    let colorSpace: String?
-    let averageFrameRate: Double?
-    let realFrameRate: Double?
-    let isDefault: Bool
-    let isForced: Bool
-    let isHearingImpaired: Bool
-    let isExternal: Bool
-    let isInterlaced: Bool
-    let isTextSubtitleStream: Bool
-    let supportsExternalStream: Bool
-    let deliveryMethod: String?
-    let subtitleLocationType: String?
-    let mimeType: String?
-    let path: String?
-    let comment: String?
-}
 
-struct EmbyMediaVersionDetails: Hashable, Sendable, Identifiable {
-    let id: String
-    let name: String
-    let fileName: String?
-    let container: String?
-    let size: Int64?
-    let bitRate: Int?
-    let duration: Double?
-    let supportsDirectPlay: Bool?
-    let supportsDirectStream: Bool?
-    let supportsTranscoding: Bool?
-    let protocolName: String?
-    let mediaType: String?
-    let mimeType: String?
-    let isRemote: Bool?
-    let hasMixedProtocols: Bool?
-    let defaultAudioStreamIndex: Int?
-    let defaultSubtitleStreamIndex: Int?
-    let streams: [EmbyMediaStreamDetails]
-}
 
-enum EmbyTrackPreferences {
-    static let audioLanguageKey = "emby.audioLanguage"
-    static let subtitleLanguageKey = "emby.subtitleLanguage"
-    static let disableMissingSubtitleKey = "emby.disableMissingSubtitle"
-    static let languages = [("", "未指定"), ("zh-Hans", "简体中文"), ("zh-Hant", "繁体中文"), ("eng", "英语"), ("jpn", "日语"),
-                            ("kor", "韩语"), ("fra", "法语"), ("deu", "德语"), ("spa", "西班牙语"),
-                            ("ita", "意大利语"), ("por", "葡萄牙语"), ("rus", "俄语"),
-                            ("ara", "阿拉伯语"), ("hin", "印地语"), ("tha", "泰语"), ("vie", "越南语")]
-    static func normalized(_ language: String) -> String {
-        let value = language.lowercased().replacingOccurrences(of: "_", with: "-")
-            .split(separator: "-").first.map(String.init) ?? ""
-        switch value {
-        case "zh", "chi", "zho": return "zho"
-        case "en", "eng": return "eng"
-        case "ja", "jpn": return "jpn"
-        case "ko", "kor": return "kor"
-        case "fr", "fre", "fra": return "fra"
-        case "de", "ger", "deu": return "deu"
-        case "es", "spa": return "spa"
-        case "it", "ita": return "ita"
-        case "pt", "por": return "por"
-        case "ru", "rus": return "rus"
-        case "ar", "ara": return "ara"
-        case "hi", "hin": return "hin"
-        case "th", "tha": return "tha"
-        case "vi", "vie": return "vie"
-        default: return value
-        }
-    }
-    static func matches(_ stream: EmbyMediaStreamDetails, language: String) -> Bool {
-        guard normalized(stream.language ?? "") == normalized(language) else { return false }
-        guard language == "zh-Hans" || language == "zh-Hant" else { return true }
-        let code = (stream.language ?? "").lowercased().replacingOccurrences(of: "_", with: "-")
-        let text = [stream.displayTitle, stream.title, stream.displayLanguage].compactMap { $0 }
-            .joined(separator: " ").lowercased()
-        let traditional = code.contains("hant") || code.hasSuffix("-tw") || code.hasSuffix("-hk")
-            || code.hasSuffix("-mo") || text.contains("繁") || text.contains("traditional")
-        let simplified = code.contains("hans") || code.hasSuffix("-cn") || code.hasSuffix("-sg")
-            || text.contains("简") || text.contains("簡") || text.contains("simplified")
-        // Generic chi/zho cannot reliably distinguish scripts: treat as unmatched.
-        return language == "zh-Hant" ? traditional : simplified
-    }
 
-    static func selection(_ streams: [EmbyMediaStreamDetails], type: String) -> Int? {
-        let tracks = streams.filter { $0.type == type }
-        let audio = type == "Audio"
-        let language = UserDefaults.standard.string(forKey: audio ? audioLanguageKey : subtitleLanguageKey) ?? ""
-        guard !language.isEmpty else { return tracks.first?.id }
-        if let match = tracks.first(where: { matches($0, language: language) }) {
-            return match.id
-        }
-        return !audio && UserDefaults.standard.bool(forKey: disableMissingSubtitleKey)
-            ? nil : tracks.first?.id
-    }
-}
 
-enum EmbyBrowsingSettings {
-    static let fullRenderingKey = "emby.fullRendering"
-}
 
-struct EmbyMediaGroup: Identifiable, Sendable {
-    static let librariesID = "all-media"
-    let id: String
-    let title: String
-    var items: [MediaItem]
-    var totalCount: Int? = nil
-    var isLoading = false
-    var errorMessage: String? = nil
 
-    static func featured(in groups: [Self], count: Int = 10) -> [MediaItem] {
-        let candidates = groups.filter { $0.id != librariesID }.flatMap(\.items)
-        var seen = Set<MediaID>()
-        return Array(candidates.filter { seen.insert($0.id).inserted }.shuffled().prefix(count))
-    }
-}
 
-struct EmbyEpisode: Identifiable, Sendable {
-    var item: MediaItem
-    let season: Int
-    let number: Int?
-    var played: Bool?
-    let is4K: Bool
-    let dolbyVision: Bool
-    let dolbyAtmos: Bool
-    var id: MediaID { item.id }
-}
 
-struct EmbyPerson: Hashable, Sendable {
-    let id: String?
-    let name: String
-}
 
-struct EmbyCredit: Identifiable, Sendable {
-    let id: String
-    let person: EmbyPerson
-    let role: String
-    let image: MediaItem?
-}
 
-struct EmbyExternalLink: Identifiable, Sendable {
-    let name: String
-    let url: URL
-    var id: URL { url }
-}
 
-struct EmbyDetailMetadata: Sendable {
-    let item: MediaItem
-    let credits: [EmbyCredit]
-    let links: [EmbyExternalLink]
-    let video: PlaybackVideoDetails
-    let mediaVersions: [EmbyMediaVersionDetails]
-    let series: MediaItem?
-    let seasonNumber: Int?
-    let episodeNumber: Int?
-    let seriesInformation: [EmbySeriesInformationGroup]
-}
 
-struct EmbySeriesInformationField: Sendable, Identifiable {
-    let id: String
-    let label: String
-    let value: String
-}
 
-struct EmbySeriesInformationGroup: Sendable, Identifiable {
-    let id: String
-    let title: String
-    let fields: [EmbySeriesInformationField]
-}
 
-private struct EmbyItemImage: Sendable {
-    let type: String
-    let index: Int
-    let width: Int
-    let height: Int
-}
 
-enum EmbyImageOrientation: String, Equatable, Sendable {
-    case portrait, landscape, square
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /// Explicit artwork purpose; layout dimensions never choose server image types.
-enum EmbyArtworkPurpose: Sendable {
-    case poster
-    case thumbnail
-    case avatar
-    case logo
+
+
+
+
+
+
+
+
+
+
+
+
+@MainActor
+enum MediaSourceServices {
+    static var catalog: any MediaSourceCatalogService = EmbyRepository.shared
+    static var seriesCatalog: any SeriesMediaCatalogService = EmbyRepository.shared
+    static var playback: any MediaSourcePlaybackService = EmbyRepository.shared
+    static var reporting: any MediaSourcePlaybackReportingService = EmbyRepository.shared
+    static var artwork: any MediaSourceArtworkService = EmbyRepository.shared
+    static var records: any MediaSourceRecordService = EmbyRepository.shared
+    static var recordRead: any MediaSourcePlaybackRecordReadService = EmbyRepository.shared
+    static var routes: any MediaSourceRouteService = EmbyRepository.shared
+    static var identity: any MediaSourceIdentityService = EmbyRepository.shared
 }
 
-struct EmbyOperationFailure: LocalizedError, Sendable {
-    let operation: String
-    let itemID: String
-    let sourceID: UUID
-    let reason: String
-    var errorDescription: String? { "\(operation)失败：\(reason)（条目 \(itemID)）" }
-}
-
-enum EmbyBrowseScope: Equatable, Sendable {
-    case children, titles, episodes, favorites
-    case person(EmbyPerson)
-
-    var cacheKey: String {
-        switch self {
-        case .children: "children"
-        case .titles: "titles"
-        case .episodes: "episodes"
-        case .favorites: "favorites"
-        case .person(let person): person.id.map { "person:id:\($0)" } ?? "person:name:\(person.name)"
-        }
-    }
-
-    var itemTypes: [String]? {
-        switch self {
-        case .children: nil
-        case .titles, .person: ["Movie", "Series", "Video", "MusicVideo", "Trailer"]
-        case .favorites: ["Movie", "Series", "Episode", "Video", "MusicVideo", "Trailer"]
-        case .episodes: ["Episode"]
-        }
-    }
-}
-
-enum EmbyPlaybackRecordChange: Sendable {
-    case clearProgress
-    case setPlayed(Bool)
-    case setFavorite(Bool)
-}
-
-struct EmbySearchPage: Sendable {
-    let items: [MediaItem]
-    let nextIndex: Int
-    let hasMore: Bool
-}
-
-struct EmbySourceSummary: Sendable {
-    let movieCount: Int
-    let seriesCount: Int
-    let lastPlayed: Date?
-}
-
-actor EmbyRepository {
+actor EmbyRepository: MediaSourceCatalogService, SeriesMediaCatalogService, MediaSourcePlaybackService, MediaSourcePlaybackReportingService, MediaSourceArtworkService, MediaSourceRecordService, MediaSourceIdentityService, MediaSourcePlaybackRecordReadService, MediaSourceRouteService {
     static let shared = EmbyRepository()
     private let clientProvider: @MainActor @Sendable (MediaSource) throws -> EmbyAPIClient
     private var itemImages: [String: [EmbyItemImage]] = [:]
@@ -1232,201 +1010,17 @@ actor EmbyRepository {
     ] }
 }
 
-/// Stable, metadata-based matching; version display names and filenames are not reliable quality labels.
-enum EmbyVersionMatcher {
-    struct Format {
-        var container: String = ""
-        var videoCodec: String = ""
-        var dynamicRange: String = ""
-        var width: Int? = nil
-        var height: Int? = nil
-        var frameRate: Double? = nil
-        var audioCodec: String = ""
-        var audioChannels: Int? = nil
-        var bitRate: Int? = nil
-    }
 
-    static func closest(to current: EmbyMediaVersionDetails?, in candidates: [EmbyMediaVersionDetails]) -> EmbyMediaVersionDetails? {
-        guard let current else { return candidates.first }
-        guard let index = bestIndex(current: format(current), candidates: candidates.map(format)) else { return nil }
-        return candidates[index]
-    }
-
-    static func bestIndex(current: Format, candidates: [Format]) -> Int? {
-        candidates.indices.min { left, right in
-            let leftRank = rank(candidates[left], against: current)
-            let rightRank = rank(candidates[right], against: current)
-            return leftRank == rightRank ? left < right : leftRank.lexicographicallyPrecedes(rightRank)
-        }
-    }
-
-    private static func format(_ version: EmbyMediaVersionDetails) -> Format {
-        let video = version.streams.first { $0.type == "Video" }
-        let audio = version.streams.first { $0.type == "Audio" && $0.isDefault }
-            ?? version.streams.first { $0.type == "Audio" }
-        let range = [video?.videoRangeType, video?.videoRange, video?.colorTransfer]
-            .compactMap { $0 }.joined(separator: " ").uppercased()
-        let dynamicRange: String
-        if range.contains("DOVI") || range.contains("DOLBY") || range.hasPrefix("DV") { dynamicRange = "DV" }
-        else if range.contains("HLG") || range.contains("ARIB") { dynamicRange = "HLG" }
-        else if range.contains("HDR10+") || range.contains("HDR10PLUS") { dynamicRange = "HDR10+" }
-        else if range.contains("HDR") || range.contains("2084") || range.contains("PQ") { dynamicRange = "HDR10" }
-        else if range.isEmpty { dynamicRange = "" }
-        else { dynamicRange = "SDR" }
-        let fileExtension = version.fileName.map { URL(fileURLWithPath: $0).pathExtension } ?? ""
-        return Format(container: version.container ?? fileExtension, videoCodec: video?.codec ?? "",
-                      dynamicRange: dynamicRange, width: video?.width, height: video?.height,
-                      frameRate: video?.averageFrameRate ?? video?.realFrameRate, audioCodec: audio?.codec ?? "", audioChannels: audio?.channels,
-                      bitRate: version.bitRate ?? video?.bitRate)
-    }
-
-    private static func normalized(_ value: String) -> String {
-        let key = value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: ",").first.map(String.init) ?? ""
-        switch key {
-        case "h265", "h.265", "x265", "hev1", "hvc1": return "hevc"
-        case "avc", "avc1", "h.264", "x264": return "h264"
-        case "matroska": return "mkv"
-        case "mov", "m4v": return "mp4"
-        case "ec3", "ec-3", "e-ac-3": return "eac3"
-        case "ac-3": return "ac3"
-        default: return key
-        }
-    }
-
-    private static func mismatch(_ candidate: String, _ reference: String) -> Double {
-        let expected = normalized(reference), actual = normalized(candidate)
-        if expected.isEmpty { return 0 }
-        if actual == expected { return 0 }
-        return actual.isEmpty ? 4 : 3
-    }
-
-    private static func distance(_ value: Int?, _ reference: Int?) -> Double {
-        guard let reference, reference > 0 else { return 0 }
-        guard let value, value > 0 else { return 100 }
-        return abs(log(Double(value) / Double(reference)))
-    }
-
-    private static func frameRateDistance(_ value: Double?, _ reference: Double?) -> Double {
-        guard let reference, reference.isFinite, reference > 0 else { return 0 }
-        guard let value, value.isFinite, value > 0 else { return 100 }
-        return abs(log(value / reference))
-    }
-
-    private static func rank(_ candidate: Format, against reference: Format) -> [Double] {
-        // Lexicographic priority: container, video codec, HDR mode, resolution, audio, bitrate.
-        [mismatch(candidate.container, reference.container),
-         mismatch(candidate.videoCodec, reference.videoCodec),
-         mismatch(candidate.dynamicRange, reference.dynamicRange),
-         distance(candidate.width, reference.width) + distance(candidate.height, reference.height),
-         frameRateDistance(candidate.frameRate, reference.frameRate),
-         mismatch(candidate.audioCodec, reference.audioCodec),
-         distance(candidate.audioChannels, reference.audioChannels),
-         distance(candidate.bitRate, reference.bitRate)]
-    }
-}
 
 // MARK: - External intro/credits databases
 
-enum EmbySkipSettings {
-    static let introKey = "emby.skip.intro"
-    static let outroKey = "emby.skip.outro"
-    static let bodyPreloadKey = "emby.preload.bodyDuration"
-    static let databasesKey = "emby.skip.databases.v1"
-    static var introEnabled: Bool { UserDefaults.standard.bool(forKey: introKey) }
-    static var outroEnabled: Bool { UserDefaults.standard.bool(forKey: outroKey) }
-    static var databases: [EmbySkipDatabase] {
-        let saved = UserDefaults.standard.string(forKey: databasesKey) ?? ""
-        let decoded = (try? JSONDecoder().decode([EmbySkipDatabase].self, from: Data(saved.utf8))) ?? []
-        var result: [EmbySkipDatabase] = []
-        var seen = Set<String>()
-        for entry in decoded where seen.insert(entry.id).inserted {
-            if var builtin = EmbySkipDatabase.builtins.first(where: { $0.id == entry.id }) {
-                builtin.enabled = entry.enabled
-                result.append(builtin)
-            } else if !entry.id.hasPrefix("builtin-") { result.append(entry) }
-        }
-        result += EmbySkipDatabase.builtins.filter { !seen.contains($0.id) }
-        return result
-    }
-    static func save(_ databases: [EmbySkipDatabase]) {
-        guard let data = try? JSONEncoder().encode(databases) else { return }
-        UserDefaults.standard.set(String(decoding: data, as: UTF8.self), forKey: databasesKey)
-    }
-}
 
-struct EmbySkipDatabase: Identifiable, Codable, Hashable, Sendable {
-    enum Format: String, Codable, CaseIterable, Identifiable, Sendable {
-        case introDB, theIntroDB
-        var id: String { rawValue }
-        var title: String { self == .introDB ? "IntroDB" : "TheIntroDB" }
-    }
-    var id: String = UUID().uuidString
-    var name: String
-    var address: String
-    var format: Format
-    var enabled = true
-    var isBuiltin: Bool { Self.builtins.contains { $0.id == id } }
-    static let builtins: [Self] = [
-        .init(id: "builtin-introdb", name: "IntroDB", address: "https://api.introdb.app", format: .introDB),
-        .init(id: "builtin-theintrodb", name: "TheIntroDB", address: "https://api.theintrodb.org/v4", format: .theIntroDB)
-    ]
-}
 
-struct EmbySkipIdentity: Sendable {
-    let providers: [String: String]
-    let season: Int?
-    let episode: Int?
-    func provider(_ name: String) -> String? {
-        providers.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
-    }
-}
 
-struct EmbySkipMarkers: Sendable {
-    struct Interval: Sendable, Equatable { let start: Double; let end: Double }
-    var intros: [Interval] = []
-    var creditsStart: Double? = nil
-    static let empty = Self()
-    var hasData: Bool { !intros.isEmpty || creditsStart != nil }
 
-    func preloadPosition(duration: Double, fraction: Double, introEnabled: Bool, outroEnabled: Bool) -> Double {
-        let introDuration = introEnabled ? intros.reduce(0) { $0 + $1.end - $1.start } : 0
-        let outroDuration = outroEnabled ? creditsStart.map { max(0, duration - $0) } ?? 0 : 0
-        return min(duration, max(0, duration - introDuration - outroDuration) * fraction + introDuration)
-    }
 
-    static func decode(_ data: Data, format: EmbySkipDatabase.Format, duration: Double) throws -> Self {
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .empty }
-        func rows(_ key: String) -> [[String: Any]] {
-            if let values = root[key] as? [[String: Any]] { return values }
-            return (root[key] as? [String: Any]).map { [$0] } ?? []
-        }
-        func seconds(_ row: [String: Any], _ key: String) -> Double? {
-            guard let number = row[key + "_ms"] as? NSNumber else { return nil }
-            let value = number.doubleValue / 1000
-            return value.isFinite && value >= 0 ? value : nil
-        }
-        let intros = rows("intro").compactMap { row -> Interval? in
-            let start = seconds(row, "start") ?? 0
-            guard let end = seconds(row, "end"), end > start, end < duration else { return nil }
-            return Interval(start: start, end: end)
-        }.sorted { $0.start < $1.start }
-        // Collapse overlaps so body-duration preloading never subtracts the same time twice.
-        var merged: [Interval] = []
-        for interval in intros {
-            if let last = merged.last, interval.start <= last.end {
-                merged[merged.count - 1] = Interval(start: last.start, end: max(last.end, interval.end))
-            } else { merged.append(interval) }
-        }
-        let credits = rows(format == .introDB ? "outro" : "credits").compactMap { row -> Double? in
-            guard let start = seconds(row, "start"), start > 0, start < duration,
-                  start >= (merged.last?.end ?? 0) else { return nil }
-            if let end = seconds(row, "end"), end <= start { return nil }
-            return start
-        }.min()
-        return Self(intros: merged, creditsStart: credits)
-    }
-}
+
+
 
 extension EmbyRepository {
     func traktShowIdentity(for show: MediaItem, source: MediaSource) async throws -> TraktMediaIdentity? {
@@ -1466,134 +1060,5 @@ extension EmbyRepository {
         }
         guard type == "Movie" || type == "Video" else { return nil }
         return EmbySkipIdentity(providers: detail["ProviderIds"] as? [String: String] ?? [:], season: nil, episode: nil)
-    }
-}
-
-actor EmbySkipLookup {
-    static let shared = EmbySkipLookup()
-    private var pending: [String: Task<EmbySkipMarkers, Never>] = [:]
-    private var cached: [String: (Date, EmbySkipMarkers)] = [:]
-    private let session = URLSession(configuration: .ephemeral)
-
-    func markers(for item: MediaItem, source: MediaSource, duration: Double) async -> EmbySkipMarkers {
-        guard source.kind == .emby, duration.isFinite, duration > 0, duration < Double(Int64.max) / 1000,
-              EmbySkipSettings.introEnabled || EmbySkipSettings.outroEnabled else {
-            await log("跳过标记查询略过：来源、时长无效或片头片尾功能均已关闭")
-            return .empty
-        }
-        let databases = EmbySkipSettings.databases.filter(\.enabled)
-        guard !databases.isEmpty else {
-            await log("未查询跳过标记：没有启用的数据库")
-            return .empty
-        }
-        let fingerprint = (try? JSONEncoder().encode(databases)).map { String(decoding: $0, as: UTF8.self) } ?? ""
-        let key = "\(AppCacheStore.scope(for: source))|\(item.id.localID)|\(item.embyMediaSourceID ?? "")|\(Int(duration))|\(fingerprint)"
-        if let (date, value) = cached[key], Date().timeIntervalSince(date) < 600 {
-            await log("使用缓存的片头片尾标记：片头段数=\(value.intros.count)，片尾起点=\(value.creditsStart.map { String($0) } ?? "无")")
-            return value
-        }
-        if let task = pending[key] {
-            await log("等待相同媒体的片头片尾查询完成")
-            return await task.value
-        }
-        let task = Task { await self.fetch(item, source: source, duration: duration, databases: databases) }
-        pending[key] = task
-        let value = await task.value
-        pending[key] = nil
-        if cached.count >= 100 { cached.removeAll() }
-        cached[key] = (Date(), value)
-        await log("片头片尾查询结束：片头段数=\(value.intros.count)，片尾起点=\(value.creditsStart.map { String($0) } ?? "无")")
-        return value
-    }
-
-    private func fetch(_ item: MediaItem, source: MediaSource, duration: Double, databases: [EmbySkipDatabase]) async -> EmbySkipMarkers {
-        await log("开始查询片头片尾：媒体=\(item.id.localID)，时长=\(duration)，启用数据库数=\(databases.count)")
-        let identity: EmbySkipIdentity
-        do {
-            guard let value = try await EmbyRepository.shared.skipIdentity(for: item, source: source) else {
-                await log("无法从 Emby 获取片头片尾查询所需的媒体身份信息")
-                return .empty
-            }
-            identity = value
-        } catch {
-            await log("获取媒体身份信息失败：\(error.localizedDescription)")
-            return .empty
-        }
-        for database in databases {
-            guard !Task.isCancelled else { return .empty }
-            guard var url = URL(string: database.address), url.scheme?.lowercased() == "https",
-                  url.host != nil, url.user == nil, url.password == nil else {
-                await log("数据库 \(database.name) 地址无效，跳过")
-                continue
-            }
-            var query: [String: String] = [:]
-            switch database.format {
-            case .introDB:
-                guard let imdb = identity.provider("Imdb"), !imdb.isEmpty else {
-                    await log("数据库 \(database.name) 缺少 IMDb ID，无法查询")
-                    continue
-                }
-                query["imdb_id"] = imdb
-                if let season = identity.season, let episode = identity.episode {
-                    guard season > 0, episode > 0 else {
-                        await log("数据库 \(database.name) 的季数或集数无效，跳过")
-                        continue
-                    }
-                    query["season"] = String(season); query["episode"] = String(episode)
-                } else { query["is_movie"] = "true" }
-                url.appendPathComponent("segments")
-            case .theIntroDB:
-                if !url.path.split(separator: "/").contains("v4") { url.appendPathComponent("v4") }
-                url.appendPathComponent("media")
-                for (provider, parameter) in [("Tvdb", "tvdb_id"), ("Tmdb", "tmdb_id"), ("Imdb", "imdb_id")] {
-                    if let id = identity.provider(provider), !id.isEmpty { query[parameter] = id; break }
-                }
-                guard !query.isEmpty else {
-                    await log("数据库 \(database.name) 缺少受支持的媒体 ID，无法查询")
-                    continue
-                }
-                if let season = identity.season, let episode = identity.episode {
-                    query["season"] = String(season); query["episode"] = String(episode)
-                }
-                query["duration_ms"] = String(Int64(duration * 1000))
-            }
-            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { continue }
-            components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
-            guard let endpoint = components.url else {
-                await log("数据库 \(database.name) 无法生成查询地址，跳过")
-                continue
-            }
-            // Never forward Emby authentication or custom source headers to a third-party database.
-            var request = URLRequest(url: endpoint, timeoutInterval: 10)
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            await log("查询数据库 \(database.name)，格式=\(database.format.title)，季=\(identity.season.map { String($0) } ?? "无")，集=\(identity.episode.map { String($0) } ?? "无")")
-            do {
-                let (data, response) = try await session.data(for: request)
-                guard let status = (response as? HTTPURLResponse)?.statusCode else {
-                    await log("数据库 \(database.name) 未返回 HTTP 响应")
-                    continue
-                }
-                guard status == 200 else {
-                    await log("数据库 \(database.name) 返回 HTTP \(status)")
-                    continue
-                }
-                guard data.count <= 1_000_000 else {
-                    await log("数据库 \(database.name) 响应过大，已忽略：\(data.count) bytes")
-                    continue
-                }
-                let markers = try EmbySkipMarkers.decode(data, format: database.format, duration: duration)
-                await log("数据库 \(database.name) 响应已解析：片头段数=\(markers.intros.count)，片尾起点=\(markers.creditsStart.map { String($0) } ?? "无")")
-                if markers.hasData { return markers }
-            } catch {
-                await log("数据库 \(database.name) 请求或解析失败：\(error.localizedDescription)")
-            }
-        }
-        return .empty
-    }
-
-    private func log(_ message: String) async {
-        await MainActor.run {
-            AppLog.runtimeEntries.append("\(ISO8601DateFormatter().string(from: Date())) [IntroOutro] \(EmbyAPIClient.redacted(message))")
-        }
     }
 }

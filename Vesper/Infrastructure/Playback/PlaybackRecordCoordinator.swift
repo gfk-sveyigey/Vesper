@@ -1,5 +1,55 @@
 import Foundation
 
+/// Read-side boundary for playback status. Views and PlaybackSession depend on
+/// this contract rather than knowing which account service supplies the data.
+@MainActor
+protocol PlaybackStatusService {
+    var isConnected: Bool { get }
+    func canSetPlayed(for source: MediaSource) -> Bool
+    func seriesState(for series: MediaItem, source: MediaSource) async -> [TraktEpisodeKey: TraktEpisodePlaybackState]
+    func resumePosition(for item: MediaItem, source: MediaSource, duration: Double) async -> Double?
+}
+
+@MainActor
+struct TraktPlaybackStatusService: PlaybackStatusService {
+    private let trakt: TraktAccountStore
+
+    init(trakt: TraktAccountStore = .shared) {
+        self.trakt = trakt
+    }
+
+    var isConnected: Bool { trakt.isConnected }
+
+    func canSetPlayed(for source: MediaSource) -> Bool {
+        source.kind != .emby || source.emby?.userID != nil || trakt.isConnected
+    }
+
+    func seriesState(for series: MediaItem, source: MediaSource) async -> [TraktEpisodeKey: TraktEpisodePlaybackState] {
+        await trakt.seriesPlaybackState(for: series, source: source)
+    }
+
+    func resumePosition(for item: MediaItem, source: MediaSource, duration: Double) async -> Double? {
+        await trakt.resumePosition(for: item, source: source, duration: duration)
+    }
+}
+
+
+@MainActor
+protocol EmbyPlaybackRecordService {
+    func update(_ change: EmbyPlaybackRecordChange, for item: MediaItem, source: MediaSource) async throws
+}
+
+@MainActor
+struct EmbyRepositoryPlaybackRecordService: EmbyPlaybackRecordService {
+    private let repository: any MediaSourceRecordService
+
+    init(repository: any MediaSourceRecordService = MediaSourceServices.records) { self.repository = repository }
+
+    func update(_ change: EmbyPlaybackRecordChange, for item: MediaItem, source: MediaSource) async throws {
+        try await repository.updatePlaybackRecord(for: item, source: source, change: change)
+    }
+}
+
 @MainActor
 protocol PlaybackRecordService {
     func update(_ change: EmbyPlaybackRecordChange, for item: MediaItem,
@@ -10,10 +60,10 @@ protocol PlaybackRecordService {
 
 @MainActor
 struct EmbyTraktPlaybackRecordService: PlaybackRecordService {
-    private let repository: EmbyRepository
+    private let repository: any MediaSourceRecordService
     private let trakt: TraktAccountStore
 
-    init(repository: EmbyRepository = .shared, trakt: TraktAccountStore = .shared) {
+    init(repository: any MediaSourceRecordService = MediaSourceServices.records, trakt: TraktAccountStore = .shared) {
         self.repository = repository
         self.trakt = trakt
     }
@@ -43,10 +93,13 @@ final class PlaybackRecordCoordinator {
     }
 
     private let service: any PlaybackRecordService
+    private let embyService: any EmbyPlaybackRecordService
     private var writes: [MediaID: PendingWrite] = [:]
 
-    init(service: any PlaybackRecordService = EmbyTraktPlaybackRecordService()) {
+    init(service: any PlaybackRecordService = EmbyTraktPlaybackRecordService(),
+         embyService: any EmbyPlaybackRecordService = EmbyRepositoryPlaybackRecordService()) {
         self.service = service
+        self.embyService = embyService
     }
 
     /// Serialize writes for the same item while allowing unrelated items to
@@ -55,7 +108,7 @@ final class PlaybackRecordCoordinator {
                  source: MediaSource, log: @escaping @MainActor @Sendable (String) -> Void) -> Task<Void, Error> {
         let previous = writes[item.id]?.task
         let writeID = UUID()
-        let service = self.service
+        let service = self.embyService
         let task = Task { [weak self] in
             if let previous { _ = await previous.result }
             defer {
