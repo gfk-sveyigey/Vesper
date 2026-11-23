@@ -836,7 +836,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         let previousEdit = playedEdits[item.id]
         let previousPlayed = effectivePlayed(for: item)
         recordPlayed(played, for: item, source: source)
-        submitPlayed(played, for: item, source: source) { [weak self] message in
+        submitPlayed(played, for: item, source: source, onFailure: { [weak self] message in
             guard let self else { return }
             self.playedEdits[item.id] = previousEdit
             self.history.removeAll { $0.mediaID == item.id }
@@ -848,7 +848,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             self.persistHistory()
             self.savedProgressRevision += 1
             onFailure?(message)
-        }
+        })
     }
 
     private func submitPlayed(_ played: Bool, for item: MediaItem, source: MediaSource,
