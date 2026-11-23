@@ -81,6 +81,21 @@ enum TraktConfiguration {
 
 
 class TraktChecks(unittest.TestCase):
+    def test_series_playback_state_uses_bulk_endpoints_and_unified_session(self):
+        account = (ROOT / "Vesper/Infrastructure/Services/TraktAccountStore.swift").read_text()
+        session = (ROOT / "Vesper/Infrastructure/Playback/PlaybackSession.swift").read_text()
+        detail = (ROOT / "Vesper/Features/Media/EmbySeriesDetailView.swift").read_text()
+        self.assertIn('shows/\\(showID)/progress/watched?specials=true', account)
+        self.assertIn('sync/playback/episodes', account)
+        self.assertIn('func refreshTraktPlaybackState(for series:', session)
+        self.assertIn('trakt: traktEpisodeStates[item.id]?.isPlayed', session)
+        self.assertIn('playback.refreshTraktPlaybackState(for: series, source: source, episodes: fetched)', detail)
+        self.assertIn('func resumePosition(for item: MediaItem)', session)
+
+    def test_watched_mutations_sync_to_trakt_history(self):
+        account = (ROOT / "Vesper/Infrastructure/Services/TraktAccountStore.swift").read_text()
+        self.assertIn('api("sync/history", method: played ? "POST" : "DELETE"', account)
+
     def test_progress_clear_uses_playback_delete(self):
         source = (ROOT / "Vesper/Infrastructure/Services/TraktAccountStore.swift").read_text()
         clear = source.split("func clearPlaybackProgress(", 1)[1].split("/// Fetch paused playback progress", 1)[0]

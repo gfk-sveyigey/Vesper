@@ -1429,6 +1429,14 @@ struct EmbySkipMarkers: Sendable {
 }
 
 extension EmbyRepository {
+    func traktShowIdentity(for show: MediaItem, source: MediaSource) async throws -> TraktMediaIdentity? {
+        let (_, detail) = try await detailSnapshot(for: show, source: source)
+        guard detail["Type"] as? String == "Series" else { return nil }
+        let ids = TraktMediaIdentity.supportedIDs(detail["ProviderIds"] as? [String: String] ?? [:])
+        guard !ids.isEmpty else { return nil }
+        return TraktMediaIdentity(kind: "show", ids: ids)
+    }
+
     func traktIdentity(for item: MediaItem, source: MediaSource) async throws -> TraktMediaIdentity? {
         let (client, detail) = try await detailSnapshot(for: item, source: source)
         let type = detail["Type"] as? String

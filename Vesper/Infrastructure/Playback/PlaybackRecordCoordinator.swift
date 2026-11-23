@@ -4,6 +4,7 @@ import Foundation
 protocol PlaybackRecordService {
     func update(_ change: EmbyPlaybackRecordChange, for item: MediaItem,
                 source: MediaSource) async throws
+    func setTraktPlayed(_ played: Bool, for item: MediaItem, source: MediaSource) async throws
     func clearTraktProgress(for item: MediaItem, source: MediaSource) async throws
 }
 
@@ -20,6 +21,10 @@ struct EmbyTraktPlaybackRecordService: PlaybackRecordService {
     func update(_ change: EmbyPlaybackRecordChange, for item: MediaItem,
                 source: MediaSource) async throws {
         try await repository.updatePlaybackRecord(for: item, source: source, change: change)
+    }
+
+    func setTraktPlayed(_ played: Bool, for item: MediaItem, source: MediaSource) async throws {
+        try await trakt.setPlayed(played, for: item, source: source)
     }
 
     func clearTraktProgress(for item: MediaItem, source: MediaSource) async throws {
@@ -81,5 +86,9 @@ final class PlaybackRecordCoordinator {
 
     func clearTraktProgress(for item: MediaItem, source: MediaSource) async throws {
         try await service.clearTraktProgress(for: item, source: source)
+    }
+
+    func setTraktPlayed(_ played: Bool, for item: MediaItem, source: MediaSource) async throws {
+        try await service.setTraktPlayed(played, for: item, source: source)
     }
 }

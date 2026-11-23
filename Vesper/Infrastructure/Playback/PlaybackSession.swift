@@ -64,6 +64,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         var syncedAt: Date?
     }
     @Published private var playedEdits: [MediaID: PlayedEdit] = [:]
+    @Published private var traktEpisodeStates: [MediaID: TraktEpisodePlaybackState] = [:]
     private var manuallyUnplayedCurrentItem: MediaID?
     private var lastHistorySave = Date.distantPast
     @Published private(set) var currentItem: MediaItem? {
@@ -369,6 +370,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 }
                 let startPosition: Double
                 if let position { startPosition = position }
+                else if self.effectivePlayed(for: item) { startPosition = 0 }
                 else if PlaybackPreferences.remembersProgress, let source, source.kind == .emby {
                     startPosition = await self.embyResumePosition(for: item, source: source,
                                                                  serverPosition: resolved.resumePosition,
@@ -760,6 +762,54 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         recordPersistence.savedDuration(for: item.id)
     }
 
+    /// Load Trakt state in one series request pair and cache it at the same
+    /// playback-state boundary used by detail, history and player UI.
+    func refreshTraktPlaybackState(for series: MediaItem, source: MediaSource,
+                                   episodes: [EmbyEpisode]) async {
+        let episodeIDs = Set(episodes.map(\.id))
+        guard source.kind == .emby, TraktAccountStore.shared.isConnected else {
+            traktEpisodeStates = traktEpisodeStates.filter { !episodeIDs.contains($0.key) }
+            savedProgressRevision += 1
+            return
+        }
+        let accountRevision = TraktAccountStore.shared.accountRevision
+        let remote = await TraktAccountStore.shared.seriesPlaybackState(for: series, source: source)
+        guard !Task.isCancelled, TraktAccountStore.shared.isConnected,
+              TraktAccountStore.shared.accountRevision == accountRevision else { return }
+
+        traktEpisodeStates = traktEpisodeStates.filter { !episodeIDs.contains($0.key) }
+        for episode in episodes {
+            guard let number = episode.number,
+                  let state = remote[TraktEpisodeKey(season: episode.season, episode: number)] else { continue }
+            traktEpisodeStates[episode.id] = state
+            if playedEdits[episode.id]?.syncedAt != nil { playedEdits[episode.id] = nil }
+        }
+        savedProgressRevision += 1
+    }
+
+    /// Effective resume position follows the configured Trakt/server/local
+    /// priority; watched state is resolved separately and takes precedence in UI.
+    func resumePosition(for item: MediaItem) -> Double {
+        for priority in EmbyProgressPriority.sources {
+            let candidate: Double?
+            switch priority {
+            case .trakt:
+                candidate = TraktResumeProgress.seconds(
+                    percent: traktEpisodeStates[item.id]?.progress,
+                    duration: item.duration ?? savedDuration(for: item)
+                )
+            case .server:
+                candidate = item.resumePosition
+            case .local:
+                candidate = savedProgress(for: item)
+            }
+            if candidate != nil {
+                return EmbyProgressPriority.validPosition(candidate, duration: item.duration) ?? 0
+            }
+        }
+        return 0
+    }
+
     /// History removal hides the row while retaining watched-state metadata used by other pages.
     func clearSavedProgress(for item: MediaItem, removeFromHistory: Bool = false) {
         recordPersistence.clearProgress(for: item.id)
@@ -794,6 +844,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             return edit.played
         }
         return PlaybackHistoryEntry.resolvePlayed(
+            trakt: traktEpisodeStates[item.id]?.isPlayed,
             server: server,
             local: localPlayedStates[PlaybackRecordPersistence.storageKey(for: item.id)]
                 ?? history.first(where: { $0.mediaID == item.id })?.isFullyWatched
@@ -825,25 +876,35 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private func submitPlayed(_ played: Bool, for item: MediaItem, source: MediaSource,
                               onSuccess: (() -> Void)? = nil,
                               onFailure: ((String) -> Void)? = nil) {
-        guard source.kind == .emby, source.emby?.userID != nil else {
+        let writesEmby = source.kind == .emby && source.emby?.userID != nil
+        let writesTrakt = source.kind == .emby && TraktAccountStore.shared.isConnected
+        guard writesEmby || writesTrakt else {
             onSuccess?()
             return
         }
         let editID = UUID()
         playedEdits[item.id] = PlayedEdit(id: editID, played: played)
-        let write = enqueueEmbyRecordWrite(.setPlayed(played), for: item, source: source)
+        let write = writesEmby ? enqueueEmbyRecordWrite(.setPlayed(played), for: item, source: source) : nil
         Task {
             do {
-                try await write.value
-                guard playedEdits[item.id]?.id == editID else { return }
-                playedEdits[item.id]?.syncedAt = Date()
-                onSuccess?()
+                if let write { try await write.value }
             } catch {
                 log("Emby 观看标记同步失败：\(error.localizedDescription)")
-                if playedEdits[item.id]?.id == editID {
-                    onFailure?(error.localizedDescription)
+                if playedEdits[item.id]?.id == editID { onFailure?(error.localizedDescription) }
+                return
+            }
+            if writesTrakt {
+                do {
+                    try await recordCoordinator.setTraktPlayed(played, for: item, source: source)
+                } catch {
+                    // Emby and local optimistic state may already be committed;
+                    // keep the user's action and report the secondary sync failure.
+                    log("Trakt 观看标记同步失败：\(error.localizedDescription)")
                 }
             }
+            guard playedEdits[item.id]?.id == editID else { return }
+            playedEdits[item.id]?.syncedAt = Date()
+            onSuccess?()
         }
     }
 
@@ -875,6 +936,10 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
             }
         }
         try await recordCoordinator.clearTraktProgress(for: item, source: source)
+        if var state = traktEpisodeStates[item.id] {
+            state.progress = nil
+            traktEpisodeStates[item.id] = state
+        }
         clearSavedProgress(for: item, removeFromHistory: true)
     }
 
@@ -945,6 +1010,10 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         )
         history.removeAll { $0.mediaID == item.id }
         history.insert(entry, at: 0)
+        if var state = traktEpisodeStates[item.id] {
+            state.isPlayed = played
+            traktEpisodeStates[item.id] = state
+        }
         if source.kind != .emby {
             localPlayedStates[PlaybackRecordPersistence.storageKey(for: item.id)] = played
             persistLocalPlayedStates()

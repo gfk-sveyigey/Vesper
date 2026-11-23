@@ -455,7 +455,7 @@ private struct ThumbnailPlaybackProgress: View {
     @State private var duration: Double = 0
     private var progress: Double {
         guard remembersProgress else { return 0 }
-        return source.kind == .emby ? (item.resumePosition ?? 0) : session.savedProgress(for: item)
+        return session.resumePosition(for: item)
     }
     private var total: Double { duration > 0 ? duration : session.savedDuration(for: item) }
     var body: some View {
@@ -623,8 +623,8 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
         source.kind == .emby && showsEmbyFacts && !item.isContainer
     }
 
-    private var hasServerProgress: Bool {
-        !clearedServerProgress && (item.resumePosition ?? 0) > 0
+    private var hasPlaybackProgress: Bool {
+        !clearedServerProgress && playback.resumePosition(for: item) > 0
     }
 
     private var canClearTraktProgress: Bool {
@@ -662,9 +662,9 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                     .disabled(source.emby?.userID == nil)
                 }
                 if showsWatchActions {
-                    if hasServerProgress || playback.savedProgress(for: item) > 0 || canClearTraktProgress {
+                    if hasPlaybackProgress || canClearTraktProgress {
                         Button("清除播放进度", systemImage: "clock.arrow.circlepath") { clearProgress() }
-                            .disabled(updatingWatchState || (hasServerProgress && source.emby?.userID == nil && !canClearTraktProgress))
+                            .disabled(updatingWatchState || (hasPlaybackProgress && source.emby?.userID == nil && !canClearTraktProgress))
                     }
                 } else if !showsEmbyFacts && (playback.savedProgress(for: item) > 0
                     || playback.history.contains(where: { $0.mediaID == item.id })) {

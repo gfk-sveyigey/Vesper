@@ -78,6 +78,21 @@ struct TraktChecks {
         ]
         precondition(TraktResumeProgress.playbackIDsToRemove(episodeRows, identity: episodeIdentity) == [22])
 
+        let showIdentity = TraktMediaIdentity(kind: "show", ids: ["trakt": "42"])
+        let watchedEpisodes = TraktResumeProgress.watchedEpisodes([
+            "seasons": [["number": 2, "episodes": [
+                ["number": 1, "completed": true], ["number": 2, "completed": false]
+            ]]]
+        ])
+        precondition(watchedEpisodes[TraktEpisodeKey(season: 2, episode: 1)]?.isPlayed == true)
+        precondition(watchedEpisodes[TraktEpisodeKey(season: 2, episode: 2)]?.isPlayed == false)
+        let pausedEpisodes = TraktResumeProgress.pausedEpisodes([
+            ["show": ["ids": ["trakt": 42]], "episode": ["season": 2, "number": 2], "progress": 37.5],
+            ["show": ["ids": ["trakt": 99]], "episode": ["season": 2, "number": 2], "progress": 88]
+        ], showIdentity: showIdentity)
+        precondition(pausedEpisodes[TraktEpisodeKey(season: 2, episode: 2)] == 37.5)
+        precondition(pausedEpisodes.count == 1)
+
         let shared = Harness()
         let revision = shared.accountRevision
         let requests = (0..<20).map { _ in

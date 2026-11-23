@@ -511,7 +511,7 @@ struct MediaDetailView: View {
                                                                mediaFacts: series.isEmbySeries ? nil : heroMediaFacts,
                                                                showsItemActions: !series.isEmbySeries,
                                                                itemIsPlayed: playback.effectivePlayed(for: item),
-                                                               itemResumePosition: clearedServerProgress ? 0 : max(item.resumePosition ?? 0, playback.savedProgress(for: item)),
+                                                               itemResumePosition: clearedServerProgress ? 0 : playback.resumePosition(for: item),
                                                                playItem: playCurrentItem,
                                                                toggleItemPlayed: {
                                                                    let played = playback.effectivePlayed(for: item)
@@ -1151,7 +1151,7 @@ struct MediaDetailView: View {
     }
 
     private func resumePosition(_ episode: EmbyEpisode) -> Double {
-        max(episode.item.resumePosition ?? 0, playback.savedProgress(for: episode.item))
+        playback.resumePosition(for: episode.item)
     }
 
     private func loadDetail() async {
@@ -1256,6 +1256,8 @@ struct MediaDetailView: View {
         do {
             let fetched = try await EmbyRepository.shared.seriesEpisodes(for: series, source: source)
             try Task.checkCancellation()
+            await playback.refreshTraktPlaybackState(for: series, source: source, episodes: fetched)
+            try Task.checkCancellation()
             episodes = fetched
             seasonNumbers = Array(Set(fetched.map(\.season))).sorted()
             let target = fetched.first(where: shouldResume) ?? fetched.last
@@ -1268,6 +1270,7 @@ struct MediaDetailView: View {
     }
 
     private func shouldResume(_ episode: EmbyEpisode) -> Bool {
+        if playback.effectivePlayed(for: episode.item) { return false }
         let position = resumePosition(episode)
         if position > 0, let duration = episode.item.duration, duration > 0, position < duration * 0.95 {
             return true
@@ -1478,7 +1481,7 @@ private struct EmbyEpisodeCard: View {
         Button("前往单集", systemImage: "info.circle", action: open)
         if position > 0 {
             Button("清除播放进度", systemImage: "clock.arrow.circlepath", action: clear)
-                .disabled(isBusy || ((episode.item.resumePosition ?? 0) > 0 && source.emby?.userID == nil))
+                .disabled(isBusy || (playback.resumePosition(for: episode.item) > 0 && source.emby?.userID == nil))
         }
         let played = effectivePlayed
         Button(played ? "标记为未观看" : "标记为已观看",

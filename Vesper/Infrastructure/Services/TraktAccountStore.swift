@@ -347,6 +347,10 @@ struct TraktMediaIdentity: Sendable, Equatable {
     var season: Int? = nil
     var episode: Int? = nil
 
+    var apiID: String? {
+        ["trakt", "imdb", "tmdb", "tvdb"].compactMap { ids[$0] }.first
+    }
+
     static func supportedIDs(_ providers: [String: String]) -> [String: String] {
         var ids: [String: String] = [:]
         for (key, value) in providers {
@@ -366,6 +370,16 @@ struct TraktMediaIdentity: Sendable, Equatable {
             else if let number = Int(entry.value) { result[entry.key] = number }
         }
     }
+}
+
+struct TraktEpisodeKey: Hashable, Sendable {
+    let season: Int
+    let episode: Int
+}
+
+struct TraktEpisodePlaybackState: Sendable {
+    var isPlayed: Bool?
+    var progress: Double?
 }
 
 struct TraktScrobbleState {
@@ -576,6 +590,39 @@ enum EmbyProgressPriority {
 }
 
 extension TraktAccountStore {
+    func setPlayed(_ played: Bool, for item: MediaItem, source: MediaSource) async throws {
+        guard isConnected, source.kind == .emby else { return }
+        let revision = accountRevision
+        guard let identity = try await EmbyRepository.shared.traktIdentity(for: item, source: source) else { return }
+        let payload = try await historyPayload(for: identity, revision: revision)
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        _ = try await api("sync/history", method: played ? "POST" : "DELETE", body: body, revision: revision)
+        TraktPlaybackReporter.log("观看状态已同步：\(played ? "已观看" : "未观看")")
+    }
+
+    private func historyPayload(for identity: TraktMediaIdentity, revision: UUID) async throws -> [String: Any] {
+        guard let season = identity.season, let episode = identity.episode else {
+            let category = identity.kind == "movie" ? "movies" : "episodes"
+            return [category: [["ids": identity.jsonIDs]]]
+        }
+        // A fallback identity contains show IDs, so resolve the concrete episode
+        // before submitting watched history to avoid treating the show as watched.
+        guard let key = ["trakt", "imdb", "tmdb", "tvdb"].first(where: { identity.ids[$0] != nil }),
+              let id = identity.ids[key] else { throw URLError(.cannotParseResponse) }
+        let lookup = try await api("search/\(key)/\(id)?type=show", revision: revision)
+        let rows = try JSONSerialization.jsonObject(with: lookup) as? [[String: Any]]
+        guard let row = rows?.first(where: { $0["type"] as? String == "show" }),
+              let show = row["show"] as? [String: Any],
+              let ids = show["ids"] as? [String: Any],
+              let traktID = ids["trakt"] as? Int else { throw URLError(.cannotParseResponse) }
+        let detail = try await api("shows/\(traktID)/seasons/\(season)/episodes/\(episode)", revision: revision)
+        guard let object = try JSONSerialization.jsonObject(with: detail) as? [String: Any],
+              let ids = object["ids"] as? [String: Any], ids["trakt"] as? Int != nil else {
+            throw URLError(.cannotParseResponse)
+        }
+        return ["episodes": [["ids": ids]]]
+    }
+
     func clearPlaybackProgress(for item: MediaItem, source: MediaSource) async throws {
         guard isConnected, source.kind == .emby else { return }
         let revision = accountRevision
@@ -613,9 +660,69 @@ extension TraktAccountStore {
         }
         return nil
     }
+
+    /// Fetch one show's watched flags and the account's paused episode rows,
+    /// then return both mapped by season/episode for detail-screen reuse.
+    func seriesPlaybackState(for show: MediaItem, source: MediaSource) async -> [TraktEpisodeKey: TraktEpisodePlaybackState] {
+        guard isConnected, source.kind == .emby else { return [:] }
+        let revision = accountRevision
+        do {
+            guard let identity = try await EmbyRepository.shared.traktShowIdentity(for: show, source: source),
+                  let showID = identity.apiID else { return [:] }
+            async let watchedData = try? api("shows/\(showID)/progress/watched?specials=true", revision: revision)
+            async let playbackData = try? api("sync/playback/episodes", revision: revision)
+            let (watched, playback) = await (watchedData, playbackData)
+            guard accountRevision == revision, isConnected else { return [:] }
+            var result = [TraktEpisodeKey: TraktEpisodePlaybackState]()
+            if let watched,
+               let object = try? JSONSerialization.jsonObject(with: watched) as? [String: Any] {
+                result = TraktResumeProgress.watchedEpisodes(object)
+            }
+            if let playback,
+               let rows = try? JSONSerialization.jsonObject(with: playback) as? [[String: Any]] {
+                for (key, percent) in TraktResumeProgress.pausedEpisodes(rows, showIdentity: identity) {
+                    var state = result[key] ?? TraktEpisodePlaybackState(isPlayed: nil, progress: nil)
+                    state.progress = percent
+                    result[key] = state
+                }
+            }
+            return result
+        } catch {
+            TraktPlaybackReporter.log("剧集播放状态读取失败")
+            return [:]
+        }
+    }
 }
 
 enum TraktResumeProgress {
+    static func watchedEpisodes(_ response: [String: Any]) -> [TraktEpisodeKey: TraktEpisodePlaybackState] {
+        var result = [TraktEpisodeKey: TraktEpisodePlaybackState]()
+        for season in response["seasons"] as? [[String: Any]] ?? [] {
+            guard let seasonNumber = season["number"] as? Int else { continue }
+            for episode in season["episodes"] as? [[String: Any]] ?? [] {
+                guard let episodeNumber = episode["number"] as? Int else { continue }
+                result[TraktEpisodeKey(season: seasonNumber, episode: episodeNumber)] =
+                    TraktEpisodePlaybackState(isPlayed: episode["completed"] as? Bool, progress: nil)
+            }
+        }
+        return result
+    }
+
+    static func pausedEpisodes(_ rows: [[String: Any]], showIdentity: TraktMediaIdentity) -> [TraktEpisodeKey: Double] {
+        var result = [TraktEpisodeKey: Double]()
+        for row in rows {
+            guard let show = row["show"] as? [String: Any],
+                  matches(showIdentity.ids, responseIDs: show["ids"] as? [String: Any] ?? [:]),
+                  let episode = row["episode"] as? [String: Any],
+                  let season = episode["season"] as? Int,
+                  let number = episode["number"] as? Int,
+                  let progress = (row["progress"] as? NSNumber)?.doubleValue,
+                  progress.isFinite, (0...100).contains(progress) else { continue }
+            result[TraktEpisodeKey(season: season, episode: number)] = progress
+        }
+        return result
+    }
+
     static func matches(_ expected: [String: String], responseIDs: [String: Any]) -> Bool {
         expected.contains { key, value in
             if let actual = responseIDs[key] as? String { return actual == value }
