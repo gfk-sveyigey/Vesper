@@ -63,6 +63,20 @@ struct TraktChecks {
         precondition(TraktResumeProgress.matches(["imdb": "tt123"], responseIDs: ["imdb": "tt123"]))
         precondition(!TraktResumeProgress.matches(["trakt": "42"], responseIDs: ["trakt": 43]))
         precondition(!TraktResumeProgress.matches(["imdb": "tt123"], responseIDs: [:]))
+        let playbackIdentity = TraktMediaIdentity(kind: "movie", ids: ["tmdb": "42"])
+        let playbackRows: [[String: Any]] = [
+            ["id": 10, "progress": 35, "movie": ["ids": ["tmdb": 42]]],
+            ["id": 11, "progress": 50, "movie": ["ids": ["tmdb": 43]]],
+            ["id": 12, "progress": 60, "episode": ["ids": ["tmdb": 42]]]
+        ]
+        precondition(TraktResumeProgress.playbackIDsToRemove(playbackRows, identity: playbackIdentity) == [10])
+        let episodeIdentity = TraktMediaIdentity(kind: "episode", ids: ["trakt": "99"], season: 2, episode: 4)
+        let episodeRows: [[String: Any]] = [
+            ["id": 20, "show": ["ids": ["trakt": 42]], "episode": ["season": 2, "number": 4]],
+            ["id": 21, "show": ["ids": ["trakt": 42]], "episode": ["season": 2, "number": 3]],
+            ["id": 22, "show": ["ids": ["trakt": 99]], "episode": ["season": 2, "number": 4]]
+        ]
+        precondition(TraktResumeProgress.playbackIDsToRemove(episodeRows, identity: episodeIdentity) == [22])
 
         let shared = Harness()
         let revision = shared.accountRevision

@@ -157,6 +157,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var lastProgressSave = Date.distantPast
     private let progressStorageKey = "player.savedProgress"
     private let durationStorageKey = "player.savedDurations"
+    private let localPlayedStorageKey = "player.localPlayedStates.v1"
+    private var localPlayedStates: [String: Bool] = [:]
     @Published private(set) var savedProgressRevision = 0
     private var suppressedProgressID: MediaID?
 
@@ -166,6 +168,12 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
            let entries = try? JSONDecoder().decode([PlaybackHistoryEntry].self, from: data) {
             history = entries
         }
+        localPlayedStates = UserDefaults.standard.dictionary(forKey: localPlayedStorageKey) as? [String: Bool] ?? [:]
+        for entry in history where entry.source.kind != .emby {
+            let key = Self.localPlayedKey(entry.mediaID)
+            if localPlayedStates[key] == nil { localPlayedStates[key] = entry.isFullyWatched }
+        }
+        persistLocalPlayedStates()
         wireCore()
         refreshPlaybackPreferences()
         preferencesObservation = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
@@ -722,6 +730,10 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                                          isPlayed: played, hiddenFromHistory: keepHidden)
         var updatedHistory = history.filter { $0.mediaID != item.id }
         updatedHistory.insert(entry, at: 0)
+        if source.kind != .emby {
+            localPlayedStates[Self.localPlayedKey(item.id)] = played
+            persistLocalPlayedStates()
+        }
         if updatedHistory.count > 1000 { updatedHistory.removeLast(updatedHistory.count - 1000) }
         history = updatedHistory
         persistHistory()
@@ -783,11 +795,19 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         if currentItem?.id == item.id { suppressedProgressID = item.id }
         if let index = history.firstIndex(where: { $0.mediaID == item.id }) {
             let existing = history[index]
-            history[index] = PlaybackHistoryEntry(mediaID: existing.mediaID, title: existing.title,
-                                                   source: existing.source, watchedAt: existing.watchedAt,
-                                                   position: 0, duration: existing.duration,
-                                                   isPlayed: existing.isFullyWatched,
-                                                   hiddenFromHistory: removeFromHistory ? true : existing.hiddenFromHistory)
+            if existing.source.kind != .emby {
+                localPlayedStates[Self.localPlayedKey(item.id)] = existing.isFullyWatched
+                persistLocalPlayedStates()
+            }
+            if removeFromHistory {
+                history.remove(at: index)
+            } else {
+                history[index] = PlaybackHistoryEntry(mediaID: existing.mediaID, title: existing.title,
+                                                       source: existing.source, watchedAt: existing.watchedAt,
+                                                       position: 0, duration: existing.duration,
+                                                       isPlayed: existing.isFullyWatched,
+                                                       hiddenFromHistory: existing.hiddenFromHistory)
+            }
         }
         persistHistory()
         savedProgressRevision += 1
@@ -804,7 +824,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         }
         return PlaybackHistoryEntry.resolvePlayed(
             server: server,
-            local: history.first(where: { $0.mediaID == item.id })?.isFullyWatched
+            local: localPlayedStates[Self.localPlayedKey(item.id)]
+                ?? history.first(where: { $0.mediaID == item.id })?.isFullyWatched
         )
     }
 
@@ -814,11 +835,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         let previousEntry = history.first { $0.mediaID == item.id }
         let previousEdit = playedEdits[item.id]
         let previousPlayed = effectivePlayed(for: item)
-        let shouldClearProgress = !played && !item.isContainer && !item.isEmbySeries
         recordPlayed(played, for: item, source: source)
-        submitPlayed(played, for: item, source: source, onSuccess: { [weak self] in
-            if shouldClearProgress { self?.clearSavedProgress(for: item) }
-        }) { [weak self] message in
+        submitPlayed(played, for: item, source: source) { [weak self] message in
             guard let self else { return }
             self.playedEdits[item.id] = previousEdit
             self.history.removeAll { $0.mediaID == item.id }
@@ -858,12 +876,37 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         }
     }
 
-    /// Clear server progress first, then its local resume state. Does not change watched/favorite state.
-    func clearProgress(for item: MediaItem, source: MediaSource, syncServer: Bool = true) async throws {
-        if syncServer, source.kind == .emby {
-            try await enqueueEmbyRecordWrite(.clearProgress, for: item, source: source).value
+    /// Clear resume records and keep the local watched marker independent.
+    func clearProgress(for item: MediaItem, source: MediaSource) async throws {
+        if source.kind == .emby, source.emby?.userID != nil {
+            let previousEntry = history.first { $0.mediaID == item.id }
+            let previousEdit = playedEdits[item.id]
+            let previousPlayed = effectivePlayed(for: item)
+            let editID = UUID()
+            playedEdits[item.id] = PlayedEdit(id: editID, played: false)
+            recordPlayed(false, for: item, source: source)
+            do {
+                try await enqueueEmbyRecordWrite(.clearProgress, for: item, source: source).value
+                if playedEdits[item.id]?.id == editID { playedEdits[item.id]?.syncedAt = Date() }
+            } catch {
+                if playedEdits[item.id]?.id == editID {
+                    playedEdits[item.id] = previousEdit
+                    history.removeAll { $0.mediaID == item.id }
+                    if let previousEntry { history.insert(previousEntry, at: 0) }
+                    if currentItem?.id == item.id {
+                        currentItem?.isPlayed = previousPlayed
+                        manuallyUnplayedCurrentItem = previousPlayed ? nil : item.id
+                    }
+                    persistHistory()
+                    savedProgressRevision += 1
+                }
+                throw error
+            }
         }
-        clearSavedProgress(for: item)
+        if source.kind == .emby, TraktAccountStore.shared.isConnected {
+            try await TraktAccountStore.shared.clearPlaybackProgress(for: item, source: source)
+        }
+        clearSavedProgress(for: item, removeFromHistory: true)
     }
 
     @Published private var favoriteStates: [MediaID: Bool] = [:]
@@ -958,6 +1001,10 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         )
         history.removeAll { $0.mediaID == item.id }
         history.insert(entry, at: 0)
+        if source.kind != .emby {
+            localPlayedStates[Self.localPlayedKey(item.id)] = played
+            persistLocalPlayedStates()
+        }
         if history.count > 1000 { history.removeLast(history.count - 1000) }
         if currentItem?.id == item.id {
             currentItem?.isPlayed = played
@@ -978,6 +1025,13 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private func removePlaybackData(matching matches: (MediaID) -> Bool) {
         if let currentItem, matches(currentItem.id) { suppressedProgressID = currentItem.id }
         history.removeAll { matches($0.mediaID) }
+        for key in Array(localPlayedStates.keys) {
+            guard let separator = key.firstIndex(of ":"),
+                  let sourceID = UUID(uuidString: String(key[..<separator])) else { continue }
+            let id = MediaID(sourceID: sourceID, localID: String(key[key.index(after: separator)...]))
+            if matches(id) { localPlayedStates.removeValue(forKey: key) }
+        }
+        persistLocalPlayedStates()
         for storageKey in [progressStorageKey, durationStorageKey] {
             var values = UserDefaults.standard.dictionary(forKey: storageKey) as? [String: Double] ?? [:]
             for key in Array(values.keys) {
@@ -996,6 +1050,14 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         if let data = try? JSONEncoder().encode(history) {
             UserDefaults.standard.set(data, forKey: "player.history.v1")
         }
+    }
+
+    private static func localPlayedKey(_ id: MediaID) -> String {
+        id.sourceID.uuidString + ":" + id.localID
+    }
+
+    private func persistLocalPlayedStates() {
+        UserDefaults.standard.set(localPlayedStates, forKey: localPlayedStorageKey)
     }
 
     /// Reconcile files deleted outside Vesper when returning to the app. A loss

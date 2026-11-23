@@ -81,6 +81,13 @@ enum TraktConfiguration {
 
 
 class TraktChecks(unittest.TestCase):
+    def test_progress_clear_uses_playback_delete(self):
+        source = (ROOT / "Vesper/Infrastructure/Services/TraktAccountStore.swift").read_text()
+        clear = source.split("func clearPlaybackProgress(", 1)[1].split("/// Fetch paused playback progress", 1)[0]
+        self.assertIn('"sync/playback/\\(category)"', clear)
+        self.assertIn('"sync/playback/\\(id)"', clear)
+        self.assertIn('method: "DELETE"', clear)
+
     @unittest.skipUnless(SWIFTC, "Swift compiler is required")
     def test_state_matching_and_refresh(self):
         with tempfile.TemporaryDirectory(prefix="vesper-trakt-") as directory:

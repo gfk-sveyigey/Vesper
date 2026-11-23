@@ -576,6 +576,20 @@ enum EmbyProgressPriority {
 }
 
 extension TraktAccountStore {
+    func clearPlaybackProgress(for item: MediaItem, source: MediaSource) async throws {
+        guard isConnected, source.kind == .emby else { return }
+        let revision = accountRevision
+        guard let identity = try await EmbyRepository.shared.traktIdentity(for: item, source: source) else { return }
+        let category = identity.kind == "movie" ? "movies" : "episodes"
+        let data = try await api("sync/playback/\(category)", revision: revision)
+        guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+        for id in TraktResumeProgress.playbackIDsToRemove(rows, identity: identity) {
+            try Task.checkCancellation()
+            _ = try await api("sync/playback/\(id)", method: "DELETE", revision: revision)
+        }
+        TraktPlaybackReporter.log("续播记录已从 Trakt 删除")
+    }
+
     /// Fetch paused playback progress, not watched-history completion flags.
     func resumePosition(for item: MediaItem, source: MediaSource, duration: Double) async -> Double? {
         guard isConnected, duration.isFinite, duration > 0 else { return nil }
@@ -588,18 +602,11 @@ extension TraktAccountStore {
             let data = try await api("sync/playback/\(category)", revision: revision)
             guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
             for row in rows {
-                guard let media = row[identity.kind] as? [String: Any] else { continue }
-                let matches: Bool
-                if let season = identity.season, let episode = identity.episode {
-                    let show = row["show"] as? [String: Any]
-                    matches = TraktResumeProgress.matches(identity.ids, responseIDs: show?["ids"] as? [String: Any] ?? [:])
-                        && media["season"] as? Int == season && media["number"] as? Int == episode
-                } else {
-                    matches = TraktResumeProgress.matches(identity.ids, responseIDs: media["ids"] as? [String: Any] ?? [:])
-                }
-                if matches, let position = TraktResumeProgress.seconds(
+                guard TraktResumeProgress.matches(row: row, identity: identity),
+                      let position = TraktResumeProgress.seconds(
                     percent: (row["progress"] as? NSNumber)?.doubleValue, duration: duration
-                ) { return position }
+                ) else { continue }
+                return position
             }
         } catch {
             TraktPlaybackReporter.log("续播进度读取失败，尝试下一优先来源")
@@ -614,6 +621,24 @@ enum TraktResumeProgress {
             if let actual = responseIDs[key] as? String { return actual == value }
             if let actual = responseIDs[key] as? NSNumber { return actual.stringValue == value }
             return false
+        }
+    }
+    static func matches(row: [String: Any], identity: TraktMediaIdentity) -> Bool {
+        guard let media = row[identity.kind] as? [String: Any] else { return false }
+        if let season = identity.season, let episode = identity.episode {
+            let show = row["show"] as? [String: Any]
+            return matches(identity.ids, responseIDs: show?["ids"] as? [String: Any] ?? [:])
+                && media["season"] as? Int == season && media["number"] as? Int == episode
+        }
+        return matches(identity.ids, responseIDs: media["ids"] as? [String: Any] ?? [:])
+    }
+    static func playbackIDsToRemove(_ rows: [[String: Any]], identity: TraktMediaIdentity) -> [Int] {
+        var seen = Set<Int>()
+        return rows.compactMap { row in
+            guard matches(row: row, identity: identity),
+                  let number = row["id"] as? NSNumber else { return nil }
+            let id = number.intValue
+            return id > 0 && seen.insert(id).inserted ? id : nil
         }
     }
     static func seconds(percent: Double?, duration: Double) -> Double? {

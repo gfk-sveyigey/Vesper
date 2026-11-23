@@ -950,6 +950,8 @@
 "%lld集" = "%lld episodios";
 "%@/共%lld季" = "%@ / %lld temporadas";
 "开始播放 E%@" = "Reproducir E%@";
+"继续播放 E%@" = "Continuar E%@";
+"重新播放 E%@" = "Volver a reproducir E%@";
 "开始播放 S%@E%@" = "Reproducir S%@E%@";
 "图标库" = "Bibliotecas de iconos";
 "来源图标" = "Iconos de fuentes";
@@ -1038,6 +1040,7 @@
 
 "帮助与关于" = "Ayuda e información";
 "继续播放" = "Seguir viendo";
+"重新播放" = "Reproducir de nuevo";
 "正在验证来源" = "Verificando fuente…";
 "来源验证成功" = "Fuente verificada";
 "验证失败，点击重试" = "Error de verificación. Toca para reintentar";

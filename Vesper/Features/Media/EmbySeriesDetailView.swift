@@ -40,11 +40,13 @@ struct EmbySeriesHeroFooter: View {
     var selectedEpisode: EmbyEpisode? = nil
     var seriesSeasonCount = 1
     var selectedEpisodeIsPlayed = false
+    var selectedEpisodeResumePosition: Double = 0
     var playSelectedEpisode: () -> Void = {}
     var toggleSelectedEpisodePlayed: () -> Void = {}
     var mediaFacts: [String]? = nil
     var showsItemActions = false
     var itemIsPlayed = false
+    var itemResumePosition: Double = 0
     var playItem: () -> Void = {}
     var toggleItemPlayed: () -> Void = {}
     private let buttonHeight: CGFloat = 50
@@ -54,7 +56,7 @@ struct EmbySeriesHeroFooter: View {
             if selectedEpisode != nil || showsItemActions {
                 HStack(spacing: 10) {
                     Button(action: showsItemActions ? playItem : playSelectedEpisode) {
-                        Label(selectedEpisode.map(selectedEpisodeLabel) ?? VesperLocalization.string("开始播放"), systemImage: "play.fill")
+                        Label(playButtonTitle, systemImage: "play.fill")
                             .font(.system(size: 16, weight: .semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
@@ -121,6 +123,25 @@ struct EmbySeriesHeroFooter: View {
             facts.append(VesperLocalization.localized("\(episodes.count)集"))
         }
         return facts
+    }
+
+    private var playButtonTitle: String {
+        if showsItemActions {
+            return Self.playbackActionTitle(played: itemIsPlayed, position: itemResumePosition)
+        }
+        guard let selectedEpisode else { return VesperLocalization.string("开始播放") }
+        let played = selectedEpisodeIsPlayed
+        let position = selectedEpisodeResumePosition
+        guard played || position > 0 else { return selectedEpisodeLabel(selectedEpisode) }
+        let number = String(format: "%02d", selectedEpisode.number ?? 0)
+        let key = played ? "重新播放 E%@" : "继续播放 E%@"
+        return String(format: VesperLocalization.string(key), number)
+    }
+
+    private static func playbackActionTitle(played: Bool, position: Double) -> String {
+        if played { return VesperLocalization.string("重新播放") }
+        if position > 0 { return VesperLocalization.string("继续播放") }
+        return VesperLocalization.string("开始播放")
     }
 
     private func selectedEpisodeLabel(_ episode: EmbyEpisode) -> String {
@@ -427,13 +448,6 @@ struct MediaDetailView: View {
         )) {
             Button("好", role: .cancel) { actionError = nil }
         } message: { Text(verbatim: actionError ?? "") }
-        .task(id: "skip:\(item.id.localID):\(selectedEpisodeID?.localID ?? ""):\(selectedVersion?.id ?? "")") {
-            let target = series.isEmbySeries ? episodes.first(where: { $0.id == selectedEpisodeID })?.item : item
-            guard var target else { return }
-            target.embyMediaSourceID = selectedVersion?.id ?? target.embyMediaSourceID
-            _ = await EmbySkipLookup.shared.markers(for: target, source: source,
-                                                    duration: selectedVersion?.duration ?? target.duration ?? 0)
-        }
         .task(id: selectedEpisodeID) {
             guard series.isEmbySeries else { return }
             episodeVersions = []
@@ -490,11 +504,14 @@ struct MediaDetailView: View {
                                                                seriesSeasonCount: seasonNumbers.count,
                                                                selectedEpisodeIsPlayed: episodes.first { $0.id == selectedEpisodeID }
                                                                 .map { playback.effectivePlayed(for: $0.item) } ?? false,
+                                                               selectedEpisodeResumePosition: episodes.first { $0.id == selectedEpisodeID }
+                                                                .map(resumePosition) ?? 0,
                                                                playSelectedEpisode: playSelectedEpisode,
                                                                toggleSelectedEpisodePlayed: toggleSelectedEpisodePlayed,
                                                                mediaFacts: series.isEmbySeries ? nil : heroMediaFacts,
                                                                showsItemActions: !series.isEmbySeries,
                                                                itemIsPlayed: playback.effectivePlayed(for: item),
+                                                               itemResumePosition: clearedServerProgress ? 0 : max(item.resumePosition ?? 0, playback.savedProgress(for: item)),
                                                                playItem: playCurrentItem,
                                                                toggleItemPlayed: {
                                                                    let played = playback.effectivePlayed(for: item)
@@ -1295,8 +1312,7 @@ struct MediaDetailView: View {
         Task {
             defer { busy.remove(episode.id) }
             do {
-                try await playback.clearProgress(for: episode.item, source: source,
-                                                 syncServer: (episode.item.resumePosition ?? 0) > 0)
+                try await playback.clearProgress(for: episode.item, source: source)
                 if let index = episodes.firstIndex(where: { $0.id == episode.id }) {
                     episodes[index].item.resumePosition = 0
                 }

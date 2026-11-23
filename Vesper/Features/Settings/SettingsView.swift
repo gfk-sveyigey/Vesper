@@ -76,7 +76,7 @@ private struct AppLockSettingsView: View {
     }
 
     private var biometricAvailable: Bool {
-        LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        appLock.biometricType != .none
     }
 
     private func changeEnabled(_ value: Bool) {
@@ -148,7 +148,7 @@ struct AppLockScreen: View {
                 }
                 .disabled(isAuthenticating)
             }
-            if appLock.authenticationRequest != .appUnlock && appLock.authenticationRequest != .settingsAccess {
+            if appLock.authenticationRequest != .appUnlock {
                 Button("取消", systemImage: "xmark") { appLock.cancelAuthentication() }
             }
         }

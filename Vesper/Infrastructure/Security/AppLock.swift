@@ -84,8 +84,20 @@ final class AppLock: ObservableObject {
     var biometricType: BiometricType {
         let context = LAContext()
         var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else { return .none }
-        return switch context.biometryType {
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+            // A biometric lockout is temporary. Keep the enrolled modality
+            // visible/configurable; the App PIN fallback does not clear the
+            // device's biometric lockout state.
+            if let error = error as? LAError, error.code == .biometryLockout {
+                return Self.biometricType(for: context.biometryType)
+            }
+            return .none
+        }
+        return Self.biometricType(for: context.biometryType)
+    }
+
+    private static func biometricType(for type: LABiometryType) -> BiometricType {
+        switch type {
         case .faceID: .faceID
         case .touchID: .touchID
         default: .none

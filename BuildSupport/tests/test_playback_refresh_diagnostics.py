@@ -23,7 +23,10 @@ class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
         self.assertIn('!configuration.autoplay || configuration.position > 0', driver)
         self.assertIn('guard player.isSeekable else', driver)
         self.assertIn('try player.seek(to: .seconds(configuration.position), fast: false)', driver)
-        self.assertIn('else if configuration.position > 0 { try player.play() }', driver)
+        self.assertIn('var didRestorePosition = false', driver)
+        self.assertIn('if player.isPlaying && pendingSeekTime == nil { return }', driver)
+        self.assertIn('if isOpeningMedia, player.state != .error { result.phase = .loading }', driver)
+        self.assertIn('if !isOpeningMedia, Date() >= seekClockDeadline', driver)
 
     def test_subtitle_selection_survives_vlc_async_track_acknowledgement(self):
         core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
@@ -37,7 +40,10 @@ class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
     def test_vlc_uses_cjk_subtitle_font_and_matches_emby_preference(self):
         vlc = (ROOT / 'Playback/VLCBridge/VLCDriver.swift').read_text()
         core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
-        self.assertIn(':freetype-font=PingFang SC', vlc)
+        self.assertIn('--freetype-font=PingFang SC', vlc)
+        self.assertIn('Player(instance: instance)', vlc)
+        self.assertIn('instance.logStream(minimumLevel: .notice)', vlc)
+        self.assertNotIn('media.addOption(":freetype-font=', vlc)
         self.assertIn('Self.chineseScript(old.name)', core)
         self.assertIn('tracks[ordinal]', core)
 

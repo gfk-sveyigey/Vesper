@@ -674,29 +674,8 @@ actor EmbyRepository {
                                   method: favorite ? "POST" : "DELETE")
     }
 
-    func setProgress(_ seconds: Double, for item: MediaItem, source: MediaSource) async throws {
-        guard seconds.isFinite, seconds >= 0, seconds * 10_000_000 < Double(Int64.max) else {
-            throw EmbyError.invalidResponse
-        }
-        let (client, userID) = try await userActionClient(item, source: source)
-        let path = "Users/\(userID)/Items/\(item.id.localID)"
-        let stored = try await client.get(path)
-        guard var data = stored["UserData"] as? [String: Any] else { throw EmbyError.invalidResponse }
-        data["PlaybackPositionTicks"] = Int64(seconds * 10_000_000)
-        // Include the documented UserItemDataDto.ItemId, consistently with the route,
-        // rather than depending on its presence in the GET UserData response.
-        data["ItemId"] = item.id.localID
-        do {
-            _ = try await client.send("\(path)/UserData", method: "POST", body: EmbyJSON(data))
-        } catch EmbyError.notFound {
-            throw EmbyOperationFailure(operation: "写入用户播放进度", itemID: item.id.localID,
-                                      sourceID: source.id,
-                                      reason: "条目读取成功，但服务器的 UserData 更新接口返回 HTTP 404；请检查 Emby 版本或反向代理是否允许此 POST 接口。")
-        }
-    }
-
     func clearProgress(for item: MediaItem, source: MediaSource) async throws {
-        try await setProgress(0, for: item, source: source)
+        try await setPlayed(false, for: item, source: source)
     }
 
     private func userActionClient(_ item: MediaItem, source: MediaSource) async throws -> (EmbyAPIClient, String) {

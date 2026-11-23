@@ -15,6 +15,7 @@ internal import SwiftVLC
     private var hasInstalledSurface = false
     private var timelineEvents: Task<Void, Never>?
     private var pendingSeekTime: Double?
+    private var isOpeningMedia = false
     private var seekClockDeadline = Date.distantPast
     private var measuresNetworkInput = false
     private var downloadSessionID = UUID().uuidString
@@ -25,16 +26,24 @@ internal import SwiftVLC
     public var nativePiPController: AVPictureInPictureController? { nil }
     private static var engineLogHandler: (@Sendable (String) -> Void)?
     private static var engineLogTask: Task<Void, Never>?
+    // Font options are instance configuration, not safe per-media options.
+    // Reuse one instance for playback and its log stream.
+    private static let playbackInstance: Result<VLCInstance, Error> = Result {
+        try VLCInstance(arguments: VLCInstance.defaultArguments + [
+            "--freetype-font=PingFang SC",
+            "--freetype-monofont=PingFang SC"
+        ])
+    }
 
     public static func setLogHandler(_ handler: @escaping @Sendable (String) -> Void) {
         engineLogHandler = handler
     }
 
-    private static func startLoggingIfNeeded() {
+    private static func startLoggingIfNeeded(instance: VLCInstance) {
         guard engineLogTask == nil, let handler = engineLogHandler else { return }
         // Subscribe before Player() opens any media. One consumer per shared VLC
         // instance survives driver retirement and decoder/engine switches.
-        let stream = VLCInstance.shared.logStream(minimumLevel: .notice)
+        let stream = instance.logStream(minimumLevel: .notice)
         engineLogTask = Task.detached(priority: .utility) {
             for await entry in stream {
                 guard !Task.isCancelled else { return }
@@ -44,7 +53,6 @@ internal import SwiftVLC
     }
 
     public init() {
-        Self.startLoggingIfNeeded()
         surface.backgroundColor = .black
     }
     public var snapshot: EngineSnapshot {
@@ -52,7 +60,7 @@ internal import SwiftVLC
         guard let player else { return result }
         // Never leave the UI pinned indefinitely if native acknowledgement is
         // absent (paused inputs may legitimately publish none).
-        if Date() >= seekClockDeadline { pendingSeekTime = nil }
+        if !isOpeningMedia, Date() >= seekClockDeadline { pendingSeekTime = nil }
         switch player.state {
         case .idle, .stopped, .stopping: result.phase = player.didReachEnd ? .ended : .idle
         case .opening, .buffering: result.phase = .loading
@@ -60,6 +68,7 @@ internal import SwiftVLC
         case .paused: result.phase = .paused
         case .error: result.phase = .failed("SwiftVLC: 播放失败")
         }
+        if isOpeningMedia, player.state != .error { result.phase = .loading }
         result.time = pendingSeekTime ?? seconds(player.currentTime)
         result.duration = player.duration.map(seconds) ?? 0
         // bufferFill is a cache percentage, NOT a position in the file.
@@ -136,6 +145,8 @@ internal import SwiftVLC
         ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
     }
     public func load(url: URL, configuration: EngineConfiguration) async throws {
+        isOpeningMedia = true
+        defer { isOpeningMedia = false }
         measuresNetworkInput = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
         downloadSessionID = UUID().uuidString
         let supportedHeaders = Set(["user-agent", "referer", "referrer", "cookie"])
@@ -144,7 +155,9 @@ internal import SwiftVLC
             throw PlaybackCoreError.failed("SwiftVLC 当前无法附加自定义请求头：\(unsupportedHeaders.joined(separator: ", "))。正在尝试 AetherEngine。")
         }
         self.configuration = configuration
-        let player = Player()
+        let instance = try Self.playbackInstance.get()
+        Self.startLoggingIfNeeded(instance: instance)
+        let player = Player(instance: instance)
         self.player = player
         timelineEvents?.cancel()
         pendingSeekTime = nil
@@ -178,9 +191,6 @@ internal import SwiftVLC
             }
         }
         media.addOption(":no-video-title-show")
-        // Prefer the system CJK family. libVLC otherwise inherits Helvetica
-        // Neue from subtitle styles and cannot resolve Chinese glyphs on iOS.
-        media.addOption(":freetype-font=PingFang SC")
         let networkCachingMilliseconds: Int? = url.isFileURL ? nil : 5_000
         if let networkCachingMilliseconds {
             media.addOption(":network-caching=\(networkCachingMilliseconds)")
@@ -194,10 +204,18 @@ internal import SwiftVLC
         // A large network buffer must be allowed to fill before the open timeout.
         let openTimeout = max(40.0, Double(networkCachingMilliseconds ?? 0) / 1_000 + 15)
         let deadline = ContinuousClock.now.advanced(by: .seconds(openTimeout))
+        var didRestorePosition = false
         while ContinuousClock.now < deadline {
             try Task.checkCancellation()
             switch player.state {
             case .playing, .paused:
+                if didRestorePosition {
+                    // Native timeChanged acknowledges the absolute seek. Do not
+                    // expose VLC's temporary startup pause as a user pause.
+                    if player.isPlaying && pendingSeekTime == nil { return }
+                    try await Task.sleep(for: .milliseconds(50))
+                    continue
+                }
                 if configuration.position > 0 {
                     // State readiness can precede seekability (especially HTTP).
                     // Keep waiting within the existing open timeout, rather than
@@ -212,7 +230,11 @@ internal import SwiftVLC
                 }
                 configure(configuration)
                 if !configuration.autoplay { player.pause() }
-                else if configuration.position > 0 { try player.play() }
+                else if configuration.position > 0 {
+                    didRestorePosition = true
+                    try player.play()
+                    continue
+                }
                 return
             case .error: throw PlaybackCoreError.failed("SwiftVLC: 播放失败")
             default: break

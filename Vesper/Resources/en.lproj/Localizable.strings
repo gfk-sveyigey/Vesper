@@ -950,6 +950,8 @@
 "%lld集" = "%lld episodes";
 "%@/共%lld季" = "%@ / %lld seasons";
 "开始播放 E%@" = "Play E%@";
+"继续播放 E%@" = "Continue E%@";
+"重新播放 E%@" = "Replay E%@";
 "开始播放 S%@E%@" = "Play S%@E%@";
 "图标库" = "Icon Libraries";
 "来源图标" = "Source Icons";
@@ -1038,6 +1040,7 @@
 
 "帮助与关于" = "Support & About";
 "继续播放" = "Continue Watching";
+"重新播放" = "Replay";
 "正在验证来源" = "Verifying source…";
 "来源验证成功" = "Source verified";
 "验证失败，点击重试" = "Verification failed. Tap to retry";

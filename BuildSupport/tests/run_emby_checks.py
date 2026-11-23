@@ -36,9 +36,6 @@ SERIES = {'Id': 'series', 'Name': 'Series', 'Type': 'Series', 'IsFolder': True,
 EPISODE = {'Id': 'episode', 'Name': 'Episode', 'Type': 'Episode', 'SeriesId': 'series'}
 
 EPISODE_USER_DATA = {'PlaybackPositionTicks': 300000000, 'Played': False, 'IsFavorite': True}
-EXPECTED_EPISODE_WRITES = [
-    {'PlaybackPositionTicks': 0, 'Played': False, 'IsFavorite': True},
-]
 EPISODE_PLAYED_OPERATIONS = []
 ACTION_REQUESTS = []
 
@@ -217,7 +214,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if '/action-' in self.path:
-            payload = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0')))) if self.path.endswith('/UserData') else None
+            payload = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0')))) if self.headers.get('Content-Length') else None
             ACTION_REQUESTS.append(('POST', self.path, payload))
             self.send_response(204); self.end_headers(); return
         if self.path == '/proxy/emby/Empty':
@@ -226,10 +223,6 @@ class Handler(BaseHTTPRequestHandler):
             EPISODE_PLAYED_OPERATIONS.append(('POST', self.path))
             self.send_response(204); self.end_headers(); return
         payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-        if self.path == '/proxy/emby/Users/user/Items/episode/UserData':
-            assert EXPECTED_EPISODE_WRITES and payload == EXPECTED_EPISODE_WRITES.pop(0)
-            EPISODE_USER_DATA.update(payload)
-            self.send_response(204); self.end_headers(); return
         if self.path == '/proxy/emby/Items/movie/PlaybackInfo':
             assert payload['UserId'] == 'user'
             media = dict(MEDIA)
@@ -300,7 +293,7 @@ try:
         subprocess.run([os.environ.get('SWIFTC', 'swiftc'), '-swift-version', '6', '-strict-concurrency=complete',
                         *units, str(ROOT / 'Tests/EmbyRepositoryChecks.swift'), '-o', binary], check=True)
         subprocess.run([binary, 'http://127.0.0.1:' + str(server.server_port)], check=True)
-    assert len(ACTION_REQUESTS) == 18
+    assert len(ACTION_REQUESTS) == 15
     for kind in ['Movie', 'Series', 'Episode']:
         item = 'action-' + kind
         base = '/proxy/emby/Users/user/'
@@ -308,10 +301,8 @@ try:
         assert ('DELETE', base + 'PlayedItems/' + item, None) in ACTION_REQUESTS
         assert ('POST', base + 'FavoriteItems/' + item, None) in ACTION_REQUESTS
         assert ('DELETE', base + 'FavoriteItems/' + item, None) in ACTION_REQUESTS
-        for ticks in [125000000, 0]:
-            assert ('POST', base + 'Items/' + item + '/UserData',
-                    {'Played': False, 'IsFavorite': True, 'PlaybackPositionTicks': ticks}) in ACTION_REQUESTS
-    assert not EXPECTED_EPISODE_WRITES
-    assert [method for method, _ in EPISODE_PLAYED_OPERATIONS] == ['POST', 'DELETE']
+        assert ACTION_REQUESTS.count(('DELETE', base + 'PlayedItems/' + item, None)) == 2
+        assert not any('/UserData' in path for _, path, _ in ACTION_REQUESTS)
+    assert [method for method, _ in EPISODE_PLAYED_OPERATIONS] == ['POST', 'DELETE', 'DELETE']
 finally:
     server.shutdown()

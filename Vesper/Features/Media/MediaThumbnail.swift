@@ -627,6 +627,11 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
         !clearedServerProgress && (item.resumePosition ?? 0) > 0
     }
 
+    private var canClearTraktProgress: Bool {
+        source.kind == .emby && TraktAccountStore.shared.isConnected
+            && ["Movie", "Episode", "Video", "MusicVideo"].contains(item.embyItemType ?? "")
+    }
+
     @ViewBuilder
     private func detailsArtwork(_ content: Content) -> some View {
         if source.kind == .emby, item.isEmbySeries, openEmbyDetails == nil {
@@ -657,9 +662,9 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
                     .disabled(source.emby?.userID == nil)
                 }
                 if showsWatchActions {
-                    if hasServerProgress || playback.savedProgress(for: item) > 0 {
+                    if hasServerProgress || playback.savedProgress(for: item) > 0 || canClearTraktProgress {
                         Button("清除播放进度", systemImage: "clock.arrow.circlepath") { clearProgress() }
-                            .disabled(updatingWatchState || (hasServerProgress && source.emby?.userID == nil))
+                            .disabled(updatingWatchState || (hasServerProgress && source.emby?.userID == nil && !canClearTraktProgress))
                     }
                 } else if !showsEmbyFacts && (playback.savedProgress(for: item) > 0
                     || playback.history.contains(where: { $0.mediaID == item.id })) {
@@ -713,7 +718,7 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
         Task { @MainActor in
             defer { updatingWatchState = false }
             do {
-                try await playback.clearProgress(for: item, source: source, syncServer: hasServerProgress)
+                try await playback.clearProgress(for: item, source: source)
                 clearedServerProgress = true
             } catch {
                 watchError = error.localizedDescription

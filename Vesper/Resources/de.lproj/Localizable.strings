@@ -950,6 +950,8 @@
 "%lld集" = "%lld Folgen";
 "%@/共%lld季" = "%@ / %lld Staffeln";
 "开始播放 E%@" = "E%@ abspielen";
+"继续播放 E%@" = "E%@ weiterschauen";
+"重新播放 E%@" = "E%@ erneut abspielen";
 "开始播放 S%@E%@" = "S%@E%@ abspielen";
 "图标库" = "Symbolbibliotheken";
 "来源图标" = "Quellensymbole";
@@ -1038,6 +1040,7 @@
 
 "帮助与关于" = "Support & Info";
 "继续播放" = "Weiterschauen";
+"重新播放" = "Erneut abspielen";
 "正在验证来源" = "Quelle wird überprüft…";
 "来源验证成功" = "Quelle überprüft";
 "验证失败，点击重试" = "Überprüfung fehlgeschlagen. Zum Wiederholen tippen";
