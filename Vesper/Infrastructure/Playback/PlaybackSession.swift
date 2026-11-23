@@ -1503,15 +1503,16 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         // Emby version names are file labels, not the episode's display context.
         playbackSubtitle = item.embyItemType == "Movie" ? item.title : (item.embyItemType == nil ? item.subtitle : nil)
         guard item.embyItemType == "Episode", let source, source.kind == .emby else { return }
+        let catalog = mediaCatalogService
         playbackSubtitleTask = Task { [weak self] in
-            guard let metadata = try? await mediaCatalogService.detailMetadata(for: item, source: source),
+            guard let metadata = try? await catalog.detailMetadata(for: item, source: source),
                   !Task.isCancelled else { return }
             var parts: [String] = []
             if let series = metadata.series {
                 parts.append(series.title)
                 var count = series.embyPresentation?.seasonCount
                 if count == nil {
-                    count = try? await mediaCatalogService.seriesSeasonCount(for: series, source: source)
+                    count = try? await catalog.seriesSeasonCount(for: series, source: source)
                 }
                 guard !Task.isCancelled else { return }
                 if (count ?? 0) > 1 || (metadata.seasonNumber ?? 0) > 1,
