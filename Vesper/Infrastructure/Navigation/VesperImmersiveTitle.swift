@@ -177,40 +177,41 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         }
     }
 
-    @ViewBuilder
     private var verticalScrollView: some View {
-        if usesSystemList {
-            List {
-                if !extendsContentUnderHeader {
-                    Color.clear.frame(height: headerHeight)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .accessibilityHidden(true)
-                }
-                content
-                    .environment(\.vesperRootHeaderHeight, headerHeight)
-                    .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
-            }
-            .listStyle(.plain)
-            .listRowBackground(VesperTheme.background)
-            .scrollContentBackground(.hidden)
-            .background(VesperTheme.background)
-        } else {
-            ScrollView {
-                VStack(spacing: 0) {
+        Group {
+            if usesSystemList {
+                List {
                     if !extendsContentUnderHeader {
-                        // Keep the spacer inside the page so its top shares the scroll origin.
                         Color.clear.frame(height: headerHeight)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                             .accessibilityHidden(true)
                     }
                     content
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.bottom, 20)
                         .environment(\.vesperRootHeaderHeight, headerHeight)
                         .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
                 }
-                .frame(minHeight: viewportHeight, alignment: .top)
+                .listStyle(.plain)
+                .listRowBackground(VesperTheme.background)
+                .scrollContentBackground(.hidden)
+                .background(VesperTheme.background)
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if !extendsContentUnderHeader {
+                            // Keep the spacer inside the page so its top shares the scroll origin.
+                            Color.clear.frame(height: headerHeight)
+                                .accessibilityHidden(true)
+                        }
+                        content
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 20)
+                            .environment(\.vesperRootHeaderHeight, headerHeight)
+                            .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
+                    }
+                    .frame(minHeight: viewportHeight, alignment: .top)
+                }
             }
         }
         .scrollDisabled(showsLoading)
