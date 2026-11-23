@@ -1308,7 +1308,7 @@ private struct EmbySeriesBrowserView: View {
         defer { if loadGeneration == token { isLoading = false } }
         do {
             let generation = await AppCacheStore.shared.libraryGeneration
-            let page = try await library.catalogService.items(for: source, parentID: parentID,
+            let page = try await library.catalog.items(for: source, parentID: parentID,
                                                              startIndex: nextOffset, limit: pageSize,
                                                              sortBy: field, sortOrder: order,
                                                              scope: scope)

@@ -596,7 +596,8 @@ extension TraktAccountStore {
         guard let identity = try await MediaSourceServices.identity.traktIdentity(for: item, source: source) else { return }
         let payload = try await historyPayload(for: identity, revision: revision)
         let body = try JSONSerialization.data(withJSONObject: payload)
-        _ = try await api("sync/history", method: played ? "POST" : "DELETE", body: body, revision: revision)
+        let endpoint = played ? "sync/history" : "sync/history/remove"
+        _ = try await api(endpoint, method: "POST", body: body, revision: revision)
         TraktPlaybackReporter.log("观看状态已同步：\(played ? "已观看" : "未观看")")
     }
 
