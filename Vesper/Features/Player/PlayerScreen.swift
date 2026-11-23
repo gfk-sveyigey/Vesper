@@ -137,7 +137,8 @@ struct PlayerScreen: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 if let view = session.videoView {
-                    PlayerVideoSurface(videoView: view, isActive: session.isPresented)
+                    PlayerVideoSurface(videoView: view, videoSize: session.videoSize,
+                                       fillsScreen: session.fillsScreen, isActive: session.isPresented)
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
                 }
@@ -1173,12 +1174,15 @@ private struct PlayerQueueRow: View {
 /// rotation or recreate the engine's rendering surface during it.
 struct PlayerVideoSurface: UIViewControllerRepresentable {
     let videoView: UIView
+    let videoSize: CGSize?
+    let fillsScreen: Bool
     var isActive = true
 
     func makeUIViewController(context: Context) -> PlayerVideoSurfaceController {
         PlayerVideoSurfaceController()
     }
     func updateUIViewController(_ controller: PlayerVideoSurfaceController, context: Context) {
+        controller.updateLayout(videoSize: videoSize, fillsScreen: fillsScreen)
         controller.mount(isActive ? videoView : nil)
     }
     static func dismantleUIViewController(_ controller: PlayerVideoSurfaceController, coordinator: ()) {
@@ -1189,6 +1193,10 @@ struct PlayerVideoSurface: UIViewControllerRepresentable {
 final class PlayerVideoSurfaceController: UIViewController {
     private weak var renderingView: UIView?
     private var mountingConstraints: [NSLayoutConstraint] = []
+    private var renderingWidthConstraint: NSLayoutConstraint?
+    private var renderingHeightConstraint: NSLayoutConstraint?
+    private var videoSize: CGSize?
+    private var fillsScreen = false
     private var rotationDisplayLink: CADisplayLink?
     private var rotationRevision = 0
     private typealias LayerGeometry = (layer: CALayer, bounds: CGRect, position: CGPoint)
@@ -1206,27 +1214,39 @@ final class PlayerVideoSurfaceController: UIViewController {
         view = host
     }
 
+    func updateLayout(videoSize: CGSize?, fillsScreen: Bool) {
+        self.videoSize = videoSize
+        self.fillsScreen = fillsScreen
+        updateRenderingSize(for: view.bounds.size)
+    }
+
     func mount(_ renderingView: UIView?) {
         loadViewIfNeeded()
         if self.renderingView === renderingView, renderingView == nil || renderingView?.superview === view { return }
         stopRotationSynchronization()
         NSLayoutConstraint.deactivate(mountingConstraints)
         mountingConstraints = []
+        renderingWidthConstraint = nil
+        renderingHeightConstraint = nil
         if self.renderingView?.superview === view { self.renderingView?.removeFromSuperview() }
         self.renderingView = renderingView
         guard let renderingView else { return }
         renderingView.removeFromSuperview()
         renderingView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(renderingView)
-        // Centre-based constraints keep resizing symmetric about the video
-        // viewport rather than anchoring the drawable to its top-left corner.
+        // Keep the active video content centered in the full-screen host.
+        let width = renderingView.widthAnchor.constraint(equalToConstant: view.bounds.width)
+        let height = renderingView.heightAnchor.constraint(equalToConstant: view.bounds.height)
+        renderingWidthConstraint = width
+        renderingHeightConstraint = height
         mountingConstraints = [
             renderingView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             renderingView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            renderingView.widthAnchor.constraint(equalTo: view.widthAnchor),
-            renderingView.heightAnchor.constraint(equalTo: view.heightAnchor)
+            width,
+            height
         ]
         NSLayoutConstraint.activate(mountingConstraints)
+        updateRenderingSize(for: view.bounds.size)
     }
 
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
@@ -1254,6 +1274,7 @@ final class PlayerVideoSurfaceController: UIViewController {
             let link = CADisplayLink(target: RotationGeometryTick(owner: self), selector: #selector(RotationGeometryTick.tick(_:)))
             self.rotationDisplayLink = link
             link.add(to: .main, forMode: .common)
+            self.updateRenderingSize(for: size)
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
             self.synchronizeVideoGeometry()
@@ -1267,9 +1288,22 @@ final class PlayerVideoSurfaceController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateRenderingSize(for: view.bounds.size)
         // SwiftUI may deliver the new viewport bounds after the coordinator's
         // animation block. Synchronize that later layout to the same clock.
         synchronizeVideoGeometry()
+    }
+
+    private func updateRenderingSize(for viewportSize: CGSize) {
+        guard let renderingWidthConstraint, let renderingHeightConstraint,
+              viewportSize.width > 0, viewportSize.height > 0 else { return }
+        let rect = VideoViewportLayout.contentRect(
+            sourceSize: videoSize,
+            viewport: CGRect(origin: .zero, size: viewportSize),
+            fillsScreen: fillsScreen
+        )
+        renderingWidthConstraint.constant = rect.width
+        renderingHeightConstraint.constant = rect.height
     }
 
     private func synchronizeVideoGeometry() {

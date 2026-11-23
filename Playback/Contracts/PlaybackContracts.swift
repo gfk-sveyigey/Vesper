@@ -80,6 +80,25 @@ public struct MediaProbe: Sendable {
     public var fields: [String: String] = [:]
     public init() {}
 }
+
+public enum VideoViewportLayout {
+    public static func contentRect(sourceSize: CGSize?, viewport: CGRect, fillsScreen: Bool) -> CGRect {
+        guard viewport.width.isFinite, viewport.height.isFinite,
+              viewport.width > 0, viewport.height > 0 else { return .zero }
+        guard !fillsScreen,
+              let sourceSize,
+              sourceSize.width.isFinite, sourceSize.height.isFinite,
+              sourceSize.width > 0, sourceSize.height > 0 else { return viewport }
+
+        let scale = min(viewport.width / sourceSize.width, viewport.height / sourceSize.height)
+        let size = CGSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
+        return CGRect(x: viewport.midX - size.width / 2,
+                      y: viewport.midY - size.height / 2,
+                      width: size.width,
+                      height: size.height)
+    }
+}
+
 public struct EngineConfiguration: Sendable {
     public var decoder: DecodePreference = .hardware
     public var position: Double = 0

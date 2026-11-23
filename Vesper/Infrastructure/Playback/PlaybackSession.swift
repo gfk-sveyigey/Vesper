@@ -86,6 +86,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var errorMessage: String?
     @Published private(set) var videoView: UIView?
+    @Published private(set) var videoSize: CGSize?
     @Published var isPresented = false {
         didSet { core.isPlayerPresented = isPresented }
     }
@@ -339,6 +340,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         currentDecoder = decoder ?? PlaybackPreferences.preferredDecoder
         suppressedProgressID = nil
         currentItem = item
+        videoSize = nil
         hasLoadedMedia = false
         refreshPlaybackSubtitle(for: item, source: source, token: token)
         currentTime = 0
@@ -1591,6 +1593,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         }
         videoView?.removeFromSuperview()
         videoView = nil
+        videoSize = nil
         trackIDs = [:]; nextTrackID = 1
         resource = nil
         subtitleText = ""
@@ -1637,6 +1640,11 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         if state.requiresForegroundReload, restoreReleasedAetherSession(resume: core.requestedAutoplay) { return }
         let view = core.view
         if videoView !== view { videoView = view }
+        if let info = core.driver?.mediaInformation,
+           info.hasVideo, info.width > 0, info.height > 0 {
+            let size = CGSize(width: CGFloat(info.width), height: CGFloat(info.height))
+            if videoSize != size { videoSize = size }
+        }
         let engine: PlaybackEngine = core.engineID == .aether ? .aether : .vlc
         if currentEngine != engine { currentEngine = engine }
         if let actual = state.actualDecoder {
