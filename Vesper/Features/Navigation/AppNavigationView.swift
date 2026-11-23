@@ -637,8 +637,7 @@ private struct MediaSearchResultsView: View {
                                        description: Text("请先在来源标签页选择一个媒体来源。"))
                     .frame(minHeight: emptyHeight)
             } else if loading {
-                ProgressView("正在搜索")
-                    .frame(maxWidth: .infinity, minHeight: emptyHeight)
+                VesperCenteredEmptyContent(message: "正在搜索", symbol: "magnifyingglass")
             } else if let errorMessage {
                 ContentUnavailableView {
                     Label("搜索失败", systemImage: "exclamationmark.magnifyingglass")

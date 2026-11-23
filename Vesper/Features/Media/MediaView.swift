@@ -164,6 +164,7 @@ struct MediaView: View {
         Group {
             if let source = library.selectedSource, source.kind == .local {
                 LocalFilesView(source: source,
+                               path: $path,
                                onVerticalOffsetChange: updateMediaScrollOffset,
                                onVerticalScrollPhaseChange: updateMediaScrollPhase,
                                onTopPullChange: expandEmbyShortcuts(forTopPull:)) { busy, createFolder in
@@ -223,6 +224,14 @@ struct MediaView: View {
                 } else {
                     MediaDetailView(source: route.source, series: item)
                 }
+            }
+        }
+        .navigationDestination(for: LocalDirectoryRoute.self) { route in
+            if let source = library.selectedSource, source.kind == .local {
+                LocalFilesView(source: source, directory: route.path, path: $path,
+                               sourceMenu: { busy, createFolder in
+                    mediaSourceMenu(localBusy: busy, createLocalFolder: createFolder)
+                })
             }
         }
     }

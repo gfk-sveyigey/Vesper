@@ -18,6 +18,12 @@ class SourcePrivacyModeTests(unittest.TestCase):
             self.assertIn(action, actions)
         self.assertEqual(actions.count('.glassEffect('), 1)
 
+    def test_protected_source_has_lock_next_to_name_without_moving_selection_checkmark(self):
+        row = self.view.split('private struct SourceListRow<Actions: View>', 1)[1]
+        self.assertIn('if library.isProtected(source) {\n                            Image(systemName: "lock.fill")', row)
+        self.assertIn('.accessibilityLabel("受密码保护")', row)
+        self.assertLess(row.index('Image(systemName: "lock.fill")'), row.index('if isSelected {'))
+
     def test_exit_stops_playback_independently_of_selected_source(self):
         toggle = self.view.split('private func togglePrivacyMode()', 1)[1].split('private var iconInset', 1)[0]
         self.assertIn('protectedSourceIDs.contains(item.id.sourceID)', toggle)

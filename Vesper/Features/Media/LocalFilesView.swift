@@ -2,9 +2,14 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+struct LocalDirectoryRoute: Hashable {
+    let path: String
+}
+
 struct LocalFilesView<SourceMenu: View>: View {
     let source: MediaSource
     var directory = ""
+    @Binding var path: NavigationPath
     var onVerticalOffsetChange: (CGFloat) -> Void = { _ in }
     var onVerticalScrollPhaseChange: (ScrollPhase, CGFloat) -> Void = { _, _ in }
     var onTopPullChange: (CGFloat) -> Void = { _ in }
@@ -102,9 +107,9 @@ struct LocalFilesView<SourceMenu: View>: View {
                 ForEach(entries) { entry in
                     Group {
                         if entry.isDirectory {
-                            NavigationLink {
-                                LocalFilesView(source: source, directory: entry.path, sourceMenu: sourceMenu)
-                            } label: { row(entry) }
+                            NavigationLink(value: LocalDirectoryRoute(path: entry.path)) {
+                                row(entry)
+                            }
                             .contextMenu { fileActions(entry) }
                         } else {
                             Button {

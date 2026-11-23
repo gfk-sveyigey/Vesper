@@ -56,3 +56,15 @@ class TabHeaderNavigationTests(unittest.TestCase):
         self.assertNotIn('List {', results)
         self.assertNotIn('ScrollView {', results)
         self.assertNotIn('.navigationDestination(item:', results)
+
+    def test_local_folder_navigation_updates_root_header_path_at_every_depth(self):
+        media = (ROOT / 'Media/MediaView.swift').read_text()
+        local = (ROOT / 'Media/LocalFilesView.swift').read_text()
+        navigation = (ROOT / 'Navigation/AppNavigationView.swift').read_text()
+        self.assertIn('LocalFilesView(source: source,\n                               path: $path,', media)
+        self.assertIn('.navigationDestination(for: LocalDirectoryRoute.self)', media)
+        self.assertIn('LocalFilesView(source: source, directory: route.path, path: $path,', media)
+        self.assertIn('struct LocalDirectoryRoute: Hashable', local)
+        self.assertIn('NavigationLink(value: LocalDirectoryRoute(path: entry.path))', local)
+        self.assertIn('VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty)', navigation)
+        self.assertNotIn('LocalFilesView(source: source, directory: entry.path', local)

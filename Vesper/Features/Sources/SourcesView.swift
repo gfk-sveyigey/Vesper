@@ -583,6 +583,12 @@ private struct SourceListRow<Actions: View>: View {
                     HStack(spacing: 4) {
                         Text(verbatim: source.localizedSourceName)
                             .font(.body.weight(.medium))
+                        if library.isProtected(source) {
+                            Image(systemName: "lock.fill")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("受密码保护")
+                        }
                         if let routeTitle {
                             Text("·").foregroundStyle(.secondary).font(.caption)
                             Text(verbatim: routeTitle).foregroundStyle(.secondary).font(.caption)
