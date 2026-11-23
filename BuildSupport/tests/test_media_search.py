@@ -21,7 +21,7 @@ class MediaSearchTests(unittest.TestCase):
         root_list = (ROOT / 'Vesper/Infrastructure/Navigation/VesperImmersiveTitle.swift').read_text()
         self.assertIn('usesSystemList: searchQuery.trimmingCharacters', navigation)
         self.assertIn('.swipeActions(edge: .trailing, allowsFullSwipe: true)', navigation)
-        self.assertIn('if usesSystemList {\n            List {', root_list)
+        self.assertIn('if usesSystemList {\n                List {', root_list)
         self.assertNotIn('RecentSearchHistoryRow', navigation)
 
     @unittest.skipUnless(SWIFTC, 'Swift compiler is required')
