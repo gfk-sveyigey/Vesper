@@ -3,6 +3,7 @@ import UIKit
 import UniformTypeIdentifiers
 import AVFoundation
 import QuartzCore
+import PlaybackContracts
 
 /// An Observation tracking boundary: timeline changes invalidate this region only.
 private struct PlayerTimelineRegion<Content: View>: View {

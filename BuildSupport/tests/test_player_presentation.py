@@ -73,6 +73,7 @@ class PlayerPresentationTests(unittest.TestCase):
         self.assertIn('return isVideo || !descendants.isEmpty ? [layer] + descendants : []', controller)
         self.assertLess(controller.index('let visible = layer.presentation()'), controller.index('// Capture presentation geometry'))
         self.assertIn('guard let self, self.rotationRevision == revision', controller)
+
     def test_video_render_area_tracks_centered_content_bounds(self):
         contracts = (ROOT / 'Playback/Contracts/PlaybackContracts.swift').read_text()
         player = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
@@ -89,3 +90,7 @@ class PlayerPresentationTests(unittest.TestCase):
         self.assertIn('renderingView.centerYAnchor.constraint(equalTo: view.centerYAnchor)', controller)
         self.assertIn('VideoViewportLayout.contentRect(', controller)
         self.assertIn('info.hasVideo, info.width > 0, info.height > 0', session)
+
+    def test_hidden_pip_surface_keeps_full_host_layout(self):
+        navigation = (ROOT / "Vesper/Features/Navigation/AppNavigationView.swift").read_text()
+        self.assertIn("PlayerVideoSurface(videoView: view, videoSize: nil, fillsScreen: false)", navigation)

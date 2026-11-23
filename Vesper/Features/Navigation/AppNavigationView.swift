@@ -76,7 +76,7 @@ struct AppNavigationView: View {
             // Retain a window-attached rendering surface while PiP is active
             // or the full-screen player is closed by an external presentation.
             if !playback.isPresented, !detachHiddenVideoSurface, let view = playback.videoView {
-                PlayerVideoSurface(videoView: view)
+                PlayerVideoSurface(videoView: view, videoSize: nil, fillsScreen: false)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
