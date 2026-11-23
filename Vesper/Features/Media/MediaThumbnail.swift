@@ -7,7 +7,6 @@ import AVFoundation
 struct MediaThumbnail: View {
     let source: MediaSource
     let item: MediaItem
-    @EnvironmentObject private var library: SourceLibrary
     var playback: PlaybackSession? = nil
     var historyEntry: PlaybackHistoryEntry? = nil
     var aspectRatio: CGFloat = 2.0 / 3.0
@@ -72,7 +71,7 @@ struct MediaThumbnail: View {
             guard !artworkIsPrepared else { return }
             let key = loadKey
             if logsQueueDiagnostics { PlayerQueueDiagnostic.write("thumbnail.begin source=\(source.kind.rawValue) item=\(item.id.localID)") }
-            let data = await MediaThumbnailLoader.shared.load(item, source: source, service: library.artwork, aspectRatio: aspectRatio,
+            let data = await MediaThumbnailLoader.shared.load(item, source: source, service: MediaSourceServices.artwork, aspectRatio: aspectRatio,
                                                              imageOrientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary,
                                                              diagnostics: logsQueueDiagnostics, cacheOnly: cacheOnly,
                                                              prefersLandscapeMovieArtwork: prefersLandscapeMovieArtwork)

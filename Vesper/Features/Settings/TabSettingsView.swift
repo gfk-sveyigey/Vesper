@@ -38,7 +38,7 @@ struct TabSettingsView: View {
                 }
                 SettingsSection {
                     Toggle(isOn: $tabBarCanMinimize) {
-                        SettingsLabel("允许标签栏收缩", symbol: "arrow.down.right.and.arrow.up.left")
+                        Text("允许标签栏收缩")
                     }
                 } footer: {
                     Text("关闭后，向下滚动页面时标签栏保持展开。")

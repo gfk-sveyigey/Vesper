@@ -35,6 +35,7 @@ struct AppNavigationView: View {
     @State private var searchQuery = ""
     @State private var searchPath = NavigationPath()
     @State private var searchRefreshID = UUID()
+    @State private var isShowingClearSearchConfirmation = false
     @State private var pickedVideoAccess: IncomingFileAccess?
     @State private var videoPickerDismissed = true
     @State private var previewVideo: IncomingVideo?
@@ -258,32 +259,44 @@ struct AppNavigationView: View {
             }
             Tab("搜索", systemImage: "magnifyingglass", value: NavigationTab.search, role: .search) {
                 NavigationStack(path: $searchPath) {
-                    VesperRootScrollView(title: searchQuery.isEmpty ? "最近搜索" : "搜索") {
+                    VesperRootScrollView(title: searchQuery.isEmpty ? "最近搜索" : "搜索",
+                                         usesSystemList: searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                         if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             if recentSearches.isEmpty {
                                 VesperCenteredEmptyContent(message: "无最近搜索", symbol: "clock.arrow.circlepath")
+                                    .listRowInsets(EdgeInsets())
+                                    .listRowSeparator(.hidden)
+                                    .listRowBackground(VesperTheme.background)
                             } else {
-                                LazyVStack(alignment: .leading, spacing: 0) {
-                                    ForEach(recentSearches, id: \.self) { query in
-                                        Button { searchQuery = query; rememberSearch() } label: {
-                                            Label { Text(verbatim: query) } icon: { Image(systemName: "clock.arrow.circlepath") }
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.vertical, 14)
-                                                .contentShape(Rectangle())
+                                ForEach(recentSearches, id: \.self) { query in
+                                    Button {
+                                        searchQuery = query
+                                        rememberSearch()
+                                    } label: {
+                                        Label { Text(verbatim: query) } icon: {
+                                            Image(systemName: "clock.arrow.circlepath")
                                         }
-                                        .buttonStyle(.plain)
-                                        .contextMenu {
-                                            Button("删除", systemImage: "trash", role: .destructive) {
-                                                saveRecentSearches(recentSearches.filter { $0 != query })
-                                            }
-                                        }
-                                        .accessibilityAction(named: Text("删除")) {
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.vertical, 14)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                                    .listRowSeparator(query == recentSearches.last ? .hidden : .visible)
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                        Button("删除", systemImage: "trash", role: .destructive) {
                                             saveRecentSearches(recentSearches.filter { $0 != query })
                                         }
-                                        if query != recentSearches.last { Divider().padding(.leading, 28) }
+                                    }
+                                    .contextMenu {
+                                        Button("删除", systemImage: "trash", role: .destructive) {
+                                            saveRecentSearches(recentSearches.filter { $0 != query })
+                                        }
+                                    }
+                                    .accessibilityAction(named: Text("删除")) {
+                                        saveRecentSearches(recentSearches.filter { $0 != query })
                                     }
                                 }
-                                .padding(.horizontal, 20)
                             }
                         } else {
                             MediaSearchResultsView(query: searchQuery, refreshID: searchRefreshID) { source, item in
@@ -294,6 +307,26 @@ struct AppNavigationView: View {
                     .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
                     .onSubmit(of: .search) { rememberSearch() }
                     .refreshable { searchRefreshID = UUID() }
+                    .toolbar {
+                        if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                           !recentSearches.isEmpty {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button {
+                                    isShowingClearSearchConfirmation = true
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .accessibilityLabel("清空搜索历史")
+                            }
+                        }
+                    }
+                    .confirmationDialog("清空全部搜索历史？", isPresented: $isShowingClearSearchConfirmation,
+                                        titleVisibility: .visible) {
+                        Button("清空搜索历史", role: .destructive) {
+                            saveRecentSearches([])
+                        }
+                        Button("取消", role: .cancel) { }
+                    }
                     .navigationDestination(for: SearchMediaRoute.self) { route in
                         MediaDetailView(source: route.source, series: route.item)
                     }

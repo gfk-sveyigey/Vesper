@@ -222,38 +222,116 @@ final class TraktAccountStore: NSObject, ObservableObject, ASWebAuthenticationPr
         return (try await task.value).access_token
     }
 
-    /// One refresh/replay on 401. The caller owns pacing and rate-limit handling.
+    /// Refreshes once on 401 and retries transient failures only when replay is safe.
+    /// Adding watch-history entries is intentionally not replayed after ambiguous failures:
+    /// Trakt may have accepted the write even if the response was lost.
     func api(_ path: String, method: String = "GET", body: Data? = nil, revision: UUID) async throws -> Data {
-        let first = try await accessToken(revision: revision)
-        for retry in 0...1 {
-            let credential: String
-            if retry == 0 { credential = first }
-            else { credential = try await accessToken(revision: revision, rejectedToken: first) }
+        let originalCredential = try await accessToken(revision: revision)
+        var credential = originalCredential
+        var didRefreshCredential = false
+        var transientRetries = 0
+        let normalizedMethod = method.uppercased()
+
+        while true {
             try Task.checkCancellation()
             guard accountRevision == revision, isConnected else { throw Failure.disconnected }
+
             var request = URLRequest(url: URL(string: "https://api.trakt.tv/" + path)!)
-            request.httpMethod = method
+            request.httpMethod = normalizedMethod
             request.timeoutInterval = 20
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("2", forHTTPHeaderField: "trakt-api-version")
             request.setValue(TraktConfiguration.clientID, forHTTPHeaderField: "trakt-api-key")
             request.setValue("Bearer " + credential, forHTTPHeaderField: "Authorization")
-            let (data, response) = try await network.data(for: request)
-            guard accountRevision == revision else { throw Failure.disconnected }
-            guard let http = response as? HTTPURLResponse else { throw Failure.network }
-            if http.statusCode == 401 {
-                if retry == 0 { continue }
-                disconnect()
+
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await network.data(for: request)
+            } catch {
+                guard accountRevision == revision, isConnected else { throw Failure.disconnected }
+                guard transientRetries < Self.maximumTransientRetries,
+                      Self.isTransientTransportFailure(error),
+                      Self.canReplayAfterAmbiguousFailure(method: normalizedMethod, path: path) else { throw error }
+                transientRetries += 1
+                try await waitBeforeRetry(retryIndex: transientRetries, retryAfter: nil)
+                continue
             }
+
+            guard accountRevision == revision, isConnected else { throw Failure.disconnected }
+            guard let http = response as? HTTPURLResponse else { throw Failure.network }
+
+            if http.statusCode == 401 {
+                guard !didRefreshCredential else {
+                    disconnect()
+                    let message = Self.serverErrorMessage(from: data)
+                    throw HTTPFailure(status: 401, retryAfter: nil, serverMessage: message)
+                }
+                credential = try await accessToken(revision: revision, rejectedToken: originalCredential)
+                didRefreshCredential = true
+                continue
+            }
+
             // Trakt returns 409 for a recently recorded scrobble; it is already recorded.
-            if (200..<300).contains(http.statusCode) || (method == "POST" && http.statusCode == 409) { return data }
-            let serverMessage = Self.serverErrorMessage(from: data)
-            throw HTTPFailure(status: http.statusCode,
-                              retryAfter: http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init),
-                              serverMessage: serverMessage)
+            if (200..<300).contains(http.statusCode) || (normalizedMethod == "POST" && http.statusCode == 409) {
+                return data
+            }
+
+            let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
+            let failure = HTTPFailure(status: http.statusCode,
+                                      retryAfter: retryAfter,
+                                      serverMessage: Self.serverErrorMessage(from: data))
+            // Scrobble already has an outer, rate-limited retry queue; keeping its
+            // 429 handling there avoids multiplying retries at both layers.
+            let isRateLimited = http.statusCode == 429 && !path.hasPrefix("scrobble/")
+            let isTransientServerError = (500..<600).contains(http.statusCode)
+                && Self.canReplayAfterAmbiguousFailure(method: normalizedMethod, path: path)
+            guard transientRetries < Self.maximumTransientRetries,
+                  isRateLimited || isTransientServerError else { throw failure }
+
+            transientRetries += 1
+            try await waitBeforeRetry(retryIndex: transientRetries,
+                                      retryAfter: isRateLimited ? (retryAfter ?? 5) : nil)
         }
-        throw Failure.disconnected
+    }
+
+    private static let maximumTransientRetries = 2
+
+    private static func isTransientTransportFailure(_ error: Error) -> Bool {
+        guard let error = error as? URLError else { return false }
+        switch error.code {
+        case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+             .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+             .resourceUnavailable, .dataNotAllowed, .internationalRoamingOff:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func canReplayAfterAmbiguousFailure(method: String, path: String) -> Bool {
+        switch method {
+        case "GET", "HEAD", "DELETE":
+            return true
+        case "POST":
+            // Removing an already-removed history record is safe. Adding history
+            // can create duplicate plays, so it must not be replayed blindly.
+            return path == "sync/history/remove"
+        default:
+            return false
+        }
+    }
+
+    private func waitBeforeRetry(retryIndex: Int, retryAfter: TimeInterval?) async throws {
+        try Task.checkCancellation()
+        // Respect Retry-After but cap a single wait so a stale server header cannot
+        // leave a user-triggered action suspended for an unreasonable period.
+        let requested = retryAfter.flatMap { $0.isFinite ? max(0, $0) : nil }
+        let base = min(60, requested ?? (0.5 * pow(2, Double(retryIndex - 1))))
+        let jitter = retryAfter == nil ? Double.random(in: 0...0.25) : 0
+        try await Task.sleep(for: .seconds(base + jitter))
+        try Task.checkCancellation()
     }
 
     private static func serverErrorMessage(from data: Data) -> String? {
