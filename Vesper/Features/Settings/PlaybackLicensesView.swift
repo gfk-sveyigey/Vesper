@@ -79,7 +79,7 @@ private struct LicenseDocumentSheet: View {
     }
 }
 
-private extension MediaLayoutSettings.Metric {
+extension MediaLayoutSettings.Metric {
     var label: LocalizedStringKey {
         switch self {
         case .thumbnailHeight: "缩略图高度"

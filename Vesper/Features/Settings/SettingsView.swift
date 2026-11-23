@@ -390,7 +390,7 @@ struct SettingsView: View {
 
 }
 
-private struct TraktAccountSheet: View {
+struct TraktAccountSheet: View {
     @ObservedObject private var trakt = TraktAccountStore.shared
     @Environment(\.dismiss) private var dismiss
     @State private var overview: TraktAccountOverview?
@@ -510,7 +510,7 @@ private struct SettingsNavigationStyle: ViewModifier {
     }
 }
 
-private struct TabOrderSettingsView: View {
+struct TabOrderSettingsView: View {
     @AppStorage("navigation.order") private var order = "media,sources,history,settings"
 
     private var sections: [AppSection] {
@@ -537,7 +537,7 @@ private struct TabOrderSettingsView: View {
     }
 }
 
-private struct EmbyProgressPrioritySheet: View {
+struct EmbyProgressPrioritySheet: View {
     @AppStorage(EmbyProgressPriority.key) private var order = EmbyProgressPriority.defaultOrder
 
     var body: some View {
@@ -573,14 +573,14 @@ private struct EmbyProgressPrioritySheet: View {
     }
 }
 
-private struct TabOrderDetent: CustomPresentationDetent {
+struct TabOrderDetent: CustomPresentationDetent {
     static func height(in context: Context) -> CGFloat? {
         min(context.maxDetentValue, context.dynamicTypeSize.isAccessibilitySize ? 540 : 360)
     }
 }
 
 /// Inline choices; the only available icon is the installed primary icon.
-private struct AppIconChoices: View {
+struct AppIconChoices: View {
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
             VStack(spacing: 8) {

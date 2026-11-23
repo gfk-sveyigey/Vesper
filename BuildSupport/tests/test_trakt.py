@@ -14,7 +14,7 @@ def production_checks_source():
     source = (ROOT / "Vesper/Infrastructure/Services/TraktAccountStore.swift").read_text()
     values = source[source.index("struct TraktAccountSettings:"):source.index("/// Shared by both engines.")]
     values += source[source.index("enum EmbyProgressSource:"):source.index("extension TraktAccountStore {")]
-    values += source[source.index("enum TraktResumeProgress:"):]
+    values += source[source.index("enum TraktResumeProgress {"):]
     refresh = source[source.index("    private func accessToken("):source.index("    /// One refresh/replay")]
     refresh = refresh.replace("private func accessToken", "func accessToken", 1)
     api = source[source.index("    func api("):source.index("    private func save(")]

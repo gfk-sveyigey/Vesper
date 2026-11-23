@@ -1070,7 +1070,7 @@ struct MediaDetailView: View {
     }
 
     private func loadDetail() async {
-        let repository = library.catalog
+        let repository = library.seriesCatalog
         loadError = nil
         detailDataReady = false
         pendingInitialEpisodeID = nil

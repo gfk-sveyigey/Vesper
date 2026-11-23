@@ -1377,7 +1377,7 @@ extension VesperEmptyPage where Actions == EmptyView {
 }
 
 // Carousel pans should not dim artwork while a button is tracking the touch.
-private struct EmbyCarouselButtonStyle: ButtonStyle {
+struct EmbyCarouselButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
     }

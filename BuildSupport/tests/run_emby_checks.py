@@ -45,6 +45,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path)
+        if path.path == '/proxy/emby/System/Ext/ServerDomains':
+            self.respond({'ok': True, 'data': [
+                {'name': 'Primary', 'url': f'http://127.0.0.1:{self.server.server_port}/proxy'},
+                {'name': 'Backup B', 'url': 'https://backup-b.example.com'},
+                {'name': 'Duplicate', 'url': 'https://backup-b.example.com/emby'},
+                {'name': 'Backup A', 'url': 'https://backup-a.example.com'},
+            ]}); return
         if path.path.startswith('/proxy/emby/Users/user/Items/action-'):
             self.respond({'UserData': {'Played': False, 'IsFavorite': True, 'PlaybackPositionTicks': 123}}); return
         if path.path == '/proxy/emby/':
@@ -270,25 +277,42 @@ try:
         subprocess.run([binary, 'http://127.0.0.1:' + str(server.server_port)], check=True)
         # Compile the real repository and session. Extract only value contracts
         # from their iOS files; platform/keychain implementations are not tested here.
-        source = (ROOT / 'Vesper/Infrastructure/Sources/SourceLibrary.swift').read_text()
-        models = source[source.index('/// Stable identity'):source.index('enum SourceFailure:')]
-        # Reuse the real cache scope helper needed by image and skip lookups,
-        # without importing the platform-backed disk cache actor.
-        models += '\nenum AppCacheStore {\n' + source[source.index('    nonisolated static func scope('):source.index('    nonisolated static func embyArtworkKey(')] + '}\n'
+        models = """
+enum AppCacheStore {
+    static func scope(for source: MediaSource) -> String {
+        MediaSourceCacheIdentity.scope(for: source)
+    }
+}
+@MainActor enum AppLog {
+    static var runtimeEntries: [String] = []
+}
+"""
+        source = (ROOT / 'Vesper/Infrastructure/Services/TraktAccountStore.swift').read_text()
+        start = source.index('struct TraktMediaIdentity:')
+        models += source[start:source.index('\n}', start) + 2] + '\n'
         source = (ROOT / 'Playback/Contracts/PlaybackContracts.swift').read_text()
         models += source[source.index('public enum PlaybackCacheSizing'):source.index('public struct EngineExternalSubtitle')]
         models += source[source.index('public struct EngineExternalSubtitle'):source.index('/// Value-only state')]
         source = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
         models += source[source.index('struct TranscodedPlaybackResource'):source.index('/// The UI talks')]
-        source = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
-        models += source[source.index('struct PlaybackVideoDetails'):source.index('struct PlaybackQueueInfo')]
         models += "\n@MainActor final class EmbyAccountStore { static let shared = EmbyAccountStore(); func client(for source: MediaSource) throws -> EmbyAPIClient { fatalError(\"Test must inject client\") } }\n"
         contracts = Path(temp) / 'Models.swift'; contracts.write_text('import Foundation\n' + models)
         units = [str(ROOT / 'Vesper/Infrastructure/Theme/VesperLocalization.swift'),
                         str(ROOT / 'Vesper/Infrastructure/Sources/EmbyAPIClient.swift'), str(contracts)]
-        for name in ['Sources/EmbyIntegration.swift', 'Playback/EmbyPlaybackSession.swift']:
+        for name in [
+            'Sources/Models/MediaModels.swift',
+            'Sources/Contracts/MediaSourceContracts.swift',
+            'Sources/Contracts/SeriesCatalogService.swift',
+            'Sources/Adapters/Emby/EmbyMediaModels.swift',
+            'Sources/Adapters/Emby/EmbySkipMarkers.swift',
+            'Sources/Adapters/Emby/EmbyVersionMatcher.swift',
+            'Sources/EmbyIntegration.swift',
+            'Playback/Models/PlaybackModels.swift',
+            'Playback/EmbyPlaybackSession.swift',
+        ]:
             unit = Path(temp) / Path(name).name
-            unit.write_text((ROOT / 'Vesper/Infrastructure' / name).read_text().replace('import PlaybackContracts', ''))
+            unit.write_text('#if canImport(FoundationNetworking)\nimport FoundationNetworking\n#endif\n' +
+                            (ROOT / 'Vesper/Infrastructure' / name).read_text().replace('import PlaybackContracts', ''))
             units.append(str(unit))
         subprocess.run([os.environ.get('SWIFTC', 'swiftc'), '-swift-version', '6', '-strict-concurrency=complete',
                         *units, str(ROOT / 'Tests/EmbyRepositoryChecks.swift'), '-o', binary], check=True)

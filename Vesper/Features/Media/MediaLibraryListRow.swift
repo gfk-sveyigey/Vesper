@@ -16,7 +16,7 @@ struct MediaLibraryListRow: View {
         self.transition = nil
     }
 
-    fileprivate init(source: MediaSource, item: MediaItem, transition: (id: EmbyMediaRoute, namespace: Namespace.ID)) {
+    init(source: MediaSource, item: MediaItem, transition: (id: EmbyMediaRoute, namespace: Namespace.ID)) {
         self.source = source
         self.item = item
         self.playback = nil

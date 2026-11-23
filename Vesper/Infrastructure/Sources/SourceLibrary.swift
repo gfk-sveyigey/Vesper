@@ -132,6 +132,7 @@ final class SourceLibrary: ObservableObject {
 
     private let defaults: UserDefaults
     var catalog: any MediaSourceCatalogService { MediaSourceServices.catalog }
+    var catalogService: any MediaSourceCatalogService { MediaSourceServices.catalog }
     var seriesCatalog: any SeriesMediaCatalogService { MediaSourceServices.seriesCatalog }
     var artwork: any MediaSourceArtworkService { MediaSourceServices.artwork }
 
