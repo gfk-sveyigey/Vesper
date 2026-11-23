@@ -8,6 +8,22 @@
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
 <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+<key>CFBundleIcons</key>
+<dict>
+    <key>CFBundlePrimaryIcon</key>
+    <dict>
+        <key>CFBundleIconName</key><string>AppIcon</string>
+    </dict>
+    <key>CFBundleAlternateIcons</key>
+    <dict>
+        <key>ClassicIcon</key>
+        <dict>
+            <key>CFBundleIconName</key><string>ClassicIcon</string>
+            <key>CFBundleIconFiles</key><array><string>ClassicIcon</string></array>
+            <key>UIPrerenderedIcon</key><false/>
+        </dict>
+    </dict>
+</dict>
 <key>CFBundleURLTypes</key>
 <array><dict>
     <key>CFBundleURLName</key><string>com.aholic.vesper.import-diagnostic</string>

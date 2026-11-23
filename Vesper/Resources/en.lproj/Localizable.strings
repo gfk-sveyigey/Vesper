@@ -1186,3 +1186,6 @@
 "使用 %@" = "Use %@";
 
 "再次尝试 %@" = "Try %@ again";
+"新版图标" = "New Icon";
+"经典图标" = "Classic Icon";
+"无法更换图标" = "Unable to Change Icon";

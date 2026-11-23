@@ -579,26 +579,59 @@ struct TabOrderDetent: CustomPresentationDetent {
     }
 }
 
-/// Inline choices; the only available icon is the installed primary icon.
+/// Inline choices for the primary and installed alternate app icons.
 struct AppIconChoices: View {
+    @State private var currentIcon = UIApplication.shared.alternateIconName
+    @State private var iconChangeError: String?
+
+    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-            VStack(spacing: 8) {
-                Image("VesperAppIcon")
-                    .resizable()
-                    .scaledToFit()
-                    .aspectRatio(1, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .padding(4)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14).stroke(.tint, lineWidth: 2)
-                    }
-                    .accessibilityHidden(true)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("默认图标")
-            .accessibilityAddTraits(.isSelected)
+        LazyVGrid(columns: columns, spacing: 12) {
+            iconChoice(name: "VesperAppIcon", title: "新版图标", iconName: nil)
+            iconChoice(name: "ClassicAppIcon", title: "经典图标", iconName: "ClassicIcon")
         }
         .padding(.vertical, 8)
+        .alert("无法更换图标", isPresented: Binding(
+            get: { iconChangeError != nil },
+            set: { if !$0 { iconChangeError = nil } }
+        )) {
+            Button("好", role: .cancel) { iconChangeError = nil }
+        } message: {
+            Text(verbatim: iconChangeError ?? "")
+        }
+    }
+
+    private func iconChoice(name: String, title: LocalizedStringKey, iconName: String?) -> some View {
+        let selected = currentIcon == iconName
+        return Button {
+            guard UIApplication.shared.supportsAlternateIcons else { return }
+            UIApplication.shared.setAlternateIconName(iconName) { error in
+                if let error {
+                    iconChangeError = error.localizedDescription
+                } else {
+                    currentIcon = iconName
+                }
+            }
+        } label: {
+            VStack(spacing: 8) {
+                Image(name)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(selected ? Color.accentColor : Color.clear, lineWidth: 2)
+                    }
+                Text(title)
+                    .font(.footnote)
+                    .foregroundStyle(selected ? Color.accentColor : Color.primary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!UIApplication.shared.supportsAlternateIcons || selected)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

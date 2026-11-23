@@ -1186,3 +1186,6 @@
 "使用 %@" = "Usar %@";
 
 "再次尝试 %@" = "Volver a intentar %@";
+"新版图标" = "Icono nuevo";
+"经典图标" = "Icono clásico";
+"无法更换图标" = "No se pudo cambiar el icono";
