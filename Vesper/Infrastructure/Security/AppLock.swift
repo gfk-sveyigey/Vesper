@@ -64,7 +64,7 @@ final class AppLock: ObservableObject {
     private init() {
         // Establish the gate before SwiftUI renders its first frame.
         let defaults = UserDefaults.standard
-        if defaults.bool(forKey: Self.enabledKey) {
+        if defaults.bool(forKey: Self.enabledKey), !Self.isSystemAuthenticationEnabled {
             let scope = defaults.string(forKey: Self.scopeKey) ?? "launch"
             if scope == "launch" || scope == "both" {
                 isLocked = true
@@ -79,6 +79,13 @@ final class AppLock: ObservableObject {
     }
     var protectsSources: Bool {
         isEnabled && ["source", "both"].contains(UserDefaults.standard.string(forKey: Self.scopeKey) ?? "launch")
+    }
+
+    private static var isSystemAuthenticationEnabled: Bool {
+        guard #available(iOS 18.0, *) else { return false }
+        return UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .contains { $0.systemProtectionManager?.isUserAuthenticationEnabled == true }
     }
 
     var biometricType: BiometricType {
@@ -213,6 +220,19 @@ final class AppLock: ObservableObject {
         case .active:
             let isFirstActivation = !didInitializeLifecycle
             didInitializeLifecycle = true
+            if Self.isSystemAuthenticationEnabled {
+                if authenticationRequest == .appUnlock {
+                    // The system only activates the scene after its own
+                    // authentication challenge has succeeded.
+                    didUnlock()
+                } else if authenticationRequest == nil {
+                    // The operating system is the app-wide lock for this scene.
+                    isActive = true
+                    isLocked = false
+                    lastBackgroundDate = nil
+                }
+                return
+            }
             // Biometric UI can cause lifecycle callbacks while the same
             // authentication request is still being presented. Keep that
             // request alive instead of treating the callback as a new unlock.
@@ -316,6 +336,10 @@ struct AppPrivacyBlurHost: UIViewRepresentable {
             guard AppLock.shared.isEnabled, AppLock.shared.shouldBlurInBackground,
                   !AppLock.shared.isBiometricAuthenticationInProgress,
                   let window, shield == nil else { return }
+            if #available(iOS 18.0, *),
+               window.windowScene?.systemProtectionManager?.isUserAuthenticationEnabled == true {
+                return
+            }
             let style: UIBlurEffect.Style = {
                 switch traitCollection.userInterfaceStyle {
                 case .dark: return .systemMaterialDark
