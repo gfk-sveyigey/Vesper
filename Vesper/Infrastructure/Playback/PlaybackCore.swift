@@ -28,6 +28,98 @@ struct TranscodedPlaybackResource: Sendable {
     func didActivateTranscoding()
 }
 
+enum PlaybackTrackIntent {
+    case automatic
+    case off
+    case track(EngineTrack)
+
+    var initialRestoreStatus: PlaybackTrackRestoreStatus {
+        if case .track = self { return .restoring }
+        return .none
+    }
+
+    var isOff: Bool {
+        if case .off = self { return true }
+        return false
+    }
+
+    func carryingSelection(from tracks: [EngineTrack]) -> Self {
+        guard case .automatic = self, let selected = tracks.first(where: { $0.selected }) else { return self }
+        return .track(selected)
+    }
+}
+
+enum PlaybackTrackRestoreStatus: Equatable {
+    case none, restoring, unavailable
+}
+
+struct PlaybackTrackRestoration {
+    enum Command: Equatable { case off, select(String) }
+    private var deadline: TimeInterval?
+    private var localID: String?
+    private var lastMatchedTracks: [EngineTrack]?
+    private var lastMatch: EngineTrack?
+    private var lastCommand: Command?
+    private var lastAttempt: TimeInterval?
+    private(set) var status: PlaybackTrackRestoreStatus = .none
+    private(set) var targetID: String?
+
+    mutating func begin(_ intent: PlaybackTrackIntent, now: TimeInterval, localID: String? = nil) {
+        self = Self()
+        self.localID = localID
+        if case .track = intent {
+            deadline = now + 5
+            status = .restoring
+            targetID = localID
+        }
+    }
+
+    mutating func update(_ intent: PlaybackTrackIntent, tracks: [EngineTrack], now: TimeInterval,
+                         suppressUnmatchedTrack: Bool = false,
+                         match: (EngineTrack, [EngineTrack]) -> EngineTrack?) -> Command? {
+        let command: Command
+        switch intent {
+        case .automatic: return nil
+        case .off:
+            // Send once on open, and again if a late/default track gets selected.
+            guard lastCommand == nil || tracks.contains(where: { $0.selected }) else { return nil }
+            command = .off
+        case .track(let requested):
+            guard let deadline else { return nil }
+            if lastMatchedTracks != tracks {
+                lastMatchedTracks = tracks
+                if let localID { lastMatch = tracks.first { $0.id == localID } }
+                else { lastMatch = match(requested, tracks) }
+            }
+            let target = lastMatch
+            targetID = target?.id
+            if target?.selected == true {
+                self.deadline = nil
+                status = .none
+                return nil
+            }
+            status = now < deadline ? .restoring : .unavailable
+            if let target {
+                command = .select(target.id)
+            } else {
+                // Keep watching: a paused or slow input may enumerate tracks late.
+                if case .select(_)? = lastCommand {
+                    lastCommand = nil
+                    lastAttempt = nil
+                }
+                guard suppressUnmatchedTrack, tracks.contains(where: { $0.selected }) else { return nil }
+                command = .off
+            }
+        }
+        if command == lastCommand, let lastAttempt, now - lastAttempt < 1 { return nil }
+        // Don't repeatedly send an unacknowledged command after the grace period.
+        if status == .unavailable, case .select = command, command == lastCommand { return nil }
+        lastCommand = command
+        lastAttempt = now
+        return command
+    }
+}
+
 /// The UI talks only to this owner. Engine creation, retirement and failover
 /// share one serial task chain. Decoder switching stages a muted candidate.
 @MainActor final class PlaybackCore {
@@ -54,8 +146,44 @@ struct TranscodedPlaybackResource: Sendable {
     private var hasTriedServer = false
     private var serverAttemptCount = 0
     private var lastError: Error?
-    private var pendingSubtitleSelection: EngineTrack?
-    private var subtitleSelectionIsExplicitlyOff = false
+    private var audioIntent: PlaybackTrackIntent = .automatic
+    private var subtitleIntent: PlaybackTrackIntent = .automatic
+    private var audioRestoration = PlaybackTrackRestoration()
+    private var subtitleRestoration = PlaybackTrackRestoration()
+    var audioRestoreStatus: PlaybackTrackRestoreStatus { audioRestoration.status }
+    var subtitleRestoreStatus: PlaybackTrackRestoreStatus { subtitleRestoration.status }
+    var restoringAudioID: String? { audioRestoreStatus == .restoring ? audioRestoration.targetID : nil }
+    var restoringSubtitleID: String? { subtitleRestoreStatus == .restoring ? subtitleRestoration.targetID : nil }
+    var subtitlesExplicitlyOff: Bool { subtitleIntent.isOff }
+
+    func carriedTrackIntents() -> (audio: PlaybackTrackIntent, subtitle: PlaybackTrackIntent) {
+        let state = snapshot.requiresForegroundReload ? snapshot : driver?.snapshot ?? snapshot
+        return (audioIntent.carryingSelection(from: state.audio), subtitleIntent.carryingSelection(from: state.subtitles))
+    }
+
+    private func retainTrackIntents(from state: EngineSnapshot) {
+        audioIntent = audioIntent.carryingSelection(from: state.audio)
+        subtitleIntent = subtitleIntent.carryingSelection(from: state.subtitles)
+    }
+
+    private func beginTrackRestoration() {
+        let now = ProcessInfo.processInfo.systemUptime
+        audioRestoration.begin(audioIntent, now: now)
+        subtitleRestoration.begin(subtitleIntent, now: now)
+    }
+
+    private func restoreTracks(on driver: any PlaybackDriver, from state: EngineSnapshot) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if case .select(let id)? = audioRestoration.update(audioIntent, tracks: state.audio, now: now, match: Self.match(_:in:)) {
+            driver.selectAudio(id)
+        }
+        switch subtitleRestoration.update(subtitleIntent, tracks: state.subtitles, now: now,
+                                          suppressUnmatchedTrack: true, match: Self.match(_:in:)) {
+        case .off?: driver.selectSubtitle(nil)
+        case .select(let id)?: driver.selectSubtitle(id)
+        case nil: break
+        }
+    }
     private var isAppBackgrounded = false
     private var aetherBackgroundRecoveryPending = false
     private var timelineOffset: Double = 0
@@ -63,11 +191,12 @@ struct TranscodedPlaybackResource: Sendable {
     var view: UIView? { driver?.view }
     var nativePiPController: AVPictureInPictureController? { driver?.nativePiPController }
 
-    func load(_ url: URL, preferred: EngineID, configuration: EngineConfiguration, audio: EngineTrack? = nil,
-              subtitle: EngineTrack? = nil, server: (any PlaybackTranscodingProvider)? = nil) async throws {
+    func load(_ url: URL, preferred: EngineID, configuration: EngineConfiguration, audio: PlaybackTrackIntent,
+              subtitle: PlaybackTrackIntent, server: (any PlaybackTranscodingProvider)? = nil) async throws {
         let barrier = shutdown()
-        pendingSubtitleSelection = nil
-        subtitleSelectionIsExplicitlyOff = subtitle == nil
+        audioIntent = audio
+        subtitleIntent = subtitle
+        beginTrackRestoration()
         aetherBackgroundRecoveryPending = false
         transcodingProvider = server
         let generation = UUID(); token = generation
@@ -80,7 +209,7 @@ struct TranscodedPlaybackResource: Sendable {
         let operation = Task { [weak self] in
             await barrier.value
             guard let self, self.token == generation, !Task.isCancelled else { return }
-            await self.open(url, preferred: preferred, generation: generation, audio: audio, subtitle: subtitle, subtitlesOff: subtitle == nil)
+            await self.open(url, preferred: preferred, generation: generation)
         }
         transition = operation
         await withTaskCancellationHandler { await operation.value } onCancel: { operation.cancel() }
@@ -96,7 +225,8 @@ struct TranscodedPlaybackResource: Sendable {
     /// Return a retirement barrier so file access is kept alive until all native
     /// readers and pending open/seek work stop. Never await yourself in this chain.
     @discardableResult func shutdown() -> Task<Void, Never> {
-        pendingSubtitleSelection = nil
+        audioIntent = .automatic; subtitleIntent = .automatic
+        audioRestoration = PlaybackTrackRestoration(); subtitleRestoration = PlaybackTrackRestoration()
         token = UUID(); monitor?.cancel(); monitor = nil
         let pending = transition; pending?.cancel()
         let seeking = seekTask; seeking?.cancel(); seekTask = nil
@@ -155,10 +285,6 @@ struct TranscodedPlaybackResource: Sendable {
                       abs(candidate.snapshot.time - active.snapshot.time) < 1.5 else {
                     throw PlaybackCoreError.failed("解码切换未能对齐当前播放位置")
                 }
-                let audio = active.snapshot.audio.first { $0.selected }
-                let subtitle = active.snapshot.subtitles.first { $0.selected }
-                if let selected = self.match(audio, in: candidate.snapshot.audio) { candidate.selectAudio(selected.id) }
-                candidate.selectSubtitle(subtitle.flatMap { self.match($0, in: candidate.snapshot.subtitles)?.id })
                 var applied = self.configuration
                 applied.decoder = decoder
                 applied.position = target
@@ -171,7 +297,10 @@ struct TranscodedPlaybackResource: Sendable {
                     throw error
                 }
                 self.monitor?.cancel()
+                self.retainTrackIntents(from: active.snapshot)
                 self.driver = candidate
+                self.beginTrackRestoration()
+                self.restoreTracks(on: candidate, from: candidate.snapshot)
                 self.configuration.decoder = decoder
                 self.snapshot = candidate.snapshot
                 self.snapshot.time += self.timelineOffset
@@ -195,8 +324,7 @@ struct TranscodedPlaybackResource: Sendable {
             onCancel: { operation.cancel() }
     }
 
-    private func open(_ url: URL, preferred: EngineID, generation: UUID,
-                      audio: EngineTrack?, subtitle: EngineTrack?, subtitlesOff: Bool) async {
+    private func open(_ url: URL, preferred: EngineID, generation: UUID) async {
         var order = [preferred] + EngineID.allCases.filter { $0 != preferred }
         order.removeAll { attempted.contains($0) }
         for id in order {
@@ -227,15 +355,8 @@ struct TranscodedPlaybackResource: Sendable {
                 localConfiguration.position = max(0, self.configuration.position - timelineOffset)
                 candidate.configure(localConfiguration)
                 if localConfiguration.autoplay { try candidate.play() } else { candidate.pause() }
-                let state = candidate.snapshot
-                if let selected = match(audio, in: state.audio) { candidate.selectAudio(selected.id) }
-                pendingSubtitleSelection = nil
-                if subtitlesOff { candidate.selectSubtitle(nil) }
-                else if let selected = match(subtitle, in: state.subtitles) { candidate.selectSubtitle(selected.id) }
-                else {
-                    pendingSubtitleSelection = subtitle
-                    candidate.selectSubtitle(nil)
-                }
+                beginTrackRestoration()
+                restoreTracks(on: candidate, from: candidate.snapshot)
                 snapshot = candidate.snapshot
                 if hasTriedServer { transcodingProvider?.didActivateTranscoding() }
                 isTransitioning = false; lastError = nil
@@ -273,7 +394,7 @@ struct TranscodedPlaybackResource: Sendable {
                 configuration.requestHeaders = transcode.headers
                 configuration.mediaBitRate = transcode.bitRate
                 attempted = []
-                await open(transcode.url, preferred: .aether, generation: generation, audio: audio, subtitle: subtitle, subtitlesOff: subtitlesOff)
+                await open(transcode.url, preferred: .aether, generation: generation)
                 return
             } catch {
                 lastError = error
@@ -285,8 +406,7 @@ struct TranscodedPlaybackResource: Sendable {
                     }
                 }
                 if serverAttemptCount < 2 && shouldRetry {
-                    await open(url, preferred: preferred, generation: generation,
-                               audio: audio, subtitle: subtitle, subtitlesOff: subtitlesOff)
+                    await open(url, preferred: preferred, generation: generation)
                     return
                 }
             }
@@ -296,38 +416,92 @@ struct TranscodedPlaybackResource: Sendable {
         snapshot.phase = .failed(lastError?.localizedDescription ?? "所有播放引擎均无法播放此视频。")
         onChange?()
     }
-    private func match(_ old: EngineTrack?, in tracks: [EngineTrack]) -> EngineTrack? {
-        guard let old else { return nil }
+    private static func match(_ old: EngineTrack, in tracks: [EngineTrack]) -> EngineTrack? {
+        // Neither bridge currently exposes a common source-stream identifier.
+        // Its native ID is safe only within the live driver that supplied it.
+        let language = EmbyTrackPreferences.normalized(old.language ?? "")
+        let script = chineseScript(old)
+        let title = comparableTitle(old.sourceTitle ?? old.name)
+        let codec = trackCodec(old.codec)
+        let compatible = tracks.filter { track in
+            let candidateLanguage = EmbyTrackPreferences.normalized(track.language ?? "")
+            guard language.isEmpty || candidateLanguage.isEmpty || language == candidateLanguage else { return false }
+            if let channels = old.channels, channels > 0,
+               let candidateChannels = track.channels, candidateChannels > 0, candidateChannels != channels { return false }
+            guard let script, let candidateScript = chineseScript(track) else { return true }
+            return script == candidateScript
+        }
+        func unique(_ candidates: [EngineTrack]) -> EngineTrack? {
+            candidates.count == 1 ? candidates[0] : nil
+        }
+        let sameLanguage = compatible.filter {
+            !language.isEmpty && EmbyTrackPreferences.normalized($0.language ?? "") == language
+        }
+        let exactTitle = compatible.filter {
+            !title.isEmpty && comparableTitle($0.sourceTitle ?? $0.name) == title && (script == nil || chineseScript($0) == script)
+        }
+
+        // The detail page's Emby hint uses server stream order, not an engine ID.
         if old.id.hasPrefix("emby-preference:") {
-            let language = EmbyTrackPreferences.normalized(old.language ?? "")
-            let sameLanguage = tracks.filter {
-                !language.isEmpty && EmbyTrackPreferences.normalized($0.language ?? "") == language
+            if let script, let candidate = unique(sameLanguage.filter({ chineseScript($0) == script })) {
+                return candidate
             }
-            if let requestedScript = Self.chineseScript(old.name) {
-                if let scriptMatch = sameLanguage.first(where: { Self.chineseScript($0.name) == requestedScript }) {
-                    return scriptMatch
-                }
-            }
+            if let candidate = unique(exactTitle) { return candidate }
             if let ordinal = Int(old.id.dropFirst("emby-preference:".count)), tracks.indices.contains(ordinal) {
                 let candidate = tracks[ordinal]
-                if sameLanguage.isEmpty || sameLanguage.contains(where: { $0.id == candidate.id }) {
+                if (sameLanguage.isEmpty ? compatible : sameLanguage).contains(where: { $0.id == candidate.id }),
+                   script == nil || chineseScript(candidate) == script {
                     return candidate
                 }
             }
-            if let exactName = tracks.first(where: { $0.name.localizedCaseInsensitiveCompare(old.name) == .orderedSame }) {
-                return exactName
-            }
-            return sameLanguage.count == 1 ? sameLanguage[0] : nil
         }
-        // IDs are engine-local. Match semantics, never an unrelated reused ID.
-        return tracks.first { $0.language == old.language && $0.codec == old.codec && $0.name == old.name }
-            ?? tracks.first { old.language != nil && $0.language == old.language && $0.codec == old.codec }
-            ?? tracks.first { $0.name == old.name && !old.name.isEmpty }
+
+        if let candidate = unique(exactTitle.filter({ !codec.isEmpty && trackCodec($0.codec) == codec })) {
+            return candidate
+        }
+        if let candidate = unique(exactTitle) { return candidate }
+        if !exactTitle.isEmpty { return nil }
+        // Don't degrade from a known script to an unspecified or different script.
+        let sameLanguageAndScript = sameLanguage.filter { script == nil || chineseScript($0) == script }
+        let sameCodec = sameLanguageAndScript.filter { !codec.isEmpty && trackCodec($0.codec) == codec }
+        if let candidate = unique(sameCodec) { return candidate }
+        if let channels = old.channels, channels > 0 {
+            let candidates = sameCodec.isEmpty ? sameLanguageAndScript : sameCodec
+            if let candidate = unique(candidates.filter({ $0.channels == channels })) { return candidate }
+        }
+        return unique(sameLanguageAndScript)
     }
-    private static func chineseScript(_ value: String) -> String? {
-        let text = value.lowercased()
-        if ["简体", "簡體", "simplified", "hans"].contains(where: text.contains) { return "hans" }
-        if ["繁体", "繁體", "traditional", "hant"].contains(where: text.contains) { return "hant" }
+
+    private static func trackLabel(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+    }
+
+    private static func comparableTitle(_ value: String) -> String {
+        let label = trackLabel(value)
+        if label.range(of: #"^(?:(?:track|audio(?: track)?|subtitle(?: track)?|音轨|字幕|軌道|声道)\s*#?\s*)?\d+(?: \([^)]+\))?$"#,
+                       options: .regularExpression) != nil { return "" }
+        return label
+    }
+
+    private static func trackCodec(_ value: String?) -> String {
+        switch trackLabel(value ?? "") {
+        case "srt", "subrip", "subt": return "subrip"
+        case "ssa", "ass": return "ass"
+        case "aac", "mp4a": return "aac"
+        case "ac-3", "a52": return "ac3"
+        case "e-ac-3", "eac3": return "eac3"
+        default: return trackLabel(value ?? "")
+        }
+    }
+
+    private static func chineseScript(_ track: EngineTrack) -> String? {
+        let language = (track.language ?? "").lowercased().replacingOccurrences(of: "_", with: "-")
+        let text = trackLabel(track.name + " " + (track.sourceTitle ?? ""))
+        if language.contains("hans") || ["-cn", "-sg"].contains(where: { language.hasSuffix($0) })
+            || ["简体", "簡體", "simplified", "hans"].contains(where: { text.contains($0) }) { return "hans" }
+        if language.contains("hant") || ["-tw", "-hk", "-mo"].contains(where: { language.hasSuffix($0) })
+            || ["繁体", "繁體", "traditional", "hant"].contains(where: { text.contains($0) }) { return "hant" }
         return nil
     }
     private func poll(generation: UUID) {
@@ -336,14 +510,11 @@ struct TranscodedPlaybackResource: Sendable {
             while !Task.isCancelled {
                 guard let self, self.token == generation, let driver = self.driver else { return }
                 let previous = self.snapshot
+                let previousAudioStatus = self.audioRestoreStatus
+                let previousSubtitleStatus = self.subtitleRestoreStatus
+                let previousAudioTarget = self.restoringAudioID
+                let previousSubtitleTarget = self.restoringSubtitleID
                 self.snapshot = driver.snapshot
-                if !self.subtitleSelectionIsExplicitlyOff,
-                   let pending = self.pendingSubtitleSelection,
-                   let selected = self.match(pending, in: self.snapshot.subtitles) {
-                    self.pendingSubtitleSelection = nil
-                    driver.selectSubtitle(selected.id)
-                    self.snapshot = driver.snapshot
-                }
                 if self.timelineOffset > 0 || self.originalDuration > 0 {
                     self.snapshot.time += self.timelineOffset
                     self.snapshot.buffered += self.timelineOffset
@@ -368,8 +539,7 @@ struct TranscodedPlaybackResource: Sendable {
                     self.configuration.position = previous.time
                     if previous.phase == .playing { self.configuration.autoplay = true }
                     else if previous.phase == .paused { self.configuration.autoplay = false }
-                    let audio = previous.audio.first { $0.selected }
-                    let subtitle = previous.subtitles.first { $0.selected }
+                    self.retainTrackIntents(from: previous)
                     self.isTransitioning = true
                     self.snapshot.phase = .loading; self.onChange?()
                     self.log?("播放中回退：\(message)")
@@ -382,12 +552,15 @@ struct TranscodedPlaybackResource: Sendable {
                         await driver.shutdown()
                         guard let self, self.token == generation, !Task.isCancelled, let url = self.url else { return }
                         if self.driver === driver { self.driver = nil }
-                        await self.open(url, preferred: .aether, generation: generation, audio: audio, subtitle: subtitle, subtitlesOff: subtitle == nil)
+                        await self.open(url, preferred: .aether, generation: generation)
                     }
                     self.transition = operation
                     return
                 }
-                if Self.needsStateNotification(from: previous, to: self.snapshot) {
+                self.restoreTracks(on: driver, from: self.snapshot)
+                if Self.needsStateNotification(from: previous, to: self.snapshot)
+                    || previousAudioStatus != self.audioRestoreStatus || previousSubtitleStatus != self.subtitleRestoreStatus
+                    || previousAudioTarget != self.restoringAudioID || previousSubtitleTarget != self.restoringSubtitleID {
                     self.onChange?()
                 }
                 let shouldThrottleHiddenPause = UserDefaults.standard.bool(
@@ -470,8 +643,7 @@ struct TranscodedPlaybackResource: Sendable {
         let oldTransition = transition
         monitor?.cancel(); monitor = nil
         isTransitioning = true
-        let audio = snapshot.audio.first { $0.selected }
-        let subtitle = snapshot.subtitles.first { $0.selected }
+        retainTrackIntents(from: snapshot)
         transition = Task { [weak self] in
             await oldTransition?.value
             await oldSeek?.value
@@ -494,8 +666,7 @@ struct TranscodedPlaybackResource: Sendable {
                 self.configuration.requestHeaders = stream.headers
                 self.configuration.mediaBitRate = stream.bitRate
                 self.attempted = []
-                await self.open(stream.url, preferred: self.engineID, generation: generation,
-                                audio: audio, subtitle: subtitle, subtitlesOff: subtitle == nil)
+                await self.open(stream.url, preferred: self.engineID, generation: generation)
                 completion(self.lastError == nil && self.driver != nil)
             } catch {
                 guard self.token == generation else { completion(false); return }
@@ -506,11 +677,25 @@ struct TranscodedPlaybackResource: Sendable {
             }
         }
     }
-    func selectAudio(_ id: String) { driver?.selectAudio(id) }
+    func selectAudio(_ id: String) {
+        guard !isTransitioning, let driver else { return }
+        let state = driver.snapshot
+        guard let track = state.audio.first(where: { $0.id == id }) else { return }
+        audioIntent = .track(track)
+        audioRestoration.begin(audioIntent, now: ProcessInfo.processInfo.systemUptime, localID: id)
+        restoreTracks(on: driver, from: state)
+    }
     func selectSubtitle(_ id: String?) {
-        pendingSubtitleSelection = nil
-        subtitleSelectionIsExplicitlyOff = id == nil
-        driver?.selectSubtitle(id)
+        guard !isTransitioning, let driver else { return }
+        let state = driver.snapshot
+        if let id {
+            guard let track = state.subtitles.first(where: { $0.id == id }) else { return }
+            subtitleIntent = .track(track)
+        } else {
+            subtitleIntent = .off
+        }
+        subtitleRestoration.begin(subtitleIntent, now: ProcessInfo.processInfo.systemUptime, localID: id)
+        restoreTracks(on: driver, from: state)
     }
     func preparePiP() { driver?.preparePiP() }
     func startPiP() { driver?.startPiP() }

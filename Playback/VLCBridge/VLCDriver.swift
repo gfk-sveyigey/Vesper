@@ -75,8 +75,14 @@ internal import SwiftVLC
         result.buffered = result.time
         result.seekable = player.isSeekable
         result.actualDecoder = configuration.decoder == .software ? .software : nil
-        result.audio = player.audioTracks.map { .init(id: $0.id, name: $0.name, language: $0.language, codec: $0.codecString, selected: $0.isSelected) }
-        result.subtitles = player.subtitleTracks.map { .init(id: $0.id, name: $0.name, language: $0.language, codec: $0.codecString, selected: $0.isSelected) }
+        result.audio = player.audioTracks.map {
+            .init(id: $0.id, name: $0.name, language: $0.language, codec: $0.codecString,
+                  selected: $0.isSelected, sourceTitle: $0.trackDescription, channels: $0.channels)
+        }
+        result.subtitles = player.subtitleTracks.map {
+            .init(id: $0.id, name: $0.name, language: $0.language, codec: $0.codecString,
+                  selected: $0.isSelected, sourceTitle: $0.trackDescription)
+        }
         result.pipPossible = pip?.isPossible ?? false
         result.pipActive = pip?.isActive ?? false
         return result
@@ -331,11 +337,17 @@ internal import SwiftVLC
         await old?.shutdown()
         hosting?.view.removeFromSuperview(); hosting = nil; hasInstalledSurface = false
     }
-    public func selectAudio(_ id: String) { player?.selectedAudioTrack = player?.audioTracks.first { $0.id == id } }
+    public func selectAudio(_ id: String) {
+        guard let player, let track = player.audioTracks.first(where: { $0.id == id }) else { return }
+        player.selectedAudioTrack = track
+    }
     public func selectSubtitle(_ id: String?) {
         guard let player else { return }
-        player.selectedSubtitleTrack = id.flatMap { requestedID in
-            player.subtitleTracks.first { $0.id == requestedID }
+        if let requestedID = id {
+            guard let track = player.subtitleTracks.first(where: { $0.id == requestedID }) else { return }
+            player.selectedSubtitleTrack = track
+        } else {
+            player.selectedSubtitleTrack = nil
         }
     }
     public func setPiPActive(_ active: Bool) {}

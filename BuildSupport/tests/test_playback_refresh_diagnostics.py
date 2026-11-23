@@ -32,10 +32,12 @@ class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
         core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
         session = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
         vlc = (ROOT / 'Playback/VLCBridge/VLCDriver.swift').read_text()
-        self.assertIn('pendingSubtitleSelection', core)
-        self.assertIn('requestedSubtitleID', session)
-        self.assertIn('let selected = engineSelected ?? requestedSubtitleID', session)
-        self.assertIn('player.subtitleTracks.first { $0.id == requestedID }', vlc)
+        self.assertIn('subtitleIntent = .track(track)', core)
+        self.assertIn('target?.selected == true', core)
+        self.assertIn('core.carriedTrackIntents()', session)
+        self.assertIn('let subtitleTarget = core.restoringSubtitleID', session)
+        self.assertIn('guard let track = player.subtitleTracks.first(where: { $0.id == requestedID }) else { return }', vlc)
+        self.assertIn('let track = player.audioTracks.first(where: { $0.id == id }) else { return }', vlc)
 
     def test_vlc_uses_cjk_subtitle_font_and_matches_emby_preference(self):
         vlc = (ROOT / 'Playback/VLCBridge/VLCDriver.swift').read_text()
@@ -44,7 +46,7 @@ class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
         self.assertIn('Player(instance: instance)', vlc)
         self.assertIn('instance.logStream(minimumLevel: .notice)', vlc)
         self.assertNotIn('media.addOption(":freetype-font=', vlc)
-        self.assertIn('Self.chineseScript(old.name)', core)
+        self.assertIn('let script = chineseScript(old)', core)
         self.assertIn('tracks[ordinal]', core)
 
     def test_timeline_does_not_broadcast_through_shared_session(self):

@@ -205,7 +205,9 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var preparedNext: (item: MediaItem, sourceID: UUID, resource: ResolvedPlaybackResource)?
 
     private var trackIDs: [String: Int32] = [:]
-    private var requestedSubtitleID: Int32?
+    @Published private(set) var audioRestoreStatus: PlaybackTrackRestoreStatus = .none
+    @Published private(set) var subtitleRestoreStatus: PlaybackTrackRestoreStatus = .none
+    @Published private(set) var subtitlesExplicitlyOff = false
     private var nextTrackID: Int32 = 1
     private var previouslyActivePiP = false
     private var requestedDecoder: PlaybackDecoder?
@@ -243,7 +245,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         self.source = source
         isPresented = true
         load(item, source: source, initialAudio: trackPreference(audio, streams: streams),
-             initialSubtitle: trackPreference(subtitle, streams: streams))
+             initialSubtitle: trackPreference(subtitle, streams: streams),
+             initialSubtitlesOff: subtitle == nil && streams.contains { $0.type == "Subtitle" })
     }
 
     private func trackPreference(_ stream: EmbyMediaStreamDetails?, streams: [EmbyMediaStreamDetails]) -> EngineTrack? {
@@ -252,7 +255,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         let ordinal = siblings.firstIndex(where: { $0.id == stream.id }) ?? 0
         // This is a preference hint, never an engine-local track ID.
         return EngineTrack(id: "emby-preference:\(ordinal)", name: stream.title ?? stream.displayTitle ?? "",
-                           language: stream.language, codec: stream.codec)
+                           language: stream.language, codec: stream.codec, channels: stream.channels)
     }
 
     func playExternal(_ file: IncomingVideo) {
@@ -299,7 +302,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     func setCurrentEngine(_ engine: PlaybackEngine) {
-        guard engine != currentEngine, let item = currentItem else { return }
+        guard engine != currentEngine, !isLoading, canControl, let item = currentItem else { return }
         load(item, source: source, engine: engine, decoder: currentDecoder,
              position: currentTime, resume: isPlaying, rate: playbackRate)
     }
@@ -307,6 +310,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private func load(_ item: MediaItem, source: MediaSource?, engine: PlaybackEngine? = nil, decoder: PlaybackDecoder? = nil,
                       position: Double? = nil, resume: Bool = true, rate: Float? = nil,
                       initialAudio: EngineTrack? = nil, initialSubtitle: EngineTrack? = nil,
+                      initialSubtitlesOff: Bool = false,
                       reportsDecoderChange: Bool = false) {
         let warmed = preparedNext.flatMap { prepared in
             prepared.item.id == item.id && (item.embyMediaSourceID == nil || prepared.item.embyMediaSourceID == item.embyMediaSourceID)
@@ -327,11 +331,17 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         let previousState = core.snapshot
         let carriesSelection = currentItem?.id == item.id && position != nil
         if !carriesSelection || previousState.phase == .ended { traktReporter.finish() }
-        let previousAudio = carriesSelection ? previousState.audio.first(where: { $0.selected }) : initialAudio
-        let previousSubtitle = carriesSelection ? previousState.subtitles.first(where: { $0.selected }) : initialSubtitle
+        let carriesTracks = carriesSelection && currentItem?.embyMediaSourceID == item.embyMediaSourceID
+        let trackIntents = carriesTracks
+            ? core.carriedTrackIntents()
+            : (audio: initialAudio.map(PlaybackTrackIntent.track) ?? .automatic,
+               subtitle: initialSubtitle.map(PlaybackTrackIntent.track) ?? (initialSubtitlesOff ? .off : .automatic))
         saveProgress()
         recordPlaybackHistory()
         tearDownPlayer()
+        audioRestoreStatus = trackIntents.audio.initialRestoreStatus
+        subtitleRestoreStatus = trackIntents.subtitle.initialRestoreStatus
+        subtitlesExplicitlyOff = trackIntents.subtitle.isOff
         requestedDecoder = reportsDecoderChange ? decoder : nil
         lastHistorySave = .distantPast
         if !carriesSelection { manuallyUnplayedCurrentItem = nil }
@@ -401,7 +411,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 configuration.externalSubtitles = resolved.externalSubtitles
                 configuration.mediaBitRate = resolved.bitRate
                 try await self.core.load(resolved.url, preferred: selectedEngine == .aether ? .aether : .vlc,
-                                         configuration: configuration, audio: previousAudio, subtitle: previousSubtitle,
+                                         configuration: configuration, audio: trackIntents.audio, subtitle: trackIntents.subtitle,
                                          server: self.embySession)
                 guard !Task.isCancelled, self.generation == token else { return }
                 self.syncCoreState()
@@ -1307,16 +1317,15 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         refreshTracks()
     }
     func selectSubtitle(_ id: Int32?) {
-        requestedSubtitleID = id
-        let key = id.flatMap { value in trackIDs.first { $0.value == value }?.key }
-        core.selectSubtitle(key)
-        selectedSubtitleID = id
-        refreshTracks()
-        if let id, !subtitleTracks.contains(where: { $0.id == id && $0.isSelected }) {
-            subtitleTracks = subtitleTracks.map { track in
-                PlaybackTrack(id: track.id, name: track.name, isSelected: track.id == id)
-            }
+        let key: String?
+        if let id {
+            guard let mapped = trackIDs.first(where: { $0.value == id })?.key else { return }
+            key = mapped
+        } else {
+            key = nil
         }
+        core.selectSubtitle(key)
+        refreshTracks()
     }
     private func uiTrackID(_ id: String) -> Int32 {
         if let value = trackIDs[id] { return value }
@@ -1324,18 +1333,25 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
     private func refreshTracks(using snapshot: EngineSnapshot? = nil) {
         let state = snapshot ?? core.driver?.snapshot ?? core.snapshot
-        let audio = state.audio.map { PlaybackTrack(id: uiTrackID($0.id), name: $0.name, isSelected: $0.selected) }
+        let audioTarget = core.restoringAudioID
+        let subtitleTarget = core.restoringSubtitleID
+        let audio = state.audio.map { track in
+            PlaybackTrack(id: uiTrackID(track.id), name: track.name,
+                          isSelected: audioTarget.map { $0 == track.id } ?? track.selected)
+        }
+        let subtitlesOff = core.subtitlesExplicitlyOff
         let subtitles = state.subtitles.map { track in
-            let id = uiTrackID(track.id)
-            return PlaybackTrack(id: id, name: track.name,
-                                 isSelected: track.selected || id == requestedSubtitleID)
+            PlaybackTrack(id: uiTrackID(track.id), name: track.name,
+                          isSelected: !subtitlesOff && (subtitleTarget.map { $0 == track.id }
+                              ?? (core.subtitleRestoreStatus == .none && track.selected)))
         }
         if audioTracks != audio { audioTracks = audio }
         if subtitleTracks != subtitles { subtitleTracks = subtitles }
-        let engineSelected = state.subtitles.first(where: { $0.selected }).map { uiTrackID($0.id) }
-        let selected = engineSelected ?? requestedSubtitleID
+        let selected = subtitles.first(where: { $0.isSelected })?.id
         if selectedSubtitleID != selected { selectedSubtitleID = selected }
-        if let engineSelected, engineSelected == requestedSubtitleID { requestedSubtitleID = nil }
+        if subtitlesExplicitlyOff != subtitlesOff { subtitlesExplicitlyOff = subtitlesOff }
+        if audioRestoreStatus != core.audioRestoreStatus { audioRestoreStatus = core.audioRestoreStatus }
+        if subtitleRestoreStatus != core.subtitleRestoreStatus { subtitleRestoreStatus = core.subtitleRestoreStatus }
     }
     private func updateSubtitles() {
         let state = core.snapshot
@@ -1594,11 +1610,14 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         videoView?.removeFromSuperview()
         videoView = nil
         videoSize = nil
-        trackIDs = [:]; nextTrackID = 1
+        trackIDs = [:]
         resource = nil
         subtitleText = ""
         subtitleImage = nil
         selectedSubtitleID = nil
+        audioRestoreStatus = .none
+        subtitleRestoreStatus = .none
+        subtitlesExplicitlyOff = false
         audioTracks = []
         subtitleTracks = []
         bufferedTime = 0

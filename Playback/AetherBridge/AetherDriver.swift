@@ -85,7 +85,10 @@ internal import AetherEngine
             else if decoder.contains("(HW)") { result.actualDecoder = .hardware }
         }
         if engine.playbackBackend == .native { result.actualDecoder = .hardware }
-        result.audio = engine.audioTracks.map { .init(id: String($0.id), name: $0.name, language: $0.language, codec: $0.codec, selected: $0.id == engine.activeAudioTrackIndex) }
+        result.audio = engine.audioTracks.map {
+            .init(id: String($0.id), name: $0.name, language: $0.language, codec: $0.codec,
+                  selected: $0.id == engine.activeAudioTrackIndex, channels: $0.channels > 0 ? $0.channels : nil)
+        }
         result.subtitles = engine.subtitleTracks.map { .init(id: String($0.id), name: $0.name, language: $0.language, codec: $0.codec, selected: $0.id == engine.activeSubtitleTrackIndex) }
         if let pip = nativePiPController {
             result.pipPossible = pip.isPictureInPicturePossible

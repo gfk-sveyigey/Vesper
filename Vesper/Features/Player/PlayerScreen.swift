@@ -553,11 +553,20 @@ struct PlayerScreen: View {
     }
 
     private func subtitleMenu() -> UIMenu {
-        var actions = [menuAction(VesperLocalization.string("关闭字幕"), selected: session.selectedSubtitleID == nil) { session.selectSubtitle(nil) }]
+        let restoring = session.subtitleRestoreStatus
+        var actions = [menuAction(VesperLocalization.string("关闭字幕"),
+                                  selected: session.subtitlesExplicitlyOff || (session.selectedSubtitleID == nil && restoring == .none)) {
+            session.selectSubtitle(nil)
+        }]
         actions += session.subtitleTracks.map { track in
             menuAction(track.name, selected: track.isSelected) { session.selectSubtitle(track.id) }
         }
-        if session.subtitleTracks.isEmpty { actions.append(menuAction(VesperLocalization.string("无内嵌字幕"), enabled: false) { }) }
+        switch restoring {
+        case .restoring: actions.append(menuAction(VesperLocalization.string("正在恢复字幕"), enabled: false) { })
+        case .unavailable: actions.append(menuAction(VesperLocalization.string("未能恢复原字幕轨"), enabled: false) { })
+        case .none:
+            if session.subtitleTracks.isEmpty { actions.append(menuAction(VesperLocalization.string("无内嵌字幕"), enabled: false) { }) }
+        }
         return UIMenu(title: VesperLocalization.string("字幕"), image: UIImage(systemName: "captions.bubble"), children: actions)
     }
 
@@ -565,7 +574,12 @@ struct PlayerScreen: View {
         var actions = session.audioTracks.map { track in
             menuAction(track.name, selected: track.isSelected) { session.selectAudio(track.id) }
         }
-        if actions.isEmpty { actions.append(menuAction(VesperLocalization.string("无可用音轨"), enabled: false) { }) }
+        switch session.audioRestoreStatus {
+        case .restoring: actions.append(menuAction(VesperLocalization.string("正在恢复音轨"), enabled: false) { })
+        case .unavailable: actions.append(menuAction(VesperLocalization.string("未能恢复原音轨"), enabled: false) { })
+        case .none:
+            if actions.isEmpty { actions.append(menuAction(VesperLocalization.string("无可用音轨"), enabled: false) { }) }
+        }
         return UIMenu(title: VesperLocalization.string("音频"), image: UIImage(systemName: "waveform"), children: actions)
     }
 

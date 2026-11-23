@@ -236,6 +236,10 @@
 "字幕" = "Subtítulos";
 
 "关闭字幕" = "Desactivar subtítulos";
+"正在恢复字幕" = "Restaurando subtítulos…";
+"未能恢复原字幕轨" = "No se pudo restaurar la pista de subtítulos anterior";
+"正在恢复音轨" = "Restaurando la pista de audio…";
+"未能恢复原音轨" = "No se pudo restaurar la pista de audio anterior";
 
 "无内嵌字幕" = "Sin subtítulos integrados";
 

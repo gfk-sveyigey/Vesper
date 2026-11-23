@@ -12,8 +12,12 @@ public struct EngineTrack: Sendable, Equatable {
     public let language: String?
     public let codec: String?
     public let selected: Bool
-    public init(id: String, name: String, language: String? = nil, codec: String? = nil, selected: Bool = false) {
+    public let sourceTitle: String?
+    public let channels: Int?
+    public init(id: String, name: String, language: String? = nil, codec: String? = nil, selected: Bool = false,
+                sourceTitle: String? = nil, channels: Int? = nil) {
         self.id = id; self.name = name; self.language = language; self.codec = codec; self.selected = selected
+        self.sourceTitle = sourceTitle; self.channels = channels
     }
 }
 
