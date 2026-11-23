@@ -1026,7 +1026,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         if let currentItem, matches(currentItem.id) { suppressedProgressID = currentItem.id }
         history.removeAll { matches($0.mediaID) }
         for key in Array(localPlayedStates.keys) {
-            guard let separator = key.firstIndex(of ":"),
+            guard let separator = key.firstIndex(of: ":"),
                   let sourceID = UUID(uuidString: String(key[..<separator])) else { continue }
             let id = MediaID(sourceID: sourceID, localID: String(key[key.index(after: separator)...]))
             if matches(id) { localPlayedStates.removeValue(forKey: key) }
