@@ -29,7 +29,14 @@ final class TraktAccountStore: NSObject, ObservableObject, ASWebAuthenticationPr
     private(set) var accountRevision = UUID()
 
     private enum Failure: Error { case random, callback, network, storage, disconnected }
-    private struct HTTPFailure: Error { let status: Int; let retryAfter: TimeInterval? }
+    private struct HTTPFailure: LocalizedError {
+        let status: Int
+        let retryAfter: TimeInterval?
+        let serverMessage: String?
+        var errorDescription: String? {
+            serverMessage.map { "Trakt HTTP \(status): \($0)" } ?? "Trakt HTTP \(status)"
+        }
+    }
     private let keychainQuery: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: "com.aholic.vesper.trakt",
@@ -160,7 +167,7 @@ final class TraktAccountStore: NSObject, ObservableObject, ASWebAuthenticationPr
         request.httpBody = try JSONEncoder().encode(fields)
         let (data, response) = try await network.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw Failure.network }
-        guard http.statusCode == 200 else { throw HTTPFailure(status: http.statusCode, retryAfter: nil) }
+        guard http.statusCode == 200 else { throw HTTPFailure(status: http.statusCode, retryAfter: nil, serverMessage: nil) }
         let token = try JSONDecoder().decode(Token.self, from: data)
         guard token.isValid else { throw Failure.network }
         return token
@@ -241,14 +248,29 @@ final class TraktAccountStore: NSObject, ObservableObject, ASWebAuthenticationPr
             }
             // Trakt returns 409 for a recently recorded scrobble; it is already recorded.
             if (200..<300).contains(http.statusCode) || (method == "POST" && http.statusCode == 409) { return data }
+            let serverMessage = Self.serverErrorMessage(from: data)
             throw HTTPFailure(status: http.statusCode,
-                              retryAfter: http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init))
+                              retryAfter: http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init),
+                              serverMessage: serverMessage)
         }
         throw Failure.disconnected
     }
 
+    private static func serverErrorMessage(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let message = (object["error"] as? String) ?? (object["message"] as? String)
+        let errors = (object["errors"] as? [String: Any])?.values
+            .compactMap { value -> String? in
+                if let text = value as? String { return text }
+                if let values = value as? [String] { return values.joined(separator: ", ") }
+                return nil
+            }.joined(separator: "; ")
+        let combined = [message, errors].compactMap { $0 }.joined(separator: ": ")
+        return combined.isEmpty ? nil : String(combined.prefix(240))
+    }
+
     func diagnostic(for error: Error) -> String {
-        if let failure = error as? HTTPFailure { return "HTTP \(failure.status)" }
+        if let failure = error as? HTTPFailure { return failure.errorDescription ?? "HTTP \(failure.status)" }
         if let failure = error as? URLError { return "network \(failure.code.rawValue)" }
         return "credential-or-response"
     }
