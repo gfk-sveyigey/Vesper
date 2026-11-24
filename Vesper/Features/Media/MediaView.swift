@@ -142,7 +142,16 @@ final class MediaLayoutSettings: ObservableObject {
     }
 }
 
+#if DEBUG
+private enum EmbyBrowserTransitionDiagnostics {
+    static let zoomKey = "debug.emby.browser.detailZoom"
+}
+#endif
+
 struct MediaView: View {
+    #if DEBUG
+    @AppStorage(EmbyBrowserTransitionDiagnostics.zoomKey) private var browserDetailZoom = true
+    #endif
     @Binding var path: NavigationPath
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
@@ -218,8 +227,7 @@ struct MediaView: View {
                         }
                     detail
                 } else {
-                    MediaDetailView(source: route.source, series: item)
-                        .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
+                    detailDestination(item, route: route)
                 }
             }
         }
@@ -231,6 +239,20 @@ struct MediaView: View {
                 })
             }
         }
+    }
+
+    @ViewBuilder
+    private func detailDestination(_ item: MediaItem, route: EmbyMediaRoute) -> some View {
+        let detail = MediaDetailView(source: route.source, series: item)
+        #if DEBUG
+        if case .library? = route.origin, !browserDetailZoom {
+            detail.navigationTransition(.automatic)
+        } else {
+            detail.navigationTransition(.zoom(sourceID: route, in: artworkZoom))
+        }
+        #else
+        detail.navigationTransition(.zoom(sourceID: route, in: artworkZoom))
+        #endif
     }
 
     private var featured: [MediaItem] {
@@ -1143,13 +1165,20 @@ private enum EmbyBrowserSort: String, CaseIterable, Identifiable {
 
 #if DEBUG
 private struct EmbyBrowserNavigationDiagnostics: UIViewControllerRepresentable {
+    let mode: String
+
     func makeUIViewController(context: Context) -> Reporter {
-        Reporter()
+        let reporter = Reporter()
+        reporter.mode = mode
+        return reporter
     }
 
-    func updateUIViewController(_ controller: Reporter, context: Context) {}
+    func updateUIViewController(_ controller: Reporter, context: Context) {
+        controller.mode = mode
+    }
 
     final class Reporter: UIViewController {
+        var mode = "zoom"
         private let formatter: ISO8601DateFormatter = {
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1234,7 +1263,7 @@ private struct EmbyBrowserNavigationDiagnostics: UIViewControllerRepresentable {
 
         private func log(_ message: String) {
             let elapsed = Int((CACurrentMediaTime() - startedAt) * 1_000)
-            AppLog.runtimeEntries.append("\(formatter.string(from: Date())) [MediaNav] appearance=\(appearance) t=\(elapsed)ms \(message)")
+            AppLog.runtimeEntries.append("\(formatter.string(from: Date())) [MediaNav] mode=\(mode) appearance=\(appearance) t=\(elapsed)ms \(message)")
         }
 
         private func stopSampling() {
@@ -1275,6 +1304,13 @@ private struct EmbySeriesBrowserView: View {
     @State private var errorMessage: String?
     @State private var loadGeneration = UUID()
     @State private var activeQuery: String?
+    #if DEBUG
+    @AppStorage(EmbyBrowserTransitionDiagnostics.zoomKey) private var browserDetailZoom = true
+
+    private var isMediaLibrary: Bool {
+        parentID != nil && scope == .titles
+    }
+    #endif
     @AppStorage("emby.browser.layout") private var displayLayout: EmbyBrowserLayout = .list
     @AppStorage("emby.browser.sort") private var sortField: EmbyBrowserSort = .added
     @AppStorage("emby.browser.ascending") private var ascending = false
@@ -1325,7 +1361,10 @@ private struct EmbySeriesBrowserView: View {
         }
         .scrollIndicators(.hidden)
         #if DEBUG
-        .background(EmbyBrowserNavigationDiagnostics().allowsHitTesting(false))
+        .background(
+            EmbyBrowserNavigationDiagnostics(mode: isMediaLibrary && !browserDetailZoom ? "automatic" : "zoom")
+                .allowsHitTesting(false)
+        )
         #endif
         .navigationTitle(groupTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -1347,6 +1386,13 @@ private struct EmbySeriesBrowserView: View {
                             Label(value.title, systemImage: value.symbol).tag(value)
                         }
                     }
+                    #if DEBUG
+                    if isMediaLibrary {
+                        Toggle(isOn: $browserDetailZoom) {
+                            Text(verbatim: "缩放转场（诊断）")
+                        }
+                    }
+                    #endif
                 } label: {
                     Image(systemName: "ellipsis")
                 }
