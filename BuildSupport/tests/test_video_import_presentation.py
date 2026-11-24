@@ -83,13 +83,17 @@ import Foundation
     def test_presentation_guards(self):
         source = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
         self.assertIn('guard scenePhase == .active, videoPickerDismissed', source)
+        self.assertIn('.onChange(of: scenePhase, initial: true)', source)
+        self.assertIn('.onChange(of: incomingVideos.videos.map(\\.id), initial: true)', source)
+        self.assertIn('.onChange(of: incomingVideos.nonVideoCount, initial: true)', source)
         self.assertIn('if phase == .active { presentNextIncomingVideo() }', source)
         self.assertIn('playerPresentationDismissed, importPresentationHost.canPresent', source)
         self.assertIn('previewVideo = incomingVideos.videos.first', source)
         self.assertNotIn('incomingVideos.takeNext()', source)
         self.assertIn('incomingVideos.acknowledgePresented(file.id)', source)
         self.assertIn('.task(id: incomingPresentationRequest)', source)
-        self.assertIn('controller.children.contains { hasPresentation(in: $0) }', source)
+        self.assertIn('return root.presentedViewController == nil', source)
+        self.assertNotIn('controller.children.contains { hasPresentation(in: $0) }', source)
 
     def test_registered_app_delegate_forwards_document_callbacks(self):
         source = (ROOT / 'Vesper/Features/Player/PlayerInteraction.swift').read_text()

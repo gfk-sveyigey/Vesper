@@ -126,12 +126,12 @@ struct AppNavigationView: View {
                 library.reload()
             }
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase, initial: true) { _, phase in
             handleScenePhaseChange(phase)
         }
         .task(id: incomingPresentationRequest) { await retryIncomingPresentation() }
-        .onChange(of: incomingVideos.videos.map(\.id)) { _, _ in presentNextIncomingVideo() }
-        .onChange(of: incomingVideos.nonVideoCount) { _, _ in presentNextIncomingVideo() }
+        .onChange(of: incomingVideos.videos.map(\.id), initial: true) { _, _ in presentNextIncomingVideo() }
+        .onChange(of: incomingVideos.nonVideoCount, initial: true) { _, _ in presentNextIncomingVideo() }
         .onChange(of: isShowingImportNotice) { _, showing in
             if !showing { presentNextIncomingVideo() }
         }
@@ -570,13 +570,11 @@ private final class VideoImportPresentationProbeController: UIViewController {
         guard let window = viewIfLoaded?.window,
               window.windowScene?.activationState == .foregroundActive,
               let root = window.rootViewController else { return false }
-        return !hasPresentation(in: root)
-    }
-
-    private func hasPresentation(in controller: UIViewController) -> Bool {
-        controller.presentedViewController != nil || controller.isBeingPresented
-            || controller.isBeingDismissed || controller.transitionCoordinator != nil
-            || controller.children.contains { hasPresentation(in: $0) }
+        guard !root.isBeingPresented, !root.isBeingDismissed,
+              root.transitionCoordinator == nil else { return false }
+        // SwiftUI creates many internal child controllers. Only a real modal
+        // attached to the root should defer this sheet presentation.
+        return root.presentedViewController == nil
     }
 }
 

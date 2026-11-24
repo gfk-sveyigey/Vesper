@@ -567,6 +567,9 @@ struct PlayerScreen: View {
         case .none:
             if session.subtitleTracks.isEmpty { actions.append(menuAction(VesperLocalization.string("无内嵌字幕"), enabled: false) { }) }
         }
+        actions.append(menuAction(VesperLocalization.string("字幕样式"), symbol: "textformat.size") {
+            requestPanel(.subtitles)
+        })
         return UIMenu(title: VesperLocalization.string("字幕"), image: UIImage(systemName: "captions.bubble"), children: actions)
     }
 

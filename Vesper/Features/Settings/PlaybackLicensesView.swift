@@ -4,68 +4,85 @@ import Photos
 import LocalAuthentication
 
 struct PlaybackLicensesView: View {
-    @State private var selectedDocument: LicenseDocument?
+    @State private var selectedDependency: OpenSourceDependency?
 
-    private let documents = [
-        LicenseDocument(title: VesperLocalization.string("播放框架与依赖声明"), resource: "PlaybackNotices"),
-        LicenseDocument(title: "AetherEngine", resource: "AetherEngine-LICENSE"),
-        LicenseDocument(title: "SwiftVLC", resource: "SwiftVLC-LICENSE")
+    private let dependencies = [
+        OpenSourceDependency(name: "AetherEngine", version: "7.72.0", license: "LGPL-3.0 + App Store / DRM Exception", resource: "AetherEngine-LICENSE", url: URL(string: "https://github.com/superuser404notfound/AetherEngine/tree/7.72.0")!),
+        OpenSourceDependency(name: "FFmpeg", version: "FFmpegBuild 3.17.0", license: "LGPL-2.1-or-later", resource: "FFmpeg-LICENSE", url: URL(string: "https://ffmpeg.org/legal.html")!),
+        OpenSourceDependency(name: "dav1d", version: "FFmpegBuild 3.17.0", license: "BSD-2-Clause", resource: "dav1d-LICENSE", url: URL(string: "https://code.videolan.org/videolan/dav1d/-/blob/master/COPYING")!),
+        OpenSourceDependency(name: "zimg", version: "FFmpegBuild 3.17.0", license: "WTFPL-2.0", resource: "zimg-LICENSE", url: URL(string: "https://github.com/sekrit-twc/zimg/blob/master/COPYING")!),
+        OpenSourceDependency(name: "zvbi", version: "FFmpegBuild 3.17.0", license: "GPL-2.0-or-later", resource: "zvbi-LICENSE", url: URL(string: "https://github.com/zapping-vbi/zvbi/blob/master/COPYING")!),
+        OpenSourceDependency(name: "LibDovi", version: "2.2.0", license: "MIT / Apache-2.0", resource: "LibDovi-LICENSE", url: URL(string: "https://github.com/superuser404notfound/LibDovi/tree/2.2.0")!),
+        OpenSourceDependency(name: "SwiftVLC", version: "1.0.0", license: "MIT", resource: "SwiftVLC-LICENSE", url: URL(string: "https://github.com/harflabs/SwiftVLC/tree/v1.0.0")!),
+        OpenSourceDependency(name: "libVLC", version: "4", license: "LGPL-2.1-or-later", resource: "FFmpeg-LICENSE", url: URL(string: "https://www.videolan.org/legal.html")!)
     ]
 
     var body: some View {
         SettingsPage {
-            SettingsIntroCard(title: "开源许可", symbol: "doc.plaintext", description: "了解应用使用的开源组件，查看各项目的许可与声明。")
+            SettingsIntroCard(title: "开源许可", symbol: "doc.plaintext", description: "查看应用使用的开源项目、版本、许可证和项目主页。")
             SettingsSection {
-                ForEach(documents) { document in
-                    Button {
-                        selectedDocument = document
-                    } label: {
-                        HStack(spacing: 12) {
-                            Text(document.title)
-                                .foregroundStyle(Color(uiColor: .label))
-                            Spacer(minLength: 8)
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                                .accessibilityHidden(true)
+                ForEach(dependencies.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { dependency in
+                    HStack(spacing: 12) {
+                        Button {
+                            if dependency.resource != nil { selectedDependency = dependency }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(verbatim: dependency.name).foregroundStyle(Color(uiColor: .label)).font(.body.weight(.medium))
+                                Text(verbatim: "\(dependency.version) · \(dependency.license)")
+                                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .disabled(dependency.resource == nil)
+                        Link(destination: dependency.url) {
+                            Image(systemName: "arrow.up.right.square").font(.body).foregroundStyle(.secondary)
+                        }
+                        .accessibilityLabel("打开项目主页")
                     }
-                    .buttonStyle(.plain)
                 }
+            } footer: {
+                Text("点击有本地协议文本的项目查看完整协议；右侧按钮打开项目或官方许可页面。")
             }
         }
-        .sheet(item: $selectedDocument) { document in
-            LicenseDocumentSheet(document: document)
+        .sheet(item: $selectedDependency) { dependency in
+            LicenseDocumentSheet(dependency: dependency)
         }
     }
 }
 
-private struct LicenseDocument: Identifiable {
-    let title: String
-    let resource: String
-    var id: String { resource }
+private struct OpenSourceDependency: Identifiable, Hashable {
+    let name: String
+    let version: String
+    let license: String
+    let resource: String?
+    let url: URL
+    var id: String { name }
+    init(name: String, version: String, license: String, resource: String? = nil, url: URL) {
+        self.name = name; self.version = version; self.license = license; self.resource = resource; self.url = url
+    }
     var contents: String {
-        Bundle.main.url(forResource: resource, withExtension: "txt")
-            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? VesperLocalization.string("许可内容暂不可用。")
+        guard let resource, let url = Bundle.main.url(forResource: resource, withExtension: "txt") else { return "许可内容暂不可用。" }
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? "许可内容暂不可用。"
     }
 }
 
 private struct LicenseDocumentSheet: View {
     @Environment(\.dismiss) private var dismiss
-    let document: LicenseDocument
+    let dependency: OpenSourceDependency
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                Text(verbatim: document.contents)
+                Text(verbatim: dependency.contents)
                     .font(.footnote.monospaced())
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(document.title)
+            .navigationTitle(dependency.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

@@ -3,6 +3,15 @@ from pathlib import Path
 import unittest
 ROOT = Path(__file__).resolve().parents[2]
 class PlayerPresentationTests(unittest.TestCase):
+    def test_subtitle_menu_exposes_engine_specific_style_panel(self):
+        player = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
+        settings = (ROOT / 'Vesper/Features/Settings/PlaybackSettingsView.swift').read_text()
+        subtitle_menu = player.split('private func subtitleMenu()', 1)[1].split('private func audioMenu()', 1)[0]
+        self.assertIn('字幕样式', subtitle_menu)
+        self.assertIn('requestPanel(.subtitles)', subtitle_menu)
+        self.assertIn('session.currentEngine == .vlc', settings)
+        self.assertIn('session.setSubtitleDelay($0)', settings)
+        self.assertIn('session.setSubtitleSize($0)', settings)
     def test_detail_anchor_and_menu_groups(self):
         source = (ROOT / 'Vesper/Features/Media/EmbySeriesDetailView.swift').read_text()
         toolbar = source.split('private var detailToolbar:', 1)[1].split('private func toggleFavorite()', 1)[0]

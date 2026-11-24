@@ -584,10 +584,10 @@ struct AppIconChoices: View {
     @State private var currentIcon = UIApplication.shared.alternateIconName
     @State private var iconChangeError: String?
 
-    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 12) {
+        LazyVGrid(columns: columns, spacing: 10) {
             iconChoice(name: "VesperAppIcon", title: "新版图标", iconName: nil)
             iconChoice(name: "ClassicAppIcon", title: "经典图标", iconName: "ClassicIcon")
         }
@@ -614,17 +614,17 @@ struct AppIconChoices: View {
                 }
             }
         } label: {
-            VStack(spacing: 8) {
+            VStack(spacing: 5) {
                 Image(name)
                     .resizable()
                     .scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .overlay {
                         RoundedRectangle(cornerRadius: 14)
-                            .stroke(selected ? Color.accentColor : Color.clear, lineWidth: 2)
+                            .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 2)
                     }
                 Text(title)
-                    .font(.footnote)
+                    .font(.caption2)
                     .foregroundStyle(Color.primary)
             }
             .contentShape(Rectangle())

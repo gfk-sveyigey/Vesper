@@ -18,7 +18,9 @@ class AppearanceAndSkipDatabaseSettingsTests(unittest.TestCase):
     def test_selected_app_icon_only_changes_its_border(self):
         source = (ROOT / "Vesper/Features/Settings/SettingsView.swift").read_text()
         choices = source.split("struct AppIconChoices: View", 1)[1]
-        self.assertIn(".stroke(selected ? Color.accentColor : Color.clear, lineWidth: 2)", choices)
+        self.assertIn("Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)", choices)
+        self.assertIn("LazyVGrid(columns: columns, spacing: 10)", choices)
+        self.assertIn(".strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 2)", choices)
         self.assertIn(".foregroundStyle(Color.primary)", choices)
         self.assertIn(".disabled(!UIApplication.shared.supportsAlternateIcons)", choices)
         self.assertNotIn(".disabled(!UIApplication.shared.supportsAlternateIcons || selected)", choices)
