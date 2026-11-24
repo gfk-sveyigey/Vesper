@@ -1274,6 +1274,7 @@ private struct EmbySeriesBrowserView: View {
     @State private var nextOffset = 0
     @State private var errorMessage: String?
     @State private var loadGeneration = UUID()
+    @State private var activeQuery: String?
     @AppStorage("emby.browser.layout") private var displayLayout: EmbyBrowserLayout = .list
     @AppStorage("emby.browser.sort") private var sortField: EmbyBrowserSort = .added
     @AppStorage("emby.browser.ascending") private var ascending = false
@@ -1317,7 +1318,10 @@ private struct EmbySeriesBrowserView: View {
         .id(sortIdentity)
         .background(VesperTheme.background.ignoresSafeArea())
         .overlay {
-            if items.isEmpty && !didLoadFirstPage && errorMessage == nil { VesperPageLoadingOverlay() }
+            if items.isEmpty && !didLoadFirstPage && errorMessage == nil {
+                VesperPageLoadingOverlay()
+                    .allowsHitTesting(false)
+            }
         }
         .scrollIndicators(.hidden)
         #if DEBUG
@@ -1349,19 +1353,28 @@ private struct EmbySeriesBrowserView: View {
                 .accessibilityLabel("布局与排序")
             }
         }
-        .task(id: sortIdentity) {
-            loadGeneration = UUID()
+        .task(id: queryIdentity) {
+            // Returning from a detail can restart this task. Keep the rows and
+            // their zoom anchors mounted as long as the library query is the same.
+            if activeQuery != queryIdentity {
+                activeQuery = queryIdentity
+                loadGeneration = UUID()
+                items = []
+                isLoading = false
+                reachedEnd = false
+                didLoadFirstPage = false
+                nextOffset = 0
+                errorMessage = nil
+            }
+
+            guard !didLoadFirstPage, errorMessage == nil else { return }
             let token = loadGeneration
-            let key = cacheKey
-            items = []
-            isLoading = false
-            reachedEnd = false
-            didLoadFirstPage = false
-            nextOffset = 0
-            errorMessage = nil
-            let cached = await AppCacheStore.shared.items(scope: cacheScope, key: key)
-            guard !Task.isCancelled, loadGeneration == token else { return }
-            if let cached, items.isEmpty { items = cached }
+            if items.isEmpty {
+                let cached = await AppCacheStore.shared.items(scope: cacheScope, key: cacheKey)
+                guard !Task.isCancelled, loadGeneration == token else { return }
+                if let cached, items.isEmpty { items = cached }
+            }
+            guard !Task.isCancelled else { return }
             await loadPage()
         }
     }
@@ -1409,6 +1422,8 @@ private struct EmbySeriesBrowserView: View {
 
     private var cacheScope: String { AppCacheStore.scope(for: source) }
     private var cacheKey: String { "browser:\(scope.cacheKey):\(parentID ?? ""):\(sortIdentity)" }
+
+    private var queryIdentity: String { "\(cacheScope)|\(cacheKey)" }
 
     private func loadPage() async {
         guard !isLoading, !reachedEnd else { return }
