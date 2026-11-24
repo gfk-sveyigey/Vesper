@@ -5,7 +5,8 @@ import Network
 struct RecentEmbyPlaybackCard: View {
     let source: MediaSource
     let entry: PlaybackHistoryEntry
-    let open: (MediaItem) -> Void
+    let artworkZoom: Namespace.ID
+    let open: (EmbyMediaRoute) -> Void
     let clear: (MediaItem) -> Void
     let setPlayed: (MediaItem, Bool) -> Void
 
@@ -14,11 +15,12 @@ struct RecentEmbyPlaybackCard: View {
     @State private var item: MediaItem
     @State private var title: String
 
-    init(source: MediaSource, entry: PlaybackHistoryEntry,
-         open: @escaping (MediaItem) -> Void, clear: @escaping (MediaItem) -> Void,
+    init(source: MediaSource, entry: PlaybackHistoryEntry, artworkZoom: Namespace.ID,
+         open: @escaping (EmbyMediaRoute) -> Void, clear: @escaping (MediaItem) -> Void,
          setPlayed: @escaping (MediaItem, Bool) -> Void) {
         self.source = source
         self.entry = entry
+        self.artworkZoom = artworkZoom
         self.open = open
         self.clear = clear
         self.setPlayed = setPlayed
@@ -26,9 +28,14 @@ struct RecentEmbyPlaybackCard: View {
         _title = State(initialValue: entry.title)
     }
 
+    private var detailRoute: EmbyMediaRoute {
+        .detail(source, item, origin: .shelf("recent"))
+    }
+
     var body: some View {
         cardArtwork
-            .onTapGesture { open(item) }
+            .matchedTransitionSource(id: detailRoute, in: artworkZoom)
+            .onTapGesture { open(detailRoute) }
             .overlay(alignment: .bottomTrailing) {
                 episodeMenu.padding(.trailing, 10).padding(.bottom, 10)
             }
@@ -91,7 +98,7 @@ struct RecentEmbyPlaybackCard: View {
 
     @ViewBuilder
     private var playbackActions: some View {
-        Button(item.embyItemType == "Episode" ? "前往单集" : "详情", systemImage: "info.circle") { open(item) }
+        Button(item.embyItemType == "Episode" ? "前往单集" : "详情", systemImage: "info.circle") { open(detailRoute) }
         if entry.position > 0 {
             Button("清除播放进度", systemImage: "clock.arrow.circlepath") { clear(item) }
         }
