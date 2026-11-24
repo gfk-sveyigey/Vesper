@@ -1,4 +1,5 @@
 "应用" = "App";
+"受密码保护" = "Passwortgeschützt";
 "标签设置" = "Tab-Einstellungen";
 "外观设置" = "Darstellung";
 "运行日志" = "Laufzeitprotokoll";
@@ -236,6 +237,10 @@
 "字幕" = "Untertitel";
 
 "关闭字幕" = "Untertitel aus";
+"正在恢复字幕" = "Untertitel werden wiederhergestellt …";
+"未能恢复原字幕轨" = "Vorherige Untertitelspur konnte nicht wiederhergestellt werden";
+"正在恢复音轨" = "Audiospur wird wiederhergestellt …";
+"未能恢复原音轨" = "Vorherige Audiospur konnte nicht wiederhergestellt werden";
 
 "无内嵌字幕" = "Keine eingebetteten Untertitel";
 
@@ -950,6 +955,8 @@
 "%lld集" = "%lld Folgen";
 "%@/共%lld季" = "%@ / %lld Staffeln";
 "开始播放 E%@" = "E%@ abspielen";
+"继续播放 E%@" = "E%@ weiterschauen";
+"重新播放 E%@" = "E%@ erneut abspielen";
 "开始播放 S%@E%@" = "S%@E%@ abspielen";
 "图标库" = "Symbolbibliotheken";
 "来源图标" = "Quellensymbole";
@@ -1038,6 +1045,7 @@
 
 "帮助与关于" = "Support & Info";
 "继续播放" = "Weiterschauen";
+"重新播放" = "Erneut abspielen";
 "正在验证来源" = "Quelle wird überprüft…";
 "来源验证成功" = "Quelle überprüft";
 "验证失败，点击重试" = "Überprüfung fehlgeschlagen. Zum Wiederholen tippen";
@@ -1106,3 +1114,83 @@
 "已播放音频缓冲" = "Abgespielte Audiopuffer";
 "丢失音频缓冲" = "Verlorene Audiopuffer";
 "显示帧率" = "Anzeigebildrate";
+
+"下载速度" = "Downloadgeschwindigkeit";
+
+"显示剩余时长" = "Restdauer anzeigen";
+"关闭时显示视频总时长；开启后显示剩余时长。" = "Aus zeigt die Gesamtdauer des Videos an; ein zeigt die verbleibende Zeit an.";
+"来源列表行高" = "Quellen-Zeilenhöhe";
+"来源图标上间距" = "Abstand oben am Quellensymbol";
+"来源图标左间距" = "Abstand links am Quellensymbol";
+"来源图标下间距" = "Abstand unten am Quellensymbol";
+"来源图标右间距" = "Abstand rechts am Quellensymbol";
+"上次播放" = "Zuletzt abgespielt";
+
+"名称（可选）" = "Name (optional)";
+"备注（可选）" = "Notiz (optional)";
+"已保留登录凭据" = "Anmeldedaten gespeichert";
+"线路" = "Verbindungen";
+"添加线路" = "Verbindung hinzufügen";
+"编辑线路" = "Verbindungen bearbeiten";
+"线路名称（可选）" = "Verbindungsname (optional)";
+"域名（必填）" = "Host (erforderlich)";
+"端口（可选）" = "Port (optional)";
+"路径（可选）" = "Pfad (optional)";
+"无法保存线路" = "Verbindung konnte nicht gespeichert werden";
+"此线路已存在。" = "Diese Verbindung ist bereits vorhanden.";
+"无法保存来源" = "Quelle konnte nicht gespeichert werden";
+"请至少添加一条线路。" = "Füge mindestens eine Verbindung hinzu.";
+"编辑来源" = "Quelle bearbeiten";
+"修改图标" = "Symbol ändern";
+"移除来源" = "Quelle entfernen";
+"刷新线路" = "Verbindungen aktualisieren";
+"无法刷新线路" = "Verbindungen konnten nicht aktualisiert werden";
+"调整来源顺序" = "Quellen sortieren";
+"测试延迟" = "Latenz testen";
+"测试中" = "Test läuft…";
+"测试失败" = "Test fehlgeschlagen";
+"App 启动" = "App-Start";
+"媒体来源" = "Medienquellen";
+"App 启动和媒体来源" = "App-Start und Medienquellen";
+"立即" = "Sofort";
+"1 分钟" = "1 Minute";
+"5 分钟" = "5 Minuten";
+"15 分钟" = "15 Minuten";
+"隐私保护范围" = "Datenschutz";
+"保护范围" = "Schutzbereich";
+"重新验证时间" = "Erneute Authentifizierung";
+"后台高斯模糊" = "Unschärfe im Hintergrund";
+"重置密码" = "Code zurücksetzen";
+"启用生物识别" = "Biometrie aktivieren";
+"优先使用生物识别" = "Biometrie bevorzugen";
+"密码错误，请重试。" = "Falscher Code. Bitte erneut versuchen.";
+"请输入六位数字密码。" = "Gib einen sechsstelligen Code ein.";
+"无法安全保存密码。" = "Der Code konnte nicht sicher gespeichert werden.";
+"输入密码以继续" = "Code eingeben, um fortzufahren";
+"使用生物识别" = "Biometrie verwenden";
+"使用设备密码保护 Vesper，并控制重新验证与后台隐私显示。" = "Schütze Vesper mit einem Code und lege die erneute Authentifizierung sowie den Datenschutz im Hintergrund fest.";
+"输入密码以关闭保护" = "Code eingeben, um den Schutz auszuschalten";
+"设置新的六位数字密码" = "Neuen sechsstelligen Code festlegen";
+"设置六位数字密码" = "Sechsstelligen Code festlegen";
+"六位数字密码" = "Sechsstelliger Code";
+"确认关闭" = "Ausschalten";
+"保存密码" = "Code speichern";
+"解锁 Vesper" = "Vesper entsperren";
+"密码保护" = "Passwortschutz";
+"正在使用" = "Wird verwendet";
+"当前使用中的线路不能删除；可编辑其地址，线路名称保持不变。" = "Die aktive Verbindung kann nicht gelöscht werden. Ihre Adresse lässt sich ändern, der Name bleibt erhalten.";
+
+"密码保护范围" = "Passwortschutz anwenden auf";
+
+"面容 ID" = "Face ID";
+
+"触控 ID" = "Touch ID";
+
+"需要 %@" = "Mit %@ bestätigen";
+
+"使用 %@" = "%@ verwenden";
+
+"再次尝试 %@" = "%@ erneut versuchen";
+"新版图标" = "Neues Symbol";
+"经典图标" = "Klassisches Symbol";
+"无法更换图标" = "Symbol konnte nicht geändert werden";

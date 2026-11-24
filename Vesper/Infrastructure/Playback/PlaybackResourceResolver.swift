@@ -60,6 +60,12 @@ enum PlaybackFailure: LocalizedError {
 
 @MainActor
 struct PlaybackResourceResolver {
+    private let playbackServices: any MediaSourcePlaybackService
+
+    init(playbackServices: any MediaSourcePlaybackService = MediaSourceServices.playback) {
+        self.playbackServices = playbackServices
+    }
+
     func resolve(_ item: MediaItem, source: MediaSource, position: Double = 0) async throws -> ResolvedPlaybackResource {
         guard item.id.sourceID == source.id else { throw PlaybackFailure.missingFile }
         switch source.kind {
@@ -111,7 +117,7 @@ struct PlaybackResourceResolver {
                 throw error
             }
         case .emby:
-            let playback = try await EmbyRepository.shared.playbackResource(
+            let playback = try await playbackServices.playbackResource(
                 item: item, source: source, position: position
             )
             return ResolvedPlaybackResource(url: playback.resource.url, headers: playback.resource.headers,

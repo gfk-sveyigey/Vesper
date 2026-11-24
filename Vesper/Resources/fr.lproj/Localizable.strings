@@ -1,4 +1,5 @@
 "应用" = "Application";
+"受密码保护" = "Protégé par mot de passe";
 "标签设置" = "Réglages des onglets";
 "外观设置" = "Apparence";
 "运行日志" = "Journaux d’exécution";
@@ -236,6 +237,10 @@
 "字幕" = "Sous-titres";
 
 "关闭字幕" = "Désactiver les sous-titres";
+"正在恢复字幕" = "Restauration des sous-titres…";
+"未能恢复原字幕轨" = "Impossible de restaurer la piste de sous-titres précédente";
+"正在恢复音轨" = "Restauration de la piste audio…";
+"未能恢复原音轨" = "Impossible de restaurer la piste audio précédente";
 
 "无内嵌字幕" = "Aucun sous-titre intégré";
 
@@ -950,6 +955,8 @@
 "%lld集" = "%lld épisodes";
 "%@/共%lld季" = "%@ / %lld saisons";
 "开始播放 E%@" = "Lire E%@";
+"继续播放 E%@" = "Continuer E%@";
+"重新播放 E%@" = "Relire E%@";
 "开始播放 S%@E%@" = "Lire S%@E%@";
 "图标库" = "Bibliothèques d’icônes";
 "来源图标" = "Icônes des sources";
@@ -1038,6 +1045,7 @@
 
 "帮助与关于" = "Assistance et à propos";
 "继续播放" = "Continuer à regarder";
+"重新播放" = "Relire";
 "正在验证来源" = "Vérification de la source…";
 "来源验证成功" = "Source vérifiée";
 "验证失败，点击重试" = "Échec de la vérification. Touchez pour réessayer";
@@ -1106,3 +1114,83 @@
 "已播放音频缓冲" = "Tampons audio lus";
 "丢失音频缓冲" = "Tampons audio perdus";
 "显示帧率" = "Fréquence d’affichage";
+
+"下载速度" = "Vitesse de téléchargement";
+
+"显示剩余时长" = "Afficher le temps restant";
+"关闭时显示视频总时长；开启后显示剩余时长。" = "Désactivé affiche la durée totale ; activé affiche le temps restant.";
+"来源列表行高" = "Hauteur des lignes des sources";
+"来源图标上间距" = "Marge supérieure de l’icône de source";
+"来源图标左间距" = "Marge gauche de l’icône de source";
+"来源图标下间距" = "Marge inférieure de l’icône de source";
+"来源图标右间距" = "Marge droite de l’icône de source";
+"上次播放" = "Dernière lecture";
+
+"名称（可选）" = "Nom (facultatif)";
+"备注（可选）" = "Note (facultative)";
+"已保留登录凭据" = "Identifiants enregistrés";
+"线路" = "Routes de connexion";
+"添加线路" = "Ajouter une route";
+"编辑线路" = "Modifier les routes";
+"线路名称（可选）" = "Nom de la route (facultatif)";
+"域名（必填）" = "Hôte (obligatoire)";
+"端口（可选）" = "Port (facultatif)";
+"路径（可选）" = "Chemin (facultatif)";
+"无法保存线路" = "Impossible d’enregistrer la route";
+"此线路已存在。" = "Cette route existe déjà.";
+"无法保存来源" = "Impossible d’enregistrer la source";
+"请至少添加一条线路。" = "Ajoutez au moins une route.";
+"编辑来源" = "Modifier la source";
+"修改图标" = "Changer l’icône";
+"移除来源" = "Supprimer la source";
+"刷新线路" = "Actualiser les routes";
+"无法刷新线路" = "Impossible d’actualiser les routes";
+"调整来源顺序" = "Réorganiser les sources";
+"测试延迟" = "Tester la latence";
+"测试中" = "Test en cours…";
+"测试失败" = "Échec du test";
+"App 启动" = "Au lancement";
+"媒体来源" = "Sources multimédias";
+"App 启动和媒体来源" = "Au lancement et lors du changement de source";
+"立即" = "Immédiatement";
+"1 分钟" = "1 minute";
+"5 分钟" = "5 minutes";
+"15 分钟" = "15 minutes";
+"隐私保护范围" = "Confidentialité";
+"保护范围" = "Périmètre de protection";
+"重新验证时间" = "Nouvelle authentification";
+"后台高斯模糊" = "Flou en arrière-plan";
+"重置密码" = "Réinitialiser le code";
+"启用生物识别" = "Activer la biométrie";
+"优先使用生物识别" = "Privilégier la biométrie";
+"密码错误，请重试。" = "Code incorrect. Réessayez.";
+"请输入六位数字密码。" = "Saisissez un code à six chiffres.";
+"无法安全保存密码。" = "Impossible d’enregistrer le code de manière sécurisée.";
+"输入密码以继续" = "Saisissez votre code pour continuer";
+"使用生物识别" = "Utiliser la biométrie";
+"使用设备密码保护 Vesper，并控制重新验证与后台隐私显示。" = "Protégez Vesper avec un code et réglez la réauthentification ainsi que la confidentialité en arrière-plan.";
+"输入密码以关闭保护" = "Saisissez le code pour désactiver la protection";
+"设置新的六位数字密码" = "Définir un nouveau code à six chiffres";
+"设置六位数字密码" = "Définir un code à six chiffres";
+"六位数字密码" = "Code à six chiffres";
+"确认关闭" = "Désactiver";
+"保存密码" = "Enregistrer le code";
+"解锁 Vesper" = "Déverrouiller Vesper";
+"密码保护" = "Protection par code";
+"正在使用" = "Utilisée";
+"当前使用中的线路不能删除；可编辑其地址，线路名称保持不变。" = "La route active ne peut pas être supprimée. Vous pouvez modifier son adresse, mais son nom restera inchangé.";
+
+"密码保护范围" = "Portée de la protection";
+
+"面容 ID" = "Face ID";
+
+"触控 ID" = "Touch ID";
+
+"需要 %@" = "Authentifiez-vous avec %@";
+
+"使用 %@" = "Utiliser %@";
+
+"再次尝试 %@" = "Réessayer %@";
+"新版图标" = "Nouvelle icône";
+"经典图标" = "Icône classique";
+"无法更换图标" = "Impossible de changer l’icône";

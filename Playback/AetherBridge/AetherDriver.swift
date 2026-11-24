@@ -12,6 +12,8 @@ internal import AetherEngine
     private var configuration = EngineConfiguration()
     private var lastUsableSnapshot: EngineSnapshot?
     private var manualPiPRequested = false
+    private var measuresNetworkInput = false
+    private var downloadSessionID = UUID().uuidString
     private var pip: AVPictureInPictureController?
     private weak var pipLayer: AVPlayerLayer?
     private weak var pipSampleLayer: AVSampleBufferDisplayLayer?
@@ -83,7 +85,10 @@ internal import AetherEngine
             else if decoder.contains("(HW)") { result.actualDecoder = .hardware }
         }
         if engine.playbackBackend == .native { result.actualDecoder = .hardware }
-        result.audio = engine.audioTracks.map { .init(id: String($0.id), name: $0.name, language: $0.language, codec: $0.codec, selected: $0.id == engine.activeAudioTrackIndex) }
+        result.audio = engine.audioTracks.map {
+            .init(id: String($0.id), name: $0.name, language: $0.language, codec: $0.codec,
+                  selected: $0.id == engine.activeAudioTrackIndex, channels: $0.channels > 0 ? $0.channels : nil)
+        }
         result.subtitles = engine.subtitleTracks.map { .init(id: String($0.id), name: $0.name, language: $0.language, codec: $0.codec, selected: $0.id == engine.activeSubtitleTrackIndex) }
         if let pip = nativePiPController {
             result.pipPossible = pip.isPictureInPicturePossible
@@ -135,6 +140,23 @@ internal import AetherEngine
         return result
     }
 
+    public var downloadSample: EngineDownloadSample? {
+        guard measuresNetworkInput, let engine, !engine.needsForegroundVideoRestore else { return nil }
+        let bytes: Int64
+        switch engine.videoRoute {
+        case .remoteBypass:
+            guard let telemetry = engine.liveTelemetry else { return nil }
+            guard let transferred = telemetry.networkTransferredBytes else { return nil }
+            bytes = transferred
+        case .loopback, .software:
+            guard let telemetry = engine.liveTelemetry else { return nil }
+            bytes = telemetry.demuxerBytesFetched
+        default: return nil
+        }
+        let route = engine.videoRoute.rawValue
+        return .init(counterID: "\(downloadSessionID):\(route)", bytes: bytes)
+    }
+
     public var diagnosticMetrics: [EngineDiagnosticMetric] {
         guard let engine else { return [] }
         var metrics = [EngineDiagnosticMetric("播放后端", engine.playbackBackend.rawValue)]
@@ -164,9 +186,15 @@ internal import AetherEngine
         ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
     }
     public func load(url: URL, configuration: EngineConfiguration) async throws {
+        measuresNetworkInput = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+        downloadSessionID = UUID().uuidString
         let engine = try AetherEngine()
         self.engine = engine
         engine.deactivatesAudioSessionOnStop = false
+        // Preserve paused sessions across background suspension instead of
+        // tearing down after the default grace window. System-invalidated
+        // pipelines still use the existing foreground/error recovery paths.
+        engine.retainsVideoPipelineWhenBackgrounded = true
         engine.bind(view: surface)
         self.configuration = configuration
         lastUsableSnapshot = nil

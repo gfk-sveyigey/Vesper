@@ -36,9 +36,6 @@ SERIES = {'Id': 'series', 'Name': 'Series', 'Type': 'Series', 'IsFolder': True,
 EPISODE = {'Id': 'episode', 'Name': 'Episode', 'Type': 'Episode', 'SeriesId': 'series'}
 
 EPISODE_USER_DATA = {'PlaybackPositionTicks': 300000000, 'Played': False, 'IsFavorite': True}
-EXPECTED_EPISODE_WRITES = [
-    {'PlaybackPositionTicks': 0, 'Played': False, 'IsFavorite': True},
-]
 EPISODE_PLAYED_OPERATIONS = []
 ACTION_REQUESTS = []
 
@@ -48,6 +45,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path)
+        if path.path == '/proxy/emby/System/Ext/ServerDomains':
+            self.respond({'ok': True, 'data': [
+                {'name': 'Primary', 'url': f'http://127.0.0.1:{self.server.server_port}/proxy'},
+                {'name': 'Backup B', 'url': 'https://backup-b.example.com'},
+                {'name': 'Duplicate', 'url': 'https://backup-b.example.com/emby'},
+                {'name': 'Backup A', 'url': 'https://backup-a.example.com'},
+            ]}); return
         if path.path.startswith('/proxy/emby/Users/user/Items/action-'):
             self.respond({'UserData': {'Played': False, 'IsFavorite': True, 'PlaybackPositionTicks': 123}}); return
         if path.path == '/proxy/emby/':
@@ -217,7 +221,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if '/action-' in self.path:
-            payload = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0')))) if self.path.endswith('/UserData') else None
+            payload = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0')))) if self.headers.get('Content-Length') else None
             ACTION_REQUESTS.append(('POST', self.path, payload))
             self.send_response(204); self.end_headers(); return
         if self.path == '/proxy/emby/Empty':
@@ -226,10 +230,6 @@ class Handler(BaseHTTPRequestHandler):
             EPISODE_PLAYED_OPERATIONS.append(('POST', self.path))
             self.send_response(204); self.end_headers(); return
         payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-        if self.path == '/proxy/emby/Users/user/Items/episode/UserData':
-            assert EXPECTED_EPISODE_WRITES and payload == EXPECTED_EPISODE_WRITES.pop(0)
-            EPISODE_USER_DATA.update(payload)
-            self.send_response(204); self.end_headers(); return
         if self.path == '/proxy/emby/Items/movie/PlaybackInfo':
             assert payload['UserId'] == 'user'
             media = dict(MEDIA)
@@ -277,30 +277,47 @@ try:
         subprocess.run([binary, 'http://127.0.0.1:' + str(server.server_port)], check=True)
         # Compile the real repository and session. Extract only value contracts
         # from their iOS files; platform/keychain implementations are not tested here.
-        source = (ROOT / 'Vesper/Infrastructure/Sources/SourceLibrary.swift').read_text()
-        models = source[source.index('/// Stable identity'):source.index('enum SourceFailure:')]
-        # Reuse the real cache scope helper needed by image and skip lookups,
-        # without importing the platform-backed disk cache actor.
-        models += '\nenum AppCacheStore {\n' + source[source.index('    nonisolated static func scope('):source.index('    nonisolated static func embyArtworkKey(')] + '}\n'
+        models = """
+enum AppCacheStore {
+    static func scope(for source: MediaSource) -> String {
+        MediaSourceCacheIdentity.scope(for: source)
+    }
+}
+@MainActor enum AppLog {
+    static var runtimeEntries: [String] = []
+}
+"""
+        source = (ROOT / 'Vesper/Infrastructure/Services/TraktAccountStore.swift').read_text()
+        start = source.index('struct TraktMediaIdentity:')
+        models += source[start:source.index('\n}', start) + 2] + '\n'
         source = (ROOT / 'Playback/Contracts/PlaybackContracts.swift').read_text()
         models += source[source.index('public enum PlaybackCacheSizing'):source.index('public struct EngineExternalSubtitle')]
         models += source[source.index('public struct EngineExternalSubtitle'):source.index('/// Value-only state')]
         source = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
         models += source[source.index('struct TranscodedPlaybackResource'):source.index('/// The UI talks')]
-        source = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
-        models += source[source.index('struct PlaybackVideoDetails'):source.index('struct PlaybackQueueInfo')]
         models += "\n@MainActor final class EmbyAccountStore { static let shared = EmbyAccountStore(); func client(for source: MediaSource) throws -> EmbyAPIClient { fatalError(\"Test must inject client\") } }\n"
         contracts = Path(temp) / 'Models.swift'; contracts.write_text('import Foundation\n' + models)
         units = [str(ROOT / 'Vesper/Infrastructure/Theme/VesperLocalization.swift'),
                         str(ROOT / 'Vesper/Infrastructure/Sources/EmbyAPIClient.swift'), str(contracts)]
-        for name in ['Sources/EmbyIntegration.swift', 'Playback/EmbyPlaybackSession.swift']:
+        for name in [
+            'Sources/Models/MediaModels.swift',
+            'Sources/Contracts/MediaSourceContracts.swift',
+            'Sources/Contracts/SeriesCatalogService.swift',
+            'Sources/Adapters/Emby/EmbyMediaModels.swift',
+            'Sources/Adapters/Emby/EmbySkipMarkers.swift',
+            'Sources/Adapters/Emby/EmbyVersionMatcher.swift',
+            'Sources/EmbyIntegration.swift',
+            'Playback/Models/PlaybackModels.swift',
+            'Playback/EmbyPlaybackSession.swift',
+        ]:
             unit = Path(temp) / Path(name).name
-            unit.write_text((ROOT / 'Vesper/Infrastructure' / name).read_text().replace('import PlaybackContracts', ''))
+            unit.write_text('#if canImport(FoundationNetworking)\nimport FoundationNetworking\n#endif\n' +
+                            (ROOT / 'Vesper/Infrastructure' / name).read_text().replace('import PlaybackContracts', ''))
             units.append(str(unit))
         subprocess.run([os.environ.get('SWIFTC', 'swiftc'), '-swift-version', '6', '-strict-concurrency=complete',
                         *units, str(ROOT / 'Tests/EmbyRepositoryChecks.swift'), '-o', binary], check=True)
         subprocess.run([binary, 'http://127.0.0.1:' + str(server.server_port)], check=True)
-    assert len(ACTION_REQUESTS) == 18
+    assert len(ACTION_REQUESTS) == 15
     for kind in ['Movie', 'Series', 'Episode']:
         item = 'action-' + kind
         base = '/proxy/emby/Users/user/'
@@ -308,10 +325,8 @@ try:
         assert ('DELETE', base + 'PlayedItems/' + item, None) in ACTION_REQUESTS
         assert ('POST', base + 'FavoriteItems/' + item, None) in ACTION_REQUESTS
         assert ('DELETE', base + 'FavoriteItems/' + item, None) in ACTION_REQUESTS
-        for ticks in [125000000, 0]:
-            assert ('POST', base + 'Items/' + item + '/UserData',
-                    {'Played': False, 'IsFavorite': True, 'PlaybackPositionTicks': ticks}) in ACTION_REQUESTS
-    assert not EXPECTED_EPISODE_WRITES
-    assert [method for method, _ in EPISODE_PLAYED_OPERATIONS] == ['POST', 'DELETE']
+        assert ACTION_REQUESTS.count(('DELETE', base + 'PlayedItems/' + item, None)) == 2
+        assert not any('/UserData' in path for _, path, _ in ACTION_REQUESTS)
+    assert [method for method, _ in EPISODE_PLAYED_OPERATIONS] == ['POST', 'DELETE', 'DELETE']
 finally:
     server.shutdown()

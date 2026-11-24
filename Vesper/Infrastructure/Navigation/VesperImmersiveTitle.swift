@@ -98,6 +98,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     private let content: Content
     private let extendsContentUnderHeader: Bool
     private let showsLoading: Bool
+    private let usesSystemList: Bool
     private let usesMediaScrollEdges: Bool
     private let scrollPosition: Binding<ScrollPosition>?
     private let onVerticalScrollPhaseChange: (ScrollPhase, CGFloat) -> Void
@@ -132,7 +133,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     @State private var interactionStartedCollapsed = false
 
     init(title: LocalizedStringKey, extendsContentUnderHeader: Bool = false, showsLoading: Bool = false,
-         usesMediaScrollEdges: Bool = true,
+         usesSystemList: Bool = false, usesMediaScrollEdges: Bool = true,
          scrollPosition: Binding<ScrollPosition>? = nil,
          onVerticalOffsetChange: @escaping (CGFloat) -> Void = { _ in },
          onVerticalScrollPhaseChange: @escaping (ScrollPhase, CGFloat) -> Void = { _, _ in },
@@ -141,6 +142,7 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
         self.title = title
         self.extendsContentUnderHeader = extendsContentUnderHeader
         self.showsLoading = showsLoading
+        self.usesSystemList = usesSystemList
         self.usesMediaScrollEdges = usesMediaScrollEdges
         self.scrollPosition = scrollPosition
         self.onVerticalScrollPhaseChange = onVerticalScrollPhaseChange
@@ -176,20 +178,41 @@ struct VesperRootScrollView<Actions: View, Content: View>: View {
     }
 
     private var verticalScrollView: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                if !extendsContentUnderHeader {
-                    // Keep the spacer inside the page so its top shares the scroll origin.
-                    Color.clear.frame(height: headerHeight)
-                        .accessibilityHidden(true)
+        Group {
+            if usesSystemList {
+                List {
+                    if !extendsContentUnderHeader {
+                        Color.clear.frame(height: headerHeight)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .accessibilityHidden(true)
+                    }
+                    content
+                        .environment(\.vesperRootHeaderHeight, headerHeight)
+                        .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
                 }
-                content
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 20)
-                    .environment(\.vesperRootHeaderHeight, headerHeight)
-                    .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
+                .listStyle(.plain)
+                .listRowBackground(VesperTheme.background)
+                .scrollContentBackground(.hidden)
+                .background(VesperTheme.background)
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if !extendsContentUnderHeader {
+                            // Keep the spacer inside the page so its top shares the scroll origin.
+                            Color.clear.frame(height: headerHeight)
+                                .accessibilityHidden(true)
+                        }
+                        content
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 20)
+                            .environment(\.vesperRootHeaderHeight, headerHeight)
+                            .environment(\.vesperEmptyContentHeight, max(0, viewportHeight - headerHeight - 20))
+                    }
+                    .frame(minHeight: viewportHeight, alignment: .top)
+                }
             }
-            .frame(minHeight: viewportHeight, alignment: .top)
         }
         .scrollDisabled(showsLoading)
         .scrollClipDisabled()
@@ -670,8 +693,8 @@ private struct VesperHeaderMotionEffect: AnimatableModifier {
 }
 
 extension VesperRootScrollView where Actions == EmptyView {
-    init(title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
-        self.init(title: title, content: content) { EmptyView() }
+    init(title: LocalizedStringKey, usesSystemList: Bool = false, @ViewBuilder content: () -> Content) {
+        self.init(title: title, usesSystemList: usesSystemList, content: content) { EmptyView() }
     }
 }
 

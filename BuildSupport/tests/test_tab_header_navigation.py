@@ -17,10 +17,18 @@ class TabHeaderNavigationTests(unittest.TestCase):
     def test_source_editor_hides_root_header(self):
         sources = (ROOT / 'Sources/SourcesView.swift').read_text()
         navigation = (ROOT / 'Navigation/AppNavigationView.swift').read_text()
-        self.assertIn('isShowingEmbyEditor || editingEmby != nil, initial: true', sources)
+        self.assertIn('isShowingEmbyEditor || editingEmby != nil || sourceManagement != nil || showingOrder, initial: true', sources)
         self.assertIn('headerVisibilityChanged(!presentsEditor)', sources)
         self.assertIn('SourcesView { sourcesHeaderVisible = $0 }', navigation)
         self.assertIn('sourcesPath.isEmpty && sourcesHeaderVisible', navigation)
+
+    def test_password_protection_uses_settings_stack_path(self):
+        navigation = (ROOT / 'Navigation/AppNavigationView.swift').read_text()
+        settings = (ROOT / 'Settings/SettingsView.swift').read_text()
+        self.assertIn('SettingsView(path: $settingsPath)', navigation)
+        self.assertIn('VesperNavigationHeaderLayer(isRoot: settingsPath.isEmpty)', navigation)
+        self.assertIn('appLock.requestAuthentication(.settingsAccess) { path.append(route) }', settings)
+        self.assertNotIn('.navigationDestination(isPresented:', settings)
 
     def test_all_tab_roots_share_media_header_and_disable_native_edges(self):
         header = (ROOT.parent / 'Infrastructure/Navigation/VesperImmersiveTitle.swift').read_text()
@@ -48,3 +56,15 @@ class TabHeaderNavigationTests(unittest.TestCase):
         self.assertNotIn('List {', results)
         self.assertNotIn('ScrollView {', results)
         self.assertNotIn('.navigationDestination(item:', results)
+
+    def test_local_folder_navigation_updates_root_header_path_at_every_depth(self):
+        media = (ROOT / 'Media/MediaView.swift').read_text()
+        local = (ROOT / 'Media/LocalFilesView.swift').read_text()
+        navigation = (ROOT / 'Navigation/AppNavigationView.swift').read_text()
+        self.assertIn('LocalFilesView(source: source,\n                               path: $path,', media)
+        self.assertIn('.navigationDestination(for: LocalDirectoryRoute.self)', media)
+        self.assertIn('LocalFilesView(source: source, directory: route.path, path: $path,', media)
+        self.assertIn('struct LocalDirectoryRoute: Hashable', local)
+        self.assertIn('NavigationLink(value: LocalDirectoryRoute(path: entry.path))', local)
+        self.assertIn('VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty)', navigation)
+        self.assertNotIn('LocalFilesView(source: source, directory: entry.path', local)

@@ -38,53 +38,6 @@ final class VesperFileDeliveryDelegate: NSObject, UIApplicationDelegate {
         FileDeliveryRouter.receive(userActivity, origin: "app.activity")
     }
 
-    func application(
-        _ application: UIApplication,
-        configurationForConnecting connectingSceneSession: UISceneSession,
-        options: UIScene.ConnectionOptions
-    ) -> UISceneConfiguration {
-        let configuration = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
-        if connectingSceneSession.role == .windowApplication {
-            configuration.delegateClass = VesperFileSceneDelegate.self
-        }
-        FileDeliveryLog.write("配置 Scene，待交付 URL 数量=\(options.urlContexts.count)，活动数量=\(options.userActivities.count)")
-        return configuration
-    }
-}
-
-@MainActor
-final class VesperFileSceneDelegate: NSObject, UIWindowSceneDelegate {
-    func scene(
-        _ scene: UIScene,
-        willConnectTo session: UISceneSession,
-        options connectionOptions: UIScene.ConnectionOptions
-    ) {
-        FileDeliveryLog.write("Scene 连接，初始 URL 数量=\(connectionOptions.urlContexts.count)，活动数量=\(connectionOptions.userActivities.count)")
-        receive(connectionOptions.urlContexts, origin: "scene.connect")
-        for activity in connectionOptions.userActivities {
-            _ = FileDeliveryRouter.receive(activity, origin: "scene.connect.activity")
-        }
-    }
-
-    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
-        FileDeliveryLog.write("Scene 收到 URL 事件，数量=\(URLContexts.count)")
-        receive(URLContexts, origin: "scene.open")
-    }
-
-    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
-        _ = FileDeliveryRouter.receive(userActivity, origin: "scene.activity")
-    }
-
-    func sceneDidBecomeActive(_ scene: UIScene) {
-        FileDeliveryLog.write("Scene 已激活")
-    }
-
-    private func receive(_ contexts: Set<UIOpenURLContext>, origin: String) {
-        for context in contexts.sorted(by: { $0.url.absoluteString < $1.url.absoluteString }) {
-            FileDeliveryLog.write("文件交付 origin=\(origin) openInPlace=\(context.options.openInPlace)")
-            FileDeliveryRouter.receive(context.url, origin: origin, requiresCopy: !context.options.openInPlace)
-        }
-    }
 }
 
 /// System wrappers can forward one document to both native and SwiftUI callbacks.

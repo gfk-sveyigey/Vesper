@@ -29,7 +29,14 @@ final class TraktAccountStore: NSObject, ObservableObject, ASWebAuthenticationPr
     private(set) var accountRevision = UUID()
 
     private enum Failure: Error { case random, callback, network, storage, disconnected }
-    private struct HTTPFailure: Error { let status: Int; let retryAfter: TimeInterval? }
+    private struct HTTPFailure: LocalizedError {
+        let status: Int
+        let retryAfter: TimeInterval?
+        let serverMessage: String?
+        var errorDescription: String? {
+            serverMessage.map { "Trakt HTTP \(status): \($0)" } ?? "Trakt HTTP \(status)"
+        }
+    }
     private let keychainQuery: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: "com.aholic.vesper.trakt",
@@ -160,7 +167,7 @@ final class TraktAccountStore: NSObject, ObservableObject, ASWebAuthenticationPr
         request.httpBody = try JSONEncoder().encode(fields)
         let (data, response) = try await network.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw Failure.network }
-        guard http.statusCode == 200 else { throw HTTPFailure(status: http.statusCode, retryAfter: nil) }
+        guard http.statusCode == 200 else { throw HTTPFailure(status: http.statusCode, retryAfter: nil, serverMessage: nil) }
         let token = try JSONDecoder().decode(Token.self, from: data)
         guard token.isValid else { throw Failure.network }
         return token
@@ -215,40 +222,133 @@ final class TraktAccountStore: NSObject, ObservableObject, ASWebAuthenticationPr
         return (try await task.value).access_token
     }
 
-    /// One refresh/replay on 401. The caller owns pacing and rate-limit handling.
+    /// Refreshes once on 401 and retries transient failures only when replay is safe.
+    /// Adding watch-history entries is intentionally not replayed after ambiguous failures:
+    /// Trakt may have accepted the write even if the response was lost.
     func api(_ path: String, method: String = "GET", body: Data? = nil, revision: UUID) async throws -> Data {
-        let first = try await accessToken(revision: revision)
-        for retry in 0...1 {
-            let credential: String
-            if retry == 0 { credential = first }
-            else { credential = try await accessToken(revision: revision, rejectedToken: first) }
+        let originalCredential = try await accessToken(revision: revision)
+        var credential = originalCredential
+        var didRefreshCredential = false
+        var transientRetries = 0
+        let normalizedMethod = method.uppercased()
+
+        while true {
             try Task.checkCancellation()
             guard accountRevision == revision, isConnected else { throw Failure.disconnected }
+
             var request = URLRequest(url: URL(string: "https://api.trakt.tv/" + path)!)
-            request.httpMethod = method
+            request.httpMethod = normalizedMethod
             request.timeoutInterval = 20
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("2", forHTTPHeaderField: "trakt-api-version")
             request.setValue(TraktConfiguration.clientID, forHTTPHeaderField: "trakt-api-key")
             request.setValue("Bearer " + credential, forHTTPHeaderField: "Authorization")
-            let (data, response) = try await network.data(for: request)
-            guard accountRevision == revision else { throw Failure.disconnected }
-            guard let http = response as? HTTPURLResponse else { throw Failure.network }
-            if http.statusCode == 401 {
-                if retry == 0 { continue }
-                disconnect()
+
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await network.data(for: request)
+            } catch {
+                guard accountRevision == revision, isConnected else { throw Failure.disconnected }
+                guard transientRetries < Self.maximumTransientRetries,
+                      Self.isTransientTransportFailure(error),
+                      Self.canReplayAfterAmbiguousFailure(method: normalizedMethod, path: path) else { throw error }
+                transientRetries += 1
+                try await waitBeforeRetry(retryIndex: transientRetries, retryAfter: nil)
+                continue
             }
+
+            guard accountRevision == revision, isConnected else { throw Failure.disconnected }
+            guard let http = response as? HTTPURLResponse else { throw Failure.network }
+
+            if http.statusCode == 401 {
+                guard !didRefreshCredential else {
+                    disconnect()
+                    let message = Self.serverErrorMessage(from: data)
+                    throw HTTPFailure(status: 401, retryAfter: nil, serverMessage: message)
+                }
+                credential = try await accessToken(revision: revision, rejectedToken: originalCredential)
+                didRefreshCredential = true
+                continue
+            }
+
             // Trakt returns 409 for a recently recorded scrobble; it is already recorded.
-            if (200..<300).contains(http.statusCode) || (method == "POST" && http.statusCode == 409) { return data }
-            throw HTTPFailure(status: http.statusCode,
-                              retryAfter: http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init))
+            if (200..<300).contains(http.statusCode) || (normalizedMethod == "POST" && http.statusCode == 409) {
+                return data
+            }
+
+            let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
+            let failure = HTTPFailure(status: http.statusCode,
+                                      retryAfter: retryAfter,
+                                      serverMessage: Self.serverErrorMessage(from: data))
+            // Scrobble already has an outer, rate-limited retry queue; keeping its
+            // 429 handling there avoids multiplying retries at both layers.
+            let isRateLimited = http.statusCode == 429 && !path.hasPrefix("scrobble/")
+            let isTransientServerError = (500..<600).contains(http.statusCode)
+                && Self.canReplayAfterAmbiguousFailure(method: normalizedMethod, path: path)
+            guard transientRetries < Self.maximumTransientRetries,
+                  isRateLimited || isTransientServerError else { throw failure }
+
+            transientRetries += 1
+            try await waitBeforeRetry(retryIndex: transientRetries,
+                                      retryAfter: isRateLimited ? (retryAfter ?? 5) : nil)
         }
-        throw Failure.disconnected
+    }
+
+    private static let maximumTransientRetries = 2
+
+    private static func isTransientTransportFailure(_ error: Error) -> Bool {
+        guard let error = error as? URLError else { return false }
+        switch error.code {
+        case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+             .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+             .resourceUnavailable, .dataNotAllowed, .internationalRoamingOff:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func canReplayAfterAmbiguousFailure(method: String, path: String) -> Bool {
+        switch method {
+        case "GET", "HEAD", "DELETE":
+            return true
+        case "POST":
+            // Removing an already-removed history record is safe. Adding history
+            // can create duplicate plays, so it must not be replayed blindly.
+            return path == "sync/history/remove"
+        default:
+            return false
+        }
+    }
+
+    private func waitBeforeRetry(retryIndex: Int, retryAfter: TimeInterval?) async throws {
+        try Task.checkCancellation()
+        // Respect Retry-After but cap a single wait so a stale server header cannot
+        // leave a user-triggered action suspended for an unreasonable period.
+        let requested = retryAfter.flatMap { $0.isFinite ? max(0, $0) : nil }
+        let base = min(60, requested ?? (0.5 * pow(2, Double(retryIndex - 1))))
+        let jitter = retryAfter == nil ? Double.random(in: 0...0.25) : 0
+        try await Task.sleep(for: .seconds(base + jitter))
+        try Task.checkCancellation()
+    }
+
+    private static func serverErrorMessage(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let message = (object["error"] as? String) ?? (object["message"] as? String)
+        let errors = (object["errors"] as? [String: Any])?.values
+            .compactMap { value -> String? in
+                if let text = value as? String { return text }
+                if let values = value as? [String] { return values.joined(separator: ", ") }
+                return nil
+            }.joined(separator: "; ")
+        let combined = [message, errors].compactMap { $0 }.joined(separator: ": ")
+        return combined.isEmpty ? nil : String(combined.prefix(240))
     }
 
     func diagnostic(for error: Error) -> String {
-        if let failure = error as? HTTPFailure { return "HTTP \(failure.status)" }
+        if let failure = error as? HTTPFailure { return failure.errorDescription ?? "HTTP \(failure.status)" }
         if let failure = error as? URLError { return "network \(failure.code.rawValue)" }
         return "credential-or-response"
     }
@@ -347,6 +447,10 @@ struct TraktMediaIdentity: Sendable, Equatable {
     var season: Int? = nil
     var episode: Int? = nil
 
+    var apiID: String? {
+        ["trakt", "imdb", "tmdb", "tvdb"].compactMap { ids[$0] }.first
+    }
+
     static func supportedIDs(_ providers: [String: String]) -> [String: String] {
         var ids: [String: String] = [:]
         for (key, value) in providers {
@@ -366,6 +470,16 @@ struct TraktMediaIdentity: Sendable, Equatable {
             else if let number = Int(entry.value) { result[entry.key] = number }
         }
     }
+}
+
+struct TraktEpisodeKey: Hashable, Sendable {
+    let season: Int
+    let episode: Int
+}
+
+struct TraktEpisodePlaybackState: Sendable {
+    var isPlayed: Bool?
+    var progress: Double?
 }
 
 struct TraktScrobbleState {
@@ -425,7 +539,7 @@ final class TraktPlaybackReporter {
             revision = account.accountRevision
             state = TraktScrobbleState()
             identity = Task {
-                do { return try await EmbyRepository.shared.traktIdentity(for: item, source: source) }
+                do { return try await MediaSourceServices.identity.traktIdentity(for: item, source: source) }
                 catch {
                     Self.log("媒体标识查询失败，跳过本次上报")
                     return nil
@@ -576,44 +690,163 @@ enum EmbyProgressPriority {
 }
 
 extension TraktAccountStore {
+    func setPlayed(_ played: Bool, for item: MediaItem, source: MediaSource) async throws {
+        guard isConnected, source.kind == .emby else { return }
+        let revision = accountRevision
+        guard let identity = try await MediaSourceServices.identity.traktIdentity(for: item, source: source) else { return }
+        let payload = try await historyPayload(for: identity, revision: revision)
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let endpoint = played ? "sync/history" : "sync/history/remove"
+        _ = try await api(endpoint, method: "POST", body: body, revision: revision)
+        TraktPlaybackReporter.log("观看状态已同步：\(played ? "已观看" : "未观看")")
+    }
+
+    private func historyPayload(for identity: TraktMediaIdentity, revision: UUID) async throws -> [String: Any] {
+        guard let season = identity.season, let episode = identity.episode else {
+            let category = identity.kind == "movie" ? "movies" : "episodes"
+            return [category: [["ids": identity.jsonIDs]]]
+        }
+        // A fallback identity contains show IDs, so resolve the concrete episode
+        // before submitting watched history to avoid treating the show as watched.
+        guard let key = ["trakt", "imdb", "tmdb", "tvdb"].first(where: { identity.ids[$0] != nil }),
+              let id = identity.ids[key] else { throw URLError(.cannotParseResponse) }
+        let lookup = try await api("search/\(key)/\(id)?type=show", revision: revision)
+        let rows = try JSONSerialization.jsonObject(with: lookup) as? [[String: Any]]
+        guard let row = rows?.first(where: { $0["type"] as? String == "show" }),
+              let show = row["show"] as? [String: Any],
+              let ids = show["ids"] as? [String: Any],
+              let traktID = ids["trakt"] as? Int else { throw URLError(.cannotParseResponse) }
+        let detail = try await api("shows/\(traktID)/seasons/\(season)/episodes/\(episode)", revision: revision)
+        guard let object = try JSONSerialization.jsonObject(with: detail) as? [String: Any],
+              let ids = object["ids"] as? [String: Any], ids["trakt"] as? Int != nil else {
+            throw URLError(.cannotParseResponse)
+        }
+        return ["episodes": [["ids": ids]]]
+    }
+
+    func clearPlaybackProgress(for item: MediaItem, source: MediaSource) async throws {
+        guard isConnected, source.kind == .emby else { return }
+        let revision = accountRevision
+        guard let identity = try await MediaSourceServices.identity.traktIdentity(for: item, source: source) else { return }
+        let category = identity.kind == "movie" ? "movies" : "episodes"
+        let data = try await api("sync/playback/\(category)", revision: revision)
+        guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+        for id in TraktResumeProgress.playbackIDsToRemove(rows, identity: identity) {
+            try Task.checkCancellation()
+            _ = try await api("sync/playback/\(id)", method: "DELETE", revision: revision)
+        }
+        TraktPlaybackReporter.log("续播记录已从 Trakt 删除")
+    }
+
     /// Fetch paused playback progress, not watched-history completion flags.
     func resumePosition(for item: MediaItem, source: MediaSource, duration: Double) async -> Double? {
         guard isConnected, duration.isFinite, duration > 0 else { return nil }
         let revision = accountRevision
         do {
-            guard let identity = try await EmbyRepository.shared.traktIdentity(for: item, source: source) else { return nil }
+            guard let identity = try await MediaSourceServices.identity.traktIdentity(for: item, source: source) else { return nil }
             let category = identity.kind == "movie" ? "movies" : "episodes"
             try Task.checkCancellation()
             // Without pagination parameters Trakt returns the complete paused-progress set.
             let data = try await api("sync/playback/\(category)", revision: revision)
             guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
             for row in rows {
-                guard let media = row[identity.kind] as? [String: Any] else { continue }
-                let matches: Bool
-                if let season = identity.season, let episode = identity.episode {
-                    let show = row["show"] as? [String: Any]
-                    matches = TraktResumeProgress.matches(identity.ids, responseIDs: show?["ids"] as? [String: Any] ?? [:])
-                        && media["season"] as? Int == season && media["number"] as? Int == episode
-                } else {
-                    matches = TraktResumeProgress.matches(identity.ids, responseIDs: media["ids"] as? [String: Any] ?? [:])
-                }
-                if matches, let position = TraktResumeProgress.seconds(
+                guard TraktResumeProgress.matches(row: row, identity: identity),
+                      let position = TraktResumeProgress.seconds(
                     percent: (row["progress"] as? NSNumber)?.doubleValue, duration: duration
-                ) { return position }
+                ) else { continue }
+                return position
             }
         } catch {
             TraktPlaybackReporter.log("续播进度读取失败，尝试下一优先来源")
         }
         return nil
     }
+
+    /// Fetch one show's watched flags and the account's paused episode rows,
+    /// then return both mapped by season/episode for detail-screen reuse.
+    func seriesPlaybackState(for show: MediaItem, source: MediaSource) async -> [TraktEpisodeKey: TraktEpisodePlaybackState] {
+        guard isConnected, source.kind == .emby else { return [:] }
+        let revision = accountRevision
+        do {
+            guard let identity = try await MediaSourceServices.identity.traktShowIdentity(for: show, source: source),
+                  let showID = identity.apiID else { return [:] }
+            async let watchedData = try? api("shows/\(showID)/progress/watched?specials=true", revision: revision)
+            async let playbackData = try? api("sync/playback/episodes", revision: revision)
+            let (watched, playback) = await (watchedData, playbackData)
+            guard accountRevision == revision, isConnected else { return [:] }
+            var result = [TraktEpisodeKey: TraktEpisodePlaybackState]()
+            if let watched,
+               let object = try? JSONSerialization.jsonObject(with: watched) as? [String: Any] {
+                result = TraktResumeProgress.watchedEpisodes(object)
+            }
+            if let playback,
+               let rows = try? JSONSerialization.jsonObject(with: playback) as? [[String: Any]] {
+                for (key, percent) in TraktResumeProgress.pausedEpisodes(rows, showIdentity: identity) {
+                    var state = result[key] ?? TraktEpisodePlaybackState(isPlayed: nil, progress: nil)
+                    state.progress = percent
+                    result[key] = state
+                }
+            }
+            return result
+        } catch {
+            TraktPlaybackReporter.log("剧集播放状态读取失败")
+            return [:]
+        }
+    }
 }
 
 enum TraktResumeProgress {
+    static func watchedEpisodes(_ response: [String: Any]) -> [TraktEpisodeKey: TraktEpisodePlaybackState] {
+        var result = [TraktEpisodeKey: TraktEpisodePlaybackState]()
+        for season in response["seasons"] as? [[String: Any]] ?? [] {
+            guard let seasonNumber = season["number"] as? Int else { continue }
+            for episode in season["episodes"] as? [[String: Any]] ?? [] {
+                guard let episodeNumber = episode["number"] as? Int else { continue }
+                result[TraktEpisodeKey(season: seasonNumber, episode: episodeNumber)] =
+                    TraktEpisodePlaybackState(isPlayed: episode["completed"] as? Bool, progress: nil)
+            }
+        }
+        return result
+    }
+
+    static func pausedEpisodes(_ rows: [[String: Any]], showIdentity: TraktMediaIdentity) -> [TraktEpisodeKey: Double] {
+        var result = [TraktEpisodeKey: Double]()
+        for row in rows {
+            guard let show = row["show"] as? [String: Any],
+                  matches(showIdentity.ids, responseIDs: show["ids"] as? [String: Any] ?? [:]),
+                  let episode = row["episode"] as? [String: Any],
+                  let season = episode["season"] as? Int,
+                  let number = episode["number"] as? Int,
+                  let progress = (row["progress"] as? NSNumber)?.doubleValue,
+                  progress.isFinite, (0...100).contains(progress) else { continue }
+            result[TraktEpisodeKey(season: season, episode: number)] = progress
+        }
+        return result
+    }
+
     static func matches(_ expected: [String: String], responseIDs: [String: Any]) -> Bool {
         expected.contains { key, value in
             if let actual = responseIDs[key] as? String { return actual == value }
             if let actual = responseIDs[key] as? NSNumber { return actual.stringValue == value }
             return false
+        }
+    }
+    static func matches(row: [String: Any], identity: TraktMediaIdentity) -> Bool {
+        guard let media = row[identity.kind] as? [String: Any] else { return false }
+        if let season = identity.season, let episode = identity.episode {
+            let show = row["show"] as? [String: Any]
+            return matches(identity.ids, responseIDs: show?["ids"] as? [String: Any] ?? [:])
+                && media["season"] as? Int == season && media["number"] as? Int == episode
+        }
+        return matches(identity.ids, responseIDs: media["ids"] as? [String: Any] ?? [:])
+    }
+    static func playbackIDsToRemove(_ rows: [[String: Any]], identity: TraktMediaIdentity) -> [Int] {
+        var seen = Set<Int>()
+        return rows.compactMap { row in
+            guard matches(row: row, identity: identity),
+                  let number = row["id"] as? NSNumber else { return nil }
+            let id = number.intValue
+            return id > 0 && seen.insert(id).inserted ? id : nil
         }
     }
     static func seconds(percent: Double?, duration: Double) -> Double? {

@@ -23,8 +23,15 @@ class LocalizationTests(unittest.TestCase):
                 self.assertEqual(sorted(PLACEHOLDER.findall(key)), sorted(PLACEHOLDER.findall(value)), (locale, key))
     def test_settings_cards(self):
         pages = {
-            'Settings/SettingsView.swift': ['EmbySettingsView', 'AppPermissionsView', 'RuntimeLogsView',
-                'AppearanceSettingsView', 'TabSettingsView', 'PlaybackLicensesView', 'DebugSettingsView', 'CacheCategoryList'],
+            'Settings/AppPermissionsView.swift': ['AppPermissionsView'],
+            'Settings/AppearanceSettingsView.swift': ['AppearanceSettingsView'],
+            'Settings/EmbySettingsView.swift': ['EmbySettingsView'],
+            'Settings/PlaybackLicensesView.swift': ['PlaybackLicensesView'],
+            'Settings/RuntimeLogsView.swift': ['RuntimeLogsView'],
+            'Settings/TabSettingsView.swift': ['TabSettingsView'],
+            'Settings/SettingsView.swift': [],
+            'Settings/DebugSettingsView.swift': ['DebugSettingsView'],
+            'Settings/CacheManagementView.swift': [],
             'Settings/PlaybackSettingsView.swift': ['PlaybackSettingsView', 'SubtitleSettingsView', 'DanmakuSettingsView'],
             'Settings/PlayerGestureSettingsView.swift': ['PlayerGestureSettingsView'],
             'Sources/EmbyIconLibraryViews.swift': ['EmbyIconLibrarySettingsView'],
@@ -34,9 +41,10 @@ class LocalizationTests(unittest.TestCase):
             source = (ROOT / 'Vesper/Features' / file).read_text()
             for view in views:
                 block = re.split(r'\n(?:private )?struct ', source.split('struct '+view+':', 1)[1], maxsplit=1)[0]
-                self.assertIn('SettingsIntroCard(', block, view)
-        source = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text()
-        self.assertIn('class IntroCardTableView', source)
+                if view != 'CacheManagementView':
+                    self.assertIn('SettingsIntroCard(', block, view)
+        source = (ROOT / 'Vesper/Features/Settings/SettingsComponents.swift').read_text()
+        self.assertIn('class IntroCardTableView', (ROOT / 'Vesper/Features/Settings/CacheManagementView.swift').read_text())
         card = source.split('struct SettingsIntroCard: View {', 1)[1].split('/// Match the standard', 1)[0]
         self.assertNotIn('\\.isPresented', card)
         self.assertIn('@Environment(\\.settingsIntroCardsHidden)', card)
@@ -53,8 +61,8 @@ class LocalizationTests(unittest.TestCase):
 
     def test_sheet_settings_have_no_intro_cards(self):
         sheets = {
-            'Settings/SettingsView.swift': ['TabOrderSettingsView', 'EmbyProgressPrioritySheet',
-                'EmbySkipDatabasesView', 'EmbySkipDatabaseEditor'],
+            'Settings/SettingsView.swift': ['TabOrderSettingsView', 'EmbyProgressPrioritySheet'],
+            'Settings/EmbySkipDatabasesView.swift': ['EmbySkipDatabasesView', 'EmbySkipDatabaseEditor'],
             'Settings/PlayerGestureSettingsView.swift': ['GesturePairSettingsView', 'GestureRegionSettingsView'],
             'Sources/EmbyIconLibraryViews.swift': ['EmbyIconLibraryEditor'],
             'Player/DanmakuAPISettingsView.swift': ['DanmakuAPIEditor'],
@@ -66,4 +74,4 @@ class LocalizationTests(unittest.TestCase):
                 self.assertNotIn('SettingsIntroCard(', block, view)
     def test_danmaku_submenu(self):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
-        self.assertIn('[speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu()]', source)
+        self.assertIn('[speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu(), introOutroMenu()]', source)

@@ -19,4 +19,4 @@ iOS 应用标识符：`com.aholic.vesper`。
 - 根目录 `Info.plist`，并在工程中正确引用；`CFBundleIdentifier` 应使用 `$(PRODUCT_BUNDLE_IDENTIFIER)`。
 - 应用源码及所需资源，工程的 Bundle Identifier 同样设为 `com.aholic.vesper`，所有应用及扩展 target 的 iOS Deployment Target 设为 `26.0`。
 
-`VERSION` 初始为 `0.1.0`，发布前更新为所需的语义化版本。IPA 未签名，安装前需要自行签名。
+`VERSION` 当前版本为 `0.1.1`，发布前更新为所需的语义化版本。IPA 未签名，安装前需要自行签名。

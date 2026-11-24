@@ -1,146 +1,5 @@
 import Foundation
 import Combine
-import CryptoKit
-#if canImport(Photos)
-import Photos
-#endif
-
-/// Stable identity is scoped to a source, not a title or display URL.
-struct MediaID: Hashable, Codable, Sendable {
-    let sourceID: UUID
-    let localID: String
-}
-
-struct PlayableResource: Hashable, Codable, Sendable {
-    let url: URL
-    var headers: [String: String] = [:]
-}
-
-struct MediaItem: Identifiable, Hashable, Codable, Sendable {
-    let id: MediaID
-    let title: String
-    let resource: PlayableResource?
-    var subtitle: String? = nil
-    var isContainer = false
-    var embyItemID: String? = nil
-    var embyItemType: String? = nil
-    var embyMediaSourceID: String? = nil
-    var imageURL: URL? = nil
-    var fallbackImageURL: URL? = nil
-    var previewImageURL: URL? = nil
-    var duration: Double? = nil
-    var resumePosition: Double? = nil
-    var dateCreated: Date? = nil
-    var embyPresentation: EmbyPresentation? = nil
-
-    var isFavorite: Bool? = nil
-    var isPlayed: Bool? = nil
-    var embyPlayedFetchedAt: Date? = nil
-
-    var isEmbySeries: Bool { embyItemType == "Series" }
-}
-
-struct EmbyPresentation: Codable, Hashable, Sendable {
-    var genres: [String]
-    var premiereDate: Date?
-    var status: String?
-    var rating: String?
-    var logoURL: URL?
-    var overview: String? = nil
-    var communityRating: Double? = nil
-    var studios: [String]? = nil
-    var seasonCount: Int? = nil
-}
-
-struct SourceCapabilities: OptionSet, Sendable {
-    let rawValue: Int
-    static let browse = Self(rawValue: 1 << 0)
-    static let playback = Self(rawValue: 1 << 1)
-}
-
-enum DemoSourceBehavior: String, Codable, CaseIterable, Identifiable, Sendable {
-    case content, empty, failure, offline
-    var id: Self { self }
-    var titleKey: String {
-        switch self {
-        case .content: "示例内容"
-        case .empty: "空来源"
-        case .failure: "连接失败"
-        case .offline: "离线"
-        }
-    }
-}
-
-/// Demo is an explicit source kind; service accounts are not media sources.
-struct MediaSource: Identifiable, Codable, Equatable, Sendable {
-    enum Kind: String, Codable { case demo, photos, local, emby }
-    let id: UUID
-    var name: String
-    let kind: Kind
-    var folderBookmark: Data? = nil
-    var behavior: DemoSourceBehavior
-    var emby: EmbySourceConfiguration? = nil
-    var capabilities: SourceCapabilities { kind == .demo ? [.browse] : [.browse, .playback] }
-}
-
-enum SourceFailure: Error, Equatable {
-    case unavailable, offline, message(String)
-}
-
-protocol SourceAdapter: Sendable {
-    func media(in source: MediaSource) async throws -> [MediaItem]
-}
-
-struct DemoSourceAdapter: SourceAdapter {
-    func media(in source: MediaSource) async throws -> [MediaItem] {
-        if source.kind == .local {
-            #if os(iOS)
-            let url = try source.localFolderURL()
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let urls = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isRegularFileKey])
-            return urls.filter { VideoImporter.isVideoType($0) }.sorted { $0.lastPathComponent < $1.lastPathComponent }.map {
-                MediaItem(id: MediaID(sourceID: source.id, localID: $0.lastPathComponent), title: $0.deletingPathExtension().lastPathComponent, resource: nil)
-            }
-            #else
-            throw SourceFailure.unavailable
-            #endif
-        }
-        if source.kind == .photos {
-            #if canImport(Photos)
-            let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-            guard status == .authorized || status == .limited else { throw SourceFailure.unavailable }
-            let options = PHFetchOptions()
-            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-            let assets = PHAsset.fetchAssets(with: .video, options: options)
-            var items: [MediaItem] = []
-            for index in 0..<assets.count {
-                try Task.checkCancellation()
-                let asset = assets.object(at: index)
-                let name = PHAssetResource.assetResources(for: asset).first?.originalFilename ?? asset.localIdentifier
-                items.append(MediaItem(id: MediaID(sourceID: source.id, localID: asset.localIdentifier), title: name, resource: nil))
-            }
-            return items
-            #else
-            throw SourceFailure.unavailable
-            #endif
-        }
-        if source.kind == .emby {
-            return try await EmbyRepository.shared.rootItems(for: source)
-        }
-        try await Task.sleep(for: .milliseconds(250))
-        switch source.behavior {
-        case .empty: return []
-        case .failure: throw SourceFailure.unavailable
-        case .offline: throw SourceFailure.offline
-        case .content:
-            return (1...6).map { index in
-                MediaItem(id: MediaID(sourceID: source.id, localID: String(index)),
-                          title: "Demo \(index)", resource: nil)
-            }
-        }
-    }
-}
 
 @MainActor
 final class SourceLibrary: ObservableObject {
@@ -152,12 +11,76 @@ final class SourceLibrary: ObservableObject {
         var selectedID: UUID?
     }
     @Published private(set) var sources: [MediaSource]
+    @Published private(set) var protectedSourceIDs: Set<UUID> = []
+    @Published private(set) var isPrivacyModeEnabled = false
 
-    /// Shared display order for source lists and selection menus.
-    var orderedSources: [MediaSource] {
-        sources.filter { $0.kind == .photos }
-            + sources.filter { $0.kind == .local }
-            + sources.filter { $0.kind != .photos && $0.kind != .local }
+    var canUsePrivacyMode: Bool { AppLock.shared.protectsSources }
+
+    func refreshProtectionScope() {
+        guard !canUsePrivacyMode else { return }
+        protectedSourceIDs.removeAll()
+        defaults.removeObject(forKey: Self.protectedSourceIDsKey)
+        isPrivacyModeEnabled = false
+    }
+
+    var visibleSources: [MediaSource] {
+        sources.filter { !canUsePrivacyMode || isPrivacyModeEnabled || !isProtected($0) }
+    }
+
+    func isProtected(_ source: MediaSource) -> Bool { canUsePrivacyMode && protectedSourceIDs.contains(source.id) }
+
+    func setProtected(_ protected: Bool, for source: MediaSource) {
+        guard canUsePrivacyMode else { return }
+        if protected { protectedSourceIDs.insert(source.id) }
+        else { protectedSourceIDs.remove(source.id) }
+        defaults.set(protectedSourceIDs.map(\.uuidString), forKey: Self.protectedSourceIDsKey)
+        if !isPrivacyModeEnabled, selectedID == source.id, protected {
+            selectedID = visibleSources.first?.id
+            reload()
+        }
+    }
+
+    func setPrivacyMode(_ enabled: Bool) {
+        guard AppLock.shared.protectsSources || !enabled else { return }
+        guard enabled != isPrivacyModeEnabled else { return }
+        isPrivacyModeEnabled = enabled
+        if !enabled {
+            for id in protectedSourceIDs {
+                connectionChecks.removeValue(forKey: id)?.cancel()
+                connectionGenerations[id] = nil
+            }
+        }
+        if !enabled, let selectedID, protectedSourceIDs.contains(selectedID) {
+            self.selectedID = visibleSources.first?.id
+            embyParentStack.removeAll()
+            currentEmbyParentID = nil
+            hasMoreEmbyItems = false
+            content = .unselected
+            embyHome = nil
+            persist()
+            reload()
+        }
+    }
+
+    func testProtectedRouteLatencies() {
+        guard isPrivacyModeEnabled else { return }
+        for source in visibleSources where protectedSourceIDs.contains(source.id) && source.kind == .emby {
+            verifyEmbyConnection(source.id)
+        }
+    }
+
+    func moveSources(from offsets: IndexSet, to destination: Int) {
+        let visible = visibleSources
+        guard !offsets.isEmpty, offsets.allSatisfy({ visible.indices.contains($0) }),
+              (0...visible.count).contains(destination) else { return }
+        let moved = offsets.map { visible[$0] }
+        var ordered = visible.enumerated().filter { !offsets.contains($0.offset) }.map(\.element)
+        ordered.insert(contentsOf: moved, at: destination - offsets.filter { $0 < destination }.count)
+        var iterator = ordered.makeIterator()
+        sources = sources.map { source in
+            !canUsePrivacyMode || isPrivacyModeEnabled || !isProtected(source) ? iterator.next()! : source
+        }
+        persist()
     }
     @Published private(set) var selectedID: UUID?
     @Published private(set) var refreshGeneration = 0
@@ -165,6 +88,8 @@ final class SourceLibrary: ObservableObject {
     @Published private(set) var storageFailed = false
     enum ConnectionStatus: Equatable { case normal, checking, verified, failed }
     @Published private var connectionStatuses: [UUID: [String: ConnectionStatus]] = [:]
+    @Published private(set) var routeLatencies: [UUID: Int] = [:]
+    var isTestingRouteLatency: Bool { !connectionChecks.isEmpty }
     private var connectionChecks: [UUID: Task<Void, Never>] = [:]
     private var connectionGenerations: [UUID: UUID] = [:]
 
@@ -175,6 +100,8 @@ final class SourceLibrary: ObservableObject {
 
     /// Feedback only: verification never blocks or rolls back the selected route.
     func verifyEmbyConnection(_ id: UUID) {
+        if canUsePrivacyMode, !isPrivacyModeEnabled,
+           let source = sources.first(where: { $0.id == id }), isProtected(source) { return }
         guard let source = sources.first(where: { $0.id == id }), let configuration = source.emby else { return }
         connectionChecks[id]?.cancel()
         connectionStatuses[id] = connectionStatuses[id]?.mapValues { $0 == .checking ? .normal : $0 }
@@ -182,26 +109,37 @@ final class SourceLibrary: ObservableObject {
         connectionGenerations[id] = generation
         let key = EmbyRouteOptions.key(configuration.serverAddress)
         connectionStatuses[id, default: [:]][key] = .checking
+        routeLatencies[id] = nil
         connectionChecks[id] = Task { [weak self] in
             let result: ConnectionStatus
             do {
-                try await EmbyAccountStore.shared.verifyConnection(for: source)
+                try await EmbyAccountStore.shared.verifyConnection(for: source) { duration in
+                    guard let self, !Task.isCancelled, self.connectionGenerations[id] == generation else { return }
+                    let components = duration.components
+                    self.routeLatencies[id] = max(1, Int(components.seconds * 1_000
+                        + components.attoseconds / 1_000_000_000_000_000))
+                }
                 result = .verified
             } catch {
                 result = .failed
             }
             guard let self, !Task.isCancelled, self.connectionGenerations[id] == generation,
-                  self.sources.first(where: { $0.id == id })?.emby == configuration else { return }
-            self.connectionStatuses[id, default: [:]][key] = result
+                  self.sources.first(where: { $0.id == id })?.emby?.serverAddress == configuration.serverAddress else { return }
             self.connectionChecks[id] = nil
+            self.connectionStatuses[id, default: [:]][key] = result
         }
     }
 
     private let defaults: UserDefaults
+    var catalog: any MediaSourceCatalogService { MediaSourceServices.catalog }
+    var seriesCatalog: any SeriesMediaCatalogService { MediaSourceServices.seriesCatalog }
+    var artwork: any MediaSourceArtworkService { MediaSourceServices.artwork }
+
     private let adapter: any SourceAdapter
     private var request: Task<Void, Never>?
     private var generation = UUID()
     private static let storageKey = "sources.snapshot.v1"
+    private static let protectedSourceIDsKey = "sources.protectedIDs.v1"
     private var embyParentStack: [(MediaItem, [MediaItem], Bool)] = []
     private var currentEmbyParentID: String?
     @Published private(set) var hasMoreEmbyItems = false
@@ -218,6 +156,7 @@ final class SourceLibrary: ObservableObject {
     @Published private(set) var embyHome: EmbyHome?
     @Published private(set) var isLoadingEmbyHome = false
     private var moreRequest: Task<Void, Never>?
+    private static var didRunColdStartRouteTest = false
 
     var canNavigateBack: Bool { !embyParentStack.isEmpty }
 
@@ -229,9 +168,22 @@ final class SourceLibrary: ObservableObject {
         let saved = defaults.data(forKey: Self.storageKey)
             .flatMap { try? JSONDecoder().decode(Snapshot.self, from: $0) }
         sources = saved?.sources ?? []
+        protectedSourceIDs = Set((defaults.stringArray(forKey: Self.protectedSourceIDsKey) ?? [])
+            .compactMap(UUID.init(uuidString:))).intersection(Set(sources.map(\.id)))
         selectedID = saved?.selectedID
+        if let id = selectedID, protectedSourceIDs.contains(id) { selectedID = visibleSources.first?.id }
         if !sources.contains(where: { $0.id == selectedID }) { selectedID = nil }
         reload()
+        if !Self.didRunColdStartRouteTest {
+            Self.didRunColdStartRouteTest = true
+            testRouteLatencies()
+        }
+    }
+
+    func testRouteLatencies() {
+        for source in visibleSources where source.kind == .emby {
+            verifyEmbyConnection(source.id)
+        }
     }
 
     func addDeviceSource(kind: MediaSource.Kind, name: String, bookmark: Data? = nil) {
@@ -263,9 +215,10 @@ final class SourceLibrary: ObservableObject {
     }
 
     func select(_ id: UUID) {
-        guard sources.contains(where: { $0.id == id }) else { return }
+        guard visibleSources.contains(where: { $0.id == id }) else { return }
+        let didSwitchSource = selectedID != id
         selectedID = id
-        verifyEmbyConnection(id)
+        if didSwitchSource { verifyEmbyConnection(id) }
         embyParentStack.removeAll()
         currentEmbyParentID = nil
         hasMoreEmbyItems = false
@@ -319,55 +272,113 @@ final class SourceLibrary: ObservableObject {
         return configuration
     }
 
-    func addEmby(configuration: EmbySourceConfiguration, password: String) async throws {
-        let fallbackName = configuration.title.isEmpty ? Self.embyHostName(configuration.serverAddress) : configuration.title
-        let source = MediaSource(id: UUID(), name: fallbackName, kind: .emby,
-                                 behavior: .empty, emby: configuration)
-        let auth = try await EmbyAccountStore.shared.authenticate(source: source, username: configuration.username,
-                                                                  password: password)
-        var authenticated = source
-        authenticated.emby?.serverID = auth.serverID
-        authenticated.emby?.userID = auth.userID
-        if configuration.title.isEmpty, let name = auth.serverName, !name.isEmpty {
-            authenticated.name = name
-            authenticated.emby?.title = name
-        }
-        authenticated.emby?.customHeaders = [:]
-        sources.append(authenticated)
-        if selectedID == nil { selectedID = source.id; reload() }
-        persist()
-    }
-
-    private static func embyHostName(_ address: String) -> String {
-        URLComponents(string: address)?.host ?? "Emby"
-    }
-
-    func updateEmby(_ id: UUID, configuration: EmbySourceConfiguration, password: String?,
-                    validatesConnection: Bool = false) async throws {
-        guard let index = sources.firstIndex(where: { $0.id == id && $0.kind == .emby }) else { return }
-        _ = try EmbyAPIClient(configuration: configuration, token: nil, deviceID: "validation")
-        var updated = sources[index]
-        updated.name = configuration.title
-        updated.emby = configuration
-        if let password, !password.isEmpty {
-            let auth = try await EmbyAccountStore.shared.authenticate(source: updated, username: configuration.username,
-                                                                      password: password)
-            updated.emby?.serverID = auth.serverID
-            updated.emby?.userID = auth.userID
+    func saveEmby(_ id: UUID?, configuration: EmbySourceConfiguration, password: String?) async throws {
+        let original = id.flatMap { id in sources.first { $0.id == id && $0.kind == .emby } }
+        let sourceID = id ?? UUID()
+        var candidate = original ?? MediaSource(id: sourceID, name: configuration.title, kind: .emby,
+                                                behavior: .empty, emby: configuration)
+        let preferredAddress = configuration.serverAddress
+        var validated = configuration
+        validated.serverAddress = configuration.primaryRoute
+        candidate.emby = validated
+        let accounts = EmbyAccountStore.shared
+        let serverName: String?
+        let preparedAccount: EmbyAccount?
+        if let password {
+            let (auth, account) = try await accounts.prepareAuthentication(
+                source: candidate, username: validated.username, password: password
+            )
+            validated.serverID = auth.serverID
+            validated.userID = auth.userID
+            serverName = auth.serverName
+            preparedAccount = account
         } else {
-            if validatesConnection {
-                guard configuration.username == sources[index].emby?.username else { throw EmbyError.authentication }
-                try await EmbyAccountStore.shared.verifyConnection(for: updated)
-            }
-            try EmbyAccountStore.shared.updateCustomHeaders(configuration.customHeaders, sourceID: id)
+            guard validated.username == original?.emby?.username else { throw EmbyError.authentication }
+            serverName = try await accounts.verifyConnection(for: candidate)
+            preparedAccount = nil
         }
-        updated.emby?.customHeaders = [:]
-        guard let currentIndex = sources.firstIndex(where: { $0.id == id }) else { return }
-        sources[currentIndex] = updated
-        connectionStatuses[id] = nil
-        verifyEmbyConnection(id)
+        if validated.title.isEmpty {
+            validated.title = serverName.flatMap { $0.isEmpty ? nil : $0 }
+                ?? URLComponents(string: validated.primaryRoute)?.host ?? "Emby"
+        }
+        if validated.fetchAlternateAddresses == true {
+            let client: EmbyAPIClient
+            if let preparedAccount {
+                client = try EmbyAPIClient(configuration: validated, token: preparedAccount.token,
+                                           deviceID: preparedAccount.deviceID)
+            } else {
+                client = try accounts.client(for: candidate)
+            }
+            let routes = try await EmbyRepository.alternateRoutes(client: client, primaryRoute: validated.primaryRoute)
+            validated.mergeServerRoutes(routes)
+        }
+        let index = id.flatMap { id in sources.firstIndex { $0.id == id && $0.kind == .emby } }
+        guard id == nil || index != nil else { throw EmbyError.missingAccount }
+        if (original == nil || original?.emby?.serverID == validated.serverID),
+           let preferred = validated.backupRoutes.first(where: {
+            EmbyRouteOptions.key($0) == EmbyRouteOptions.key(preferredAddress)
+        }) {
+            validated.primaryRouteAddress = validated.primaryRoute
+            validated.serverAddress = preferred
+        }
+        if let preparedAccount { try accounts.save(preparedAccount, sourceID: sourceID) }
+        validated.customHeaders = [:]
+        candidate.name = validated.title
+        candidate.emby = validated
+        if let index { sources[index] = candidate }
+        else { sources.append(candidate) }
+        if selectedID == nil { selectedID = sourceID }
+        connectionChecks.removeValue(forKey: sourceID)?.cancel()
+        connectionGenerations[sourceID] = nil
+        connectionStatuses[sourceID] = nil
+        routeLatencies[sourceID] = nil
+        if let oldAddress = original?.emby?.serverAddress,
+           EmbyRouteOptions.key(oldAddress) != EmbyRouteOptions.key(validated.serverAddress) {
+            verifyEmbyConnection(sourceID)
+        }
         persist()
-        if selectedID == id { reload() }
+        if selectedID == sourceID { reload() }
+    }
+
+    func updateEmbyIcon(_ id: UUID, iconData: Data?) {
+        guard let index = sources.firstIndex(where: { $0.id == id }),
+              var configuration = sources[index].emby else { return }
+        configuration.iconData = iconData
+        sources[index].emby = configuration
+        persist()
+    }
+
+    func updateEmbyRoutes(_ id: UUID, routes: [EmbyRouteDraft]) throws {
+        guard let index = sources.firstIndex(where: { $0.id == id }),
+              var configuration = sources[index].emby,
+              let primary = routes.first,
+              routes.allSatisfy({ isValidEmbyRoute($0.address) }) else {
+            throw EmbyError.invalidAddress
+        }
+        let oldAddress = configuration.serverAddress
+        let oldAddressKey = EmbyRouteOptions.key(oldAddress)
+        let activeRoute = routes.first(where: { EmbyRouteOptions.key($0.address) == oldAddressKey })
+            ?? (oldAddressKey == EmbyRouteOptions.key(configuration.primaryRoute) ? routes.first : nil)
+        guard let activeRoute else { throw EmbyError.invalidAddress }
+        configuration.primaryRouteAddress = primary.address
+        configuration.serverAddress = activeRoute.address
+        configuration.alternateAddresses = EmbyRouteOptions.unique(routes.map(\.address))
+        configuration.serverRouteAddresses = routes.filter(\.fromServer).map(\.address)
+        configuration.alternateRouteNames = Dictionary(
+            routes.filter { !$0.name.isEmpty }.map { (EmbyRouteOptions.key($0.address), $0.name) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        sources[index].emby = configuration
+        persist()
+        if oldAddressKey != EmbyRouteOptions.key(configuration.serverAddress) {
+            verifyEmbyConnection(id)
+            if selectedID == id { reload() }
+        }
+    }
+
+    private func isValidEmbyRoute(_ address: String) -> Bool {
+        (try? EmbyAPIClient(configuration: .init(title: "", note: "", serverAddress: address, username: ""),
+                            token: nil, deviceID: "route-validation")) != nil
     }
 
     /// Route selection is immediate; verification only updates its status icon.
@@ -388,6 +399,28 @@ final class SourceLibrary: ObservableObject {
         if selectedID == id { reload() }
     }
 
+    func refreshEmbyRoutes(_ id: UUID) async throws {
+        guard let source = sources.first(where: { $0.id == id }),
+              let original = source.emby else { return }
+        try await EmbyAccountStore.shared.verifyConnection(for: source)
+        let routes = try await EmbyRepository.shared.alternateRoutes(for: source)
+        try Task.checkCancellation()
+
+        guard let index = sources.firstIndex(where: { $0.id == id }),
+              var configuration = sources[index].emby,
+              configuration.primaryRoute == original.primaryRoute,
+              configuration.serverID == original.serverID,
+              configuration.userID == original.userID else { return }
+        let oldAddress = configuration.serverAddress
+        configuration.replaceServerRoutes(routes)
+        sources[index].emby = configuration
+        persist()
+        if oldAddress != configuration.serverAddress {
+            verifyEmbyConnection(id)
+            if selectedID == id { reload() }
+        }
+    }
+
     func configure(_ id: UUID, behavior: DemoSourceBehavior) {
         guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
         sources[index].behavior = behavior
@@ -396,6 +429,7 @@ final class SourceLibrary: ObservableObject {
     }
 
     func remove(_ id: UUID) {
+        routeLatencies[id] = nil
         connectionChecks.removeValue(forKey: id)?.cancel()
         connectionGenerations[id] = nil
         connectionStatuses[id] = nil
@@ -403,6 +437,8 @@ final class SourceLibrary: ObservableObject {
             EmbyAccountStore.shared.logout(source: source)
         }
         sources.removeAll { $0.id == id }
+        protectedSourceIDs.remove(id)
+        defaults.set(protectedSourceIDs.map(\.uuidString), forKey: Self.protectedSourceIDsKey)
         if selectedID == id { selectedID = nil; reload() }
         persist()
     }
@@ -597,155 +633,5 @@ final class SourceLibrary: ObservableObject {
             defaults.set(data, forKey: Self.storageKey)
             storageFailed = false
         } catch { storageFailed = true }
-    }
-}
-
-enum AppCacheCategory: String, CaseIterable, Hashable, Sendable {
-    case library, images, videos, subtitles, danmaku, other
-}
-
-actor AppCacheStore {
-    static let shared = AppCacheStore()
-    private let directory = URL.cachesDirectory.appending(path: "VesperCache-v1", directoryHint: .isDirectory)
-    private var migrated = false
-    private var imageGeneration = UUID()
-    private(set) var libraryGeneration = UUID()
-    private var writes: [AppCacheCategory: Int] = [:]
-
-    nonisolated static func scope(for source: MediaSource) -> String {
-        "\(source.id)|\(source.emby?.serverAddress ?? "")|\(source.emby?.userID ?? "")|\(source.emby?.username ?? "")"
-    }
-
-    nonisolated static func embyArtworkKey(for item: MediaItem, source: MediaSource) -> String {
-        let key = "artwork|\(scope(for: source))|\(item.id.localID)|\(item.imageURL?.absoluteString ?? "")"
-        if item.embyItemType == "Episode" {
-            return "episode-preview|\(key)|\(item.previewImageURL?.absoluteString ?? "")"
-        }
-        return item.fallbackImageURL.map { "\(key)|\($0.absoluteString)" } ?? key
-    }
-
-    func items(scope: String, key: String) -> [MediaItem]? {
-        migrateIfNeeded()
-        return read("items|\(scope)|\(key)", category: .library)
-            .flatMap { try? JSONDecoder().decode([MediaItem].self, from: $0) }
-    }
-
-    func save(_ items: [MediaItem], scope: String, key: String, generation: UUID) {
-        guard generation == libraryGeneration, items.allSatisfy({ $0.resource == nil }),
-              let data = try? JSONEncoder().encode(items) else { return }
-        migrateIfNeeded()
-        write(data, key: "items|\(scope)|\(key)", category: .library)
-    }
-
-    func image(key: String) -> (Data?, UUID) {
-        migrateIfNeeded()
-        return (read("image|\(key)", category: .images), imageGeneration)
-    }
-
-    func image(key: String, ignoringLocalCache: Bool) -> (Data?, UUID) {
-        if ignoringLocalCache { return (nil, imageGeneration) }
-        migrateIfNeeded()
-        return (read("image|\(key)", category: .images), imageGeneration)
-    }
-
-    func invalidateImageWrites() { imageGeneration = UUID() }
-
-    func saveImage(_ data: Data, key: String, generation: UUID) {
-        guard generation == imageGeneration else { return }
-        write(data, key: "image|\(key)", category: .images)
-    }
-
-    func sizes() -> [AppCacheCategory: Int64] {
-        migrateIfNeeded()
-        return Dictionary(uniqueKeysWithValues: AppCacheCategory.allCases.map { category in
-            (category, files(in: folder(category)).reduce(0) { $0 + $1.bytes })
-        })
-    }
-
-    func clear(_ categories: Set<AppCacheCategory>) -> Set<AppCacheCategory> {
-        migrateIfNeeded()
-        if categories.contains(.images) { imageGeneration = UUID() }
-        if categories.contains(.library) { libraryGeneration = UUID() }
-        var failures = Set<AppCacheCategory>()
-        for category in categories {
-            do {
-                try FileManager.default.removeItem(at: folder(category))
-            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
-                continue
-            } catch {
-                failures.insert(category)
-            }
-        }
-        return failures
-    }
-
-    private func folder(_ category: AppCacheCategory) -> URL {
-        directory.appending(path: category.rawValue, directoryHint: .isDirectory)
-    }
-
-    private func file(_ key: String, category: AppCacheCategory) -> URL {
-        let digest = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
-        return folder(category).appending(path: digest)
-    }
-
-    private func read(_ key: String, category: AppCacheCategory) -> Data? {
-        try? Data(contentsOf: file(key, category: category))
-    }
-
-    private func write(_ data: Data, key: String, category: AppCacheCategory) {
-        guard data.count <= 8 * 1024 * 1024 else { return }
-        try? FileManager.default.createDirectory(at: folder(category), withIntermediateDirectories: true)
-        try? data.write(to: file(key, category: category), options: .atomic)
-        writes[category, default: 0] += 1
-        if writes[category] == 1 || writes[category, default: 0].isMultiple(of: 32) {
-            trim(category, limit: (category == .images ? 128 : 32) * 1024 * 1024)
-        }
-    }
-
-    private func files(in folder: URL) -> [(url: URL, bytes: Int64, date: Date)] {
-        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
-        guard let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: Array(keys)) else { return [] }
-        var entries: [(URL, Int64, Date)] = []
-        for case let url as URL in enumerator {
-            guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true else { continue }
-            entries.append((url, Int64(values.fileSize ?? 0), values.contentModificationDate ?? .distantPast))
-        }
-        return entries
-    }
-
-    private func trim(_ category: AppCacheCategory, limit: Int64) {
-        let entries = files(in: folder(category))
-        var bytes = entries.reduce(0) { $0 + $1.bytes }
-        for entry in entries.sorted(by: { $0.date < $1.date }) where bytes > limit {
-            if (try? FileManager.default.removeItem(at: entry.url)) != nil { bytes -= entry.bytes }
-        }
-    }
-
-    private func migrateIfNeeded() {
-        guard !migrated else { return }
-        migrated = true
-        let legacy = URL.cachesDirectory.appending(path: "EmbyMedia-v1", directoryHint: .isDirectory)
-        let manager = FileManager.default
-        for entry in files(in: legacy) {
-            guard let handle = try? FileHandle(forReadingFrom: entry.url) else { continue }
-            let firstByte = try? handle.read(upToCount: 1)
-            try? handle.close()
-            let category: AppCacheCategory = firstByte?.first == 91 ? .library : .images
-            let folder = folder(category)
-            do {
-                try manager.createDirectory(at: folder, withIntermediateDirectories: true)
-                let target = folder.appending(path: entry.url.lastPathComponent)
-                if manager.fileExists(atPath: target.path) {
-                    try manager.removeItem(at: entry.url)
-                } else {
-                    try manager.moveItem(at: entry.url, to: target)
-                }
-            } catch {
-                // The old entry can be migrated on the next launch.
-            }
-        }
-        if (try? manager.contentsOfDirectory(atPath: legacy.path).isEmpty) == true {
-            try? manager.removeItem(at: legacy)
-        }
     }
 }

@@ -5,6 +5,30 @@ import FoundationNetworking
 
 @main
 struct EmbyAPIClientChecks {
+    static func checkRouteRefresh() {
+        let primary = "https://primary.example.com"
+        let active = "https://active.example.com"
+        let moved = "https://moved.example.com"
+        let manual = "https://manual.example.com"
+        let stale = "https://stale.example.com"
+        var configuration = EmbySourceConfiguration(title: "", note: "", serverAddress: active, username: "")
+        configuration.primaryRouteAddress = primary
+        configuration.alternateAddresses = [primary, manual, active, stale]
+        configuration.serverRouteAddresses = [active, stale]
+        configuration.alternateRouteNames = [EmbyRouteOptions.key(active): "Active"]
+
+        configuration.replaceServerRoutes([.init(name: "Different", address: active)])
+        precondition(configuration.serverAddress == active)
+        precondition(configuration.backupRoutes == [manual, active])
+        precondition(configuration.alternateRouteNames?[EmbyRouteOptions.key(active)] == "Active")
+
+        configuration.replaceServerRoutes([.init(name: "Active", address: moved)])
+        precondition(configuration.serverAddress == moved)
+        precondition(configuration.primaryRoute == primary)
+        precondition(configuration.backupRoutes == [manual, moved])
+        precondition(configuration.alternateRouteNames?[EmbyRouteOptions.key(moved)] == "Active")
+    }
+
     static func main() async throws {
         let defaults = UserDefaults.standard
         let oldEnabled = defaults.object(forKey: EmbyUserAgentPolicy.enabledKey)
@@ -19,6 +43,7 @@ struct EmbyAPIClientChecks {
         defaults.set("CustomVesper", forKey: EmbyUserAgentPolicy.nameKey)
         defaults.set("2.0", forKey: EmbyUserAgentPolicy.versionKey)
         let address = CommandLine.arguments[1]
+        checkRouteRefresh()
         let configuration = EmbySourceConfiguration(title: "家庭影院", note: "测试备注", serverAddress: address + "/proxy",
                                                      username: "test", userID: "test-user",
                                                      customHeaders: ["X-Test": "present"])

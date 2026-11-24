@@ -1,4 +1,5 @@
 "应用" = "Aplicación";
+"受密码保护" = "Protegido con contraseña";
 "标签设置" = "Ajustes de pestañas";
 "外观设置" = "Apariencia";
 "运行日志" = "Registros de ejecución";
@@ -236,6 +237,10 @@
 "字幕" = "Subtítulos";
 
 "关闭字幕" = "Desactivar subtítulos";
+"正在恢复字幕" = "Restaurando subtítulos…";
+"未能恢复原字幕轨" = "No se pudo restaurar la pista de subtítulos anterior";
+"正在恢复音轨" = "Restaurando la pista de audio…";
+"未能恢复原音轨" = "No se pudo restaurar la pista de audio anterior";
 
 "无内嵌字幕" = "Sin subtítulos integrados";
 
@@ -950,6 +955,8 @@
 "%lld集" = "%lld episodios";
 "%@/共%lld季" = "%@ / %lld temporadas";
 "开始播放 E%@" = "Reproducir E%@";
+"继续播放 E%@" = "Continuar E%@";
+"重新播放 E%@" = "Volver a reproducir E%@";
 "开始播放 S%@E%@" = "Reproducir S%@E%@";
 "图标库" = "Bibliotecas de iconos";
 "来源图标" = "Iconos de fuentes";
@@ -1038,6 +1045,7 @@
 
 "帮助与关于" = "Ayuda e información";
 "继续播放" = "Seguir viendo";
+"重新播放" = "Reproducir de nuevo";
 "正在验证来源" = "Verificando fuente…";
 "来源验证成功" = "Fuente verificada";
 "验证失败，点击重试" = "Error de verificación. Toca para reintentar";
@@ -1106,3 +1114,83 @@
 "已播放音频缓冲" = "Búferes de audio reproducidos";
 "丢失音频缓冲" = "Búferes de audio perdidos";
 "显示帧率" = "Frecuencia de visualización";
+
+"下载速度" = "Velocidad de descarga";
+
+"显示剩余时长" = "Mostrar tiempo restante";
+"关闭时显示视频总时长；开启后显示剩余时长。" = "Desactivado muestra la duración total; activado muestra el tiempo restante.";
+"来源列表行高" = "Alto de fila de fuentes";
+"来源图标上间距" = "Margen superior del icono de fuente";
+"来源图标左间距" = "Margen izquierdo del icono de fuente";
+"来源图标下间距" = "Margen inferior del icono de fuente";
+"来源图标右间距" = "Margen derecho del icono de fuente";
+"上次播放" = "Última reproducción";
+
+"名称（可选）" = "Nombre (opcional)";
+"备注（可选）" = "Notas (opcional)";
+"已保留登录凭据" = "Credenciales guardadas";
+"线路" = "Rutas de conexión";
+"添加线路" = "Añadir ruta";
+"编辑线路" = "Editar rutas";
+"线路名称（可选）" = "Nombre de ruta (opcional)";
+"域名（必填）" = "Servidor (obligatorio)";
+"端口（可选）" = "Puerto (opcional)";
+"路径（可选）" = "Ruta (opcional)";
+"无法保存线路" = "No se pudo guardar la ruta";
+"此线路已存在。" = "Esta ruta ya existe.";
+"无法保存来源" = "No se pudo guardar la fuente";
+"请至少添加一条线路。" = "Añade al menos una ruta.";
+"编辑来源" = "Editar fuente";
+"修改图标" = "Cambiar icono";
+"移除来源" = "Eliminar fuente";
+"刷新线路" = "Actualizar rutas";
+"无法刷新线路" = "No se pudieron actualizar las rutas";
+"调整来源顺序" = "Ordenar fuentes";
+"测试延迟" = "Probar latencia";
+"测试中" = "Probando…";
+"测试失败" = "Error en la prueba";
+"App 启动" = "Al iniciar la app";
+"媒体来源" = "Fuentes multimedia";
+"App 启动和媒体来源" = "Al iniciar la app y cambiar de fuente";
+"立即" = "Inmediatamente";
+"1 分钟" = "1 minuto";
+"5 分钟" = "5 minutos";
+"15 分钟" = "15 minutos";
+"隐私保护范围" = "Privacidad";
+"保护范围" = "Ámbito de protección";
+"重新验证时间" = "Volver a autenticar";
+"后台高斯模糊" = "Desenfoque en segundo plano";
+"重置密码" = "Restablecer código";
+"启用生物识别" = "Usar biometría";
+"优先使用生物识别" = "Priorizar biometría";
+"密码错误，请重试。" = "Código incorrecto. Inténtalo de nuevo.";
+"请输入六位数字密码。" = "Introduce un código de seis dígitos.";
+"无法安全保存密码。" = "No se pudo guardar el código de forma segura.";
+"输入密码以继续" = "Introduce el código para continuar";
+"使用生物识别" = "Usar biometría";
+"使用设备密码保护 Vesper，并控制重新验证与后台隐私显示。" = "Protege Vesper con un código y configura la reautenticación y la privacidad en segundo plano.";
+"输入密码以关闭保护" = "Introduce el código para desactivar la protección";
+"设置新的六位数字密码" = "Configura un nuevo código de seis dígitos";
+"设置六位数字密码" = "Configura un código de seis dígitos";
+"六位数字密码" = "Código de seis dígitos";
+"确认关闭" = "Desactivar";
+"保存密码" = "Guardar código";
+"解锁 Vesper" = "Desbloquear Vesper";
+"密码保护" = "Protección con código";
+"正在使用" = "En uso";
+"当前使用中的线路不能删除；可编辑其地址，线路名称保持不变。" = "La ruta activa no se puede eliminar. Puedes cambiar su dirección, pero el nombre se conservará.";
+
+"密码保护范围" = "Ámbito de protección";
+
+"面容 ID" = "Face ID";
+
+"触控 ID" = "Touch ID";
+
+"需要 %@" = "Autentícate con %@";
+
+"使用 %@" = "Usar %@";
+
+"再次尝试 %@" = "Volver a intentar %@";
+"新版图标" = "Icono nuevo";
+"经典图标" = "Icono clásico";
+"无法更换图标" = "No se pudo cambiar el icono";

@@ -6,7 +6,9 @@ struct HistoryView: View {
     @Binding var path: NavigationPath
 
     private var groups: [HistorySourceGroup] {
-        Dictionary(grouping: playback.history.filter { $0.hiddenFromHistory != true }, by: { $0.source.id }).values.map { entries in
+        Dictionary(grouping: playback.history.filter {
+            $0.hiddenFromHistory != true && (!library.canUsePrivacyMode || library.isPrivacyModeEnabled || !library.isProtected($0.source))
+        }, by: { $0.source.id }).values.map { entries in
             HistorySourceGroup(source: entries[0].source, entries: entries.sorted { $0.watchedAt > $1.watchedAt })
         }.sorted { left, right in
             if left.id == library.selectedID { return true }
@@ -78,6 +80,12 @@ private struct HistorySourceGroup: Identifiable {
     var id: UUID { source.id }
 }
 
+private struct HistoryArtworkCacheEntry: Codable {
+    let item: MediaItem
+    let posterItem: MediaItem
+    let previewTitle: String?
+}
+
 /// Artwork may belong to the parent series; playback and menu actions always target the episode.
 private struct HistoryMediaCard: View {
     let source: MediaSource
@@ -85,6 +93,7 @@ private struct HistoryMediaCard: View {
     let queue: [MediaItem]
     let openDetail: (MediaItem) -> Void
     @EnvironmentObject private var playback: PlaybackSession
+    @EnvironmentObject private var library: SourceLibrary
     @State private var resolvedItem: MediaItem?
     @State private var posterItem: MediaItem?
     @State private var previewTitle: String?
@@ -111,45 +120,67 @@ private struct HistoryMediaCard: View {
                                      openEmbyDetails: { openDetail(item) }) { EmptyView() })
         .accessibilityLabel(Text(verbatim: previewTitle ?? entry.title))
         .task(id: "\(AppCacheStore.scope(for: source))|\(entry.mediaID.localID)") {
-            guard source.kind == .emby, resolvedItem == nil else { return }
-            do {
-                let metadata = try await EmbyRepository.shared.detailMetadata(for: entry.item, source: source)
-                var poster = metadata.item
-                var title: String? = nil
-                if metadata.item.embyItemType == "Episode", let series = metadata.series {
-                    let parent = try? await EmbyRepository.shared.detailMetadata(for: series, source: source)
-                    try Task.checkCancellation()
-                    poster = parent?.item ?? series
-                    var seasonCount = poster.embyPresentation?.seasonCount
-                    if seasonCount == nil {
-                        seasonCount = try? await EmbyRepository.shared.seriesSeasonCount(for: series, source: source)
-                    }
-                    try Task.checkCancellation()
-                    let multipleSeasons = (seasonCount ?? 0) > 1 || (metadata.seasonNumber ?? 0) > 1
-                    var episodeParts: [String] = []
-                    if let season = metadata.seasonNumber, multipleSeasons || season == 0 {
-                        episodeParts.append(season == 0 ? VesperLocalization.string("特别篇") : VesperLocalization.localized("第\(season)季"))
-                    }
-                    if let episode = metadata.episodeNumber { episodeParts.append(VesperLocalization.localized("第\(episode)集")) }
-                    var lines = [series.title]
-                    if !episodeParts.isEmpty { lines.append(episodeParts.joined(separator: " · ")) }
-                    let episodeTitle = metadata.item.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !episodeTitle.isEmpty, episodeTitle != series.title { lines.append(episodeTitle) }
-                    title = lines.joined(separator: " · ")
-                } else if metadata.item.embyItemType == "Episode" {
-                    // Missing parent metadata must not switch this history card to an episode Thumb.
-                    poster.embyItemType = "Movie"
+            await loadArtworkIdentity()
+        }
+    }
+
+    private func loadArtworkIdentity() async {
+        guard source.kind == .emby else { return }
+        let cacheKey = "history-artwork|\(AppCacheStore.scope(for: source))|\(entry.mediaID.localID)"
+        let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
+        let (cachedData, generation): (Data?, UUID)
+        if ignoresCache {
+            (cachedData, generation) = await AppCacheStore.shared.image(key: cacheKey, ignoringLocalCache: true)
+        } else {
+            (cachedData, generation) = await AppCacheStore.shared.imageMetadata(key: cacheKey)
+        }
+        let cached = cachedData.flatMap { try? JSONDecoder().decode(HistoryArtworkCacheEntry.self, from: $0) }
+        if let cached {
+            resolvedItem = cached.item
+            posterItem = cached.posterItem
+            previewTitle = cached.previewTitle
+        }
+
+        do {
+            let metadata = try await library.seriesCatalog.detailMetadata(for: entry.item, source: source)
+            var poster = metadata.item
+            var title: String?
+            if metadata.item.embyItemType == "Episode", let series = metadata.series {
+                let parent = try? await library.seriesCatalog.detailMetadata(for: series, source: source)
+                try Task.checkCancellation()
+                poster = parent?.item ?? series
+                var seasonCount = poster.embyPresentation?.seasonCount
+                if seasonCount == nil {
+                    seasonCount = try? await library.seriesCatalog.seriesSeasonCount(for: series, source: source)
                 }
                 try Task.checkCancellation()
-                resolvedItem = metadata.item
-                posterItem = poster
-                previewTitle = title
-            } catch {
-                guard !Task.isCancelled else { return }
-                var fallback = entry.item
-                fallback.embyItemType = "Movie"
-                posterItem = fallback
+                let multipleSeasons = (seasonCount ?? 0) > 1 || (metadata.seasonNumber ?? 0) > 1
+                var episodeParts: [String] = []
+                if let season = metadata.seasonNumber, multipleSeasons || season == 0 {
+                    episodeParts.append(season == 0 ? VesperLocalization.string("特别篇") : VesperLocalization.localized("第\(season)季"))
+                }
+                if let episode = metadata.episodeNumber { episodeParts.append(VesperLocalization.localized("第\(episode)集")) }
+                var lines = [series.title]
+                if !episodeParts.isEmpty { lines.append(episodeParts.joined(separator: " · ")) }
+                let episodeTitle = metadata.item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !episodeTitle.isEmpty, episodeTitle != series.title { lines.append(episodeTitle) }
+                title = lines.joined(separator: " · ")
+            } else if metadata.item.embyItemType == "Episode" {
+                poster.embyItemType = "Movie"
             }
+            try Task.checkCancellation()
+            let value = HistoryArtworkCacheEntry(item: metadata.item, posterItem: poster, previewTitle: title)
+            resolvedItem = value.item
+            posterItem = value.posterItem
+            previewTitle = value.previewTitle
+            if !ignoresCache, let data = try? JSONEncoder().encode(value) {
+                await AppCacheStore.shared.saveImageMetadata(data, key: cacheKey, generation: generation)
+            }
+        } catch {
+            guard !Task.isCancelled, cached == nil else { return }
+            var fallback = entry.item
+            fallback.embyItemType = "Movie"
+            posterItem = fallback
         }
     }
 }

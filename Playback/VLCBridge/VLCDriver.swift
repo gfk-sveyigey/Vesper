@@ -15,7 +15,10 @@ internal import SwiftVLC
     private var hasInstalledSurface = false
     private var timelineEvents: Task<Void, Never>?
     private var pendingSeekTime: Double?
+    private var isOpeningMedia = false
     private var seekClockDeadline = Date.distantPast
+    private var measuresNetworkInput = false
+    private var downloadSessionID = UUID().uuidString
     private var previousDiagnosticSample: (date: Date, pictures: UInt64)?
     public var restoreUI: ((@escaping (Bool) -> Void) -> Void)?
     public var view: UIView { surface }
@@ -23,16 +26,24 @@ internal import SwiftVLC
     public var nativePiPController: AVPictureInPictureController? { nil }
     private static var engineLogHandler: (@Sendable (String) -> Void)?
     private static var engineLogTask: Task<Void, Never>?
+    // Font options are instance configuration, not safe per-media options.
+    // Reuse one instance for playback and its log stream.
+    private static let playbackInstance: Result<VLCInstance, Error> = Result {
+        try VLCInstance(arguments: VLCInstance.defaultArguments + [
+            "--freetype-font=PingFang SC",
+            "--freetype-monofont=PingFang SC"
+        ])
+    }
 
     public static func setLogHandler(_ handler: @escaping @Sendable (String) -> Void) {
         engineLogHandler = handler
     }
 
-    private static func startLoggingIfNeeded() {
+    private static func startLoggingIfNeeded(instance: VLCInstance) {
         guard engineLogTask == nil, let handler = engineLogHandler else { return }
         // Subscribe before Player() opens any media. One consumer per shared VLC
         // instance survives driver retirement and decoder/engine switches.
-        let stream = VLCInstance.shared.logStream(minimumLevel: .notice)
+        let stream = instance.logStream(minimumLevel: .notice)
         engineLogTask = Task.detached(priority: .utility) {
             for await entry in stream {
                 guard !Task.isCancelled else { return }
@@ -42,7 +53,6 @@ internal import SwiftVLC
     }
 
     public init() {
-        Self.startLoggingIfNeeded()
         surface.backgroundColor = .black
     }
     public var snapshot: EngineSnapshot {
@@ -50,7 +60,7 @@ internal import SwiftVLC
         guard let player else { return result }
         // Never leave the UI pinned indefinitely if native acknowledgement is
         // absent (paused inputs may legitimately publish none).
-        if Date() >= seekClockDeadline { pendingSeekTime = nil }
+        if !isOpeningMedia, Date() >= seekClockDeadline { pendingSeekTime = nil }
         switch player.state {
         case .idle, .stopped, .stopping: result.phase = player.didReachEnd ? .ended : .idle
         case .opening, .buffering: result.phase = .loading
@@ -58,14 +68,21 @@ internal import SwiftVLC
         case .paused: result.phase = .paused
         case .error: result.phase = .failed("SwiftVLC: 播放失败")
         }
+        if isOpeningMedia, player.state != .error { result.phase = .loading }
         result.time = pendingSeekTime ?? seconds(player.currentTime)
         result.duration = player.duration.map(seconds) ?? 0
         // bufferFill is a cache percentage, NOT a position in the file.
         result.buffered = result.time
         result.seekable = player.isSeekable
         result.actualDecoder = configuration.decoder == .software ? .software : nil
-        result.audio = player.audioTracks.map { .init(id: $0.id, name: $0.name, language: $0.language, codec: $0.codecString, selected: $0.isSelected) }
-        result.subtitles = player.subtitleTracks.map { .init(id: $0.id, name: $0.name, language: $0.language, codec: $0.codecString, selected: $0.isSelected) }
+        result.audio = player.audioTracks.map {
+            .init(id: $0.id, name: $0.name, language: $0.language, codec: $0.codecString,
+                  selected: $0.isSelected, sourceTitle: $0.trackDescription, channels: $0.channels)
+        }
+        result.subtitles = player.subtitleTracks.map {
+            .init(id: $0.id, name: $0.name, language: $0.language, codec: $0.codecString,
+                  selected: $0.isSelected, sourceTitle: $0.trackDescription)
+        }
         result.pipPossible = pip?.isPossible ?? false
         result.pipActive = pip?.isActive ?? false
         return result
@@ -94,11 +111,16 @@ internal import SwiftVLC
         return result
     }
 
+    public var downloadSample: EngineDownloadSample? {
+        guard measuresNetworkInput, let player, let bytes = player.statistics?.readBytes,
+              let count = Int64(exactly: bytes) else { return nil }
+        return .init(counterID: downloadSessionID, bytes: count)
+    }
+
     public var diagnosticMetrics: [EngineDiagnosticMetric] {
         guard let statistics = player?.statistics else { return [] }
         var metrics: [EngineDiagnosticMetric] = [
             .init("输入码率", Self.rate(statistics.inputBitrate)),
-            .init("解复用码率", Self.rate(statistics.demuxBitrate)),
             .init("读取字节", Self.byteCount(statistics.readBytes)),
             .init("解复用字节", Self.byteCount(statistics.demuxReadBytes)),
             .init("解码视频帧", "\(statistics.decodedVideo)"),
@@ -129,13 +151,19 @@ internal import SwiftVLC
         ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
     }
     public func load(url: URL, configuration: EngineConfiguration) async throws {
+        isOpeningMedia = true
+        defer { isOpeningMedia = false }
+        measuresNetworkInput = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+        downloadSessionID = UUID().uuidString
         let supportedHeaders = Set(["user-agent", "referer", "referrer", "cookie"])
         let unsupportedHeaders = configuration.requestHeaders.keys.filter { !supportedHeaders.contains($0.lowercased()) }
         guard unsupportedHeaders.isEmpty else {
             throw PlaybackCoreError.failed("SwiftVLC 当前无法附加自定义请求头：\(unsupportedHeaders.joined(separator: ", "))。正在尝试 AetherEngine。")
         }
         self.configuration = configuration
-        let player = Player()
+        let instance = try Self.playbackInstance.get()
+        Self.startLoggingIfNeeded(instance: instance)
+        let player = Player(instance: instance)
         self.player = player
         timelineEvents?.cancel()
         pendingSeekTime = nil
@@ -169,26 +197,50 @@ internal import SwiftVLC
             }
         }
         media.addOption(":no-video-title-show")
-        var networkCachingMilliseconds: Int?
-        if !url.isFileURL, let limit = configuration.preloadCacheLimitBytes {
-            let milliseconds = PlaybackCacheSizing.vlcMilliseconds(byteLimit: limit, bitRate: configuration.mediaBitRate)
-            media.addOption(":network-caching=\(milliseconds)")
-            networkCachingMilliseconds = milliseconds
+        let networkCachingMilliseconds: Int? = url.isFileURL ? nil : 5_000
+        if let networkCachingMilliseconds {
+            media.addOption(":network-caching=\(networkCachingMilliseconds)")
         }
-        if configuration.position > 0 { media.addOption(":start-time=\(configuration.position)") }
-        if !configuration.autoplay { media.addOption(":start-paused") }
+        // Open the complete input timeline. VLC's start-time input option can
+        // expose the remaining input length as duration on some demuxers.
+        // Restore progress with a normal absolute seek after input readiness.
+        if !configuration.autoplay || configuration.position > 0 { media.addOption(":start-paused") }
         try player.play(media)
         // Readiness is asynchronous. Do not report success merely on play().
         // A large network buffer must be allowed to fill before the open timeout.
         let openTimeout = max(40.0, Double(networkCachingMilliseconds ?? 0) / 1_000 + 15)
         let deadline = ContinuousClock.now.advanced(by: .seconds(openTimeout))
+        var didRestorePosition = false
         while ContinuousClock.now < deadline {
             try Task.checkCancellation()
             switch player.state {
             case .playing, .paused:
-                player.selectedSubtitleTrack = nil
+                if didRestorePosition {
+                    // Native timeChanged acknowledges the absolute seek. Do not
+                    // expose VLC's temporary startup pause as a user pause.
+                    if player.isPlaying && pendingSeekTime == nil { return }
+                    try await Task.sleep(for: .milliseconds(50))
+                    continue
+                }
+                if configuration.position > 0 {
+                    // State readiness can precede seekability (especially HTTP).
+                    // Keep waiting within the existing open timeout, rather than
+                    // silently starting at zero or changing the input timeline.
+                    guard player.isSeekable else {
+                        try await Task.sleep(for: .milliseconds(50))
+                        continue
+                    }
+                    try player.seek(to: .seconds(configuration.position), fast: false)
+                    pendingSeekTime = configuration.position
+                    seekClockDeadline = Date().addingTimeInterval(8)
+                }
                 configure(configuration)
                 if !configuration.autoplay { player.pause() }
+                else if configuration.position > 0 {
+                    didRestorePosition = true
+                    try player.play()
+                    continue
+                }
                 return
             case .error: throw PlaybackCoreError.failed("SwiftVLC: 播放失败")
             default: break
@@ -285,8 +337,19 @@ internal import SwiftVLC
         await old?.shutdown()
         hosting?.view.removeFromSuperview(); hosting = nil; hasInstalledSurface = false
     }
-    public func selectAudio(_ id: String) { player?.selectedAudioTrack = player?.audioTracks.first { $0.id == id } }
-    public func selectSubtitle(_ id: String?) { player?.selectedSubtitleTrack = player?.subtitleTracks.first { $0.id == id } }
+    public func selectAudio(_ id: String) {
+        guard let player, let track = player.audioTracks.first(where: { $0.id == id }) else { return }
+        player.selectedAudioTrack = track
+    }
+    public func selectSubtitle(_ id: String?) {
+        guard let player else { return }
+        if let requestedID = id {
+            guard let track = player.subtitleTracks.first(where: { $0.id == requestedID }) else { return }
+            player.selectedSubtitleTrack = track
+        } else {
+            player.selectedSubtitleTrack = nil
+        }
+    }
     public func setPiPActive(_ active: Bool) {}
     public func startPiP() { player?.aspectRatio = .default; pip?.start() }
     public func stopPiP() { pip?.stop() }

@@ -68,7 +68,6 @@ struct EmbyRepositoryChecks {
             try await repository.setPlayed(false, for: target, source: source)
             try await repository.setFavorite(true, for: target, source: source)
             try await repository.setFavorite(false, for: target, source: source)
-            try await repository.setProgress(12.5, for: target, source: source)
             try await repository.clearProgress(for: target, source: source)
         }
         let roots = try await repository.rootItems(for: source)

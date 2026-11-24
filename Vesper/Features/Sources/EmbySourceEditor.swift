@@ -4,71 +4,46 @@ import UIKit
 
 struct EmbySourceEditor: View {
     let source: MediaSource?
+    enum Entry { case general, icon, routes }
+    var entry: Entry = .general
+
     @EnvironmentObject private var library: SourceLibrary
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var title = ""
     @State private var note = ""
-    @State private var schemeIsHTTPS = true
-    @State private var host = ""
-    @State private var port = ""
-    @State private var path = ""
     @State private var username = ""
     @State private var password = ""
-    @State private var showPassword = false
-    @State private var alternateAddress = ""
-    @State private var alternateRouteName = ""
-    @State private var alternateRouteNames: [String: String] = [:]
-
-    private var trimmedAlternateRouteName: String {
-        alternateRouteName.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-    @State private var alternateAddresses: [String] = []
-    @State private var serverRouteAddresses: [String] = []
+    @State private var routes: [EmbyRouteDraft] = []
+    @State private var editingRoute: EmbyRouteDraft?
+    @State private var showingIconOptions = false
     @State private var fetchAlternateAddresses = false
     @State private var syncProgress = true
     @State private var allowTranscoding = true
-    @State private var strmDirectPlayback = false
+    @State private var strmDirectPlayback = true
     @State private var iconData: Data?
     @State private var selectedIcon: PhotosPickerItem?
     @State private var showingPhotoPicker = false
     @State private var showingIconLibrary = false
     @State private var iconSelectionRevision = 0
-    @State private var showingMoreSettings = false
-    @State private var saveState = SaveState.idle
+    @State private var saving = false
+    @State private var didLoad = false
     @State private var errorMessage: String?
-    @FocusState private var focusedField: AddressField?
-
-    private enum AddressField: Hashable { case host, port, path }
-    private enum SaveState: Equatable {
-        case idle, validating, succeeded, failed
-
-        var symbol: String {
-            switch self {
-            case .idle: "checkmark"
-            case .validating: "arrow.triangle.2.circlepath"
-            case .succeeded: "checkmark.circle.fill"
-            case .failed: "xmark.circle.fill"
-            }
-        }
-
-        var label: LocalizedStringKey {
-            switch self {
-            case .idle: "完成"
-            case .validating: "正在验证来源"
-            case .succeeded: "来源验证成功"
-            case .failed: "验证失败，点击重试"
-            }
-        }
-    }
-
-    private var saving: Bool { saveState == .validating || saveState == .succeeded }
 
     var body: some View {
         NavigationStack {
-            settingsForm
-            .disabled(saving)
-            .background(Color(uiColor: .systemGroupedBackground))
+            ScrollViewReader { proxy in
+                settingsForm
+                    .disabled(saving)
+                    .task {
+                        guard !didLoad else { return }
+                        didLoad = true
+                        loadSource()
+                        await Task.yield()
+                        if entry == .routes { proxy.scrollTo("emby-routes", anchor: .top) }
+                        if entry == .icon { showingIconOptions = true }
+                    }
+            }
             .navigationTitle(source == nil ? "添加 Emby 来源" : "编辑 Emby 来源")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -78,20 +53,33 @@ struct EmbySourceEditor: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: save) {
-                        Image(systemName: saveState.symbol)
+                        Image(systemName: saving ? "arrow.triangle.2.circlepath" : "checkmark")
                             .contentTransition(.symbolEffect(.replace))
-                            .symbolEffect(.rotate, options: .repeating,
-                                          isActive: saveState == .validating && !reduceMotion)
+                            .symbolEffect(.rotate, options: .repeating, isActive: saving && !reduceMotion)
                     }
-                    .animation(reduceMotion ? nil : .snappy(duration: 0.3), value: saveState)
-                    .accessibilityLabel(saveState.label)
-                    .disabled(saving || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .animation(reduceMotion ? nil : .snappy(duration: 0.3), value: saving)
+                    .accessibilityLabel(Text(LocalizedStringKey(saving ? "正在验证来源" : "完成")))
+                    .disabled(saving)
                 }
             }
         }
-        .onAppear(perform: loadSource)
-        .onChange(of: focusedField) { oldValue, newValue in
-            if oldValue == .host && newValue != .host { parseFullAddressIfNeeded() }
+        .confirmationDialog("更换 Emby 图标", isPresented: $showingIconOptions) { iconActions }
+        .sheet(item: $editingRoute) { draft in
+            EmbyRouteEditor(draft: draft, otherAddresses: routes.filter { $0.id != draft.id }.map(\.address)) { updated in
+                if let index = routes.firstIndex(where: { $0.id == updated.id }) {
+                    routes[index] = updated
+                } else {
+                    routes.append(updated)
+                }
+            }
+        }
+        .alert("无法保存来源", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(verbatim: errorMessage ?? "")
         }
         .onChange(of: selectedIcon) { _, item in
             iconSelectionRevision += 1
@@ -115,121 +103,85 @@ struct EmbySourceEditor: View {
         .interactiveDismissDisabled(saving)
     }
 
+    @ViewBuilder private var iconActions: some View {
+        Button("从照片选择", systemImage: "photo") { showingPhotoPicker = true }
+        Button("从图标库选择", systemImage: "square.grid.2x2") { showingIconLibrary = true }
+        Button("使用默认图标", systemImage: "arrow.counterclockwise") {
+            iconSelectionRevision += 1
+            iconData = nil
+            selectedIcon = nil
+        }
+    }
+
     private var identityFields: some View {
         HStack(spacing: 16) {
             VStack(spacing: 0) {
-                fieldRow("名称") { TextField("", text: $title) }
-                    .padding(.vertical, 11)
+                TextField("名称（可选）", text: $title).padding(.vertical, 11)
                 Divider()
-                fieldRow("备注") { TextField("", text: $note, axis: .vertical).lineLimit(1...3) }
-                    .padding(.vertical, 11)
+                TextField("备注（可选）", text: $note, axis: .vertical)
+                    .lineLimit(1...3).padding(.vertical, 11)
             }
-            .padding(.horizontal, 16)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
-
             Menu {
-                Button("从照片选择", systemImage: "photo") { showingPhotoPicker = true }
-                Button("从图标库选择", systemImage: "square.grid.2x2") { showingIconLibrary = true }
-                Button("使用默认图标", systemImage: "arrow.counterclockwise") {
-                    iconSelectionRevision += 1
-                    iconData = nil
-                    selectedIcon = nil
-                }
+                iconActions
             } label: {
-                sourceIcon
-                    .overlay(alignment: .bottomTrailing) {
-                        Image(systemName: "pencil.circle.fill")
-                            .symbolRenderingMode(.palette).foregroundStyle(.white, .gray)
-                            .offset(x: 3, y: 3)
-                    }
+                sourceIcon.overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "pencil.circle.fill")
+                        .symbolRenderingMode(.palette).foregroundStyle(.white, .gray)
+                }
             }
             .buttonStyle(.plain)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(uiColor: .secondarySystemGroupedBackground),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var settingsForm: some View {
         Form {
             Section {
-                fieldRow("域名") {
-                    TextField("example.com", text: $host)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                        .focused($focusedField, equals: .host)
-                }
-                fieldRow("端口") {
-                    TextField(schemeIsHTTPS ? "443" : "8096", text: $port)
-                        .keyboardType(.numberPad).focused($focusedField, equals: .port)
-                }
-                fieldRow("路径") {
-                    TextField("emby", text: $path)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .focused($focusedField, equals: .path)
-                }
-                Toggle("HTTPS", isOn: $schemeIsHTTPS)
-            } header: {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Keep the identity controls outside the rounded Form row container.
-                    identityFields
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                    Text("服务器")
-                }
-                .textCase(nil)
+                identityFields
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
             }
             Section("账户") {
-                fieldRow("用户名") {
-                    TextField("", text: $username).textInputAutocapitalization(.never).autocorrectionDisabled()
+                LabeledContent("用户名") {
+                    TextField("", text: $username)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
                 }
-                fieldRow("密码") {
-                    HStack(spacing: 8) {
-                        Group {
-                            if showPassword { TextField("", text: $password) }
-                            else { SecureField("", text: $password) }
-                        }
-                        Button { showPassword.toggle() } label: {
-                            Image(systemName: showPassword ? "eye.slash" : "eye")
-                        }
-                        .buttonStyle(.plain).accessibilityLabel(showPassword ? "隐藏密码" : "显示密码")
-                    }
+                LabeledContent("密码") {
+                    SecureField(LocalizedStringKey(source?.emby?.userID == nil ? "密码" : "已保留登录凭据"),
+                                text: $password)
                 }
             }
-            Section("备用线路") {
+            Section("线路") {
+                ForEach(routes) { route in
+                    Button { editingRoute = route } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            if route.id == routes.first?.id {
+                                Text("主线路")
+                            } else {
+                                Text(verbatim: route.displayName)
+                            }
+                            Text(verbatim: route.address)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .onDelete { routes.remove(atOffsets: $0) }
                 Toggle("从服务器获取", isOn: $fetchAlternateAddresses)
-                ForEach(alternateAddresses, id: \.self) { address in
-                    VStack(alignment: .leading) {
-                        TextField("线路名称", text: Binding(
-                            get: { alternateRouteNames[EmbyRouteOptions.key(address)] ?? "" },
-                            set: { alternateRouteNames[EmbyRouteOptions.key(address)] = $0 }
-                        ))
-                        Text(verbatim: address).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
-                .onDelete { offsets in
-                    for index in offsets {
-                        alternateRouteNames.removeValue(forKey: EmbyRouteOptions.key(alternateAddresses[index]))
-                        let key = EmbyRouteOptions.key(alternateAddresses[index])
-                        serverRouteAddresses.removeAll { EmbyRouteOptions.key($0) == key }
-                    }
-                    alternateAddresses.remove(atOffsets: offsets)
-                }
-                TextField("线路名称", text: $alternateRouteName)
-                HStack {
-                    TextField("添加线路地址", text: $alternateAddress)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                    Button("添加") { addAlternateAddress() }
-                        .disabled(trimmedAlternateRouteName.isEmpty ||
-                                  alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
+                Button("添加线路", systemImage: "plus") { editingRoute = EmbyRouteDraft() }
             }
-            Section("高级功能") {
+            .id("emby-routes")
+            Section("更多设置") {
+                Toggle("同步播放进度", isOn: $syncProgress)
+                Toggle("允许服务器转码", isOn: $allowTranscoding)
                 Toggle("STRM 直连", isOn: $strmDirectPlayback)
             }
-            Section {
-                DisclosureGroup("更多设置", isExpanded: $showingMoreSettings) {
-                    Toggle("同步播放进度", isOn: $syncProgress)
-                    Toggle("允许服务器转码", isOn: $allowTranscoding)
-                }
-            }
-            if let errorMessage { Text(verbatim: errorMessage).foregroundStyle(.red) }
         }
         .contentMargins(.top, 0, for: .scrollContent)
     }
@@ -245,158 +197,157 @@ struct EmbySourceEditor: View {
         .accessibilityLabel("更换 Emby 图标")
     }
 
-    private func fieldRow<Field: View>(_ label: String, @ViewBuilder field: () -> Field) -> some View {
-        EmbyFormRow {
-            Text(label).lineLimit(1).minimumScaleFactor(0.75)
-            field()
-        }
-    }
-
     private func loadSource() {
         guard let source, let configuration = library.embyConfiguration(for: source.id) else { return }
         title = configuration.title
         note = configuration.note
         username = configuration.username
         iconData = configuration.iconData
-        alternateAddresses = configuration.backupRoutes
-        serverRouteAddresses = configuration.serverRouteAddresses ?? []
-        alternateRouteNames = configuration.alternateRouteNames ?? [:]
+        let serverKeys = Set((configuration.serverRouteAddresses ?? []).map(EmbyRouteOptions.key))
+        routes = ([configuration.primaryRoute] + configuration.backupRoutes).map { address in
+            let key = EmbyRouteOptions.key(address)
+            return EmbyRouteDraft(address: address, name: configuration.alternateRouteNames?[key] ?? "",
+                                  fromServer: serverKeys.contains(key))
+        }
         fetchAlternateAddresses = configuration.fetchAlternateAddresses ?? false
         syncProgress = configuration.syncPlaybackProgress ?? true
         allowTranscoding = configuration.allowServerTranscoding ?? true
-        strmDirectPlayback = configuration.strmDirectPlayback ?? false
-        if let components = URLComponents(string: configuration.primaryRoute) {
-            schemeIsHTTPS = components.scheme?.lowercased() != "http"
-            host = components.host ?? ""
-            port = components.port.map(String.init) ?? ""
-            path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        }
-    }
-
-    private func parseFullAddressIfNeeded() {
-        let input = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard input.contains("://"), let components = URLComponents(string: input), let parsedHost = components.host else { return }
-        schemeIsHTTPS = components.scheme?.lowercased() != "http"
-        host = parsedHost
-        port = components.port.map(String.init) ?? ""
-        path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    }
-
-    private var serverAddress: String {
-        let scheme = schemeIsHTTPS ? "https" : "http"
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectivePort = port.trimmingCharacters(in: .whitespacesAndNewlines)
-        let defaultPort = schemeIsHTTPS ? "443" : "8096"
-        let portPart = effectivePort.isEmpty ? ":\(defaultPort)" : ":\(effectivePort)"
-        let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-        return "\(scheme)://\(normalizedHost)\(portPart)" + (cleanPath.isEmpty ? "" : "/\(cleanPath)")
+        strmDirectPlayback = configuration.strmDirectPlayback ?? true
     }
 
     private func save() {
         guard !saving else { return }
-        focusedField = nil
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        parseFullAddressIfNeeded()
-        let trimmedAddress = serverAddress
-        guard let components = URLComponents(string: trimmedAddress), components.host != nil,
-              components.port == nil || (1...65535).contains(components.port!) else {
-            errorMessage = VesperLocalization.string("服务器地址无效。")
-            saveState = .failed
-            return
-        }
-        let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        var configuration = EmbySourceConfiguration(title: resolvedTitle, note: note,
-            serverAddress: trimmedAddress, username: username.trimmingCharacters(in: .whitespacesAndNewlines),
-            customHeaders: source.flatMap { library.embyConfiguration(for: $0.id)?.customHeaders } ?? [:])
-        configuration.serverID = source?.emby?.serverID
-        configuration.userID = source?.emby?.userID
-        let primaryKey = EmbyRouteOptions.key(trimmedAddress)
-        let backups = EmbyRouteOptions.unique(alternateAddresses).filter { EmbyRouteOptions.key($0) != primaryKey }
-        let backupKeys = Set(backups.map(EmbyRouteOptions.key))
-        configuration.serverRouteAddresses = serverRouteAddresses.filter { backupKeys.contains(EmbyRouteOptions.key($0)) }
-        let previousAddress = source.flatMap { library.embyConfiguration(for: $0.id)?.serverAddress }
-        if let previousAddress, let active = backups.first(where: {
-            EmbyRouteOptions.key($0) == EmbyRouteOptions.key(previousAddress)
-        }) {
-            configuration.serverAddress = active
-            configuration.primaryRouteAddress = trimmedAddress
-        }
-        configuration.alternateAddresses = [trimmedAddress] + backups
-        configuration.alternateRouteNames = alternateRouteNames
-            .mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.value.isEmpty }
-        configuration.fetchAlternateAddresses = fetchAlternateAddresses
-        configuration.syncPlaybackProgress = syncProgress
-        configuration.syncWatchedState = syncProgress
-        configuration.allowServerTranscoding = allowTranscoding
-        configuration.strmDirectPlayback = strmDirectPlayback
-        configuration.iconData = iconData
-        saveState = .validating
-        errorMessage = nil
+        saving = true
         Task {
+            defer { saving = false }
+            guard let primary = routes.first else {
+                errorMessage = VesperLocalization.string("请至少添加一条线路。")
+                return
+            }
+            let previous = source.flatMap { library.embyConfiguration(for: $0.id) }
+            var configuration = EmbySourceConfiguration(
+                title: title.trimmingCharacters(in: .whitespacesAndNewlines), note: note,
+                serverAddress: previous?.serverAddress ?? primary.address,
+                username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+                serverID: previous?.serverID, userID: previous?.userID,
+                customHeaders: previous?.customHeaders ?? [:]
+            )
+            configuration.primaryRouteAddress = primary.address
+            configuration.alternateAddresses = routes.map(\.address)
+            configuration.alternateRouteNames = Dictionary(routes.filter { !$0.name.isEmpty }.map {
+                (EmbyRouteOptions.key($0.address), $0.name)
+            }, uniquingKeysWith: { first, _ in first })
+            configuration.serverRouteAddresses = routes.dropFirst().filter(\.fromServer).map(\.address)
+            configuration.fetchAlternateAddresses = fetchAlternateAddresses
+            configuration.syncPlaybackProgress = syncProgress
+            configuration.syncWatchedState = previous?.syncPlaybackProgress == syncProgress
+                ? previous?.syncWatchedState : syncProgress
+            configuration.allowServerTranscoding = allowTranscoding
+            configuration.strmDirectPlayback = strmDirectPlayback
+            configuration.iconData = iconData
+            let newPassword = source != nil && password.isEmpty && configuration.username == previous?.username ? nil : password
             do {
-                if let source {
-                    try await library.updateEmby(source.id, configuration: configuration,
-                                                 password: password.isEmpty ? nil : password,
-                                                 validatesConnection: true)
-                }
-                else { try await library.addEmby(configuration: configuration, password: password) }
-                if fetchAlternateAddresses,
-                   let savedSource = source.flatMap({ original in library.sources.first(where: { $0.id == original.id }) })
-                    ?? library.sources.last(where: { $0.kind == .emby && $0.emby?.serverAddress == trimmedAddress }),
-                   let fetched = try? await EmbyRepository.shared.alternateRoutes(for: savedSource) {
-                    var refreshed = library.embyConfiguration(for: savedSource.id) ?? configuration
-                    refreshed.mergeServerRoutes(fetched)
-                    try await library.updateEmby(savedSource.id, configuration: refreshed, password: nil)
-                }
-                saveState = .succeeded
-                try? await Task.sleep(for: .milliseconds(650))
+                try await library.saveEmby(source?.id, configuration: configuration, password: newPassword)
                 dismiss()
             } catch {
-                saveState = .failed
                 errorMessage = error.localizedDescription
             }
         }
     }
-
-    private func addAlternateAddress() {
-        let value = alternateAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, !trimmedAlternateRouteName.isEmpty else { return }
-        do {
-            _ = try EmbyAPIClient(configuration: .init(title: "", note: "", serverAddress: value, username: ""), token: nil, deviceID: "validation")
-        } catch { errorMessage = error.localizedDescription; return }
-        guard EmbyRouteOptions.key(value) != EmbyRouteOptions.key(serverAddress),
-              !alternateAddresses.contains(where: { EmbyRouteOptions.key($0) == EmbyRouteOptions.key(value) }) else { return }
-        let serverKeys = Set(serverRouteAddresses.map(EmbyRouteOptions.key))
-        let insertionIndex = alternateAddresses.firstIndex { serverKeys.contains(EmbyRouteOptions.key($0)) } ?? alternateAddresses.endIndex
-        alternateAddresses.insert(value, at: insertionIndex)
-        alternateRouteNames[EmbyRouteOptions.key(value)] = trimmedAlternateRouteName
-        alternateAddress = ""
-        alternateRouteName = ""
-    }
 }
 
-/// Keeps the label column aligned without forcing a height on the text fields.
-private struct EmbyFormRow: Layout {
-    private let gap: CGFloat = 8
+struct EmbyRouteEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: EmbyRouteDraft
+    @State private var host: String
+    @State private var port: String
+    @State private var path: String
+    @State private var https: Bool
+    @State private var errorMessage: String?
+    let otherAddresses: [String]
+    let save: (EmbyRouteDraft) -> Void
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard subviews.count == 2 else { return .zero }
-        let width = proposal.width ?? (subviews[0].sizeThatFits(.unspecified).width + gap + subviews[1].sizeThatFits(.unspecified).width)
-        let labelWidth = width * 0.25
-        let fieldWidth = max(0, width - labelWidth - gap)
-        let labelHeight = subviews[0].sizeThatFits(ProposedViewSize(width: labelWidth, height: nil)).height
-        let fieldHeight = subviews[1].sizeThatFits(ProposedViewSize(width: fieldWidth, height: nil)).height
-        return CGSize(width: width, height: max(labelHeight, fieldHeight))
+    init(draft: EmbyRouteDraft, otherAddresses: [String], save: @escaping (EmbyRouteDraft) -> Void) {
+        _draft = State(initialValue: draft)
+        let components = URLComponents(string: draft.address)
+        _host = State(initialValue: components?.host ?? "")
+        _port = State(initialValue: components?.port.map(String.init) ?? "")
+        _path = State(initialValue: components?.path ?? "")
+        _https = State(initialValue: components?.scheme?.lowercased() != "http")
+        self.otherAddresses = otherAddresses
+        self.save = save
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard subviews.count == 2 else { return }
-        let labelWidth = bounds.width * 0.25
-        let fieldX = labelWidth + gap
-        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
-                          proposal: ProposedViewSize(width: labelWidth, height: nil))
-        subviews[1].place(at: CGPoint(x: bounds.minX + fieldX, y: bounds.midY), anchor: .leading,
-                          proposal: ProposedViewSize(width: max(0, bounds.width - fieldX), height: nil))
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("线路名称（可选）", text: $draft.name)
+                TextField("域名（必填）", text: $host)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                TextField("端口（可选）", text: $port).keyboardType(.numberPad)
+                TextField("路径（可选）", text: $path)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                Toggle("HTTPS", isOn: $https)
+            }
+            .navigationTitle(draft.address.isEmpty ? "添加线路" : "编辑线路")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭", systemImage: "xmark") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("保存", systemImage: "checkmark", action: saveRoute)
+                        .disabled(host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .alert("无法保存线路", isPresented: Binding(
+                get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("好", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(verbatim: errorMessage ?? "")
+            }
+        }
+    }
+
+    private func saveRoute() {
+        let domain = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let portText = port.trimmingCharacters(in: .whitespacesAndNewlines)
+        let portNumber = Int(portText)
+        guard !domain.isEmpty, domain.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              !domain.contains(where: { "/?#@%".contains($0) }),
+              portText.isEmpty || (portNumber.map { (1...65535).contains($0) } ?? false) else {
+            errorMessage = VesperLocalization.string("服务器地址无效。")
+            return
+        }
+        var components = URLComponents()
+        components.scheme = https ? "https" : "http"
+        components.host = domain.contains(":") && !domain.hasPrefix("[") ? "[\(domain)]" : domain
+        components.port = portNumber
+        let cleanPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        components.path = cleanPath.isEmpty ? "" : "/\(cleanPath)"
+        guard let address = components.url?.absoluteString else {
+            errorMessage = VesperLocalization.string("服务器地址无效。")
+            return
+        }
+        do {
+            _ = try EmbyAPIClient(configuration: .init(title: "", note: "", serverAddress: address, username: ""),
+                                  token: nil, deviceID: "validation")
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        let key = EmbyRouteOptions.key(address)
+        guard !otherAddresses.contains(where: { EmbyRouteOptions.key($0) == key }) else {
+            errorMessage = VesperLocalization.string("此线路已存在。")
+            return
+        }
+        if EmbyRouteOptions.key(draft.address) != key { draft.fromServer = false }
+        draft.address = address
+        draft.name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        save(draft)
+        dismiss()
     }
 }

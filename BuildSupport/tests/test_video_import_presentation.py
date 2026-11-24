@@ -1,5 +1,6 @@
 """Exercise production receipt/acknowledgment logic without an Apple SDK."""
 import os
+import plistlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -8,6 +9,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 class VideoImportPresentationTests(unittest.TestCase):
+    def test_external_import_requests_a_document_copy(self):
+        with (ROOT / 'Info.plist').open('rb') as file:
+            configuration = plistlib.load(file)
+        self.assertIs(configuration['LSSupportsOpeningDocumentsInPlace'], False)
+        self.assertTrue(configuration['CFBundleDocumentTypes'])
+
     def test_queue_is_consumed_only_after_display(self):
         compiler = os.environ.get('SWIFTC') or shutil.which('swiftc')
         if not compiler:
@@ -83,18 +90,26 @@ import Foundation
     def test_presentation_guards(self):
         source = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
         self.assertIn('guard scenePhase == .active, videoPickerDismissed', source)
+        self.assertIn('.onChange(of: scenePhase, initial: true)', source)
+        self.assertIn('.onChange(of: incomingVideos.videos.map(\\.id), initial: true)', source)
+        self.assertIn('.onChange(of: incomingVideos.nonVideoCount, initial: true)', source)
         self.assertIn('if phase == .active { presentNextIncomingVideo() }', source)
         self.assertIn('playerPresentationDismissed, importPresentationHost.canPresent', source)
         self.assertIn('previewVideo = incomingVideos.videos.first', source)
         self.assertNotIn('incomingVideos.takeNext()', source)
         self.assertIn('incomingVideos.acknowledgePresented(file.id)', source)
         self.assertIn('.task(id: incomingPresentationRequest)', source)
-        self.assertIn('controller.children.contains { hasPresentation(in: $0) }', source)
+        self.assertIn('return root.presentedViewController == nil', source)
+        self.assertNotIn('controller.children.contains { hasPresentation(in: $0) }', source)
 
-    def test_registered_app_delegate_forwards_document_callbacks(self):
+    def test_external_document_delivery_uses_swiftui_scene_routing(self):
+        app = (ROOT / 'Vesper/App/VesperApp.swift').read_text()
         source = (ROOT / 'Vesper/Features/Player/PlayerInteraction.swift').read_text()
         delegate = source.split('final class VesperAppDelegate:', 1)[1].split('enum PlayerGestureRegion:', 1)[0]
+        file_delivery = (ROOT / 'Vesper/App/VesperFileDelivery.swift').read_text()
+        self.assertIn('.onOpenURL { FileDeliveryRouter.receive($0, origin: "swiftui.open") }', app)
         self.assertIn('private let fileDelivery = VesperFileDeliveryDelegate()', delegate)
         self.assertIn('fileDelivery.application(application, didFinishLaunchingWithOptions: launchOptions)', delegate)
         self.assertIn('fileDelivery.application(application, open: url, options: options)', delegate)
-        self.assertIn('fileDelivery.application(application, configurationForConnecting: connectingSceneSession, options: options)', delegate)
+        self.assertNotIn('configurationForConnecting', delegate)
+        self.assertNotIn('VesperFileSceneDelegate', file_delivery)

@@ -20,10 +20,10 @@ final class EmbyPlaybackSession: PlaybackTranscodingProvider {
     private var remembersProgress = true
     private var transcodeSessionIDs: Set<String> = []
     private var pendingTranscodeID: String?
-    private let repository: EmbyRepository
+    private let repository: any MediaSourcePlaybackReportingService
 
     init(source: MediaSource, item: MediaItem, playSessionID: String, mediaSourceID: String,
-         repository: EmbyRepository = .shared) {
+         repository: any MediaSourcePlaybackReportingService = MediaSourceServices.reporting) {
         self.source = source; self.item = item; self.playSessionID = playSessionID
         self.mediaSourceID = mediaSourceID
         self.repository = repository

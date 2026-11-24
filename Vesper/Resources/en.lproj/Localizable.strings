@@ -1,4 +1,5 @@
 "应用" = "App";
+"受密码保护" = "Password protected";
 "标签设置" = "Tab Settings";
 "外观设置" = "Appearance";
 "运行日志" = "Runtime Logs";
@@ -236,6 +237,10 @@
 "字幕" = "Subtitles";
 
 "关闭字幕" = "Subtitles Off";
+"正在恢复字幕" = "Restoring subtitles…";
+"未能恢复原字幕轨" = "Could not restore the previous subtitle track";
+"正在恢复音轨" = "Restoring audio track…";
+"未能恢复原音轨" = "Could not restore the previous audio track";
 
 "无内嵌字幕" = "No embedded subtitles";
 
@@ -950,6 +955,8 @@
 "%lld集" = "%lld episodes";
 "%@/共%lld季" = "%@ / %lld seasons";
 "开始播放 E%@" = "Play E%@";
+"继续播放 E%@" = "Continue E%@";
+"重新播放 E%@" = "Replay E%@";
 "开始播放 S%@E%@" = "Play S%@E%@";
 "图标库" = "Icon Libraries";
 "来源图标" = "Source Icons";
@@ -1038,6 +1045,7 @@
 
 "帮助与关于" = "Support & About";
 "继续播放" = "Continue Watching";
+"重新播放" = "Replay";
 "正在验证来源" = "Verifying source…";
 "来源验证成功" = "Source verified";
 "验证失败，点击重试" = "Verification failed. Tap to retry";
@@ -1106,3 +1114,83 @@
 "已播放音频缓冲" = "Audio buffers played";
 "丢失音频缓冲" = "Audio buffers lost";
 "显示帧率" = "Display frame rate";
+
+"下载速度" = "Download speed";
+
+"显示剩余时长" = "Show remaining time";
+"关闭时显示视频总时长；开启后显示剩余时长。" = "Off shows the video duration; on shows the time remaining.";
+"来源列表行高" = "Source row height";
+"来源图标上间距" = "Source icon top inset";
+"来源图标左间距" = "Source icon leading inset";
+"来源图标下间距" = "Source icon bottom inset";
+"来源图标右间距" = "Source icon trailing inset";
+"上次播放" = "Last played";
+
+"名称（可选）" = "Name (optional)";
+"备注（可选）" = "Notes (optional)";
+"已保留登录凭据" = "Saved sign-in details";
+"线路" = "Connection routes";
+"添加线路" = "Add route";
+"编辑线路" = "Edit routes";
+"线路名称（可选）" = "Route name (optional)";
+"域名（必填）" = "Host (required)";
+"端口（可选）" = "Port (optional)";
+"路径（可选）" = "Path (optional)";
+"无法保存线路" = "Couldn’t save the route";
+"此线路已存在。" = "This route already exists.";
+"无法保存来源" = "Couldn’t save the source";
+"请至少添加一条线路。" = "Add at least one route.";
+"编辑来源" = "Edit source";
+"修改图标" = "Change icon";
+"移除来源" = "Remove source";
+"刷新线路" = "Refresh routes";
+"无法刷新线路" = "Couldn’t refresh routes";
+"调整来源顺序" = "Reorder sources";
+"测试延迟" = "Test latency";
+"测试中" = "Testing…";
+"测试失败" = "Test failed";
+"App 启动" = "App launch";
+"媒体来源" = "Media sources";
+"App 启动和媒体来源" = "App launch and media sources";
+"立即" = "Immediately";
+"1 分钟" = "1 minute";
+"5 分钟" = "5 minutes";
+"15 分钟" = "15 minutes";
+"隐私保护范围" = "Privacy protection";
+"保护范围" = "Protection scope";
+"重新验证时间" = "Reauthentication interval";
+"后台高斯模糊" = "Background blur";
+"重置密码" = "Reset passcode";
+"启用生物识别" = "Enable biometrics";
+"优先使用生物识别" = "Prefer biometrics";
+"密码错误，请重试。" = "Incorrect passcode. Try again.";
+"请输入六位数字密码。" = "Enter a six-digit passcode.";
+"无法安全保存密码。" = "Unable to securely save the passcode.";
+"输入密码以继续" = "Enter your passcode to continue";
+"使用生物识别" = "Use biometrics";
+"使用设备密码保护 Vesper，并控制重新验证与后台隐私显示。" = "Protect Vesper with a passcode and control reauthentication and background privacy.";
+"输入密码以关闭保护" = "Enter passcode to turn off protection";
+"设置新的六位数字密码" = "Set a new six-digit passcode";
+"设置六位数字密码" = "Set a six-digit passcode";
+"六位数字密码" = "Six-digit passcode";
+"确认关闭" = "Turn off";
+"保存密码" = "Save passcode";
+"解锁 Vesper" = "Unlock Vesper";
+"密码保护" = "Passcode Protection";
+"正在使用" = "In use";
+"当前使用中的线路不能删除；可编辑其地址，线路名称保持不变。" = "The active route can’t be deleted. You can edit its address; its name will stay the same.";
+
+"密码保护范围" = "Password protection scope";
+
+"面容 ID" = "Face ID";
+
+"触控 ID" = "Touch ID";
+
+"需要 %@" = "Authenticate with %@";
+
+"使用 %@" = "Use %@";
+
+"再次尝试 %@" = "Try %@ again";
+"新版图标" = "New Icon";
+"经典图标" = "Classic Icon";
+"无法更换图标" = "Unable to Change Icon";

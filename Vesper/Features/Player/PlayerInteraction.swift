@@ -49,12 +49,6 @@ final class VesperAppDelegate: NSObject, UIApplicationDelegate {
         fileDelivery.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
-    func application(_ application: UIApplication,
-                     configurationForConnecting connectingSceneSession: UISceneSession,
-                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
-        fileDelivery.application(application, configurationForConnecting: connectingSceneSession, options: options)
-    }
-
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         PlayerOrientationPolicy.allowsLandscape ? .allButUpsideDown : .portrait
     }
@@ -565,13 +559,11 @@ struct PlayerVolumeTouchSurface: UIViewRepresentable {
 /// CADisplayLink alone does not request continuous UIKit/SwiftUI updates.
 struct PlayerInterfaceRefreshDriver: UIViewRepresentable {
     let isActive: Bool
-    var context = "controls"
 
     func makeUIView(context: Context) -> RefreshView { RefreshView() }
 
     func updateUIView(_ view: RefreshView, context: Context) {
         view.isActive = isActive
-        view.diagnosticContext = self.context
         view.updateLink()
     }
 
@@ -581,16 +573,8 @@ struct PlayerInterfaceRefreshDriver: UIViewRepresentable {
 
     final class RefreshView: UIView {
         var isActive = false
-        var diagnosticContext = "controls" {
-            didSet {
-                if oldValue != diagnosticContext { resetMeasurement() }
-            }
-        }
         private var link: UIUpdateLink?
         private weak var linkedScene: UIWindowScene?
-        private var sampleStart: TimeInterval?
-        private var updateCount = 0
-        private var didReport = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -606,9 +590,7 @@ struct PlayerInterfaceRefreshDriver: UIViewRepresentable {
             stop()
             // Bind to the scene so a sheet/menu covering this particular view
             // does not make its UI update request passive or inactive.
-            let link = UIUpdateLink(windowScene: scene) { [weak self] _, info in
-                self?.measureUpdate(at: info.modelTime)
-            }
+            let link = UIUpdateLink(windowScene: scene) { _, _ in }
             let maximum = Float(scene.screen.maximumFramesPerSecond)
             link.preferredFrameRateRange = CAFrameRateRange(
                 minimum: maximum, maximum: maximum, preferred: maximum
@@ -624,33 +606,6 @@ struct PlayerInterfaceRefreshDriver: UIViewRepresentable {
             link?.requiresContinuousUpdates = false
             link = nil
             linkedScene = nil
-            resetMeasurement()
-        }
-
-        private func resetMeasurement() {
-            sampleStart = nil
-            updateCount = 0
-            didReport = false
-        }
-
-        private func measureUpdate(at time: TimeInterval) {
-            guard !didReport else { return }
-            guard let start = sampleStart else { sampleStart = time; return }
-            updateCount += 1
-            let elapsed = time - start
-            guard elapsed >= 2 else { return }
-            didReport = true
-            // This measures scene UI updates, not video FPS or a guarantee of
-            // panel refresh. Low Power Mode and thermal limits remain OS-owned.
-            let hz = Double(updateCount) / elapsed
-            let maximum = linkedScene?.screen.maximumFramesPerSecond ?? 0
-            let power = ProcessInfo.processInfo.isLowPowerModeEnabled
-            let thermal = ProcessInfo.processInfo.thermalState.rawValue
-            AppLog.runtimeEntries.append(
-                "\(ISO8601DateFormatter().string(from: Date())) [PlayerRefresh] "
-                + "context=\(diagnosticContext) uiUpdates=\(String(format: "%.1f", hz))Hz "
-                + "requested=\(maximum)Hz lowPower=\(power) thermal=\(thermal)"
-            )
         }
     }
 }

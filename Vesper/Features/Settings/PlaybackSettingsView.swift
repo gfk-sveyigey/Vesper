@@ -12,6 +12,7 @@ enum PlaybackPreferences {
     static var backgroundEnabled: Bool { UserDefaults.standard.object(forKey: "player.background.enabled") as? Bool ?? true }
     static var backgroundMode: String { UserDefaults.standard.string(forKey: "player.background.mode") ?? "audio" }
     static var remembersProgress: Bool { UserDefaults.standard.object(forKey: "player.rememberProgress") as? Bool ?? true }
+    static var showsRemainingDuration: Bool { UserDefaults.standard.object(forKey: "player.showsRemainingDuration") as? Bool ?? false }
 }
 
 enum PlaybackEngine: String, CaseIterable, Identifiable {
@@ -36,6 +37,7 @@ struct PlaybackSettingsView: View {
     @AppStorage("player.decoder") private var decoder = PlaybackDecoder.hardware
     @AppStorage("player.playbackRate") private var defaultRate = 1.0
     @AppStorage("player.rememberProgress") private var remembersProgress = true
+    @AppStorage("player.showsRemainingDuration") private var showsRemainingDuration = false
     @AppStorage("player.gesture.skipSeconds") private var skipSeconds = 15.0
     var body: some View {
         SettingsPage {
@@ -82,6 +84,11 @@ struct PlaybackSettingsView: View {
                             Text(verbatim: String(format: "%g×", Double(rate))).tag(rate)
                         }
                     }
+                }
+                SettingsSection {
+                    Toggle("显示剩余时长", isOn: $showsRemainingDuration)
+                } footer: {
+                    Text("关闭时显示视频总时长；开启后显示剩余时长。")
                 }
             }
         }

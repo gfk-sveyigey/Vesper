@@ -143,6 +143,7 @@ struct DanmakuAPISettingsView: View {
 
 struct DanmakuAPISearchView: View {
     @ObservedObject var document: PlayerDanmaku
+    @EnvironmentObject private var library: SourceLibrary
     var item: MediaItem? = nil
     var mediaSource: MediaSource? = nil
     @ObservedObject private var store = DanmakuAPISources.shared
@@ -205,10 +206,10 @@ struct DanmakuAPISearchView: View {
         let fallback = item.title
         keyword = fallback
         guard let mediaSource, mediaSource.kind == .emby,
-              let detail = try? await EmbyRepository.shared.detailMetadata(for: item, source: mediaSource),
+              let detail = try? await library.seriesCatalog.detailMetadata(for: item, source: mediaSource),
               !Task.isCancelled else { return }
         guard let series = detail.series else { return }
-        let count = try? await EmbyRepository.shared.seriesSeasonCount(for: series, source: mediaSource)
+        let count = try? await library.seriesCatalog.seriesSeasonCount(for: series, source: mediaSource)
         guard !Task.isCancelled else { return }
         let query = DanmakuSearchQuery.make(title: series.title, season: detail.seasonNumber, seasonCount: count)
         // Metadata must never overwrite a query the user has already edited.

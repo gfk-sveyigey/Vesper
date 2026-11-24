@@ -3,6 +3,13 @@ import UIKit
 import UniformTypeIdentifiers
 import AVFoundation
 import QuartzCore
+import PlaybackContracts
+
+/// An Observation tracking boundary: timeline changes invalidate this region only.
+private struct PlayerTimelineRegion<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    var body: some View { content() }
+}
 
 private enum PlayerPanel: String, Identifiable {
     case queue, gestures, danmaku, danmakuSearch, subtitles, synopsis, details, more
@@ -55,9 +62,11 @@ struct PlayerScreen: View {
             && !isScrubbing && !importingDanmaku && !volumeExpanded && volumeDragStart == nil && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
     }
     private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
+    private var showsOtherControls: Bool { controlsVisible && !isScrubbing }
 
     var body: some View {
         observedPlayer
+            .task { await session.monitorDownloadSpeed() }
             .task(id: hudRevision) { await dismissHUDWhenReady() }
             .task(id: autoHideRevision) { await autoHideControlsWhenReady() }
             .task(id: volumeResetRevision) { await resetVolumeWhenReady() }
@@ -129,16 +138,17 @@ struct PlayerScreen: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 if let view = session.videoView {
-                    PlayerVideoSurface(videoView: view, isActive: session.isPresented)
+                    PlayerVideoSurface(videoView: view, videoSize: session.videoSize,
+                                       fillsScreen: session.fillsScreen, isActive: session.isPresented)
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
                 }
                 DanmakuOverlay(session: session, document: session.danmaku)
                     .id(ObjectIdentifier(session.danmaku))
-                if debugInfoVisible {
+                if debugInfoVisible && !isScrubbing {
                     diagnosticOverlay
-                        .padding(.top, safeGeometry.safeAreaInsets.top + 12)
-                        .padding(.leading, 12)
+                        .padding(12)
+                        .padding(safeGeometry.safeAreaInsets)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .allowsHitTesting(false)
                         .accessibilityElement(children: .contain)
@@ -153,17 +163,20 @@ struct PlayerScreen: View {
                 LinearGradient(colors: [.black.opacity(0.6), .clear, .clear, .black.opacity(0.75)],
                                startPoint: .top, endPoint: .bottom)
                     .ignoresSafeArea()
-                    .opacity(controlsVisible ? 1 : 0)
+                    .opacity(showsOtherControls ? 1 : 0)
                     .allowsHitTesting(false)
                 // Independent placement keeps the transport centered on the
                 // actual video, regardless of header/title/progress height.
                 transportControls
                     .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                    .opacity(controlsVisible && session.errorMessage == nil && !session.isLoading ? 1 : 0)
-                    .allowsHitTesting(controlsVisible && session.errorMessage == nil && !session.isLoading)
-                    .accessibilityHidden(!controlsVisible || session.errorMessage != nil || session.isLoading)
+                    .opacity(showsOtherControls && session.errorMessage == nil && !session.isLoading ? 1 : 0)
+                    .allowsHitTesting(showsOtherControls && session.errorMessage == nil && !session.isLoading)
+                    .accessibilityHidden(!showsOtherControls || session.errorMessage != nil || session.isLoading)
                 VStack {
                     topControls(availableWidth: max(0, geometry.size.width - safeGeometry.safeAreaInsets.leading - safeGeometry.safeAreaInsets.trailing - (geometry.size.width > geometry.size.height ? 24 : 40)), landscape: geometry.size.width > geometry.size.height)
+                        .opacity(showsOtherControls ? 1 : 0)
+                        .allowsHitTesting(showsOtherControls)
+                        .accessibilityHidden(!showsOtherControls)
                     Spacer(minLength: 0)
                     bottomControls(landscape: geometry.size.width > geometry.size.height)
                 }
@@ -172,14 +185,20 @@ struct PlayerScreen: View {
                 .padding(safeGeometry.safeAreaInsets)
                 // Keep the Menu mounted while fading the controls, so a
                 // system menu never loses its presentation anchor mid-use.
-                .opacity(controlsVisible ? 1 : 0)
+                .opacity(controlsVisible || isScrubbing ? 1 : 0)
                 .allowsHitTesting(controlsVisible)
                 .accessibilityHidden(!controlsVisible)
                 if (session.isLoading || session.isSeeking) && !isScrubbing {
-                    ProgressView().controlSize(.large).tint(.white)
-                        .allowsHitTesting(false).accessibilityLabel("正在加载")
+                    VStack(spacing: 12) {
+                        ProgressView().controlSize(.large).tint(.white)
+                            .accessibilityLabel("正在加载")
+                        PlayerTimelineRegion { Text(verbatim: session.downloadSpeedText) }
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white)
+                    }
+                    .allowsHitTesting(false)
                 }
-                if !hudText.isEmpty {
+                if !hudText.isEmpty && !(isScrubbing && scrubShowsControls) {
                     VStack {
                         HStack(spacing: 8) {
                             Image(systemName: hudSymbol)
@@ -197,16 +216,8 @@ struct PlayerScreen: View {
                     }
                     .allowsHitTesting(false)
                 }
-                if isScrubbing && !controlsVisible {
-                    VStack {
-                        Spacer()
-                        progressRow
-                    }
-                    .padding(.horizontal, 28).padding(.bottom, safeGeometry.safeAreaInsets.bottom + 12)
-                    .allowsHitTesting(false).accessibilityHidden(true)
-                }
-                if regionsVisible { regionOverlay.ignoresSafeArea() }
-                if let message = session.errorMessage { errorContent(message) }
+                if regionsVisible && !isScrubbing { regionOverlay.ignoresSafeArea() }
+                if let message = session.errorMessage, !isScrubbing { errorContent(message) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .foregroundStyle(.white).tint(.white)
@@ -221,8 +232,7 @@ struct PlayerScreen: View {
         .background {
             PlayerInterfaceRefreshDriver(
                 isActive: scenePhase == .active && session.isPresented && panel == nil
-                    && (controlsVisible || menuPresented || showingNotice || regionsVisible || !hudText.isEmpty),
-                context: "\(menuPresented ? "menu" : "controls"):\(session.isLoading ? "loading" : session.isPlaying ? "playing" : "paused")"
+                    && (controlsVisible || menuPresented || showingNotice || regionsVisible || !hudText.isEmpty)
             )
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -237,8 +247,7 @@ struct PlayerScreen: View {
                     // A full-height sheet may detach the presenting view.
                     // Keep its UI cadence request inside the visible sheet.
                     PlayerInterfaceRefreshDriver(
-                        isActive: scenePhase == .active,
-                        context: "\(selected.rawValue):\(session.isLoading ? "loading" : session.isPlaying ? "playing" : "paused")"
+                        isActive: scenePhase == .active
                     )
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -400,19 +409,42 @@ struct PlayerScreen: View {
                 if landscape { expandedPlaybackOptions }
                 else { playbackOptionsMenu }
             }
+            .opacity(showsOtherControls ? 1 : 0)
+            .allowsHitTesting(showsOtherControls)
+            .accessibilityHidden(!showsOtherControls)
             progressRow
+                .padding(.horizontal, 12)
+                .background {
+                    Color.clear
+                        .frame(height: 56.0 * 2 / 3)
+                        .glassEffect(.regular, in: Capsule())
+                        .allowsHitTesting(false)
+                }
+                .scaleEffect(isScrubbing ? 1.06 : 1)
             bottomActions(landscape: landscape)
+                .opacity(showsOtherControls ? 1 : 0)
+                .allowsHitTesting(showsOtherControls)
+                .accessibilityHidden(!showsOtherControls)
         }
+        .animation(.easeInOut(duration: 0.18), value: isScrubbing)
     }
 
     private var progressRow: some View {
+        PlayerTimelineRegion { progressRowContent }
+    }
+
+    private var progressRowContent: some View {
         HStack(spacing: 10) {
             Text(timeLabel(isScrubbing ? scrubTime : session.currentTime))
                 .frame(minWidth: 40, alignment: .leading)
             progressBar
-            Text(timeLabel(session.duration)).frame(minWidth: 40, alignment: .trailing)
+            Text(timeLabel(PlaybackPreferences.showsRemainingDuration
+                           ? max(0, session.duration - (isScrubbing ? scrubTime : session.currentTime))
+                           : session.duration))
+                .frame(minWidth: 40, alignment: .trailing)
         }
         .font(.caption.monospacedDigit())
+        .animation(.easeInOut(duration: 0.18), value: isScrubbing)
     }
 
     private var progressBar: some View {
@@ -424,12 +456,12 @@ struct PlayerScreen: View {
         }
         return GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.25)).frame(height: isScrubbing ? 12 : 8)
+                Capsule().fill(.white.opacity(0.25)).frame(height: 8)
                 Capsule().fill(.white.opacity(0.35))
-                    .frame(height: isScrubbing ? 12 : 8)
+                    .frame(height: 8)
                     .mask { PlayerBufferMask(segments: segments) }
                 Capsule().fill(.white)
-                    .frame(height: isScrubbing ? 12 : 8)
+                    .frame(height: 8)
                     .frame(maxWidth: .infinity)
                     .mask(alignment: .leading) {
                         Rectangle().frame(width: geometry.size.width * fraction(isScrubbing ? scrubTime : session.currentTime))
@@ -437,7 +469,7 @@ struct PlayerScreen: View {
             }
             .frame(height: 44)
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
                 .onChanged { value in
                     guard session.canSeek else { return }
                     if !isScrubbing { beginScrubbing() }
@@ -521,11 +553,23 @@ struct PlayerScreen: View {
     }
 
     private func subtitleMenu() -> UIMenu {
-        var actions = [menuAction(VesperLocalization.string("关闭字幕"), selected: session.selectedSubtitleID == nil) { session.selectSubtitle(nil) }]
+        let restoring = session.subtitleRestoreStatus
+        var actions = [menuAction(VesperLocalization.string("关闭字幕"),
+                                  selected: session.subtitlesExplicitlyOff || (session.selectedSubtitleID == nil && restoring == .none)) {
+            session.selectSubtitle(nil)
+        }]
         actions += session.subtitleTracks.map { track in
             menuAction(track.name, selected: track.isSelected) { session.selectSubtitle(track.id) }
         }
-        if session.subtitleTracks.isEmpty { actions.append(menuAction(VesperLocalization.string("无内嵌字幕"), enabled: false) { }) }
+        switch restoring {
+        case .restoring: actions.append(menuAction(VesperLocalization.string("正在恢复字幕"), enabled: false) { })
+        case .unavailable: actions.append(menuAction(VesperLocalization.string("未能恢复原字幕轨"), enabled: false) { })
+        case .none:
+            if session.subtitleTracks.isEmpty { actions.append(menuAction(VesperLocalization.string("无内嵌字幕"), enabled: false) { }) }
+        }
+        actions.append(menuAction(VesperLocalization.string("字幕样式"), symbol: "textformat.size") {
+            requestPanel(.subtitles)
+        })
         return UIMenu(title: VesperLocalization.string("字幕"), image: UIImage(systemName: "captions.bubble"), children: actions)
     }
 
@@ -533,7 +577,12 @@ struct PlayerScreen: View {
         var actions = session.audioTracks.map { track in
             menuAction(track.name, selected: track.isSelected) { session.selectAudio(track.id) }
         }
-        if actions.isEmpty { actions.append(menuAction(VesperLocalization.string("无可用音轨"), enabled: false) { }) }
+        switch session.audioRestoreStatus {
+        case .restoring: actions.append(menuAction(VesperLocalization.string("正在恢复音轨"), enabled: false) { })
+        case .unavailable: actions.append(menuAction(VesperLocalization.string("未能恢复原音轨"), enabled: false) { })
+        case .none:
+            if actions.isEmpty { actions.append(menuAction(VesperLocalization.string("无可用音轨"), enabled: false) { }) }
+        }
         return UIMenu(title: VesperLocalization.string("音频"), image: UIImage(systemName: "waveform"), children: actions)
     }
 
@@ -1024,7 +1073,6 @@ struct PlayerScreen: View {
     }
     private func timeLabel(_ seconds: TimeInterval) -> String {
         let value = Int(max(0, seconds.isFinite ? seconds : 0))
-        if value >= 3600 { return String(format: "%d:%02d:%02d", value / 3600, value / 60 % 60, value % 60) }
         return String(format: "%d:%02d", value / 60, value % 60)
     }
 }
@@ -1144,12 +1192,15 @@ private struct PlayerQueueRow: View {
 /// rotation or recreate the engine's rendering surface during it.
 struct PlayerVideoSurface: UIViewControllerRepresentable {
     let videoView: UIView
+    let videoSize: CGSize?
+    let fillsScreen: Bool
     var isActive = true
 
     func makeUIViewController(context: Context) -> PlayerVideoSurfaceController {
         PlayerVideoSurfaceController()
     }
     func updateUIViewController(_ controller: PlayerVideoSurfaceController, context: Context) {
+        controller.updateLayout(videoSize: videoSize, fillsScreen: fillsScreen)
         controller.mount(isActive ? videoView : nil)
     }
     static func dismantleUIViewController(_ controller: PlayerVideoSurfaceController, coordinator: ()) {
@@ -1160,6 +1211,10 @@ struct PlayerVideoSurface: UIViewControllerRepresentable {
 final class PlayerVideoSurfaceController: UIViewController {
     private weak var renderingView: UIView?
     private var mountingConstraints: [NSLayoutConstraint] = []
+    private var renderingWidthConstraint: NSLayoutConstraint?
+    private var renderingHeightConstraint: NSLayoutConstraint?
+    private var videoSize: CGSize?
+    private var fillsScreen = false
     private var rotationDisplayLink: CADisplayLink?
     private var rotationRevision = 0
     private typealias LayerGeometry = (layer: CALayer, bounds: CGRect, position: CGPoint)
@@ -1177,27 +1232,39 @@ final class PlayerVideoSurfaceController: UIViewController {
         view = host
     }
 
+    func updateLayout(videoSize: CGSize?, fillsScreen: Bool) {
+        self.videoSize = videoSize
+        self.fillsScreen = fillsScreen
+        updateRenderingSize(for: view.bounds.size)
+    }
+
     func mount(_ renderingView: UIView?) {
         loadViewIfNeeded()
         if self.renderingView === renderingView, renderingView == nil || renderingView?.superview === view { return }
         stopRotationSynchronization()
         NSLayoutConstraint.deactivate(mountingConstraints)
         mountingConstraints = []
+        renderingWidthConstraint = nil
+        renderingHeightConstraint = nil
         if self.renderingView?.superview === view { self.renderingView?.removeFromSuperview() }
         self.renderingView = renderingView
         guard let renderingView else { return }
         renderingView.removeFromSuperview()
         renderingView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(renderingView)
-        // Centre-based constraints keep resizing symmetric about the video
-        // viewport rather than anchoring the drawable to its top-left corner.
+        // Keep the active video content centered in the full-screen host.
+        let width = renderingView.widthAnchor.constraint(equalToConstant: view.bounds.width)
+        let height = renderingView.heightAnchor.constraint(equalToConstant: view.bounds.height)
+        renderingWidthConstraint = width
+        renderingHeightConstraint = height
         mountingConstraints = [
             renderingView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             renderingView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            renderingView.widthAnchor.constraint(equalTo: view.widthAnchor),
-            renderingView.heightAnchor.constraint(equalTo: view.heightAnchor)
+            width,
+            height
         ]
         NSLayoutConstraint.activate(mountingConstraints)
+        updateRenderingSize(for: view.bounds.size)
     }
 
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
@@ -1225,6 +1292,7 @@ final class PlayerVideoSurfaceController: UIViewController {
             let link = CADisplayLink(target: RotationGeometryTick(owner: self), selector: #selector(RotationGeometryTick.tick(_:)))
             self.rotationDisplayLink = link
             link.add(to: .main, forMode: .common)
+            self.updateRenderingSize(for: size)
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
             self.synchronizeVideoGeometry()
@@ -1238,9 +1306,22 @@ final class PlayerVideoSurfaceController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateRenderingSize(for: view.bounds.size)
         // SwiftUI may deliver the new viewport bounds after the coordinator's
         // animation block. Synchronize that later layout to the same clock.
         synchronizeVideoGeometry()
+    }
+
+    private func updateRenderingSize(for viewportSize: CGSize) {
+        guard let renderingWidthConstraint, let renderingHeightConstraint,
+              viewportSize.width > 0, viewportSize.height > 0 else { return }
+        let rect = VideoViewportLayout.contentRect(
+            sourceSize: videoSize,
+            viewport: CGRect(origin: .zero, size: viewportSize),
+            fillsScreen: fillsScreen
+        )
+        renderingWidthConstraint.constant = rect.width
+        renderingHeightConstraint.constant = rect.height
     }
 
     private func synchronizeVideoGeometry() {

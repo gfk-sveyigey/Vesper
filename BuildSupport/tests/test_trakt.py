@@ -14,8 +14,8 @@ def production_checks_source():
     source = (ROOT / "Vesper/Infrastructure/Services/TraktAccountStore.swift").read_text()
     values = source[source.index("struct TraktAccountSettings:"):source.index("/// Shared by both engines.")]
     values += source[source.index("enum EmbyProgressSource:"):source.index("extension TraktAccountStore {")]
-    values += source[source.index("enum TraktResumeProgress:"):]
-    refresh = source[source.index("    private func accessToken("):source.index("    /// One refresh/replay")]
+    values += source[source.index("enum TraktResumeProgress {"):]
+    refresh = source[source.index("    private func accessToken("):source.index("    /// Refreshes once")]
     refresh = refresh.replace("private func accessToken", "func accessToken", 1)
     api = source[source.index("    func api("):source.index("    private func save(")]
     return """import Foundation
@@ -29,13 +29,13 @@ import FoundationNetworking
         requests.append(request)
         let status = statuses.removeFirst()
         return (Data("{}".utf8), HTTPURLResponse(url: request.url!, statusCode: status,
-                 httpVersion: nil, headerFields: ["Retry-After": "7"])!)
+                 httpVersion: nil, headerFields: nil)!)
     }
 }
 @MainActor final class Harness {
     typealias Token = TraktToken
     enum Failure: Error { case disconnected, storage, network }
-    struct HTTPFailure: Error { let status: Int; var retryAfter: TimeInterval? = nil }
+    struct HTTPFailure: LocalizedError { let status: Int; var retryAfter: TimeInterval? = nil; var serverMessage: String? = nil; var errorDescription: String? { "HTTP \(status)" } }
     var isConnected = true
     let network = FakeNetwork()
     var token: Token? = Token(access_token: "old", refresh_token: "refresh", created_at: 0, expires_in: 100)
@@ -81,6 +81,90 @@ enum TraktConfiguration {
 
 
 class TraktChecks(unittest.TestCase):
+    def test_series_playback_state_uses_bulk_endpoints_and_unified_session(self):
+        account = (ROOT / "Vesper/Infrastructure/Services/TraktAccountStore.swift").read_text()
+        coordinator = (ROOT / "Vesper/Infrastructure/Playback/PlaybackRecordCoordinator.swift").read_text()
+        session = (ROOT / "Vesper/Infrastructure/Playback/PlaybackSession.swift").read_text()
+        detail = (ROOT / "Vesper/Features/Media/EmbySeriesDetailView.swift").read_text()
+        episode_card = (ROOT / "Vesper/Features/Media/EmbyEpisodeCard.swift").read_text()
+        self.assertIn('shows/\\(showID)/progress/watched?specials=true', account)
+        self.assertIn('sync/playback/episodes', account)
+        self.assertIn('func refreshTraktPlaybackState(for series:', session)
+        self.assertIn('protocol PlaybackStatusService', coordinator)
+        self.assertIn('playbackStatusService.seriesState(for: series, source: source)', session)
+        self.assertIn('trakt: recordStore.traktState(for: item.id)?.isPlayed', session)
+        self.assertIn('playback.refreshTraktPlaybackState(for: series, source: source, episodes: fetched)', detail)
+        self.assertIn('func resumePosition(for item: MediaItem)', session)
+
+    @unittest.skipUnless(SWIFTC, "Swift compiler is required")
+    def test_transient_retry_policy_and_mutation_safety(self):
+        with tempfile.TemporaryDirectory(prefix="vesper-trakt-retry-") as directory:
+            unit = Path(directory) / "Checks.swift"
+            binary = Path(directory) / "checks"
+            unit.write_text(production_checks_source() + """
+@main struct RetryPolicyChecks {
+    @MainActor static func main() async throws {
+        let read = Harness()
+        read.token = TraktToken(access_token: "old", refresh_token: "refresh",
+                                created_at: Date().timeIntervalSince1970, expires_in: 600)
+        read.network.statuses = [503, 200]
+        _ = try await read.api("users/settings", revision: read.accountRevision)
+        precondition(read.network.requests.count == 2)
+
+        let add = Harness()
+        add.token = TraktToken(access_token: "old", refresh_token: "refresh",
+                               created_at: Date().timeIntervalSince1970, expires_in: 600)
+        add.network.statuses = [503, 200]
+        do {
+            _ = try await add.api("sync/history", method: "POST", body: Data("{}".utf8), revision: add.accountRevision)
+            fatalError("unsafe history add must not retry a 5xx")
+        } catch is Harness.HTTPFailure {}
+        precondition(add.network.requests.count == 1)
+
+        let remove = Harness()
+        remove.token = TraktToken(access_token: "old", refresh_token: "refresh",
+                                  created_at: Date().timeIntervalSince1970, expires_in: 600)
+        remove.network.statuses = [503, 200]
+        _ = try await remove.api("sync/history/remove", method: "POST", body: Data("{}".utf8), revision: remove.accountRevision)
+        precondition(remove.network.requests.count == 2)
+
+        let rejected = Harness()
+        rejected.token = TraktToken(access_token: "old", refresh_token: "refresh",
+                                    created_at: Date().timeIntervalSince1970, expires_in: 600)
+        rejected.network.statuses = [400, 200]
+        do {
+            _ = try await rejected.api("sync/history/remove", method: "POST", body: Data("{}".utf8), revision: rejected.accountRevision)
+            fatalError("permanent 4xx must not retry")
+        } catch is Harness.HTTPFailure {}
+        precondition(rejected.network.requests.count == 1)
+    }
+}
+""")
+            subprocess.run([SWIFTC, "-swift-version", "6", "-parse-as-library",
+                            str(unit), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
+    def test_watched_mutations_sync_to_trakt_history(self):
+        account = (ROOT / "Vesper/Infrastructure/Services/TraktAccountStore.swift").read_text()
+        session = (ROOT / "Vesper/Infrastructure/Playback/PlaybackSession.swift").read_text()
+        detail = (ROOT / "Vesper/Features/Media/EmbySeriesDetailView.swift").read_text()
+        episode_card = (ROOT / "Vesper/Features/Media/EmbyEpisodeCard.swift").read_text()
+        self.assertIn('let endpoint = played ? "sync/history" : "sync/history/remove"', account)
+        self.assertIn('api(endpoint, method: "POST", body: body, revision: revision)', account)
+        self.assertIn('Self.serverErrorMessage(from: data)', account)
+        self.assertIn('Trakt HTTP \\(status)', account)
+        self.assertIn('private static func serverErrorMessage(from data: Data)', account)
+        self.assertIn("func canSetPlayed(for source: MediaSource)", session)
+        self.assertIn("guard succeeded else", session)
+        self.assertIn(".disabled(!playback.canSetPlayed(for: source))", episode_card)
+
+    def test_progress_clear_uses_playback_delete(self):
+        source = (ROOT / "Vesper/Infrastructure/Services/TraktAccountStore.swift").read_text()
+        clear = source.split("func clearPlaybackProgress(", 1)[1].split("/// Fetch paused playback progress", 1)[0]
+        self.assertIn('"sync/playback/\\(category)"', clear)
+        self.assertIn('"sync/playback/\\(id)"', clear)
+        self.assertIn('method: "DELETE"', clear)
+
     @unittest.skipUnless(SWIFTC, "Swift compiler is required")
     def test_state_matching_and_refresh(self):
         with tempfile.TemporaryDirectory(prefix="vesper-trakt-") as directory:

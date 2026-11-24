@@ -77,7 +77,7 @@ print("Icon library parser checks passed.")
             print(result.stdout.strip())
 
     def test_ui_entrypoints_and_registration(self):
-        settings = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text()
+        settings = (ROOT / 'Vesper/Features/Settings/EmbySettingsView.swift').read_text()
         editor = (ROOT / 'Vesper/Features/Sources/EmbySourceEditor.swift').read_text()
         self.assertIn('NavigationLink("图标库") { EmbyIconLibrarySettingsView() }', settings)
         self.assertIn('Button("从图标库选择"', editor)
