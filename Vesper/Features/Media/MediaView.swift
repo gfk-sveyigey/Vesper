@@ -207,7 +207,16 @@ struct MediaView: View {
         }
         .navigationDestination(for: EmbyMediaRoute.self) { route in
             if route.opensLibrary {
-                EmbyLibraryDestination(libraryRoute: route)
+                let destination = EmbyLibraryDestination(libraryRoute: route)
+                #if DEBUG
+                if route.origin == .libraryCardZoom {
+                    destination.navigationTransition(.zoom(sourceID: route, in: artworkZoom))
+                } else {
+                    destination
+                }
+                #else
+                destination
+                #endif
             } else if route.opensFavorites {
                 EmbySeriesBrowserView(source: route.source, groupTitle: route.title,
                                       parentID: nil, scope: .favorites,
@@ -461,12 +470,19 @@ struct MediaView: View {
     private func groupCard(_ item: MediaItem, in group: EmbyMediaGroup, source: MediaSource) -> some View {
         let size = groupCardSize(group)
         if group.id == EmbyMediaGroup.librariesID {
+            #if DEBUG
+            let route = EmbyMediaRoute.library(source, id: item.id.localID, title: item.title, origin: .libraryCardZoom)
+            #else
             let route = EmbyMediaRoute.library(source, id: item.id.localID, title: item.title)
+            #endif
             NavigationLink(value: route) {
                 MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
                                imageOrientation: .landscape)
                     .frame(width: size.width, height: size.height)
                     .mediaArtworkBorder()
+                    #if DEBUG
+                    .matchedTransitionSource(id: route, in: artworkZoom)
+                    #endif
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(verbatim: item.title))
@@ -1043,6 +1059,9 @@ struct EmbyMediaRoute: Hashable {
         case carousel
         case shelf(String)
         case library(String)
+        #if DEBUG
+        case libraryCardZoom
+        #endif
         case favorites
         case person(EmbyPerson)
     }
@@ -1059,8 +1078,8 @@ struct EmbyMediaRoute: Hashable {
         Self(source: source, title: VesperLocalization.string("收藏媒体"), itemID: "", item: nil, origin: .favorites)
     }
 
-    static func library(_ source: MediaSource, id: String, title: String) -> Self {
-        Self(source: source, title: title, itemID: id, item: nil)
+    static func library(_ source: MediaSource, id: String, title: String, origin: Origin? = nil) -> Self {
+        Self(source: source, title: title, itemID: id, item: nil, origin: origin)
     }
 
     static func detail(_ source: MediaSource, _ item: MediaItem, origin: Origin) -> Self {
@@ -1089,7 +1108,9 @@ private struct EmbyLibraryDestination: View {
                               parentID: libraryRoute.itemID, scope: .titles,
                               artworkZoom: artworkZoom, openDetail: { openedDetail = $0 })
             #if DEBUG
-            .background(EmbyNavigationTouchDiagnostics(page: "library").allowsHitTesting(false))
+            .background(EmbyNavigationTouchDiagnostics(
+                page: libraryRoute.origin == .libraryCardZoom ? "library-zoom" : "library-default"
+            ).allowsHitTesting(false))
             #endif
             .navigationDestination(item: $openedDetail) { route in
                 if let item = route.item {
