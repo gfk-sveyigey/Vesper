@@ -142,16 +142,7 @@ final class MediaLayoutSettings: ObservableObject {
     }
 }
 
-#if DEBUG
-private enum EmbyBrowserTransitionDiagnostics {
-    static let zoomKey = "debug.emby.browser.detailZoom"
-}
-#endif
-
 struct MediaView: View {
-    #if DEBUG
-    @AppStorage(EmbyBrowserTransitionDiagnostics.zoomKey) private var browserDetailZoom = true
-    #endif
     @Binding var path: NavigationPath
     @EnvironmentObject private var library: SourceLibrary
     @EnvironmentObject private var playback: PlaybackSession
@@ -211,10 +202,11 @@ struct MediaView: View {
             }
         }
         .navigationDestination(for: EmbyMediaRoute.self) { route in
-            if route.opensLibrary || route.opensFavorites {
+            if route.opensLibrary {
+                EmbyLibraryDestination(libraryRoute: route)
+            } else if route.opensFavorites {
                 EmbySeriesBrowserView(source: route.source, groupTitle: route.title,
-                                      parentID: route.opensFavorites ? nil : route.itemID,
-                                      scope: route.opensFavorites ? .favorites : .titles,
+                                      parentID: nil, scope: .favorites,
                                       artworkZoom: artworkZoom, openDetail: { path.append($0) })
             } else if let item = route.item {
                 if route.origin == .carousel {
@@ -227,7 +219,8 @@ struct MediaView: View {
                         }
                     detail
                 } else {
-                    detailDestination(item, route: route)
+                    MediaDetailView(source: route.source, series: item)
+                        .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
                 }
             }
         }
@@ -239,20 +232,6 @@ struct MediaView: View {
                 })
             }
         }
-    }
-
-    @ViewBuilder
-    private func detailDestination(_ item: MediaItem, route: EmbyMediaRoute) -> some View {
-        let detail = MediaDetailView(source: route.source, series: item)
-        #if DEBUG
-        if case .library? = route.origin, !browserDetailZoom {
-            detail.navigationTransition(.automatic)
-        } else {
-            detail.navigationTransition(.zoom(sourceID: route, in: artworkZoom))
-        }
-        #else
-        detail.navigationTransition(.zoom(sourceID: route, in: artworkZoom))
-        #endif
     }
 
     private var featured: [MediaItem] {
@@ -1096,6 +1075,24 @@ struct EmbyMediaRoute: Hashable {
     }
 }
 
+private struct EmbyLibraryDestination: View {
+    let libraryRoute: EmbyMediaRoute
+    @Namespace private var artworkZoom
+    @State private var openedDetail: EmbyMediaRoute?
+
+    var body: some View {
+        EmbySeriesBrowserView(source: libraryRoute.source, groupTitle: libraryRoute.title,
+                              parentID: libraryRoute.itemID, scope: .titles,
+                              artworkZoom: artworkZoom, openDetail: { openedDetail = $0 })
+            .navigationDestination(item: $openedDetail) { route in
+                if let item = route.item {
+                    MediaDetailView(source: route.source, series: item)
+                        .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
+                }
+            }
+    }
+}
+
 struct EmbyPersonWorksView: View {
     let source: MediaSource
     let person: EmbyPerson
@@ -1163,129 +1160,6 @@ private enum EmbyBrowserSort: String, CaseIterable, Identifiable {
     }
 }
 
-#if DEBUG
-private struct EmbyBrowserNavigationDiagnostics: UIViewControllerRepresentable {
-    let mode: String
-
-    func makeUIViewController(context: Context) -> Reporter {
-        let reporter = Reporter()
-        reporter.mode = mode
-        return reporter
-    }
-
-    func updateUIViewController(_ controller: Reporter, context: Context) {
-        controller.mode = mode
-    }
-
-    final class Reporter: UIViewController {
-        var mode = "zoom"
-        private let formatter: ISO8601DateFormatter = {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            return formatter
-        }()
-        private var displayLink: CADisplayLink?
-        private weak var scrollView: UIScrollView?
-        private var startedAt: CFTimeInterval = 0
-        private var lastSample = ""
-        private var appearance = 0
-
-        override func loadView() {
-            view = UIView()
-            view.isUserInteractionEnabled = false
-        }
-
-        override func viewWillAppear(_ animated: Bool) {
-            super.viewWillAppear(animated)
-            stopSampling()
-            appearance += 1
-            startedAt = CACurrentMediaTime()
-            lastSample = ""
-            scrollView = nil
-            log("willAppear animated=\(animated)")
-            let link = CADisplayLink(target: Tick(owner: self), selector: #selector(Tick.sample(_:)))
-            displayLink = link
-            link.add(to: .main, forMode: .common)
-        }
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            log("didAppear animated=\(animated)")
-            if let displayLink { sample(displayLink) }
-        }
-
-        override func viewDidDisappear(_ animated: Bool) {
-            super.viewDidDisappear(animated)
-            log("didDisappear animated=\(animated)")
-            stopSampling()
-        }
-
-        private func sample(_ link: CADisplayLink) {
-            guard CACurrentMediaTime() - startedAt < 8 else {
-                stopSampling()
-                return
-            }
-            guard let navigation = navigationController else { return }
-            if scrollView == nil, let topView = navigation.topViewController?.viewIfLoaded,
-               view.isDescendant(of: topView) {
-                scrollView = firstScrollView(in: topView)
-            }
-            let coordinator = navigation.transitionCoordinator
-            let transition = coordinator.map { $0.isInteractive ? "interactive" : "animating" } ?? "idle"
-            let sample = "depth=\(navigation.viewControllers.count) transition=\(transition) edge=\(describe(navigation.interactivePopGestureRecognizer)) content=\(describe(navigation.interactiveContentPopGestureRecognizer)) scroll=\(describe(scrollView?.panGestureRecognizer))"
-            guard sample != lastSample else { return }
-            lastSample = sample
-            log(sample)
-        }
-
-        private func firstScrollView(in view: UIView) -> UIScrollView? {
-            if let scroll = view as? UIScrollView { return scroll }
-            for child in view.subviews where !child.isHidden {
-                if let scroll = firstScrollView(in: child) { return scroll }
-            }
-            return nil
-        }
-
-        private func describe(_ recognizer: UIGestureRecognizer?) -> String {
-            guard let recognizer else { return "unavailable" }
-            let state: String
-            switch recognizer.state {
-            case .possible: state = "possible"
-            case .began: state = "began"
-            case .changed: state = "changed"
-            case .ended: state = "ended"
-            case .failed: state = "failed"
-            case .cancelled: state = "cancelled"
-            @unknown default: state = "unknown"
-            }
-            return "\(recognizer.isEnabled ? "enabled" : "disabled")/\(state)"
-        }
-
-        private func log(_ message: String) {
-            let elapsed = Int((CACurrentMediaTime() - startedAt) * 1_000)
-            AppLog.runtimeEntries.append("\(formatter.string(from: Date())) [MediaNav] mode=\(mode) appearance=\(appearance) t=\(elapsed)ms \(message)")
-        }
-
-        private func stopSampling() {
-            displayLink?.invalidate()
-            displayLink = nil
-        }
-
-        @MainActor
-        private final class Tick: NSObject {
-            weak var owner: Reporter?
-
-            init(owner: Reporter) { self.owner = owner }
-
-            @objc func sample(_ link: CADisplayLink) {
-                guard let owner else { link.invalidate(); return }
-                owner.sample(link)
-            }
-        }
-    }
-}
-#endif
-
 private struct EmbySeriesBrowserView: View {
     let source: MediaSource
     let groupTitle: String
@@ -1304,13 +1178,6 @@ private struct EmbySeriesBrowserView: View {
     @State private var errorMessage: String?
     @State private var loadGeneration = UUID()
     @State private var activeQuery: String?
-    #if DEBUG
-    @AppStorage(EmbyBrowserTransitionDiagnostics.zoomKey) private var browserDetailZoom = true
-
-    private var isMediaLibrary: Bool {
-        parentID != nil && scope == .titles
-    }
-    #endif
     @AppStorage("emby.browser.layout") private var displayLayout: EmbyBrowserLayout = .list
     @AppStorage("emby.browser.sort") private var sortField: EmbyBrowserSort = .added
     @AppStorage("emby.browser.ascending") private var ascending = false
@@ -1360,12 +1227,6 @@ private struct EmbySeriesBrowserView: View {
             }
         }
         .scrollIndicators(.hidden)
-        #if DEBUG
-        .background(
-            EmbyBrowserNavigationDiagnostics(mode: isMediaLibrary && !browserDetailZoom ? "automatic" : "zoom")
-                .allowsHitTesting(false)
-        )
-        #endif
         .navigationTitle(groupTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
@@ -1386,13 +1247,6 @@ private struct EmbySeriesBrowserView: View {
                             Label(value.title, systemImage: value.symbol).tag(value)
                         }
                     }
-                    #if DEBUG
-                    if isMediaLibrary {
-                        Toggle(isOn: $browserDetailZoom) {
-                            Text(verbatim: "缩放转场（诊断）")
-                        }
-                    }
-                    #endif
                 } label: {
                     Image(systemName: "ellipsis")
                 }
