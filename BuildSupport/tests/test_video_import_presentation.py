@@ -1,5 +1,6 @@
 """Exercise production receipt/acknowledgment logic without an Apple SDK."""
 import os
+import plistlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -8,6 +9,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 class VideoImportPresentationTests(unittest.TestCase):
+    def test_external_import_requests_a_document_copy(self):
+        with (ROOT / 'Info.plist').open('rb') as file:
+            configuration = plistlib.load(file)
+        self.assertIs(configuration['LSSupportsOpeningDocumentsInPlace'], False)
+        self.assertTrue(configuration['CFBundleDocumentTypes'])
+
     def test_queue_is_consumed_only_after_display(self):
         compiler = os.environ.get('SWIFTC') or shutil.which('swiftc')
         if not compiler:
