@@ -158,7 +158,6 @@ struct MediaView: View {
     @State private var pendingCarouselRoute: EmbyMediaRoute?
     @State private var hidesCarouselInformation = false
     @State private var carouselCrossfade = CarouselDetailCrossfade()
-    @State private var libraryDetailZoom = LibraryDetailZoom()
     @State private var localNetworkDenied = false
 
     var body: some View {
@@ -177,7 +176,6 @@ struct MediaView: View {
             }
         }
         .onChange(of: library.selectedID) { _, _ in
-            libraryDetailZoom.reset()
             path = NavigationPath()
             showsEmbyShortcuts = false
             pendingCarouselRoute = nil
@@ -208,9 +206,7 @@ struct MediaView: View {
                 EmbySeriesBrowserView(source: route.source, groupTitle: route.title,
                                       parentID: route.opensFavorites ? nil : route.itemID,
                                       scope: route.opensFavorites ? .favorites : .titles,
-                                      artworkZoom: artworkZoom,
-                                      libraryDetailZoom: route.opensLibrary ? libraryDetailZoom : nil,
-                                      openDetail: openBrowserDetail)
+                                      artworkZoom: artworkZoom, openDetail: { path.append($0) })
             } else if let item = route.item {
                 if route.origin == .carousel {
                     let detail = MediaDetailView(source: route.source, series: item,
@@ -221,9 +217,6 @@ struct MediaView: View {
                                                                    reduceMotion: reduceMotion)
                         }
                     detail
-                } else if case .library(_)? = route.origin {
-                    MediaDetailView(source: route.source, series: item)
-                        .background(LibraryDetailZoom.Observer(zoom: libraryDetailZoom, route: route))
                 } else {
                     MediaDetailView(source: route.source, series: item)
                         .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
@@ -237,19 +230,6 @@ struct MediaView: View {
                     mediaSourceMenu(localBusy: busy, createLocalFolder: createFolder)
                 })
             }
-        }
-    }
-
-    private func openBrowserDetail(_ route: EmbyMediaRoute) {
-        guard case .library(_)? = route.origin, !reduceMotion,
-              libraryDetailZoom.preparePush(route) else {
-            path.append(route)
-            return
-        }
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            path.append(route)
         }
     }
 
@@ -1042,242 +1022,6 @@ private final class CarouselDetailCrossfade {
     }
 }
 
-/// Keeps the zoom visual separate from the navigation stack's transition.
-@MainActor
-final class LibraryDetailZoom {
-    private final class WeakView {
-        weak var view: UIView?
-        init(_ view: UIView) { self.view = view }
-    }
-
-    private var sources: [EmbyMediaRoute: WeakView] = [:]
-    private weak var browser: UIViewController?
-    private weak var window: UIWindow?
-    private var windowBounds = CGRect.zero
-    private var cardFrame = CGRect.zero
-    private var route: EmbyMediaRoute?
-    private var browserSnapshot: UIView?
-    private weak var cover: UIView?
-    private weak var pushCard: UIView?
-
-    func reset() {
-        cover?.removeFromSuperview()
-        cover = nil
-        pushCard = nil
-        route = nil
-        browserSnapshot = nil
-        browser = nil
-        window = nil
-    }
-
-    func preparePush(_ route: EmbyMediaRoute) -> Bool {
-        reset()
-        guard let anchor = sources[route]?.view, let window = anchor.window,
-              let browser = navigationPage(containing: anchor),
-              let frame = visibleFrame(of: anchor, in: window),
-              let backdrop = snapshot(in: window, frame: window.bounds),
-              let card = snapshot(in: window, frame: frame) else { return false }
-
-        self.route = route
-        self.browser = browser
-        self.window = window
-        windowBounds = window.bounds
-        cardFrame = frame
-        browserSnapshot = backdrop
-
-        let cover = installCover(in: window)
-        backdrop.frame = cover.bounds
-        cover.addSubview(backdrop)
-        card.frame = frame
-        card.layer.cornerRadius = 12
-        card.clipsToBounds = true
-        cover.addSubview(card)
-        pushCard = card
-        return true
-    }
-
-    private func finishPush(_ route: EmbyMediaRoute) {
-        guard self.route == route, let cover, let card = pushCard else { return }
-        pushCard = nil
-        UIView.animate(withDuration: 0.26, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-            card.frame = cover.bounds
-            cover.alpha = 0
-        } completion: { _ in
-            cover.removeFromSuperview()
-        }
-    }
-
-    private func beginReturn(_ route: EmbyMediaRoute, from detail: UIViewController,
-                             using coordinator: any UIViewControllerTransitionCoordinator) {
-        guard self.route == route, let browser,
-              coordinator.viewController(forKey: .to) === browser,
-              coordinator.viewController(forKey: .from) === detail else { return }
-        cover?.removeFromSuperview()
-        cover = nil
-        guard let window, window.bounds == windowBounds,
-              let backdrop = browserSnapshot,
-              let detailSnapshot = snapshot(in: window, frame: window.bounds) else {
-            reset()
-            return
-        }
-
-        let cover = installCover(in: window)
-        backdrop.frame = cover.bounds
-        cover.addSubview(backdrop)
-        detailSnapshot.frame = cover.bounds
-        detailSnapshot.clipsToBounds = true
-        cover.addSubview(detailSnapshot)
-
-        // The regular pop drives the initial shrink and reverses it if the swipe is cancelled.
-        let startingFrame = cover.bounds
-        let target = cardFrame
-        let fraction: CGFloat = 0.78
-        let intermediate = CGRect(
-            x: startingFrame.minX + (target.minX - startingFrame.minX) * fraction,
-            y: startingFrame.minY + (target.minY - startingFrame.minY) * fraction,
-            width: startingFrame.width + (target.width - startingFrame.width) * fraction,
-            height: startingFrame.height + (target.height - startingFrame.height) * fraction
-        )
-        let registered = coordinator.animateAlongsideTransition(in: cover) { _ in
-            detailSnapshot.frame = intermediate
-            detailSnapshot.layer.cornerRadius = 12
-        } completion: { [weak self] context in
-            guard let self, self.cover === cover else { return }
-            if context.isCancelled {
-                cover.removeFromSuperview()
-                self.cover = nil
-                return
-            }
-            // The browser is live again. Leave only the pass-through visual on top.
-            backdrop.removeFromSuperview()
-            self.browserSnapshot = nil
-            let liveFrame = (self.sources[route]?.view).flatMap { self.visibleFrame(of: $0, in: window) }
-            UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-                detailSnapshot.frame = liveFrame ?? target
-                detailSnapshot.alpha = 0
-            } completion: { [weak self] _ in
-                cover.removeFromSuperview()
-                guard let self, self.cover === cover else { return }
-                self.reset()
-            }
-        }
-        if !registered { reset() }
-    }
-
-    private func installCover(in window: UIWindow) -> UIView {
-        let cover = UIView(frame: window.bounds)
-        cover.isUserInteractionEnabled = false
-        cover.accessibilityElementsHidden = true
-        window.addSubview(cover)
-        self.cover = cover
-        return cover
-    }
-
-    private func snapshot(in window: UIWindow, frame: CGRect) -> UIView? {
-        window.resizableSnapshotView(from: frame, afterScreenUpdates: false, withCapInsets: .zero)
-    }
-
-    private func visibleFrame(of view: UIView, in window: UIWindow) -> CGRect? {
-        guard view.window === window else { return nil }
-        let frame = view.convert(view.bounds, to: window).intersection(window.bounds)
-        return frame.width > 1 && frame.height > 1 ? frame : nil
-    }
-
-    private func navigationPage(containing view: UIView) -> UIViewController? {
-        var responder: UIResponder? = view
-        while let current = responder {
-            if let controller = current as? UIViewController, let navigation = controller.navigationController,
-               let top = navigation.topViewController, let topView = top.viewIfLoaded,
-               view.isDescendant(of: topView) {
-                return top
-            }
-            responder = current.next
-        }
-        return nil
-    }
-
-    struct SourceAnchor: UIViewRepresentable {
-        let zoom: LibraryDetailZoom
-        let route: EmbyMediaRoute
-
-        func makeUIView(context: Context) -> UIView {
-            let view = UIView()
-            view.isUserInteractionEnabled = false
-            return view
-        }
-
-        func updateUIView(_ view: UIView, context: Context) {
-            zoom.sources[route] = WeakView(view)
-        }
-
-        func makeCoordinator() -> SourceRegistration {
-            SourceRegistration(zoom: zoom, route: route)
-        }
-
-        static func dismantleUIView(_ view: UIView, coordinator: SourceRegistration) {
-            coordinator.remove(view)
-        }
-    }
-
-    @MainActor
-    final class SourceRegistration {
-        private weak var zoom: LibraryDetailZoom?
-        private let route: EmbyMediaRoute
-
-        init(zoom: LibraryDetailZoom, route: EmbyMediaRoute) {
-            self.zoom = zoom
-            self.route = route
-        }
-
-        func remove(_ view: UIView) {
-            if zoom?.sources[route]?.view === view {
-                zoom?.sources[route] = nil
-            }
-        }
-    }
-
-    struct Observer: UIViewControllerRepresentable {
-        let zoom: LibraryDetailZoom
-        let route: EmbyMediaRoute
-
-        func makeUIViewController(context: Context) -> Controller {
-            let controller = Controller()
-            controller.zoom = zoom
-            controller.route = route
-            return controller
-        }
-
-        func updateUIViewController(_ controller: Controller, context: Context) {
-            controller.zoom = zoom
-            controller.route = route
-        }
-    }
-
-    final class Controller: UIViewController {
-        weak var zoom: LibraryDetailZoom?
-        var route: EmbyMediaRoute?
-        private weak var detail: UIViewController?
-
-        override func loadView() {
-            view = UIView()
-            view.isUserInteractionEnabled = false
-        }
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            detail = navigationController?.topViewController
-            if let route { zoom?.finishPush(route) }
-        }
-
-        override func viewWillDisappear(_ animated: Bool) {
-            super.viewWillDisappear(animated)
-            guard let route, let detail,
-                  let coordinator = transitionCoordinator ?? detail.transitionCoordinator else { return }
-            zoom?.beginReturn(route, from: detail, using: coordinator)
-        }
-    }
-}
-
 private struct ConditionalMediaRefresh: ViewModifier {
     let enabled: Bool
     let action: @MainActor @Sendable () -> Void
@@ -1519,7 +1263,6 @@ private struct EmbySeriesBrowserView: View {
     let parentID: String?
     let scope: EmbyBrowseScope
     let artworkZoom: Namespace.ID
-    var libraryDetailZoom: LibraryDetailZoom? = nil
     let openDetail: (EmbyMediaRoute) -> Void
     @EnvironmentObject private var playback: PlaybackSession
     @EnvironmentObject private var library: SourceLibrary
@@ -1631,10 +1374,9 @@ private struct EmbySeriesBrowserView: View {
                     MediaThumbnail(source: source, item: item, imageOrientation: .portrait,
                                    fixedHeight: layout.thumbnailHeight)
                         .mediaArtworkBorder()
-                        .modifier(ListArtworkTransition(transition: (route, artworkZoom), libraryDetailZoom: libraryDetailZoom))
+                        .matchedTransitionSource(id: route, in: artworkZoom)
                 } else {
-                    MediaLibraryListRow(source: source, item: item, transition: (route, artworkZoom),
-                                        libraryDetailZoom: libraryDetailZoom)
+                    MediaLibraryListRow(source: source, item: item, transition: (route, artworkZoom))
                 }
             }
             .buttonStyle(.plain)
