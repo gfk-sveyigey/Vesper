@@ -49,12 +49,6 @@ final class VesperAppDelegate: NSObject, UIApplicationDelegate {
         fileDelivery.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
-    func application(_ application: UIApplication,
-                     configurationForConnecting connectingSceneSession: UISceneSession,
-                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
-        fileDelivery.application(application, configurationForConnecting: connectingSceneSession, options: options)
-    }
-
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         PlayerOrientationPolicy.allowsLandscape ? .allButUpsideDown : .portrait
     }
