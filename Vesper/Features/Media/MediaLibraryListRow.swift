@@ -7,6 +7,7 @@ struct MediaLibraryListRow: View {
     let item: MediaItem
     private let playback: PlaybackSession?
     private var transition: (id: EmbyMediaRoute, namespace: Namespace.ID)?
+    private var libraryDetailZoom: LibraryDetailZoom? = nil
     @ObservedObject private var layout = MediaLayoutSettings.shared
 
     init(source: MediaSource, item: MediaItem, playback: PlaybackSession? = nil) {
@@ -16,11 +17,13 @@ struct MediaLibraryListRow: View {
         self.transition = nil
     }
 
-    init(source: MediaSource, item: MediaItem, transition: (id: EmbyMediaRoute, namespace: Namespace.ID)) {
+    init(source: MediaSource, item: MediaItem, transition: (id: EmbyMediaRoute, namespace: Namespace.ID),
+         libraryDetailZoom: LibraryDetailZoom? = nil) {
         self.source = source
         self.item = item
         self.playback = nil
         self.transition = transition
+        self.libraryDetailZoom = libraryDetailZoom
     }
 
     private var kindKey: String {
@@ -68,7 +71,7 @@ struct MediaLibraryListRow: View {
                                fixedHeight: imageHeight, usesMediaCardBackdrop: source.kind == .emby)
                     .frame(width: imageWidth, height: imageHeight)
                     .mediaArtworkBorder()
-                    .modifier(ListArtworkTransition(transition: transition))
+                    .modifier(ListArtworkTransition(transition: transition, libraryDetailZoom: libraryDetailZoom))
                     .padding(.top, imageTop)
                     .padding(.leading, imageLeading)
                     .padding(.bottom, imageBottom)
@@ -99,9 +102,13 @@ struct MediaLibraryListRow: View {
 
 struct ListArtworkTransition: ViewModifier {
     let transition: (id: EmbyMediaRoute, namespace: Namespace.ID)?
+    var libraryDetailZoom: LibraryDetailZoom? = nil
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        if let transition {
+        if let transition, let libraryDetailZoom {
+            content.background(LibraryDetailZoom.SourceAnchor(zoom: libraryDetailZoom, route: transition.id))
+        } else if let transition {
             content.matchedTransitionSource(id: transition.id, in: transition.namespace)
         } else {
             content
