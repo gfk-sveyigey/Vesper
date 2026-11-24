@@ -211,8 +211,7 @@ struct MediaView: View {
                 if route.origin == .carousel {
                     let detail = MediaDetailView(source: route.source, series: item,
                                                       startsWithCarouselInformationHidden: true,
-                                                      initialHeroArtwork: library.embyHome?.featuredArtwork?[item.id]
-                                                        ?? EmbyFeaturedArtwork(poster: library.embyHome?.artwork?[item.id.localID], logo: nil))
+                                                      initialHeroArtwork: library.embyHome?.featuredArtwork?[item.id])
                         .background {
                             CarouselDetailCrossfade.ReturnObserver(transition: carouselCrossfade,
                                                                    reduceMotion: reduceMotion)
@@ -237,7 +236,7 @@ struct MediaView: View {
     }
 
     private var featured: [MediaItem] {
-        guard library.selectedSource?.kind == .emby, !library.canNavigateBack,
+        guard library.selectedSource?.kind == .emby,
               let source = library.selectedSource, let home = library.embyHome,
               home.scope == AppCacheStore.scope(for: source) else { return [] }
         return home.featured
@@ -251,7 +250,7 @@ struct MediaView: View {
 
     private var mediaContent: some View {
         let featured = featured
-        let showsFeaturedRegion = library.selectedSource?.kind == .emby && !library.canNavigateBack
+        let showsFeaturedRegion = library.selectedSource?.kind == .emby
         let title: LocalizedStringKey = library.selectedSource.map { LocalizedStringKey("\($0.name)") } ?? "媒体"
         return VesperRootScrollView(title: title, extendsContentUnderHeader: showsFeaturedRegion,
                                    showsLoading: isLoadingMedia, usesMediaScrollEdges: true,
@@ -261,7 +260,7 @@ struct MediaView: View {
                                    onTopPullChange: expandEmbyShortcuts(forTopPull:)) {
             VStack(alignment: .leading, spacing: 20) {
                 if let source = library.selectedSource, showsFeaturedRegion {
-                    EmbyFeaturedCarousel(source: source, items: featured, artwork: library.embyHome?.artwork,
+                    EmbyFeaturedCarousel(source: source, items: featured,
                                          featuredArtwork: library.embyHome?.featuredArtwork,
                                          isMediaRoot: path.isEmpty && pendingCarouselRoute == nil,
                                          hidesInformation: hidesCarouselInformation,
@@ -271,7 +270,7 @@ struct MediaView: View {
                     VesperCenteredEmptyContent(message: "未选择媒体来源", symbol: AppSection.media.symbol)
                 } else if library.selectedSource?.kind == .emby, library.isLoadingEmbyHome, library.embyHome == nil {
                     EmptyView()
-                } else if library.selectedSource?.kind == .emby, !library.canNavigateBack, library.embyHome != nil {
+                } else if library.selectedSource?.kind == .emby, library.embyHome != nil {
                     if let source = library.selectedSource {
                         recentPlaybackGroup(source: source)
                     }
@@ -289,8 +288,7 @@ struct MediaView: View {
                                 ForEach(items) { item in
                                     if let source = library.selectedSource {
                                         Button {
-                                            if item.isContainer { library.open(item) }
-                                            else { playback.play(item, in: source, queue: items.filter { !$0.isContainer }) }
+                                            playback.play(item, in: source, queue: items)
                                         } label: {
                                             MediaThumbnail(source: source, item: item, playback: playback,
                                                            imageOrientation: .portrait,
@@ -300,22 +298,12 @@ struct MediaView: View {
                                         }
                                         .buttonStyle(.plain)
                                         .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
-                                        .disabled(!source.capabilities.contains(.playback))
                                         .accessibilityLabel(Text(verbatim: item.title))
                                     }
                                 }
                             }
                             .padding(.horizontal, CGFloat(layout[.endPadding]))
                             .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
-                            if library.selectedSource?.kind == .emby, library.hasMoreEmbyItems {
-                                Button("加载更多") { library.loadMoreEmbyItems() }
-                                    .frame(maxWidth: .infinity)
-                                    .disabled(library.loadingMore)
-                                if library.loadingMore { ProgressView().frame(maxWidth: .infinity) }
-                                if let message = library.paginationError {
-                                    Text(verbatim: message).foregroundStyle(.secondary)
-                                }
-                            }
                         }
                     case .failed(let error):
                         if case .message(let message) = error {
@@ -326,7 +314,7 @@ struct MediaView: View {
                             }
                         } else {
                             ContentUnavailableView {
-                                Label(LocalizedStringKey(error == .offline ? "来源离线" : "无法加载来源"), systemImage: error == .offline ? "wifi.slash" : "exclamationmark.triangle")
+                                Label("无法加载来源", systemImage: "exclamationmark.triangle")
                             } actions: {
                                 Button("重试") { library.reload() }
                             }
@@ -344,12 +332,6 @@ struct MediaView: View {
                     .accessibilityHidden(true)
             }
         } actions: {
-            if library.canNavigateBack {
-                Button("返回", systemImage: "chevron.left") { library.navigateEmbyBack() }
-                    .labelStyle(.iconOnly)
-                    .frame(width: 44, height: 44)
-                    .glassEffect(.regular.interactive(), in: .circle)
-            }
             if !library.visibleSources.isEmpty {
                 mediaSourceMenu()
             }
@@ -429,7 +411,7 @@ struct MediaView: View {
                                         ForEach(0..<5, id: \.self) { _ in groupPlaceholder(group) }
                                     } else {
                                         ForEach(group.items) { item in
-                                            groupCard(item, in: group, source: source, artwork: home.artwork)
+                                            groupCard(item, in: group, source: source)
                                         }
                                     }
                                 }
@@ -473,15 +455,13 @@ struct MediaView: View {
     }
 
     @ViewBuilder
-    private func groupCard(_ item: MediaItem, in group: EmbyMediaGroup, source: MediaSource, artwork: [String: Data]?) -> some View {
-        let data = artwork?[item.id.localID]
+    private func groupCard(_ item: MediaItem, in group: EmbyMediaGroup, source: MediaSource) -> some View {
         let size = groupCardSize(group)
         if group.id == EmbyMediaGroup.librariesID {
             let route = EmbyMediaRoute.library(source, id: item.id.localID, title: item.title)
             NavigationLink(value: route) {
                 MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
-                               imageOrientation: .landscape,
-                               preloadedData: data, artworkIsPrepared: artwork != nil)
+                               imageOrientation: .landscape)
                     .frame(width: size.width, height: size.height)
                     .mediaArtworkBorder()
             }
@@ -494,7 +474,7 @@ struct MediaView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
                                        imageOrientation: .landscape,
-                                       cacheOnly: true, preloadedData: data, artworkIsPrepared: artwork != nil)
+                                       cacheOnly: true)
                             .mediaArtworkBorder()
                         VStack(alignment: .leading, spacing: 3) {
                             Text(verbatim: item.title).font(.headline).lineLimit(2)
@@ -509,15 +489,13 @@ struct MediaView: View {
             let route = EmbyMediaRoute.detail(source, item, origin: .shelf(group.id))
             NavigationLink(value: route) {
                 MediaThumbnail(source: source, item: item, playback: playback,
-                               aspectRatio: size.width / size.height, imageOrientation: .portrait,
-                               preloadedData: data, artworkIsPrepared: artwork != nil)
+                               aspectRatio: size.width / size.height, imageOrientation: .portrait)
                     .frame(width: size.width, height: size.height)
                     .mediaArtworkBorder()
                     .matchedTransitionSource(id: route, in: artworkZoom)
             }
             .buttonStyle(.plain)
             .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback,
-                                          preloadedData: data, artworkIsPrepared: artwork != nil,
                                           showsEmbyFacts: true, openEmbyDetails: { path.append(route) }) { EmptyView() })
             .accessibilityLabel(Text(verbatim: item.title))
         }
@@ -542,7 +520,7 @@ struct MediaView: View {
     }
 
     private var embyHomeSource: MediaSource? {
-        guard let source = library.selectedSource, source.kind == .emby, !library.canNavigateBack else { return nil }
+        guard let source = library.selectedSource, source.kind == .emby else { return nil }
         return source
     }
 
@@ -648,12 +626,17 @@ struct MediaView: View {
                 .opacity(isExpanded ? 1 : 0)
                 .allowsHitTesting(isExpanded)
                 .accessibilityHidden(!isExpanded)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isExpanded)
             }
             sourceMenuButton(localBusy: localBusy, createLocalFolder: createLocalFolder, iconSize: iconSize)
+                // Keep the trailing source selector stationary; only the
+                // auxiliary controls and glass capsule should animate.
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
         }
         // A single native glass capsule becomes a circle at its collapsed width.
         .glassEffect(.regular.interactive(), in: .capsule)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isExpanded)
     }
 
     private func localImportButton(busy: Bool) -> some View {
@@ -697,17 +680,17 @@ struct MediaView: View {
         switch source?.kind {
         case .photos: "play.rectangle.on.rectangle"
         case .local: "folder"
-        case .demo: "play.rectangle"
         case .emby: "server.rack"
         case nil: "externaldrive"
         }
     }
 
     // Bake the theme color into original-rendering images so native menus retain it.
-    private func menuSymbol(_ name: String) -> Image {
+    private func menuSymbol(_ name: String, visible: Bool = true) -> Image {
         let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        let tint = visible ? UIColor(VesperTheme.accent(accent)) : UIColor.clear
         let icon = UIImage(systemName: name, withConfiguration: configuration)?
-            .withTintColor(UIColor(VesperTheme.accent(accent)), renderingMode: .alwaysOriginal)
+            .withTintColor(tint, renderingMode: .alwaysOriginal)
         return icon.map { Image(uiImage: $0).renderingMode(.original) } ?? Image(systemName: name)
     }
 
@@ -750,13 +733,17 @@ struct MediaView: View {
     }
 
     private func routeMenuItem(_ source: MediaSource, address: String, title: String) -> some View {
-        Button {
+        let isSelected = EmbyRouteOptions.key(source.emby?.serverAddress ?? "")
+            == EmbyRouteOptions.key(address)
+
+        return Button {
             library.switchEmbyRoute(source.id, address: address)
         } label: {
             Label { Text(verbatim: title) } icon: {
-                menuSymbol("network")
+                menuSymbol("checkmark", visible: isSelected)
             }
         }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func sourceMenuButton(localBusy: Bool, createLocalFolder: (() -> Void)?, iconSize: CGFloat) -> some View {

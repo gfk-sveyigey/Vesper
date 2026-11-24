@@ -113,25 +113,12 @@ public struct EngineConfiguration: Sendable {
     public var backgroundEnabled = true
     public var automaticPiP = false
     public var subtitleFontSize: Double = 22
-    public var subtitleBackground = true
     public var subtitleDelay: Double = 0
-    /// Optional Emby compressed-media cache budget, in bytes. VLC converts it to a time buffer.
+    /// Optional Emby compressed-media cache budget, in bytes.
     public var preloadCacheLimitBytes: Int? = nil
-    /// Total bitrate of the selected stream, in bits per second.
-    public var mediaBitRate: Double? = nil
     public var requestHeaders: [String: String] = [:]
     public var externalSubtitles: [EngineExternalSubtitle] = []
     public init() {}
-}
-
-public enum PlaybackCacheSizing {
-    /// VLC's network-caching option accepts 0...60,000 ms. Use 20 Mbps when
-    /// the server supplies no usable bitrate; this remains a time-based buffer.
-    public static func vlcMilliseconds(byteLimit: Int, bitRate: Double?) -> Int {
-        let rate = bitRate.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 20_000_000
-        let milliseconds = Double(max(0, byteLimit)) * 8_000 / rate
-        return Int(min(60_000, max(1, milliseconds.rounded(.down))))
-    }
 }
 
 public struct EngineExternalSubtitle: Sendable {

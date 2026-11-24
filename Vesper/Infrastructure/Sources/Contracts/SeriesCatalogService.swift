@@ -6,7 +6,8 @@ protocol SeriesMediaCatalogService: Sendable {
     func seriesEpisodes(for series: MediaItem, source: MediaSource, limit: Int?) async throws -> [EmbyEpisode]
     func similarTitles(for item: MediaItem, source: MediaSource) async throws -> [MediaItem]
     func details(for item: MediaItem, source: MediaSource) async throws -> EmbyItemDetails
-    func screenshotData(for item: MediaItem, source: MediaSource) async -> [Data]
+    func screenshotURLs(for item: MediaItem, source: MediaSource) async -> [URL]
+    func screenshotData(at url: URL, source: MediaSource) async -> Data?
 }
 
 extension SeriesMediaCatalogService {

@@ -16,7 +16,6 @@ enum PlaybackDiagnostics {
 struct TranscodedPlaybackResource: Sendable {
     let url: URL
     var headers: [String: String] = [:]
-    var bitRate: Double? = nil
     /// Original-media time represented by time zero of the returned stream.
     let timelineOffset: Double
     let originalDuration: Double
@@ -392,7 +391,6 @@ struct PlaybackTrackRestoration {
                 originalDuration = transcode.originalDuration
                 self.url = transcode.url
                 configuration.requestHeaders = transcode.headers
-                configuration.mediaBitRate = transcode.bitRate
                 attempted = []
                 await open(transcode.url, preferred: .aether, generation: generation)
                 return
@@ -598,7 +596,6 @@ struct PlaybackTrackRestoration {
         // The negotiated stream can change its headers during fallback.
         updated.requestHeaders = configuration.requestHeaders
         updated.preloadCacheLimitBytes = configuration.preloadCacheLimitBytes
-        updated.mediaBitRate = configuration.mediaBitRate
         configuration = updated
         var local = updated; local.position = max(0, value.position - timelineOffset)
         driver?.configure(local)
@@ -664,7 +661,6 @@ struct PlaybackTrackRestoration {
                 self.configuration.position = position
                 self.configuration.autoplay = resume
                 self.configuration.requestHeaders = stream.headers
-                self.configuration.mediaBitRate = stream.bitRate
                 self.attempted = []
                 await self.open(stream.url, preferred: self.engineID, generation: generation)
                 completion(self.lastError == nil && self.driver != nil)

@@ -31,17 +31,6 @@ actor EmbyRepository: MediaSourceCatalogService, SeriesMediaCatalogService, Medi
         self.clientProvider = clientProvider
     }
 
-    func rootItems(for source: MediaSource) async throws -> [MediaItem] {
-        let client = try await clientProvider(source)
-        let response: EmbyJSON
-        if let userID = source.emby?.userID {
-            response = try await client.get("Users/\(userID)/Views")
-        } else {
-            response = try await client.get("Items", query: ["Recursive": "true", "IncludeItemTypes": "Movie,Series,Episode,Folder", "Limit": "100", "SortBy": "SortName"])
-        }
-        return map(response["Items"] as? [[String: Any]] ?? [], source: source, client: client)
-    }
-
     /// Search the whole selected server, independently of the currently open library.
     func search(for source: MediaSource, query text: String, startIndex: Int = 0,
                 limit: Int = 40) async throws -> EmbySearchPage {
@@ -71,7 +60,7 @@ actor EmbyRepository: MediaSourceCatalogService, SeriesMediaCatalogService, Medi
         let client = try await clientProvider(source)
         let response: EmbyJSON
         if let userID = source.emby?.userID {
-            response = try await client.get("Users/\(userID)/Views")
+            response = try await client.get("Users/\(userID)/Views", query: ["IncludeExternalContent": "false"])
         } else {
             response = try await client.get("Items", query: ["Recursive": "false", "IncludeItemTypes": "CollectionFolder,Folder"])
         }
@@ -610,25 +599,7 @@ actor EmbyRepository: MediaSourceCatalogService, SeriesMediaCatalogService, Medi
         let subtitles = externalSubtitles(media: media, itemID: itemID, client: client)
         return EmbyPlaybackResource(resource: PlayableResource(url: url, headers: headers), sessionID: playSessionID,
                                     mediaSourceID: mediaSourceID, duration: duration,
-                                    resumePosition: progressTicks.map { $0.doubleValue / 10_000_000 }, subtitles: subtitles,
-                                    bitRate: Self.playbackBitRate(media))
-    }
-
-    /// Prefer the selected source's total bitrate, then derive it from size and
-    /// duration. Stream rates are a last resort when the container has neither.
-    static func playbackBitRate(_ media: [String: Any]) -> Double? {
-        if let rate = (media["Bitrate"] as? NSNumber)?.doubleValue, rate.isFinite, rate > 0 { return rate }
-        if let size = (media["Size"] as? NSNumber)?.doubleValue,
-           let ticks = (media["RunTimeTicks"] as? NSNumber)?.doubleValue,
-           size.isFinite, size > 0, ticks.isFinite, ticks > 0 {
-            let rate = size * 8 / (ticks / 10_000_000)
-            if rate.isFinite, rate > 0 { return rate }
-        }
-        let streams = media["MediaStreams"] as? [[String: Any]] ?? []
-        let rate = streams.filter { ["Video", "Audio"].contains($0["Type"] as? String ?? "") }
-            .compactMap { ($0["BitRate"] as? NSNumber)?.doubleValue }
-            .filter { $0.isFinite && $0 > 0 }.reduce(0, +)
-        return rate.isFinite && rate > 0 ? rate : nil
+                                    resumePosition: progressTicks.map { $0.doubleValue / 10_000_000 }, subtitles: subtitles)
     }
 
     func transcodedResource(item: MediaItem, source: MediaSource, position: Double,
@@ -654,9 +625,7 @@ actor EmbyRepository: MediaSourceCatalogService, SeriesMediaCatalogService, Medi
             }
         }
         let ticks = (media["RunTimeTicks"] as? NSNumber)?.doubleValue ?? ((item.duration ?? 0) * 10_000_000)
-        let transcodingBitRate = (media["TranscodingBitrate"] as? NSNumber)?.doubleValue
         return EmbyTranscodeResult(resource: TranscodedPlaybackResource(url: url, headers: headers,
-                                                                          bitRate: transcodingBitRate.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? Self.playbackBitRate(media),
                                                                           timelineOffset: position,
                                                                           originalDuration: ticks / 10_000_000),
                                    sessionID: sessionID)
@@ -877,18 +846,16 @@ actor EmbyRepository: MediaSourceCatalogService, SeriesMediaCatalogService, Medi
         return nil
     }
 
-    func screenshotData(for item: MediaItem, source: MediaSource) async -> [Data] {
+    func screenshotURLs(for item: MediaItem, source: MediaSource) async -> [URL] {
         guard let client = try? await clientProvider(source) else { return [] }
         let urls = await selectedImages(for: item, source: source, client: client,
                                         preferredTypes: ["Screenshot"], allowedTypes: ["Screenshot"])
-        var result: [Data] = []
-        for url in urls where client.sameOrigin(url) {
-            guard !Task.isCancelled else { return [] }
-            if let data = await fetchThumbnail(url, client: client) {
-                result.append(data)
-            }
-        }
-        return result
+        return urls.filter { client.sameOrigin($0) }
+    }
+
+    func screenshotData(at url: URL, source: MediaSource) async -> Data? {
+        guard let client = try? await clientProvider(source), client.sameOrigin(url) else { return nil }
+        return await fetchThumbnail(url, client: client)
     }
 
     private func selectedImages(for item: MediaItem, source: MediaSource, client: EmbyAPIClient,

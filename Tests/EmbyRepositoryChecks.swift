@@ -5,7 +5,6 @@ struct EmbyRepositoryChecks {
     @MainActor static func main() async throws {
         precondition(EmbyRouteOptions.unique(["https://EXAMPLE.com", "https://example.com/emby/", "https://example.com:443/emby", "https://backup.example.com"]).count == 2)
         checkVersionMatching()
-        checkPlaybackCacheSizing()
         try checkSkipMarkers()
         UserDefaults.standard.set(true, forKey: EmbyUserAgentPolicy.enabledKey)
         UserDefaults.standard.set("CustomVesper", forKey: EmbyUserAgentPolicy.nameKey)
@@ -15,7 +14,7 @@ struct EmbyRepositoryChecks {
                                                      customHeaders: [:])
         let client = try EmbyAPIClient(configuration: configuration, token: "secret", deviceID: "stable-device")
         let repository = EmbyRepository(clientProvider: { _ in client })
-        let source = MediaSource(id: UUID(), name: configuration.title, kind: .emby, behavior: .empty, emby: configuration)
+        let source = MediaSource(id: UUID(), name: configuration.title, kind: .emby, emby: configuration)
         let serverRoutes = try await repository.alternateRoutes(for: source)
         precondition(serverRoutes == [
             EmbyServerRoute(name: "Backup B", address: "https://backup-b.example.com"),
@@ -70,8 +69,6 @@ struct EmbyRepositoryChecks {
             try await repository.setFavorite(false, for: target, source: source)
             try await repository.clearProgress(for: target, source: source)
         }
-        let roots = try await repository.rootItems(for: source)
-        precondition(roots.count == 3 && roots[0].isContainer)
         let libraries = try await repository.mediaLibraries(for: source)
         precondition(libraries.map(\.id.localID) == ["library", "sets", "lists"] && libraries.allSatisfy(\.isContainer))
         let libraryThumbnail = await repository.thumbnailData(for: libraries[0], source: source, orientation: .landscape)
@@ -190,7 +187,6 @@ struct EmbyRepositoryChecks {
         item.embyMediaSourceID = "v2"
         let resource = try await repository.playbackResource(item: item, source: source, position: 30)
         precondition(resource.mediaSourceID == "v2" && resource.resumePosition == 30)
-        precondition(resource.bitRate == 48_000_000)
         precondition(resource.subtitles.count == 1 && resource.subtitles[0].url.path.contains("/v2/Subtitles/2/"))
         precondition(resource.resource.headers["User-Agent"] == "CustomVesper/2.0")
         precondition(resource.resource.headers["Authorization"] == nil)
@@ -200,7 +196,6 @@ struct EmbyRepositoryChecks {
         precondition(resource.resource.url.absoluteString.contains("MediaSourceId=v2"))
         let stream = try await repository.transcodedResource(item: item, source: source, position: 200)
         precondition(stream.resource.timelineOffset == 200 && stream.resource.originalDuration == 600)
-        precondition(stream.resource.bitRate == 12_000_000)
         precondition(stream.resource.url.path == "/proxy/emby/Videos/movie/master.m3u8")
         let session = EmbyPlaybackSession(source: source, item: item, playSessionID: "session-client",
                                            mediaSourceID: "v2", repository: repository)
@@ -234,9 +229,6 @@ struct EmbyRepositoryChecks {
         precondition(!snapshotString.contains("secret") && !snapshotString.lowercased().contains("password"))
         let restoredSource = try JSONDecoder().decode(MediaSource.self, from: snapshot)
         precondition(restoredSource == source)
-        let oldSourceJSON = "{\"id\":\"\(UUID().uuidString)\",\"name\":\"Old\",\"kind\":\"demo\",\"behavior\":\"content\"}"
-        let migrated = try JSONDecoder().decode(MediaSource.self, from: Data(oldSourceJSON.utf8))
-        precondition(migrated.emby == nil && migrated.folderBookmark == nil)
         precondition(events.contains { event in
             let query = event["query"] as? [String: [String]]
             return event["method"] as? String == "DELETE" && query?["PlaySessionId"] == ["session-client"] && query?["DeviceId"] == ["stable-device"]
@@ -256,25 +248,6 @@ struct EmbyRepositoryChecks {
         precondition(EmbyVersionMatcher.bestIndex(current: current, candidates: []) == nil)
         precondition(EmbyVersionMatcher.bestIndex(current: Format(), candidates: [hdr, matching]) == 0)
         precondition(EmbyVersionMatcher.bestIndex(current: current, candidates: [matching, matching]) == 0)
-    }
-
-    private static func checkPlaybackCacheSizing() {
-        // Decimal MB and bits/s: 100 MB at 20 Mbps represents 40 seconds.
-        precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: 100_000_000, bitRate: 20_000_000) == 40_000)
-        precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: 500_000_000, bitRate: 100_000_000) == 40_000)
-        precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: 500_000_000, bitRate: 20_000_000) == 60_000)
-        for rate in [nil, Double(0), -1, .nan, .infinity] as [Double?] {
-            precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: 100_000_000, bitRate: rate) == 40_000)
-        }
-        precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: Int.max, bitRate: .leastNonzeroMagnitude) == 60_000)
-        precondition(PlaybackCacheSizing.vlcMilliseconds(byteLimit: -1, bitRate: 20_000_000) == 1)
-        precondition(EmbyRepository.playbackBitRate(["Bitrate": 40_000_000, "Size": 1, "RunTimeTicks": 10_000_000]) == 40_000_000)
-        precondition(EmbyRepository.playbackBitRate(["Bitrate": 0, "Size": 500_000_000, "RunTimeTicks": 2_000_000_000]) == 20_000_000)
-        precondition(EmbyRepository.playbackBitRate(["MediaStreams": [
-            ["Type": "Video", "BitRate": 20_000_000], ["Type": "Audio", "BitRate": 768_000],
-            ["Type": "Subtitle", "BitRate": 1_000]
-        ]]) == 20_768_000)
-        precondition(EmbyRepository.playbackBitRate([:]) == nil)
     }
 
     private static func checkSkipMarkers() throws {

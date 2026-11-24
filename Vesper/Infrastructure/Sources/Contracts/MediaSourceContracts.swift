@@ -48,7 +48,6 @@ typealias EmbySearchPage = MediaSearchPage
 typealias EmbySourceSummary = MediaSourceSummary
 
 protocol MediaSourceCatalogService: Sendable {
-    func rootItems(for source: MediaSource) async throws -> [MediaItem]
     func search(for source: MediaSource, query: String, startIndex: Int, limit: Int) async throws -> MediaSearchPage
     func mediaLibraries(for source: MediaSource) async throws -> [MediaItem]
     func latestMedia(for source: MediaSource, libraryID: String) async throws -> [MediaItem]

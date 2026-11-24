@@ -7,7 +7,6 @@
 "播放器偏好" = "Preferencias del reproductor";
 "尚未接入" = "Aún no disponible";
 "尚未连接" = "Sin conexión";
-"播放器和外部服务将在对应阶段接入，当前不会提供无效的开关或连接按钮。" = "El reproductor y los servicios externos se integrarán más adelante. No se muestran controles que aún no funcionan.";
 "保留规则" = "Retención";
 "保留时间" = "Conservar durante";
 "无限制" = "Sin límite";
@@ -67,11 +66,8 @@
 "搜索当前媒体来源" = "Buscar en la fuente actual";
 "搜索媒体" = "Buscar medios";
 "暂无搜索结果" = "Sin resultados";
-"搜索范围为当前媒体来源。真实媒体来源尚未接入。" = "La búsqueda se limita a la fuente actual. Aún no hay fuentes conectadas.";
 "暂无播放记录" = "Sin historial de reproducción";
-"最近播放、观看进度和播放历史将在这里呈现。当前原型尚未接入播放会话。" = "Aquí aparecerán las reproducciones recientes, el progreso y el historial. Este prototipo aún no reproduce contenido.";
 "尚未配置来源" = "No hay fuentes configuradas";
-"这里将用于配置本地与在线媒体来源，并选择媒体页显示的来源。来源接入将在后续阶段实现。" = "Configura fuentes locales o en línea y elige cuál se muestra en Medios. La integración llegará más adelante.";
 "尚未选择媒体来源" = "No se seleccionó una fuente";
 "媒体页只显示当前选定的一个来源。请先前往来源页完成配置。" = "Medios muestra una sola fuente seleccionada. Configura una fuente primero.";
 "前往来源" = "Ir a Fuentes";
@@ -121,21 +117,12 @@
 "开关" = "Interruptores";
 "将恢复标签的显示状态、排列顺序和图标。" = "Se restablecerán la visibilidad, el orden y los iconos de las pestañas.";
 "关闭多功能按钮" = "Desactivar botón multifunción";
-"示例内容" = "Contenido de ejemplo";
-"空来源" = "Fuente vacía";
 "连接失败" = "Error de conexión";
-"离线" = "Sin conexión";
-"演示来源" = "Fuente de demostración";
-"来源状态" = "Estado de la fuente";
 "删除" = "Eliminar";
-"演示来源仅用于验证来源切换和页面状态，不包含真实媒体。" = "Las fuentes de demostración solo prueban el cambio de fuente y los estados de pantalla. No contienen medios reales.";
-"添加演示来源" = "Añadir fuente de demostración";
 "来源设置保存失败" = "No se pudieron guardar los ajustes de fuentes";
 "来源名称" = "Nombre de la fuente";
 "添加" = "Añadir";
 "来源中暂无媒体" = "Esta fuente no contiene medios";
-"演示内容，不可播放" = "Contenido de demostración, no reproducible";
-"来源离线" = "Fuente sin conexión";
 "无法加载来源" = "No se puede cargar la fuente";
 "重试" = "Reintentar";
 
@@ -164,9 +151,7 @@
 
 "请检查相册访问权限或重新选择本地文件夹。" = "Revisa el acceso a las fotos o vuelve a seleccionar la carpeta local.";
 
-"Emby 来源尚未接入。" = "Las fuentes Emby aún no están disponibles.";
 
-"播放功能尚未接入" = "La reproducción aún no está disponible";
 
 "默认标签页" = "Pestaña predeterminada";
 
@@ -340,7 +325,6 @@
 
 "字幕预览" = "Vista previa de subtítulos";
 
-"在播放器的字幕菜单中选择视频内的字幕轨道。字号和背景设置应用于文字字幕。" = "Selecciona una pista integrada en el menú de subtítulos. El tamaño y el fondo se aplican a los subtítulos de texto.";
 
 "%+d 秒" = "%+d s";
 
@@ -767,7 +751,7 @@
 "按数据库顺序查询，首个有效结果命中后停止。不支持手动标记；外部媒体 ID、季集编号和视频时长会发送给已启用的数据库。" = "Consulta en orden hasta encontrar un resultado válido. No admite marcas manuales. Se envían ID externos, temporada, episodio y duración a las bases activadas.";
 "正值延后，负值提前。延迟适用于内嵌和外挂字幕；字号缩放以 VLC 和字幕格式支持为准，图片字幕不能修改字体。" = "Los valores positivos retrasan los subtítulos y los negativos los adelantan. Funciona con subtítulos integrados y externos. El tamaño depende de VLC y el formato; no se cambia la fuente en subtítulos de imagen.";
 "字号仅用于支持样式覆盖的原生文本字幕，软件路径或图片字幕可能不生效。当前引擎没有跨播放路径通用的字幕延迟接口，暂不提供延迟调整。" = "El tamaño solo afecta a los subtítulos de texto nativos que permiten estilos. Puede no funcionar en software o imágenes. Este motor no ofrece un ajuste universal de retardo.";
-"每次打开 Emby 视频时按当前网络应用。Aether 按容量限制支持的临时媒体缓存；VLC 按视频总码率换算缓冲时长，最长 60 秒。不是流量上限或播放器总内存限制；Aether 原生远程 HLS 暂不支持按容量限制。" = "Se aplica según la red al abrir un vídeo Emby. Aether limita la caché compatible por tamaño; VLC calcula un búfer de hasta 60 segundos según la tasa total. No limita datos ni memoria total. HLS remoto nativo de Aether no admite límites de tamaño.";
+"每次打开 Emby 视频时按当前网络应用。此设置限制 Aether 支持的临时媒体缓存容量。Aether 原生远程 HLS 暂不支持此设置。SwiftVLC 的网络缓冲固定为 5 秒。" = "Se aplica al abrir un vídeo de Emby según la red actual. Este ajuste limita la caché temporal en los modos compatibles de Aether. No se aplica a HLS remoto nativo. SwiftVLC usa un búfer de red fijo de 5 segundos.";
 "Aether 播放分集达到设定百分比时，按当前版本的封装、编码、动态范围及分辨率选择下一集版本，预读开头约 8 MB，必要时读取尾部索引。预读缓存不设定时过期；播放下一集时复用，停止、切换视频或网络策略不允许时清理。VLC 和原生远程 HLS 暂不支持。" = "Al llegar al porcentaje elegido, Aether selecciona una versión del siguiente episodio similar en contenedor, códec, rango dinámico y resolución. Lee unos 8 MB iniciales y, si hace falta, el índice final. Sin caducidad programada; se reutiliza o se borra al detener, cambiar vídeo o por la política de red. VLC y HLS remoto nativo no son compatibles.";
 "从进度条上方的多功能菜单搜索或导入弹幕。支持 Bilibili XML 的滚动、顶部和底部弹幕。正偏移表示延后显示。弹幕仅用于当前视频，切换视频后清空；画中画暂不显示弹幕。" = "Busca o importa comentarios desde el menú sobre la barra. Admite XML de Bilibili con comentarios móviles y fijos. Un desfase positivo retrasa. Solo para el vídeo actual; se borran al cambiar. No disponibles en imagen dentro de imagen.";
 
@@ -947,7 +931,6 @@
 "Emby 请求失败（HTTP %d）。" = "Error en la solicitud a Emby (HTTP %d).";
 "视频文件不存在或无法访问。" = "El vídeo no existe o no se puede acceder a él.";
 "无法读取相册视频，请检查照片权限和网络连接。" = "No se pudo cargar el vídeo de Fotos. Comprueba los permisos y la conexión.";
-"演示内容无法播放。" = "El contenido de demostración no se puede reproducir.";
 "请选择支持的视频文件。" = "Selecciona un archivo de vídeo compatible.";
 "无法读取此视频，请先将文件下载到本机后重试。" = "No se pudo leer el vídeo. Descárgalo en el dispositivo e inténtalo de nuevo.";
 "第%lld季" = "Temporada %lld";

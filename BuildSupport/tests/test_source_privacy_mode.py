@@ -30,7 +30,7 @@ class SourcePrivacyModeTests(unittest.TestCase):
         self.assertLess(toggle.index('playback.stop()'), toggle.index('library.setPrivacyMode(false)'))
         exit_mode = self.library.split('func setPrivacyMode', 1)[1].split('func testProtected', 1)[0]
         self.assertIn('self.selectedID = visibleSources.first?.id', exit_mode)
-        self.assertIn('embyParentStack.removeAll()', exit_mode)
+        self.assertIn('embyHome = nil', exit_mode)
         self.assertIn('persist()', exit_mode)
 
     def test_visibility_and_latency_are_filtered(self):

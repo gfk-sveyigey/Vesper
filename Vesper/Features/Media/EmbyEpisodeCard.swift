@@ -11,9 +11,6 @@ struct EmbyEpisodeCard: View {
     let isSelected: Bool
     let open: () -> Void
     let clear: () -> Void
-    var preloadedData: Data? = nil
-    var artworkIsPrepared = false
-    var allowsArtworkLoading = true
     let setPlayed: (Bool) -> Void
 
     @EnvironmentObject private var playback: PlaybackSession
@@ -68,17 +65,11 @@ struct EmbyEpisodeCard: View {
             .frame(width: 280)
             .padding(12)
         }
-        .task(id: "\(artworkKey)|\(artworkIsPrepared)|\(allowsArtworkLoading)") {
-            guard artworkIsPrepared || allowsArtworkLoading else { return }
+        .task(id: artworkKey) {
             let key = artworkKey
             if loadedArtwork?.key == key { return }
-            let data: Data?
-            if artworkIsPrepared {
-                data = preloadedData
-            } else {
-                data = await MediaThumbnailLoader.shared.load(episode.item, source: source,
+            let data = await MediaThumbnailLoader.shared.load(episode.item, source: source,
                                                               imageOrientation: .landscape)
-            }
             guard !Task.isCancelled else { return }
             let image = data.flatMap { UIImage(data: $0) }
             loadedArtwork = EpisodeArtwork(key: key, image: image)

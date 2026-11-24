@@ -127,7 +127,6 @@ struct EmbyMediaGroup: Identifiable, Sendable {
     var items: [MediaItem]
     var totalCount: Int? = nil
     var isLoading = false
-    var errorMessage: String? = nil
 
     static func featured(in groups: [Self], count: Int = 10) -> [MediaItem] {
         let candidates = groups.filter { $0.id != librariesID }.flatMap(\.items)
@@ -228,7 +227,6 @@ struct EmbyPlaybackResource: Sendable {
     let duration: Double
     let resumePosition: Double?
     let subtitles: [EngineExternalSubtitle]
-    var bitRate: Double? = nil
 }
 struct EmbyTranscodeResult: Sendable {
     let resource: TranscodedPlaybackResource

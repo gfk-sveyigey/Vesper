@@ -127,6 +127,7 @@ class Handler(BaseHTTPRequestHandler):
         if path.path == '/proxy/emby/Array':
             self.respond([{'Id': '1'}]); return
         if path.path == '/proxy/emby/Users/user/Views':
+            assert parse_qs(path.query).get('IncludeExternalContent') == ['false']
             self.respond({'Items': [
                 {'Id': 'library', 'Name': 'Movies', 'Type': 'CollectionFolder', 'IsFolder': True},
                 {'Id': 'sets', 'Name': 'Sets', 'Type': 'CollectionFolder', 'CollectionType': 'boxsets', 'IsFolder': True},
@@ -235,7 +236,6 @@ class Handler(BaseHTTPRequestHandler):
             media = dict(MEDIA)
             if not payload['EnableDirectPlay']:
                 media['TranscodingUrl'] = '/emby/Videos/movie/master.m3u8?StartTimeTicks=' + str(payload['StartTimeTicks'])
-                media['TranscodingBitrate'] = 12000000
             else:
                 assert payload['MediaSourceId'] == 'v2'
                 media['DirectStreamUrl'] = '/emby/Videos/movie/stream?static=true&MediaSourceId=v2'
@@ -291,7 +291,6 @@ enum AppCacheStore {
         start = source.index('struct TraktMediaIdentity:')
         models += source[start:source.index('\n}', start) + 2] + '\n'
         source = (ROOT / 'Playback/Contracts/PlaybackContracts.swift').read_text()
-        models += source[source.index('public enum PlaybackCacheSizing'):source.index('public struct EngineExternalSubtitle')]
         models += source[source.index('public struct EngineExternalSubtitle'):source.index('/// Value-only state')]
         source = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
         models += source[source.index('struct TranscodedPlaybackResource'):source.index('/// The UI talks')]

@@ -67,23 +67,28 @@ struct SourcesView: View {
                                 Button("编辑线路", systemImage: "point.3.connected.trianglepath.dotted") {
                                     sourceManagement = .routes(source)
                                 }
-                                Button("刷新线路", systemImage: "arrow.clockwise") { refreshRoutes(source.id) }
-                                    .disabled(refreshingRoutes.contains(source.id))
-                                Menu("切换线路", systemImage: "arrow.left.arrow.right") {
-                                    let primary = configuration.primaryRoute
-                                    ForEach([primary] + configuration.backupRoutes, id: \.self) { address in
-                                        let key = EmbyRouteOptions.key(address)
-                                        let name = address == primary ? VesperLocalization.string("主线路") :
-                                            configuration.alternateRouteNames?[key] ?? URLComponents(string: address)?.host ?? address
-                                        Button {
-                                            library.switchEmbyRoute(source.id, address: address)
-                                        } label: {
-                                            Label {
-                                                Text(verbatim: name)
-                                            } icon: {
-                                                Image(systemName: "checkmark")
-                                                    .opacity(key == EmbyRouteOptions.key(configuration.serverAddress) ? 1 : 0)
-                                                    .accessibilityHidden(key != EmbyRouteOptions.key(configuration.serverAddress))
+                                if configuration.fetchAlternateAddresses == true {
+                                    Button("刷新线路", systemImage: "arrow.clockwise") { refreshRoutes(source.id) }
+                                        .disabled(refreshingRoutes.contains(source.id))
+                                }
+                                let primary = configuration.primaryRoute
+                                let backups = configuration.backupRoutes
+                                if !backups.isEmpty {
+                                    Menu("切换线路", systemImage: "arrow.left.arrow.right") {
+                                        ForEach([primary] + backups, id: \.self) { address in
+                                            let key = EmbyRouteOptions.key(address)
+                                            let name = address == primary ? VesperLocalization.string("主线路") :
+                                                configuration.alternateRouteNames?[key] ?? URLComponents(string: address)?.host ?? address
+                                            Button {
+                                                library.switchEmbyRoute(source.id, address: address)
+                                            } label: {
+                                                Label {
+                                                    Text(verbatim: name)
+                                                } icon: {
+                                                    Image(systemName: "checkmark")
+                                                        .opacity(key == EmbyRouteOptions.key(configuration.serverAddress) ? 1 : 0)
+                                                        .accessibilityHidden(key != EmbyRouteOptions.key(configuration.serverAddress))
+                                                }
                                             }
                                         }
                                     }

@@ -13,7 +13,6 @@ final class ResolvedPlaybackResource {
     let embyMediaSourceID: String?
     let embyUserID: String?
     let duration: Double?
-    let bitRate: Double?
     let resumePosition: Double?
     let externalSubtitles: [EngineExternalSubtitle]
     private let scopedFolder: URL?
@@ -22,7 +21,7 @@ final class ResolvedPlaybackResource {
 
     init(url: URL, headers: [String: String] = [:], embyPlaySessionID: String? = nil,
          embyItemID: String? = nil, embyMediaSourceID: String? = nil, embyUserID: String? = nil,
-         duration: Double? = nil, bitRate: Double? = nil, resumePosition: Double? = nil,
+         duration: Double? = nil, resumePosition: Double? = nil,
          externalSubtitles: [EngineExternalSubtitle] = [],
          scopedFolder: URL? = nil, temporary: Bool = false, externalAccess: IncomingFileAccess? = nil) {
         self.url = url
@@ -32,7 +31,6 @@ final class ResolvedPlaybackResource {
         self.embyMediaSourceID = embyMediaSourceID
         self.embyUserID = embyUserID
         self.duration = duration
-        self.bitRate = bitRate
         self.resumePosition = resumePosition
         self.externalSubtitles = externalSubtitles
         self.scopedFolder = scopedFolder
@@ -48,12 +46,11 @@ final class ResolvedPlaybackResource {
 }
 
 enum PlaybackFailure: LocalizedError {
-    case missingFile, unavailableAsset, demo
+    case missingFile, unavailableAsset
     var errorDescription: String? {
         switch self {
         case .missingFile: VesperLocalization.string("视频文件不存在或无法访问。")
         case .unavailableAsset: VesperLocalization.string("无法读取相册视频，请检查照片权限和网络连接。")
-        case .demo: VesperLocalization.string("演示内容无法播放。")
         }
     }
 }
@@ -69,8 +66,6 @@ struct PlaybackResourceResolver {
     func resolve(_ item: MediaItem, source: MediaSource, position: Double = 0) async throws -> ResolvedPlaybackResource {
         guard item.id.sourceID == source.id else { throw PlaybackFailure.missingFile }
         switch source.kind {
-        case .demo:
-            throw PlaybackFailure.demo
         case .local:
             let folder = try source.localFolderURL()
             let scoped = folder.startAccessingSecurityScopedResource()
@@ -124,7 +119,6 @@ struct PlaybackResourceResolver {
                                             embyPlaySessionID: playback.sessionID, embyItemID: item.embyItemID,
                                             embyMediaSourceID: playback.mediaSourceID,
                                             embyUserID: source.emby?.userID, duration: playback.duration,
-                                            bitRate: playback.bitRate,
                                             resumePosition: playback.resumePosition,
                                             externalSubtitles: playback.subtitles)
         }

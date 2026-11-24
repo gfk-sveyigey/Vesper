@@ -3,7 +3,7 @@ import Foundation
 import Photos
 #endif
 
-struct DemoSourceAdapter: SourceAdapter {
+struct DeviceSourceAdapter: SourceAdapter {
     func media(in source: MediaSource) async throws -> [MediaItem] {
         if source.kind == .local {
             #if os(iOS)
@@ -37,19 +37,6 @@ struct DemoSourceAdapter: SourceAdapter {
             throw SourceFailure.unavailable
             #endif
         }
-        if source.kind == .emby {
-            return try await MediaSourceServices.catalog.rootItems(for: source)
-        }
-        try await Task.sleep(for: .milliseconds(250))
-        switch source.behavior {
-        case .empty: return []
-        case .failure: throw SourceFailure.unavailable
-        case .offline: throw SourceFailure.offline
-        case .content:
-            return (1...6).map { index in
-                MediaItem(id: MediaID(sourceID: source.id, localID: String(index)),
-                          title: "Demo \(index)", resource: nil)
-            }
-        }
+        throw SourceFailure.unavailable
     }
 }

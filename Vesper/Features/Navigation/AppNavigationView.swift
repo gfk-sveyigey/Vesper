@@ -176,7 +176,6 @@ struct AppNavigationView: View {
         switch source.kind {
         case .photos: return Image(systemName: "play.rectangle.on.rectangle")
         case .local: return Image(systemName: "folder")
-        case .demo: return Image(systemName: "play.rectangle")
         case .emby:
             let customIcon = source.emby?.iconData.flatMap { UIImage(data: $0) }
             guard let image = customIcon ?? UIImage(named: "EmbyLogo"),
@@ -744,8 +743,8 @@ private struct MediaSearchResultsView: View {
                               title: ($0.name as NSString).deletingPathExtension, resource: nil,
                               subtitle: ($0.path as NSString).deletingLastPathComponent)
                 }
-            case .photos, .demo:
-                found = try await DemoSourceAdapter().media(in: source)
+            case .photos:
+                found = try await DeviceSourceAdapter().media(in: source)
                     .filter { $0.title.localizedStandardContains(snapshot.query) }
             }
             try Task.checkCancellation()

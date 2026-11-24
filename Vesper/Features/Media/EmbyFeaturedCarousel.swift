@@ -5,7 +5,6 @@ import Network
 struct EmbyFeaturedCarousel: View {
     let source: MediaSource
     let items: [MediaItem]
-    let artwork: [String: Data]?
     let featuredArtwork: [MediaID: EmbyFeaturedArtwork]?
     let isMediaRoot: Bool
     let hidesInformation: Bool
@@ -40,11 +39,9 @@ struct EmbyFeaturedCarousel: View {
                         let isIncoming = item.id == incoming
                         let shift = reduceMotion ? 0 : CGFloat(direction) * width * travelFraction
                         let images = featuredArtwork?[item.id]
-                        let fallback = artwork?[item.id.localID]
                         let route = EmbyMediaRoute.detail(source, item, origin: .carousel)
                         Button { openDetail(route) } label: {
                             EmbyFeaturedPage(source: source, item: item, size: geometry.size,
-                                             artwork: fallback, artworkIsPrepared: artwork != nil,
                                              featuredArtwork: images,
                                              featuredArtworkIsPrepared: images != nil,
                                              showsInformation: isCurrent && !isTransitioning && !hidesInformation,
@@ -277,8 +274,6 @@ struct EmbyFeaturedPage: View {
     let source: MediaSource
     let item: MediaItem
     let size: CGSize
-    let artwork: Data?
-    let artworkIsPrepared: Bool
     let featuredArtwork: EmbyFeaturedArtwork?
     let featuredArtworkIsPrepared: Bool
     var initialHeroArtwork: EmbyFeaturedArtwork? = nil
@@ -318,8 +313,8 @@ struct EmbyFeaturedPage: View {
         MediaThumbnail(source: source, item: item, aspectRatio: EmbyPosterLayout.aspectRatio,
                        imageOrientation: usesEpisodeArtwork ? .landscape : .portrait,
                        crossfadesArtwork: crossfadesArtwork, allowsRemotePrimary: false, cornerRadius: 0, fixedHeight: size.height,
-                       preloadedData: images?.poster ?? artwork,
-                       artworkIsPrepared: images?.poster != nil || artworkIsPrepared,
+                       preloadedData: images?.poster,
+                       artworkIsPrepared: images?.poster != nil,
                        mirroredEdgeFraction: mirroredEdgeFraction,
                        showsMissingArtwork: featuredArtworkIsPrepared || loadedArtwork != nil)
             }
@@ -467,133 +462,6 @@ struct EmbyFeaturedPage: View {
         }
         return [year, status, score].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-}
-
-struct EmbySeriesPosterCard: View {
-    @EnvironmentObject private var library: SourceLibrary
-    let source: MediaSource
-    let item: MediaItem
-    @ObservedObject var playback: PlaybackSession
-    let width: CGFloat
-    let posterHeight: CGFloat
-    let preloadedData: Data?
-    let artworkIsPrepared: Bool
-    let open: () -> Void
-
-    @State private var episodes: [EmbyEpisode] = []
-    private var played: Bool { playback.effectivePlayed(for: item) }
-    private var firstEpisode: EmbyEpisode? { episodes.first }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button(action: open) {
-                MediaThumbnail(source: source, item: item, aspectRatio: width / posterHeight,
-                               imageOrientation: .portrait,
-                               fixedHeight: posterHeight, preloadedData: preloadedData,
-                               artworkIsPrepared: artworkIsPrepared)
-                    .frame(width: width, height: posterHeight)
-                    .mediaArtworkBorder(cornerRadius: 8)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text(verbatim: item.title))
-
-            Text(verbatim: item.title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(2, reservesSpace: true)
-            Text(verbatim: categoryLine)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                Button {
-                    guard let firstEpisode else { return }
-                    playback.play(firstEpisode.item, in: source, queue: episodes.map(\.item))
-                } label: {
-                    Label(startLabel, systemImage: "play.fill")
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .controlSize(.large)
-                .disabled(firstEpisode == nil)
-                .accessibilityLabel(Text(verbatim: startLabel))
-
-                Button {
-                    playback.setPlayed(!played, for: item, source: source)
-                } label: {
-                    Image(systemName: played ? "checkmark" : "plus")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .controlSize(.large)
-                .symbolEffect(.drawOn, isActive: played)
-                .accessibilityLabel(played ? "标记为未观看" : "标记为已观看")
-                Spacer(minLength: 0)
-            }
-
-            Text(verbatim: item.embyPresentation?.overview ?? "")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2, reservesSpace: true)
-                .fixedSize(horizontal: false, vertical: true)
-
-            factsLine
-        }
-        .frame(width: width, alignment: .leading)
-        .contentShape(Rectangle())
-        .task(id: item.id) {
-            episodes = (try? await library.seriesCatalog.seriesEpisodes(for: item, source: source, limit: 1)) ?? []
-        }
-    }
-
-    private var categoryLine: String {
-        ([VesperLocalization.string("剧集")] + (item.embyPresentation?.genres ?? []).prefix(3))
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .joined(separator: " · ")
-    }
-
-    private var startLabel: String {
-        guard let episode = firstEpisode else { return VesperLocalization.string("开始播放") }
-        let number = String(format: "%02d", episode.number ?? 0)
-        if (item.embyPresentation?.seasonCount ?? Set(episodes.map(\.season)).count) <= 1 {
-            return VesperLocalization.localized("开始播放 E\(number)")
-        }
-        return VesperLocalization.localized("开始播放 S\(String(format: "%02d", episode.season))E\(number)")
-    }
-
-    @ViewBuilder
-    private var factsLine: some View {
-        let presentation = item.embyPresentation
-        HStack(spacing: 5) {
-            if let year = item.subtitle ?? presentation?.premiereDate.map({ String(Calendar(identifier: .gregorian).component(.year, from: $0)) }) {
-                Text(verbatim: year)
-            }
-            if let status = presentation?.status {
-                Text(verbatim: status == "Continuing" ? "连载中" : status == "Ended" ? "已完结" : status)
-            }
-            if let rating = presentation?.communityRating, rating > 0 {
-                Label(String(format: "%.1f", rating), systemImage: "star.fill")
-            }
-            if let classification = presentation?.rating, !classification.isEmpty {
-                Label(classification, systemImage: "rectangle.badge.checkmark")
-            }
-            if let studios = presentation?.studios, !studios.isEmpty {
-                Label(studios.joined(separator: "、"), systemImage: "building.2")
-            }
-        }
-        .font(.system(size: 9, weight: .medium))
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .minimumScaleFactor(0.65)
     }
 }
 

@@ -225,9 +225,7 @@ struct MediaDetailView: View {
     @State private var clearedServerProgress = false
     @State private var carouselDetailReady = false
     @State private var detailDataReady = false
-    @State private var screenshots: [Data] = []
-    @State private var initialEpisodeArtworkIDs: Set<MediaID> = []
-    @State private var preparedArtwork: [MediaID: Data] = [:]
+    @State private var screenshotURLs: [URL] = []
     private var detailContentReady: Bool {
         detailDataReady && (!series.isEmbySeries || pendingInitialEpisodeID == nil)
     }
@@ -255,6 +253,7 @@ struct MediaDetailView: View {
         return result
     }
     private var isEpisode: Bool { episode != nil || item.embyItemType == "Episode" }
+    private var showsScreenshots: Bool { isEpisode || item.embyItemType == "Movie" }
 
     private var runtime: String? {
         guard let duration = playableItem.duration, duration.isFinite, duration > 0 else { return nil }
@@ -388,6 +387,13 @@ struct MediaDetailView: View {
             guard loadedSeriesID != series.id else { return }
             await loadDetail()
         }
+        .task(id: "\(series.id.sourceID):\(series.id.localID):\(reloadID):\(showsScreenshots)") {
+            screenshotURLs = []
+            guard showsScreenshots else { return }
+            let urls = await library.seriesCatalog.screenshotURLs(for: series, source: source)
+            guard !Task.isCancelled else { return }
+            screenshotURLs = urls
+        }
     }
 
     // A recommendation can open another instance of this view.
@@ -405,7 +411,7 @@ struct MediaDetailView: View {
     private func hero(viewportWidth: CGFloat) -> some View {
         GeometryReader { geometry in
             EmbyFeaturedPage(source: source, item: item, size: geometry.size,
-                             artwork: nil, artworkIsPrepared: false, featuredArtwork: nil,
+                             featuredArtwork: nil,
                              featuredArtworkIsPrepared: false,
                              initialHeroArtwork: initialHeroArtwork,
                              crossfadesArtwork: true,
@@ -672,26 +678,8 @@ struct MediaDetailView: View {
         return details.isEmpty ? version.name : "\(version.name) · \(details)"
     }
 
-    private func versionSummary(_ version: EmbyMediaVersionDetails) -> String {
-        [version.fileName, version.container?.uppercased(), version.mimeType, version.protocolName,
-         version.size.map(Self.byteCountLabel),
-         version.bitRate.map(Self.bitRateLabel), version.duration.map(Self.durationLabel)]
-            .compactMap { $0 }.joined(separator: " · ")
-    }
-
     private static func byteCountLabel(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
-
-    private static func bitRateLabel(_ bitsPerSecond: Int) -> String {
-        bitsPerSecond >= 1_000_000
-            ? String(format: "%.1f Mbit/s", Double(bitsPerSecond) / 1_000_000)
-            : String(format: "%.0f kbit/s", Double(bitsPerSecond) / 1_000)
-    }
-
-    private static func durationLabel(_ seconds: Double) -> String {
-        guard seconds.isFinite, seconds > 0 else { return "" }
-        return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
     }
 
     @ViewBuilder
@@ -716,26 +704,6 @@ struct MediaDetailView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, CGFloat(layout[.endPadding]))
         }
-    }
-
-    @ViewBuilder
-    private func capabilitySummary(_ version: EmbyMediaVersionDetails) -> some View {
-        let capabilities = [
-            version.supportsDirectPlay == true ? "直接播放" : nil,
-            version.supportsDirectStream == true ? "直接串流" : nil,
-            version.supportsTranscoding == true ? "支持转码" : nil,
-            version.isRemote == true ? "远程媒体" : nil,
-            version.hasMixedProtocols == true ? "混合协议" : nil
-        ].compactMap { $0 }
-        if !capabilities.isEmpty {
-            Text(verbatim: capabilities.joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private func streamSectionTitle(_ type: String, count: Int) -> String {
-        let title = type == "Video" ? "视频轨道" : type == "Audio" ? "音轨" : "字幕"
-        return "\(title)（\(count)）"
     }
 
     @ViewBuilder
@@ -864,9 +832,6 @@ struct MediaDetailView: View {
                                     isBusy: busy.contains(episode.id), isSelected: episode.id == selectedEpisodeID,
                                     open: { openedEpisodeID = episode.id },
                                     clear: { clearProgress(for: episode) },
-                                    preloadedData: preparedArtwork[episode.id],
-                                    artworkIsPrepared: detailDataReady && initialEpisodeArtworkIDs.contains(episode.id),
-                                    allowsArtworkLoading: detailContentReady,
                                     setPlayed: { played in
                                         setPlayed(played, for: episode.item)
                                     })
@@ -917,8 +882,7 @@ struct MediaDetailView: View {
                 shelf {
                     ForEach(similar) { item in
                         Button { openedRecommendation = item } label: {
-                            MediaThumbnail(source: source, item: item, imageOrientation: .portrait,
-                                           preloadedData: preparedArtwork[item.id], artworkIsPrepared: detailDataReady)
+                            MediaThumbnail(source: source, item: item, imageOrientation: .portrait)
                                 .frame(width: CGFloat(layout[.itemWidth]), height: CGFloat(layout[.itemHeight]))
                                 .mediaArtworkBorder()
                                 .matchedTransitionSource(id: item.id, in: recommendationZoom)
@@ -947,8 +911,7 @@ struct MediaDetailView: View {
                                     if let image = credit.image {
                                         MediaThumbnail(source: source, item: image, aspectRatio: 1,
                                                        imageOrientation: .square,
-                                                       preloadedData: preparedArtwork[image.id],
-                                                       missingArtworkSymbol: "person.crop.circle.fill", artworkIsPrepared: detailDataReady)
+                                                       missingArtworkSymbol: "person.crop.circle.fill")
                                     } else {
                                         MediaCardBackdrop(showsMissingArtwork: true,
                                                           missingArtworkSymbol: "person.crop.circle.fill")
@@ -1028,7 +991,7 @@ struct MediaDetailView: View {
 
     @ViewBuilder
     private var screenshotSection: some View {
-        if !series.isEmbySeries && !screenshots.isEmpty {
+        if !series.isEmbySeries && !screenshotURLs.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 Text("预览图")
                     .font(.system(size: 17, weight: .semibold))
@@ -1036,17 +999,15 @@ struct MediaDetailView: View {
                     .padding(.horizontal, CGFloat(layout[.endPadding]))
                     .padding(.vertical, CGFloat(layout[.titlePadding]))
                 shelf {
-                    ForEach(screenshots.indices, id: \.self) { index in
-                        if let image = UIImage(data: screenshots[index]) {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: layout.episodeCardWidth,
-                                       height: layout.episodeCardWidth * 9 / 16)
-                                .clipped()
-                                .mediaArtworkBorder()
-                                .accessibilityLabel("预览图 \(index + 1)")
-                        }
+                    ForEach(screenshotURLs.indices, id: \.self) { index in
+                        let url = screenshotURLs[index]
+                        MediaDetailScreenshotCard(url: url, source: source, catalog: library.seriesCatalog)
+                            .id(url)
+                            .frame(width: layout.episodeCardWidth, height: layout.episodeCardWidth * 9 / 16)
+                            .mediaArtworkBorder()
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("预览图 \(index + 1)")
+                            .accessibilityAddTraits(.isImage)
                     }
                 }
             }
@@ -1101,11 +1062,6 @@ struct MediaDetailView: View {
         loadError = nil
         detailDataReady = false
         pendingInitialEpisodeID = nil
-        preparedArtwork = [:]
-        initialEpisodeArtworkIDs = []
-        screenshots = []
-        async let previewImages: [Data] = (isEpisode || item.embyItemType == "Movie")
-            ? repository.screenshotData(for: item, source: source) : []
         async let info = repository.detailMetadata(for: series, source: source)
         async let recommendations = isEpisode ? nil : try? repository.similarTitles(for: series, source: source)
         if series.isEmbySeries { await loadEpisodes() }
@@ -1122,73 +1078,23 @@ struct MediaDetailView: View {
                 loadedSeriesID = series.isEmbySeries ? series.id : nil
             }
         }
-        let relatedTitles = await recommendations
-        if !Task.isCancelled {
-            similar = relatedTitles ?? []
-            // Only prepare a bounded window around the initial resume target.
-            let targetID = pendingInitialEpisodeID ?? selectedEpisodeID
-            let targetIndex = episodes.firstIndex { $0.id == targetID } ?? 0
-            let initialEpisodes = episodes.isEmpty ? [] : Array(episodes[
-                max(0, targetIndex - 2)..<min(episodes.count, targetIndex + 5)
-            ])
-            initialEpisodeArtworkIDs = Set(initialEpisodes.map(\.id))
-            let images = initialEpisodes.map { ($0.item, EmbyImageOrientation.landscape) }
-                + similar.map { ($0, EmbyImageOrientation.portrait) }
-                + (metadata?.credits.compactMap(\.image) ?? []).map { ($0, EmbyImageOrientation.square) }
-            let artwork = await prepareDetailArtwork(images)
+        guard !Task.isCancelled else { return }
+        detailDataReady = true
+        if startsWithCarouselInformationHidden {
+            await Task.yield()
             guard !Task.isCancelled else { return }
-            let previews = await previewImages
-            guard !Task.isCancelled else { return }
-            preparedArtwork = artwork
-            screenshots = previews
-            detailDataReady = true
-            if startsWithCarouselInformationHidden {
-                await Task.yield()
-                guard !Task.isCancelled else { return }
-                carouselDetailReady = true
-            }
+            carouselDetailReady = true
         }
-    }
 
-    private func prepareDetailArtwork(_ images: [(MediaItem, EmbyImageOrientation)]) async -> [MediaID: Data] {
-        let source = source
-        return await withTaskGroup(of: (MediaID, Data?).self) { tasks in
-            var pending = images.makeIterator()
-            func enqueueNext() {
-                guard let (item, orientation) = pending.next() else { return }
-                tasks.addTask {
-                    (item.id, await MediaThumbnailLoader.shared.load(item, source: source, imageOrientation: orientation))
-                }
-            }
-            for _ in 0..<6 { enqueueNext() }
-            var result: [MediaID: Data] = [:]
-            for await (id, data) in tasks {
-                guard !Task.isCancelled else { tasks.cancelAll(); break }
-                result[id] = data
-                enqueueNext()
-            }
-            return result
-        }
+        let relatedTitles = await recommendations
+        guard !Task.isCancelled else { return }
+        similar = relatedTitles ?? []
     }
 
     private func resetTrackSelection(for version: EmbyMediaVersionDetails) {
         let preferredAudio = EmbyTrackPreferences.selection(version.streams, type: "Audio")
         selectedAudioIndex = preferredAudio ?? version.streams.first(where: { $0.type == "Audio" })?.id
         selectedSubtitleIndex = EmbyTrackPreferences.selection(version.streams, type: "Subtitle")
-    }
-
-    private func clearItemProgress() {
-        let target = item
-        guard busy.insert(target.id).inserted else { return }
-        Task {
-            defer { busy.remove(target.id) }
-            do {
-                try await playback.clearProgress(for: target, source: source)
-                clearedServerProgress = true
-            } catch {
-                actionError = error.localizedDescription
-            }
-        }
     }
 
     private func loadEpisodes() async {
@@ -1292,5 +1198,33 @@ extension EmbyEpisode {
     var displayTitle: String {
         let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return title.isEmpty ? numberLabel : title
+    }
+}
+
+private struct MediaDetailScreenshotCard: View {
+    let url: URL
+    let source: MediaSource
+    let catalog: any SeriesMediaCatalogService
+
+    @State private var image: UIImage?
+    @State private var finishedLoading = false
+
+    var body: some View {
+        MediaCardBackdrop(showsMissingArtwork: finishedLoading && image == nil)
+            .overlay {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                }
+            }
+            .clipped()
+            .task {
+                guard !finishedLoading else { return }
+                let data = await catalog.screenshotData(at: url, source: source)
+                guard !Task.isCancelled else { return }
+                image = data.flatMap { UIImage(data: $0) }
+                finishedLoading = true
+            }
     }
 }

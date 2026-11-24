@@ -409,7 +409,6 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                 configuration.autoplay = resume
                 configuration.requestHeaders = resolved.headers
                 configuration.externalSubtitles = resolved.externalSubtitles
-                configuration.mediaBitRate = resolved.bitRate
                 try await self.core.load(resolved.url, preferred: selectedEngine == .aether ? .aether : .vlc,
                                          configuration: configuration, audio: trackIntents.audio, subtitle: trackIntents.subtitle,
                                          server: self.embySession)
@@ -1061,7 +1060,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
                    PHAsset.fetchAssets(withLocalIdentifiers: [entry.mediaID.localID], options: nil).count == 0 {
                     missing.insert(entry.mediaID)
                 }
-            case .demo, .emby: break
+            case .emby: break
             }
         }
         if !missing.isEmpty { removePlaybackData { missing.contains($0) } }

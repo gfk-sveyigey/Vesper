@@ -100,7 +100,7 @@ struct EmbySettingsView: View {
                         Text("\(size) MB").tag(size)
                     }
                 }
-                Text("每次打开 Emby 视频时按当前网络应用。Aether 按容量限制支持的临时媒体缓存；VLC 按视频总码率换算缓冲时长，最长 60 秒。不是流量上限或播放器总内存限制；Aether 原生远程 HLS 暂不支持按容量限制。")
+                Text("每次打开 Emby 视频时按当前网络应用。此设置限制 Aether 支持的临时媒体缓存容量。Aether 原生远程 HLS 暂不支持此设置。SwiftVLC 的网络缓冲固定为 5 秒。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

@@ -296,7 +296,6 @@ final class MediaThumbnailLoader {
               prefersLandscapeMovieArtwork: Bool = false) async -> Data? {
         guard item.id.sourceID == source.id, !Task.isCancelled else { return nil }
         switch source.kind {
-        case .demo: return nil
         case .emby:
             let prefersLandscape = prefersLandscapeMovieArtwork && item.embyItemType == "Movie"
             let variant = prefersLandscape ? "|movie-landscape" : ""
@@ -367,7 +366,6 @@ final class MediaThumbnailLoader {
             guard let time = try? await asset.load(.duration), time.seconds.isFinite, time.seconds > 0, !Task.isCancelled else { return 0 }
             durationCache.setObject(NSNumber(value: time.seconds), forKey: key)
             return time.seconds
-        case .demo: return 0
         }
     }
 
@@ -447,8 +445,6 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
     var historyEntry: PlaybackHistoryEntry? = nil
     var artworkItem: MediaItem? = nil
     var previewTitle: String? = nil
-    var preloadedData: Data? = nil
-    var artworkIsPrepared = false
     var showsEmbyFacts = false
     var openEmbyDetails: (() -> Void)? = nil
     @ViewBuilder let actions: () -> Actions
@@ -529,7 +525,6 @@ struct MediaThumbnailMenu<Actions: View>: ViewModifier {
             } preview: {
                 MediaThumbnailPreview(source: source, item: item, historyEntry: historyEntry,
                                       artworkItem: artworkItem, previewTitle: previewTitle,
-                                      preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared,
                                       showsEmbyFacts: showsEmbyFacts)
             }
             .sheet(isPresented: $showingShare, onDismiss: {
@@ -595,8 +590,6 @@ struct MediaThumbnailPreview: View {
     var historyEntry: PlaybackHistoryEntry? = nil
     var artworkItem: MediaItem? = nil
     var previewTitle: String? = nil
-    var preloadedData: Data? = nil
-    var artworkIsPrepared = false
     var showsEmbyFacts = false
     var usesLandscapeArtwork = false
     @AppStorage("language.code") private var languageCode = "system"
@@ -610,7 +603,6 @@ struct MediaThumbnailPreview: View {
             MediaThumbnail(source: source, item: artworkItem ?? item, aspectRatio: aspectRatio,
                            imageOrientation: usesLandscapeArtwork ? .landscape : .portrait,
                            allowsRemotePrimary: !usesLandscapeArtwork, cacheOnly: true,
-                           preloadedData: preloadedData, artworkIsPrepared: artworkIsPrepared,
                            usesMediaCardBackdrop: historyEntry == nil || usesLandscapeArtwork,
                            prefersLandscapeMovieArtwork: usesLandscapeArtwork)
                 .frame(width: 200, height: 200 / aspectRatio)
@@ -657,10 +649,6 @@ private struct MediaVideoShareSheet: UIViewControllerRepresentable {
         UIActivityViewController(activityItems: [url], applicationActivities: nil)
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) { }
-}
-
-func mediaDisplayName(_ title: String) -> String {
-    VideoImporter.isVideoType(URL(fileURLWithPath: title)) ? (title as NSString).deletingPathExtension : title
 }
 
 @MainActor

@@ -47,61 +47,23 @@ struct EmbyPresentation: Codable, Hashable, Sendable {
     var seasonCount: Int? = nil
 }
 
-struct SourceCapabilities: OptionSet, Sendable {
-    let rawValue: Int
-    static let browse = Self(rawValue: 1 << 0)
-    static let playback = Self(rawValue: 1 << 1)
-    static let search = Self(rawValue: 1 << 2)
-    static let serverCatalog = Self(rawValue: 1 << 3)
-    static let playbackRecords = Self(rawValue: 1 << 4)
-    static let alternateRoutes = Self(rawValue: 1 << 5)
-}
-
-enum DemoSourceBehavior: String, Codable, CaseIterable, Identifiable, Sendable {
-    case content, empty, failure, offline
-    var id: Self { self }
-    var titleKey: String {
-        switch self {
-        case .content: "示例内容"
-        case .empty: "空来源"
-        case .failure: "连接失败"
-        case .offline: "离线"
-        }
-    }
-}
-
-/// Demo is an explicit source kind; service accounts are not media sources.
 struct MediaSource: Identifiable, Codable, Equatable, Sendable {
-    enum Kind: String, Codable { case demo, photos, local, emby }
+    enum Kind: String, Codable { case photos, local, emby }
     let id: UUID
     var name: String
     let kind: Kind
     var folderBookmark: Data? = nil
-    var behavior: DemoSourceBehavior
     var emby: EmbySourceConfiguration? = nil
     var cacheIdentity: String { emby.map { "\($0.serverAddress)|\($0.userID ?? "")|\($0.username)" } ?? folderBookmark?.base64EncodedString() ?? "" }
-    var capabilities: SourceCapabilities {
-        switch kind {
-        case .demo: [.browse]
-        case .photos, .local: [.browse, .playback]
-        case .emby: [.browse, .playback, .search, .serverCatalog, .playbackRecords, .alternateRoutes]
-        }
-    }
 }
 
 enum SourceFailure: Error, Equatable {
-    case unavailable, offline, message(String)
+    case unavailable, message(String)
 }
 
 protocol SourceAdapter: Sendable {
     func media(in source: MediaSource) async throws -> [MediaItem]
 }
-
-protocol MediaSourceAdapter: SourceAdapter {
-    var capabilities: SourceCapabilities { get }
-    func playbackResource(for item: MediaItem, in source: MediaSource) async throws -> PlayableResource
-}
-
 
 enum MediaSourceCacheIdentity {
     static func scope(for source: MediaSource) -> String {

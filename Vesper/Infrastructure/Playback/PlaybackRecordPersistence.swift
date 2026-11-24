@@ -146,18 +146,6 @@ final class PlaybackRecordStore: ObservableObject {
         changed()
     }
 
-    func containsLocalPlayed(_ id: MediaID) -> Bool {
-        localPlayedStates[PlaybackRecordPersistence.storageKey(for: id)] != nil
-    }
-
-    func removeLocalPlayed(matching matches: (MediaID) -> Bool) {
-        for key in Array(localPlayedStates.keys) {
-            guard let id = PlaybackRecordPersistence.mediaID(from: key) else { continue }
-            if matches(id) { localPlayedStates.removeValue(forKey: key) }
-        }
-        persistence.saveLocalPlayedStates(localPlayedStates)
-    }
-
     func edit(for id: MediaID) -> PlayedEdit? { playedEdits[id] }
 
     func traktState(for id: MediaID) -> TraktEpisodePlaybackState? { traktEpisodeStates[id] }
@@ -172,11 +160,6 @@ final class PlaybackRecordStore: ObservableObject {
     func updateTraktState(for id: MediaID, _ update: (inout TraktEpisodePlaybackState) -> Void) {
         guard var state = traktEpisodeStates[id] else { return }
         update(&state)
-        traktEpisodeStates[id] = state
-        changed()
-    }
-
-    func setTraktState(_ state: TraktEpisodePlaybackState?, for id: MediaID) {
         traktEpisodeStates[id] = state
         changed()
     }

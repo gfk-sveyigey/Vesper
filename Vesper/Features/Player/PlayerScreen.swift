@@ -667,11 +667,6 @@ struct PlayerScreen: View {
             .frame(width: 44, height: 44)
     }
 
-    private func actionButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
-        PlayerActionButton(title: VesperLocalization.string(title), symbol: symbol) { revealControls(); action() }
-            .frame(width: 44, height: 44)
-    }
-
     private func moreSettingsMenu() -> UIMenu {
         let decoding = UIMenu(title: VesperLocalization.string(session.currentDecoder.title), image: UIImage(systemName: "cpu"), children:
             PlaybackDecoder.allCases.map { decoder in

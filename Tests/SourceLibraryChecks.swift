@@ -1,6 +1,6 @@
 import Foundation
 
-/// Standalone state regression checks; run with the command in phase-two-validation.md.
+/// Standalone state regression checks for source loading and persistence.
 @main
 struct SourceLibraryChecks {
     @MainActor
@@ -8,41 +8,9 @@ struct SourceLibraryChecks {
         let suite = "Vesper.SourceLibraryChecks.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
-        let library = SourceLibrary(defaults: defaults)
+        let library = SourceLibrary(defaults: defaults, adapter: TestDeviceAdapter())
         precondition(library.sources.isEmpty && library.selectedID == nil)
         precondition(library.content == .unselected)
-        library.addDemo(name: "  ", behavior: .content)
-        precondition(library.sources.isEmpty)
-        library.addDemo(name: " A ", behavior: .content)
-        let first = library.sources[0].id
-        precondition(library.sources[0].name == "A" && library.selectedID == first)
-        precondition(library.content == .loading)
-        try await wait { if case .loaded = library.content { true } else { false } }
-        guard case .loaded(let items) = library.content else { preconditionFailure() }
-        precondition(items.count == 6 && items.allSatisfy { $0.id.sourceID == first && $0.resource == nil })
-        precondition(!library.sources[0].capabilities.contains(.playback))
-        library.addDemo(name: "B", behavior: .empty)
-        let second = library.sources[1].id
-        precondition(library.selectedID == first)
-        library.select(second)
-        try await wait { library.content == .loaded([]) }
-        library.configure(second, behavior: .failure)
-        try await wait { library.content == .failed(.unavailable) }
-        library.select(first)
-        try await wait { if case .loaded(let result) = library.content { result.count == 6 } else { false } }
-        library.configure(second, behavior: .offline)
-        precondition(library.selectedID == first)
-        library.select(second)
-        try await wait { library.content == .failed(.offline) }
-        let restored = SourceLibrary(defaults: defaults)
-        precondition(restored.sources == library.sources && restored.selectedID == second)
-        try await wait { restored.content == .failed(.offline) }
-        library.remove(first)
-        precondition(library.selectedID == second)
-        library.remove(second)
-        precondition(library.sources.isEmpty && library.selectedID == nil && library.content == .unselected)
-        let emptyRestored = SourceLibrary(defaults: defaults)
-        precondition(emptyRestored.sources.isEmpty && emptyRestored.selectedID == nil)
 
         // Device sources are unique by kind and bookmarks survive persistence.
         library.addDeviceSource(kind: .local, name: "Local", bookmark: Data([1, 2, 3]))
@@ -53,18 +21,18 @@ struct SourceLibraryChecks {
         precondition(deviceRestored.sources == library.sources)
         library.remove(library.sources[0].id)
 
-        // Importing creates/selects one Documents-backed local source, including
-        // migration from a legacy folder bookmark, without duplicate sources.
-        library.selectImportedVideos(name: "Local")
-        let importedID = library.selectedID
-        precondition(library.sources.count == 1 && library.selectedSource?.kind == .local)
-        precondition(library.selectedSource?.folderBookmark == nil)
-        library.selectImportedVideos(name: "Local")
-        precondition(library.sources.count == 1 && library.selectedID == importedID)
-        library.remove(importedID!)
+        // Registering imported files creates one Documents-backed local source.
+        // It also replaces a legacy folder bookmark without changing selection.
+        library.registerImportedVideos(name: "Local")
+        let imported = library.sources[0]
+        precondition(library.sources.count == 1 && imported.kind == .local)
+        precondition(imported.folderBookmark == nil && library.selectedID == nil)
+        library.registerImportedVideos(name: "Local")
+        precondition(library.sources.count == 1 && library.sources[0].id == imported.id && library.selectedID == nil)
+        library.remove(imported.id)
         library.addDeviceSource(kind: .local, name: "Legacy", bookmark: Data([1]))
         let legacyID = library.selectedID
-        library.selectImportedVideos(name: "Local")
+        library.registerImportedVideos(name: "Local")
         precondition(library.selectedID == legacyID && library.sources.count == 1)
         precondition(library.selectedSource?.folderBookmark == nil)
         let importedRestored = SourceLibrary(defaults: defaults)
@@ -73,10 +41,10 @@ struct SourceLibraryChecks {
 
         // Adapter deliberately ignores cancellation: generation guard must still
         // reject the old source's late completion.
-        let race = SourceLibrary(defaults: defaults, adapter: UncooperativeAdapter())
-        race.addDemo(name: "slow", behavior: .failure)
+        let race = SourceLibrary(defaults: defaults, adapter: TestDeviceAdapter())
+        race.addDeviceSource(kind: .local, name: "Slow")
         let slow = race.sources[0].id
-        race.addDemo(name: "fast", behavior: .content)
+        race.addDeviceSource(kind: .photos, name: "Fast")
         let fast = race.sources[1].id
         race.select(fast)
         try await wait { if case .loaded = race.content { true } else { false } }
@@ -85,7 +53,7 @@ struct SourceLibraryChecks {
         precondition(current.first?.id.sourceID == fast && race.selectedID != slow)
         race.select(UUID())
         precondition(race.selectedID == fast)
-        print("SourceLibrary checks passed: selection, persistence, failure isolation, removal and stale-result rejection.")
+        print("SourceLibrary checks passed: device source persistence, import registration and stale-result rejection.")
     }
 
     @MainActor
@@ -98,12 +66,12 @@ struct SourceLibraryChecks {
     }
 }
 
-private struct UncooperativeAdapter: SourceAdapter {
+private struct TestDeviceAdapter: SourceAdapter {
     func media(in source: MediaSource) async throws -> [MediaItem] {
         await Task.detached {
-            try? await Task.sleep(for: .milliseconds(source.behavior == .failure ? 200 : 20))
+            try? await Task.sleep(for: .milliseconds(source.kind == .local ? 200 : 20))
         }.value
-        if source.behavior == .failure { throw SourceFailure.unavailable }
+        if source.kind == .local { throw SourceFailure.unavailable }
         return [MediaItem(id: MediaID(sourceID: source.id, localID: "test"), title: "Test", resource: nil)]
     }
 }

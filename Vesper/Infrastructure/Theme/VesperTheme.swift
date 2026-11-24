@@ -76,8 +76,4 @@ extension View {
     ) -> some View {
         modifier(VesperNavigationStyle(titleDisplayMode: titleDisplayMode))
     }
-
-    func vesperSystemNavigationBar() -> some View {
-        toolbarBackground(.automatic, for: .navigationBar)
-    }
 }
