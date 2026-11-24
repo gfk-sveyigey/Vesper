@@ -1089,7 +1089,7 @@ private struct EmbyLibraryDestination: View {
                               parentID: libraryRoute.itemID, scope: .titles,
                               artworkZoom: artworkZoom, openDetail: { openedDetail = $0 })
             #if DEBUG
-            .background(EmbyLibraryTouchDiagnostics().allowsHitTesting(false))
+            .background(EmbyNavigationTouchDiagnostics(page: "library").allowsHitTesting(false))
             #endif
             .navigationDestination(item: $openedDetail) { route in
                 if let item = route.item {
@@ -1101,8 +1101,14 @@ private struct EmbyLibraryDestination: View {
 }
 
 #if DEBUG
-private struct EmbyLibraryTouchDiagnostics: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> Reporter { Reporter() }
+struct EmbyNavigationTouchDiagnostics: UIViewControllerRepresentable {
+    let page: String
+
+    func makeUIViewController(context: Context) -> Reporter {
+        let controller = Reporter()
+        controller.page = page
+        return controller
+    }
 
     func updateUIViewController(_ controller: Reporter, context: Context) {}
 
@@ -1118,8 +1124,10 @@ private struct EmbyLibraryTouchDiagnostics: UIViewControllerRepresentable {
             probe.delaysTouchesEnded = false
             return probe
         }()
+        var page = ""
+        private let pageID = String(UUID().uuidString.prefix(8))
         private let formatter = ISO8601DateFormatter()
-        private weak var libraryPage: UIViewController?
+        private weak var observedPage: UIViewController?
         private weak var navigation: UINavigationController?
         private var startedAt: TimeInterval = 0
         private var appearance = 0
@@ -1146,6 +1154,7 @@ private struct EmbyLibraryTouchDiagnostics: UIViewControllerRepresentable {
 
         override func viewDidDisappear(_ animated: Bool) {
             super.viewDidDisappear(animated)
+            log("didDisappear \(navigationState())")
             startedAt = 0
         }
 
@@ -1155,7 +1164,7 @@ private struct EmbyLibraryTouchDiagnostics: UIViewControllerRepresentable {
             var ancestor = parent
             while let controller = ancestor {
                 if navigation?.viewControllers.contains(where: { $0 === controller }) == true {
-                    libraryPage = controller
+                    observedPage = controller
                     break
                 }
                 ancestor = controller.parent
@@ -1185,8 +1194,8 @@ private struct EmbyLibraryTouchDiagnostics: UIViewControllerRepresentable {
                 ancestors.append(String(describing: type(of: view)))
                 current = view.superview
             }
-            let inLibrary = (libraryPage?.viewIfLoaded).map { hitView?.isDescendant(of: $0) == true } ?? false
-            log("\(event) zone=\(edge) inLibrary=\(inLibrary) scroll=\(describe(scroll?.panGestureRecognizer)) \(navigationState()) hit=\(ancestors.prefix(12).joined(separator: ">"))")
+            let inPage = (observedPage?.viewIfLoaded).map { hitView?.isDescendant(of: $0) == true } ?? false
+            log("\(event) zone=\(edge) inPage=\(inPage) scroll=\(describe(scroll?.panGestureRecognizer)) \(navigationState()) hit=\(ancestors.prefix(12).joined(separator: ">"))")
         }
 
         private func navigationState() -> String {
@@ -1203,7 +1212,7 @@ private struct EmbyLibraryTouchDiagnostics: UIViewControllerRepresentable {
 
         private func log(_ message: String) {
             let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
-            AppLog.runtimeEntries.append("\(formatter.string(from: Date())) [MediaTouch] appearance=\(appearance) t=\(elapsed)ms \(message)")
+            AppLog.runtimeEntries.append("\(formatter.string(from: Date())) [MediaTouch] page=\(page) id=\(pageID) appearance=\(appearance) t=\(elapsed)ms \(message)")
         }
     }
 

@@ -319,6 +319,9 @@ struct MediaDetailView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .background(VesperTheme.background.ignoresSafeArea())
+        #if DEBUG
+        .background(EmbyNavigationTouchDiagnostics(page: "detail").allowsHitTesting(false))
+        #endif
         .navigationTitle(isEpisode ? episodeTitle : item.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarVisibility(.visible, for: .navigationBar)
