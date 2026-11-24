@@ -2,6 +2,10 @@ import SwiftUI
 import UIKit
 import Network
 
+#if DEBUG
+import UIKit.UIGestureRecognizerSubclass
+#endif
+
 @MainActor
 final class MediaLayoutSettings: ObservableObject {
     static let shared = MediaLayoutSettings()
@@ -1084,6 +1088,9 @@ private struct EmbyLibraryDestination: View {
         EmbySeriesBrowserView(source: libraryRoute.source, groupTitle: libraryRoute.title,
                               parentID: libraryRoute.itemID, scope: .titles,
                               artworkZoom: artworkZoom, openDetail: { openedDetail = $0 })
+            #if DEBUG
+            .background(EmbyLibraryTouchDiagnostics().allowsHitTesting(false))
+            #endif
             .navigationDestination(item: $openedDetail) { route in
                 if let item = route.item {
                     MediaDetailView(source: route.source, series: item)
@@ -1092,6 +1099,166 @@ private struct EmbyLibraryDestination: View {
             }
     }
 }
+
+#if DEBUG
+private struct EmbyLibraryTouchDiagnostics: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Reporter { Reporter() }
+
+    func updateUIViewController(_ controller: Reporter, context: Context) {}
+
+    static func dismantleUIViewController(_ controller: Reporter, coordinator: ()) {
+        controller.detach()
+    }
+
+    final class Reporter: UIViewController {
+        private let probe: TouchProbe = {
+            let probe = TouchProbe(target: nil, action: nil)
+            probe.cancelsTouchesInView = false
+            probe.delaysTouchesBegan = false
+            probe.delaysTouchesEnded = false
+            return probe
+        }()
+        private let formatter = ISO8601DateFormatter()
+        private weak var libraryPage: UIViewController?
+        private weak var navigation: UINavigationController?
+        private var startedAt: TimeInterval = 0
+        private var appearance = 0
+
+        override func loadView() {
+            view = UIView()
+            view.isUserInteractionEnabled = false
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            appearance += 1
+            startedAt = ProcessInfo.processInfo.systemUptime
+            attach()
+            log("willAppear \(navigationState())")
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            attach()
+            log("didAppear \(navigationState())")
+        }
+
+        override func viewDidDisappear(_ animated: Bool) {
+            super.viewDidDisappear(animated)
+            startedAt = 0
+        }
+
+        private func attach() {
+            guard let window = view.window else { return }
+            navigation = navigationController ?? navigation
+            var ancestor = parent
+            while let controller = ancestor {
+                if navigation?.viewControllers.contains(where: { $0 === controller }) == true {
+                    libraryPage = controller
+                    break
+                }
+                ancestor = controller.parent
+            }
+            guard probe.view !== window else { return }
+            detach()
+            probe.report = { [weak self] event, hitView, point in
+                self?.report(event, hitView: hitView, point: point)
+            }
+            window.addGestureRecognizer(probe)
+        }
+
+        func detach() {
+            probe.view?.removeGestureRecognizer(probe)
+            probe.report = nil
+        }
+
+        private func report(_ event: String, hitView: UIView?, point: CGPoint) {
+            let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+            guard elapsed < 8, let window = probe.view else { return }
+            let edge = point.x < 24 ? "left" : point.x > window.bounds.width - 24 ? "right" : "interior"
+            var ancestors: [String] = []
+            var scroll: UIScrollView?
+            var current = hitView
+            while let view = current {
+                if scroll == nil { scroll = view as? UIScrollView }
+                ancestors.append(String(describing: type(of: view)))
+                current = view.superview
+            }
+            let inLibrary = (libraryPage?.viewIfLoaded).map { hitView?.isDescendant(of: $0) == true } ?? false
+            log("\(event) zone=\(edge) inLibrary=\(inLibrary) scroll=\(describe(scroll?.panGestureRecognizer)) \(navigationState()) hit=\(ancestors.prefix(12).joined(separator: ">"))")
+        }
+
+        private func navigationState() -> String {
+            guard let navigation else { return "navigation=unavailable" }
+            let coordinator = navigation.transitionCoordinator
+            let phase = coordinator.map { $0.isInteractive ? "interactive" : "animating" } ?? "idle"
+            return "depth=\(navigation.viewControllers.count) transition=\(phase) edge=\(describe(navigation.interactivePopGestureRecognizer)) content=\(describe(navigation.interactiveContentPopGestureRecognizer))"
+        }
+
+        private func describe(_ recognizer: UIGestureRecognizer?) -> String {
+            guard let recognizer else { return "-" }
+            return "\(recognizer.isEnabled ? "on" : "off")/\(recognizer.state)"
+        }
+
+        private func log(_ message: String) {
+            let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+            AppLog.runtimeEntries.append("\(formatter.string(from: Date())) [MediaTouch] appearance=\(appearance) t=\(elapsed)ms \(message)")
+        }
+    }
+
+    private final class TouchProbe: UIGestureRecognizer {
+        var report: ((String, UIView?, CGPoint) -> Void)?
+        private weak var trackedTouch: UITouch?
+        private var start = CGPoint.zero
+        private var reportedDrag = false
+
+        // This observer stays possible until it fails, so it never claims the touch.
+        override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+
+        override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            guard trackedTouch == nil, let touch = touches.first else { return }
+            trackedTouch = touch
+            start = touch.location(in: view)
+            report?("down", touch.view, start)
+        }
+
+        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+            guard let touch = trackedTouch, touches.contains(touch), !reportedDrag else { return }
+            let point = touch.location(in: view)
+            let dx = point.x - start.x
+            let dy = point.y - start.y
+            guard max(abs(dx), abs(dy)) >= 12 else { return }
+            reportedDrag = true
+            let direction = abs(dx) > abs(dy) ? "horizontal" : "vertical"
+            let origin = start
+            DispatchQueue.main.async { [weak self, weak hitView = touch.view] in
+                self?.report?("drag \(direction)", hitView, origin)
+            }
+        }
+
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+            guard let touch = trackedTouch, touches.contains(touch) else { return }
+            if reportedDrag { report?("up", touch.view, start) }
+            state = .failed
+        }
+
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+            guard let touch = trackedTouch, touches.contains(touch) else { return }
+            report?("cancelled", touch.view, start)
+            state = .failed
+        }
+
+        override func reset() {
+            super.reset()
+            trackedTouch = nil
+            reportedDrag = false
+        }
+    }
+}
+#endif
 
 struct EmbyPersonWorksView: View {
     let source: MediaSource
