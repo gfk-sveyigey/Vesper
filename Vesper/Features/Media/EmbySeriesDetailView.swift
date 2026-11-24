@@ -319,9 +319,6 @@ struct MediaDetailView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .background(VesperTheme.background.ignoresSafeArea())
-        #if DEBUG
-        .background(EmbyNavigationTouchDiagnostics(page: "detail").allowsHitTesting(false))
-        #endif
         .navigationTitle(isEpisode ? episodeTitle : item.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarVisibility(.visible, for: .navigationBar)
@@ -399,16 +396,12 @@ struct MediaDetailView: View {
         }
     }
 
-    // A recommendation can open another instance of this view.
     private func recommendationDestination(for item: MediaItem) -> AnyView {
-        if item.isEmbySeries {
-            if isEpisode { return AnyView(MediaDetailView(source: source, series: item)) }
-            return AnyView(
-                MediaDetailView(source: source, series: item)
-                    .navigationTransition(.zoom(sourceID: item.id, in: recommendationZoom))
-            )
+        let detail = MediaDetailView(source: source, series: item)
+        if !isEpisode && (item.isEmbySeries || item.embyItemType == "Movie") {
+            return AnyView(detail.navigationTransition(.zoom(sourceID: item.id, in: recommendationZoom)))
         }
-        return AnyView(MediaDetailView(source: source, series: item))
+        return AnyView(detail)
     }
 
     private func hero(viewportWidth: CGFloat) -> some View {

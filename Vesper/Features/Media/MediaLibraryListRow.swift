@@ -9,17 +9,11 @@ struct MediaLibraryListRow: View {
     private var transition: (id: EmbyMediaRoute, namespace: Namespace.ID)?
     @ObservedObject private var layout = MediaLayoutSettings.shared
 
-    init(source: MediaSource, item: MediaItem, playback: PlaybackSession? = nil) {
+    init(source: MediaSource, item: MediaItem, playback: PlaybackSession? = nil,
+         transition: (id: EmbyMediaRoute, namespace: Namespace.ID)? = nil) {
         self.source = source
         self.item = item
         self.playback = playback
-        self.transition = nil
-    }
-
-    init(source: MediaSource, item: MediaItem, transition: (id: EmbyMediaRoute, namespace: Namespace.ID)) {
-        self.source = source
-        self.item = item
-        self.playback = nil
         self.transition = transition
     }
 

@@ -108,10 +108,7 @@ struct AppNavigationView: View {
         }
         .onChange(of: library.isPrivacyModeEnabled) { _, enabled in
             guard !enabled else { return }
-            if let item = playback.currentItem, library.canUsePrivacyMode,
-               library.protectedSourceIDs.contains(item.id.sourceID) {
-                playback.stop()
-            }
+            stopProtectedSourcePlayback()
             // Discard detail/search routes that may retain a protected source.
             mediaPath = NavigationPath()
             sourcesPath = NavigationPath()
@@ -344,7 +341,7 @@ struct AppNavigationView: View {
         .environmentObject(playback)
         .environmentObject(appLock)
         .task {
-            if scenePhase == .active { appLock.sceneChanged(.active) }
+            if scenePhase == .active { updateAppLock(for: .active) }
         }
         .background(VesperTheme.background.ignoresSafeArea())
 
@@ -354,7 +351,7 @@ struct AppNavigationView: View {
 
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         isInBackground = phase != .active
-        appLock.sceneChanged(phase)
+        updateAppLock(for: phase)
         playback.handleScenePhase(phase)
         if phase == .active, protectionEnabled, protectionScope != "source",
            appLock.authenticationRequest == nil, !appLock.isLocked,
@@ -362,6 +359,22 @@ struct AppNavigationView: View {
             appLock.activateIfNeeded()
         }
         if phase == .active { presentNextIncomingVideo() }
+    }
+
+    private func updateAppLock(for phase: ScenePhase) {
+        if phase == .active, appLock.protectsSources, library.isPrivacyModeEnabled,
+           appLock.backgroundGraceExpired {
+            stopProtectedSourcePlayback()
+            library.setPrivacyMode(false)
+        }
+        appLock.sceneChanged(phase)
+    }
+
+    private func stopProtectedSourcePlayback() {
+        if let item = playback.currentItem, library.canUsePrivacyMode,
+           library.protectedSourceIDs.contains(item.id.sourceID) {
+            playback.stop()
+        }
     }
 
     private var shouldShowMiniPlayer: Bool {

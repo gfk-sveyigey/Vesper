@@ -43,6 +43,23 @@ class SourcePrivacyModeTests(unittest.TestCase):
         media = (ROOT / 'Vesper/Features/Media/MediaView.swift').read_text()
         self.assertIn('ForEach(library.visibleSources)', media)
 
+    def test_foreground_relocks_expired_source_privacy_before_restoring_playback(self):
+        navigation = (ROOT / "Vesper/Features/Navigation/AppNavigationView.swift").read_text()
+        lock = (ROOT / "Vesper/Infrastructure/Security/AppLock.swift").read_text()
+        scene_change = navigation.split("private func handleScenePhaseChange", 1)[1].split(
+            "private func stopProtectedSourcePlayback", 1
+        )[0]
+        self.assertLess(scene_change.index("updateAppLock(for: phase)"), scene_change.index("playback.handleScenePhase(phase)"))
+        update_lock = scene_change.split("private func updateAppLock", 1)[1]
+        self.assertIn("if phase == .active, appLock.protectsSources, library.isPrivacyModeEnabled,", update_lock)
+        self.assertIn("appLock.backgroundGraceExpired", update_lock)
+        self.assertLess(update_lock.index("stopProtectedSourcePlayback()"), update_lock.index("library.setPrivacyMode(false)"))
+        self.assertLess(update_lock.index("library.setPrivacyMode(false)"), update_lock.index("appLock.sceneChanged(phase)"))
+        grace = lock.split("var backgroundGraceExpired: Bool", 1)[1].split("private static var", 1)[0]
+        self.assertIn("guard let lastBackgroundDate else { return false }", grace)
+        self.assertIn("Self.timeoutKey", grace)
+        self.assertIn("timeIntervalSince(lastBackgroundDate) >= seconds", grace)
+
     def test_unlock_respects_biometric_preferences(self):
         screen = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text().split('struct AppLockScreen: View', 1)[1]
         self.assertNotIn('SourcePrivacyUnlockSheet', self.view)

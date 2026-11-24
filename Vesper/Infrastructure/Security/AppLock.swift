@@ -81,6 +81,12 @@ final class AppLock: ObservableObject {
         isEnabled && ["source", "both"].contains(UserDefaults.standard.string(forKey: Self.scopeKey) ?? "launch")
     }
 
+    var backgroundGraceExpired: Bool {
+        guard let lastBackgroundDate else { return false }
+        let seconds = UserDefaults.standard.double(forKey: Self.timeoutKey)
+        return Date().timeIntervalSince(lastBackgroundDate) >= seconds
+    }
+
     private static var isSystemAuthenticationEnabled: Bool {
         guard #available(iOS 18.0, *) else { return false }
         return UIApplication.shared.connectedScenes
@@ -256,9 +262,8 @@ final class AppLock: ObservableObject {
                 return
             }
             let scope = UserDefaults.standard.string(forKey: Self.scopeKey) ?? "launch"
-            let seconds = UserDefaults.standard.double(forKey: Self.timeoutKey)
-            guard let backgroundDate = lastBackgroundDate else { return }
-            let withinGrace = Date().timeIntervalSince(backgroundDate) < seconds
+            guard lastBackgroundDate != nil else { return }
+            let withinGrace = !backgroundGraceExpired
             let requiresLock = scope == "launch" || scope == "both"
             let requiresSettingsAuth = isEnabled && isSettingsVisible && !withinGrace
             isLocked = requiresLock && !withinGrace

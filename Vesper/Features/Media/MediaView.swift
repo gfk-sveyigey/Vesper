@@ -2,10 +2,6 @@ import SwiftUI
 import UIKit
 import Network
 
-#if DEBUG
-import UIKit.UIGestureRecognizerSubclass
-#endif
-
 @MainActor
 final class MediaLayoutSettings: ObservableObject {
     static let shared = MediaLayoutSettings()
@@ -206,21 +202,13 @@ struct MediaView: View {
             }
         }
         .navigationDestination(for: EmbyMediaRoute.self) { route in
-            if route.opensLibrary {
-                let destination = EmbyLibraryDestination(libraryRoute: route)
-                #if DEBUG
-                if route.origin == .libraryCardZoom {
-                    destination.navigationTransition(.zoom(sourceID: route, in: artworkZoom))
-                } else {
-                    destination
-                }
-                #else
-                destination
-                #endif
-            } else if route.opensFavorites {
+            if route.opensLibrary || route.opensFavorites {
                 EmbySeriesBrowserView(source: route.source, groupTitle: route.title,
-                                      parentID: nil, scope: .favorites,
-                                      artworkZoom: artworkZoom, openDetail: { path.append($0) })
+                                      parentID: route.opensFavorites ? nil : route.itemID,
+                                      scope: route.opensFavorites ? .favorites : .titles,
+                                      artworkZoom: route.opensLibrary ? nil : artworkZoom,
+                                      openDetail: { path.append($0) })
+                    .navigationTransition(.automatic)
             } else if let item = route.item {
                 if route.origin == .carousel {
                     let detail = MediaDetailView(source: route.source, series: item,
@@ -231,6 +219,9 @@ struct MediaView: View {
                                                                    reduceMotion: reduceMotion)
                         }
                     detail
+                } else if case .library? = route.origin {
+                    MediaDetailView(source: route.source, series: item)
+                        .navigationTransition(.automatic)
                 } else {
                     MediaDetailView(source: route.source, series: item)
                         .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
@@ -448,7 +439,8 @@ struct MediaView: View {
             if group.id == EmbyMediaGroup.librariesID {
                 Text("我的媒体")
             } else {
-                NavigationLink(value: EmbyMediaRoute.library(source, id: group.id, title: group.title)) {
+                let route = EmbyMediaRoute.library(source, id: group.id, title: group.title)
+                NavigationLink(value: route) {
                     HStack(spacing: 6) {
                         Text(verbatim: group.totalCount.map { "\(group.title) · \($0)" } ?? group.title)
                         Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold))
@@ -470,19 +462,12 @@ struct MediaView: View {
     private func groupCard(_ item: MediaItem, in group: EmbyMediaGroup, source: MediaSource) -> some View {
         let size = groupCardSize(group)
         if group.id == EmbyMediaGroup.librariesID {
-            #if DEBUG
-            let route = EmbyMediaRoute.library(source, id: item.id.localID, title: item.title, origin: .libraryCardZoom)
-            #else
             let route = EmbyMediaRoute.library(source, id: item.id.localID, title: item.title)
-            #endif
             NavigationLink(value: route) {
                 MediaThumbnail(source: source, item: item, aspectRatio: size.width / size.height,
                                imageOrientation: .landscape)
                     .frame(width: size.width, height: size.height)
                     .mediaArtworkBorder()
-                    #if DEBUG
-                    .matchedTransitionSource(id: route, in: artworkZoom)
-                    #endif
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(verbatim: item.title))
@@ -1059,9 +1044,6 @@ struct EmbyMediaRoute: Hashable {
         case carousel
         case shelf(String)
         case library(String)
-        #if DEBUG
-        case libraryCardZoom
-        #endif
         case favorites
         case person(EmbyPerson)
     }
@@ -1078,8 +1060,8 @@ struct EmbyMediaRoute: Hashable {
         Self(source: source, title: VesperLocalization.string("收藏媒体"), itemID: "", item: nil, origin: .favorites)
     }
 
-    static func library(_ source: MediaSource, id: String, title: String, origin: Origin? = nil) -> Self {
-        Self(source: source, title: title, itemID: id, item: nil, origin: origin)
+    static func library(_ source: MediaSource, id: String, title: String) -> Self {
+        Self(source: source, title: title, itemID: id, item: nil)
     }
 
     static func detail(_ source: MediaSource, _ item: MediaItem, origin: Origin) -> Self {
@@ -1097,198 +1079,6 @@ struct EmbyMediaRoute: Hashable {
         hasher.combine(origin)
     }
 }
-
-private struct EmbyLibraryDestination: View {
-    let libraryRoute: EmbyMediaRoute
-    @Namespace private var artworkZoom
-    @State private var openedDetail: EmbyMediaRoute?
-
-    var body: some View {
-        EmbySeriesBrowserView(source: libraryRoute.source, groupTitle: libraryRoute.title,
-                              parentID: libraryRoute.itemID, scope: .titles,
-                              artworkZoom: artworkZoom, openDetail: { openedDetail = $0 })
-            #if DEBUG
-            .background(EmbyNavigationTouchDiagnostics(
-                page: libraryRoute.origin == .libraryCardZoom ? "library-zoom" : "library-default"
-            ).allowsHitTesting(false))
-            #endif
-            .navigationDestination(item: $openedDetail) { route in
-                if let item = route.item {
-                    MediaDetailView(source: route.source, series: item)
-                        .navigationTransition(.zoom(sourceID: route, in: artworkZoom))
-                }
-            }
-    }
-}
-
-#if DEBUG
-struct EmbyNavigationTouchDiagnostics: UIViewControllerRepresentable {
-    let page: String
-
-    func makeUIViewController(context: Context) -> Reporter {
-        let controller = Reporter()
-        controller.page = page
-        return controller
-    }
-
-    func updateUIViewController(_ controller: Reporter, context: Context) {}
-
-    static func dismantleUIViewController(_ controller: Reporter, coordinator: ()) {
-        controller.detach()
-    }
-
-    final class Reporter: UIViewController {
-        private let probe: TouchProbe = {
-            let probe = TouchProbe(target: nil, action: nil)
-            probe.cancelsTouchesInView = false
-            probe.delaysTouchesBegan = false
-            probe.delaysTouchesEnded = false
-            return probe
-        }()
-        var page = ""
-        private let pageID = String(UUID().uuidString.prefix(8))
-        private let formatter = ISO8601DateFormatter()
-        private weak var observedPage: UIViewController?
-        private weak var navigation: UINavigationController?
-        private var startedAt: TimeInterval = 0
-        private var appearance = 0
-
-        override func loadView() {
-            view = UIView()
-            view.isUserInteractionEnabled = false
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        }
-
-        override func viewWillAppear(_ animated: Bool) {
-            super.viewWillAppear(animated)
-            appearance += 1
-            startedAt = ProcessInfo.processInfo.systemUptime
-            attach()
-            log("willAppear \(navigationState())")
-        }
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            attach()
-            log("didAppear \(navigationState())")
-        }
-
-        override func viewDidDisappear(_ animated: Bool) {
-            super.viewDidDisappear(animated)
-            log("didDisappear \(navigationState())")
-            startedAt = 0
-        }
-
-        private func attach() {
-            guard let window = view.window else { return }
-            navigation = navigationController ?? navigation
-            var ancestor = parent
-            while let controller = ancestor {
-                if navigation?.viewControllers.contains(where: { $0 === controller }) == true {
-                    observedPage = controller
-                    break
-                }
-                ancestor = controller.parent
-            }
-            guard probe.view !== window else { return }
-            detach()
-            probe.report = { [weak self] event, hitView, point in
-                self?.report(event, hitView: hitView, point: point)
-            }
-            window.addGestureRecognizer(probe)
-        }
-
-        func detach() {
-            probe.view?.removeGestureRecognizer(probe)
-            probe.report = nil
-        }
-
-        private func report(_ event: String, hitView: UIView?, point: CGPoint) {
-            let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
-            guard elapsed < 8, let window = probe.view else { return }
-            let edge = point.x < 24 ? "left" : point.x > window.bounds.width - 24 ? "right" : "interior"
-            var ancestors: [String] = []
-            var scroll: UIScrollView?
-            var current = hitView
-            while let view = current {
-                if scroll == nil { scroll = view as? UIScrollView }
-                ancestors.append(String(describing: type(of: view)))
-                current = view.superview
-            }
-            let inPage = (observedPage?.viewIfLoaded).map { hitView?.isDescendant(of: $0) == true } ?? false
-            log("\(event) zone=\(edge) inPage=\(inPage) scroll=\(describe(scroll?.panGestureRecognizer)) \(navigationState()) hit=\(ancestors.prefix(12).joined(separator: ">"))")
-        }
-
-        private func navigationState() -> String {
-            guard let navigation else { return "navigation=unavailable" }
-            let coordinator = navigation.transitionCoordinator
-            let phase = coordinator.map { $0.isInteractive ? "interactive" : "animating" } ?? "idle"
-            return "depth=\(navigation.viewControllers.count) transition=\(phase) edge=\(describe(navigation.interactivePopGestureRecognizer)) content=\(describe(navigation.interactiveContentPopGestureRecognizer))"
-        }
-
-        private func describe(_ recognizer: UIGestureRecognizer?) -> String {
-            guard let recognizer else { return "-" }
-            return "\(recognizer.isEnabled ? "on" : "off")/\(recognizer.state)"
-        }
-
-        private func log(_ message: String) {
-            let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
-            AppLog.runtimeEntries.append("\(formatter.string(from: Date())) [MediaTouch] page=\(page) id=\(pageID) appearance=\(appearance) t=\(elapsed)ms \(message)")
-        }
-    }
-
-    private final class TouchProbe: UIGestureRecognizer {
-        var report: ((String, UIView?, CGPoint) -> Void)?
-        private weak var trackedTouch: UITouch?
-        private var start = CGPoint.zero
-        private var reportedDrag = false
-
-        // This observer stays possible until it fails, so it never claims the touch.
-        override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
-
-        override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
-
-        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-            guard trackedTouch == nil, let touch = touches.first else { return }
-            trackedTouch = touch
-            start = touch.location(in: view)
-            report?("down", touch.view, start)
-        }
-
-        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-            guard let touch = trackedTouch, touches.contains(touch), !reportedDrag else { return }
-            let point = touch.location(in: view)
-            let dx = point.x - start.x
-            let dy = point.y - start.y
-            guard max(abs(dx), abs(dy)) >= 12 else { return }
-            reportedDrag = true
-            let direction = abs(dx) > abs(dy) ? "horizontal" : "vertical"
-            let origin = start
-            DispatchQueue.main.async { [weak self, weak hitView = touch.view] in
-                self?.report?("drag \(direction)", hitView, origin)
-            }
-        }
-
-        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-            guard let touch = trackedTouch, touches.contains(touch) else { return }
-            if reportedDrag { report?("up", touch.view, start) }
-            state = .failed
-        }
-
-        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
-            guard let touch = trackedTouch, touches.contains(touch) else { return }
-            report?("cancelled", touch.view, start)
-            state = .failed
-        }
-
-        override func reset() {
-            super.reset()
-            trackedTouch = nil
-            reportedDrag = false
-        }
-    }
-}
-#endif
 
 struct EmbyPersonWorksView: View {
     let source: MediaSource
@@ -1362,7 +1152,7 @@ private struct EmbySeriesBrowserView: View {
     let groupTitle: String
     let parentID: String?
     let scope: EmbyBrowseScope
-    let artworkZoom: Namespace.ID
+    let artworkZoom: Namespace.ID?
     let openDetail: (EmbyMediaRoute) -> Void
     @EnvironmentObject private var playback: PlaybackSession
     @EnvironmentObject private var library: SourceLibrary
@@ -1451,8 +1241,7 @@ private struct EmbySeriesBrowserView: View {
             }
         }
         .task(id: queryIdentity) {
-            // Returning from a detail can restart this task. Keep the rows and
-            // their zoom anchors mounted as long as the library query is the same.
+            // Keep the loaded rows and pagination when returning to the same query.
             if activeQuery != queryIdentity {
                 activeQuery = queryIdentity
                 loadGeneration = UUID()
@@ -1479,14 +1268,15 @@ private struct EmbySeriesBrowserView: View {
     private var browserItems: some View {
         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
             let route = EmbyMediaRoute.detail(source, item, origin: detailOrigin)
+            let transition = artworkZoom.map { (id: route, namespace: $0) }
             Button { openDetail(route) } label: {
                 if displayLayout == .grid {
                     MediaThumbnail(source: source, item: item, imageOrientation: .portrait,
                                    fixedHeight: layout.thumbnailHeight)
                         .mediaArtworkBorder()
-                        .matchedTransitionSource(id: route, in: artworkZoom)
+                        .modifier(ListArtworkTransition(transition: transition))
                 } else {
-                    MediaLibraryListRow(source: source, item: item, transition: (route, artworkZoom))
+                    MediaLibraryListRow(source: source, item: item, transition: transition)
                 }
             }
             .buttonStyle(.plain)
