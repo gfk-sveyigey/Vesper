@@ -334,6 +334,11 @@ struct PlayerScreen: View {
 
     private var audioIsMuted: Bool { session.isMuted || volume.value <= 0.001 }
     private var displayedVolume: Double { audioIsMuted ? 0 : Double(volume.value) }
+    private var volumeImage: Image {
+        if audioIsMuted { return Image(systemName: "speaker.slash.fill") }
+        return Image(systemName: "speaker.wave.3.fill", variableValue: displayedVolume)
+    }
+
     private func toggleAudioMute() {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
             if audioIsMuted {
@@ -345,31 +350,32 @@ struct PlayerScreen: View {
 
     private func volumeControl(width: CGFloat, landscape: Bool) -> some View {
         let expanded = landscape || volumeExpanded || showsSystemVolume
-        return Image(systemName: audioIsMuted ? "speaker.slash.fill" : "speaker.wave.3.fill",
-                     variableValue: audioIsMuted ? nil : displayedVolume)
-            .symbolVariableValueMode(.color)
-            .font(.system(size: 17, weight: .medium))
-            .contentTransition(.symbolEffect(.replace))
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
-            .frame(width: 44, height: 44)
-            .clipped()
-            .allowsHitTesting(false)
-            .frame(width: expanded ? max(44, width) : 44, alignment: .trailing)
-            .background {
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.2))
+        return Color.clear
+            .frame(width: expanded ? max(44, width) : 44, height: 44)
+            .overlay(alignment: .trailing) {
+                Capsule().fill(.white.opacity(0.2))
+                    .overlay {
                         Rectangle().fill(.white)
-                            .frame(width: geometry.size.width * CGFloat(displayedVolume))
+                            .scaleEffect(x: CGFloat(displayedVolume), y: 1, anchor: .leading)
+                            .animation(reduceMotion || volumeDragStart != nil ? nil : .easeOut(duration: 0.18),
+                                       value: displayedVolume)
                     }
                     .clipShape(Capsule())
+                    .frame(width: max(0, width - 72), height: 8)
+                    .padding(.trailing, 56)
+                    .opacity(expanded ? 1 : 0)
+            }
+            .clipShape(Capsule())
+            .allowsHitTesting(false)
+            .glassEffect(.regular.interactive(), in: Capsule())
+            .overlay(alignment: .trailing) {
+                volumeImage
+                    .symbolVariableValueMode(.color)
+                    .font(.system(size: 17, weight: .medium))
+                    .contentTransition(.symbolEffect(.replace))
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
-                }
-                .frame(height: 8)
-                .padding(.leading, 16)
-                .padding(.trailing, 56)
-                .opacity(expanded ? 1 : 0)
-                .allowsHitTesting(false)
+                    .frame(width: 44, height: 44)
+                    .allowsHitTesting(false)
             }
             .overlay {
                 PlayerVolumeTouchSurface(expanded: expanded, tapped: { onIcon in
@@ -396,8 +402,6 @@ struct PlayerScreen: View {
                     }
                 })
             }
-        .clipShape(Capsule())
-        .glassEffect(.regular.interactive(), in: Capsule())
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: expanded)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("音量")
