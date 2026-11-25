@@ -23,9 +23,13 @@ class LocalizationTests(unittest.TestCase):
                 self.assertEqual(sorted(PLACEHOLDER.findall(key)), sorted(PLACEHOLDER.findall(value)), (locale, key))
     def test_app_permissions_setting_opens_system_settings_directly(self):
         settings = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text()
-        self.assertIn('settingsLink(.permissions, title: "应用权限", symbol: "hand.raised")', settings)
-        self.assertIn('URL(string: UIApplication.openSettingsURLString)', settings)
-        self.assertNotIn('case .permissions: AppPermissionsView()', settings)
+        self.assertIn('appPermissionsButton\n                    Divider()', settings)
+        button = settings.split('private var appPermissionsButton: some View {', 1)[1].split('@ViewBuilder', 1)[0]
+        self.assertIn('settingsLinkLabel("应用权限", symbol: "hand.raised")', button)
+        self.assertIn('URL(string: UIApplication.openSettingsURLString)', button)
+        self.assertIn('UIApplication.shared.open(url)', button)
+        routes = settings.split('private enum SettingsRoute: Hashable {', 1)[1].split('var title:', 1)[0]
+        self.assertNotRegex(routes, r'\bpermissions\b')
         self.assertFalse((ROOT / 'Vesper/Features/Settings/AppPermissionsView.swift').exists())
         project = (ROOT / 'Vesper.xcodeproj/project.pbxproj').read_text()
         self.assertNotIn('AppPermissionsView.swift', project)

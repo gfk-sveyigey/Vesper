@@ -4,7 +4,7 @@ import Photos
 import LocalAuthentication
 
 private enum SettingsRoute: Hashable {
-    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku, debug, cache, emby, permissions, appLock
+    case tabs, appearance, logs, licenses, gestures, playback, subtitles, danmaku, debug, cache, emby, appLock
 
     var title: LocalizedStringKey {
         switch self {
@@ -19,7 +19,6 @@ private enum SettingsRoute: Hashable {
         case .debug: "调试功能"
         case .cache: "缓存管理"
         case .emby: "Emby 设置"
-        case .permissions: "应用权限"
         case .appLock: "密码保护"
         }
     }
@@ -264,7 +263,7 @@ struct SettingsView: View {
         VesperRootScrollView(title: "设置") {
             VStack(alignment: .leading, spacing: 32) {
                 settingsGroup {
-                    settingsLink(.permissions, title: "应用权限", symbol: "hand.raised")
+                    appPermissionsButton
                     Divider().padding(.leading, 52)
                     settingsLink(.appLock, title: "密码保护", symbol: "lock")
                     Divider().padding(.leading, 52)
@@ -358,17 +357,19 @@ struct SettingsView: View {
         VStack(spacing: 0) { content() }
     }
 
+    private var appPermissionsButton: some View {
+        Button {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        } label: {
+            settingsLinkLabel("应用权限", symbol: "hand.raised")
+        }
+        .buttonStyle(.plain)
+    }
+
     @ViewBuilder
     private func settingsLink(_ route: SettingsRoute, title: LocalizedStringKey, symbol: String) -> some View {
-        if route == .permissions {
-            Button {
-                guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                UIApplication.shared.open(url)
-            } label: {
-                settingsLinkLabel(title, symbol: symbol)
-            }
-            .buttonStyle(.plain)
-        } else if route == .appLock {
+        if route == .appLock {
             Button {
                 if appLock.isEnabled {
                     appLock.requestAuthentication(.settingsAccess) { path.append(route) }
