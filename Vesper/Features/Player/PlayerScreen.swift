@@ -345,55 +345,57 @@ struct PlayerScreen: View {
 
     private func volumeControl(width: CGFloat, landscape: Bool) -> some View {
         let expanded = landscape || volumeExpanded || showsSystemVolume
-        return ZStack(alignment: .trailing) {
-            GeometryReader { geometry in
-                let trackWidth = max(0, geometry.size.width - 72)
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.2))
-                    Rectangle().fill(.white)
-                        .frame(width: trackWidth * CGFloat(displayedVolume))
-                }
-                .frame(width: trackWidth, height: 8).clipShape(Capsule())
-                .offset(x: 16)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
-            }
-            .frame(height: 8)
-            .opacity(expanded ? 1 : 0)
+        return Image(systemName: audioIsMuted ? "speaker.slash.fill" : "speaker.wave.3.fill",
+                     variableValue: audioIsMuted ? nil : displayedVolume)
+            .symbolVariableValueMode(.color)
+            .font(.system(size: 17, weight: .medium))
+            .contentTransition(.symbolEffect(.replace))
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
+            .frame(width: 44, height: 44)
             .clipped()
             .allowsHitTesting(false)
-            Image(systemName: audioIsMuted ? "speaker.slash.fill" : "speaker.wave.3.fill",
-                  variableValue: audioIsMuted ? nil : displayedVolume)
-                .symbolVariableValueMode(.color)
-                .font(.system(size: 17, weight: .medium))
-                .contentTransition(.symbolEffect(.replace))
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
-                .frame(width: 44, height: 44)
+            .frame(width: expanded ? max(44, width) : 44, alignment: .trailing)
+            .background {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.2))
+                        Rectangle().fill(.white)
+                            .frame(width: geometry.size.width * CGFloat(displayedVolume))
+                    }
+                    .clipShape(Capsule())
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
+                }
+                .frame(height: 8)
+                .padding(.leading, 16)
+                .padding(.trailing, 56)
+                .opacity(expanded ? 1 : 0)
                 .allowsHitTesting(false)
-            PlayerVolumeTouchSurface(expanded: expanded, tapped: { onIcon in
-                if showsSystemVolume {
-                    if onIcon { toggleAudioMute() }
-                    systemVolumeRevision += 1
-                    return
-                }
-                revealControls()
-                if !expanded { volumeExpanded = true }
-                else if onIcon { toggleAudioMute() }
-                else if !landscape { volumeExpanded = false }
-            }, dragged: { translation, phase in
-                guard expanded else { return }
-                if phase == .began {
-                    volumeDragStart = volume.value
-                }
-                guard let start = volumeDragStart else { return }
-                session.unmute()
-                volume.set(start + Float(translation / max(width - 32, 1)))
-                if phase == .ended || phase == .cancelled || phase == .failed {
-                    volumeDragStart = nil
-                    volume.finishAdjustment(origin: "capsule")
-                }
-            })
-        }
-        .frame(width: expanded ? width : 44, height: 44)
+            }
+            .overlay {
+                PlayerVolumeTouchSurface(expanded: expanded, tapped: { onIcon in
+                    if showsSystemVolume {
+                        if onIcon { toggleAudioMute() }
+                        systemVolumeRevision += 1
+                        return
+                    }
+                    revealControls()
+                    if !expanded { volumeExpanded = true }
+                    else if onIcon { toggleAudioMute() }
+                    else if !landscape { volumeExpanded = false }
+                }, dragged: { translation, phase in
+                    guard expanded else { return }
+                    if phase == .began {
+                        volumeDragStart = volume.value
+                    }
+                    guard let start = volumeDragStart else { return }
+                    session.unmute()
+                    volume.set(start + Float(translation / max(width - 32, 1)))
+                    if phase == .ended || phase == .cancelled || phase == .failed {
+                        volumeDragStart = nil
+                        volume.finishAdjustment(origin: "capsule")
+                    }
+                })
+            }
         .clipShape(Capsule())
         .glassEffect(.regular.interactive(), in: Capsule())
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: expanded)
