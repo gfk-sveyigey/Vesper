@@ -325,27 +325,30 @@ final class PlayerSystemVolume: ObservableObject {
                 self?.applyPendingVolume()
             }
         }
-        observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.old, .new]) { [weak self] _, change in
-            guard let value = change.newValue else { return }
-            let didChange = change.oldValue != value
+        observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
-                guard let self else { return }
-                var isExternal = self.pendingRequest == nil
-                if let pending = self.pendingValue {
-                    if abs(value - pending.value) < 0.015 {
-                        self.pendingValue = nil
-                        isExternal = false
-                    } else if Date() < pending.deadline {
-                        return
-                    } else {
-                        self.pendingValue = nil
-                    }
-                }
-                self.value = value
-                if didChange && isExternal { self.externalChanges.send(()) }
+                self?.refreshSystemVolume()
             }
         }
     }
+
+    func refreshSystemVolume() {
+        guard pendingRequest == nil else { return }
+        let actual = AVAudioSession.sharedInstance().outputVolume
+        if let pending = pendingValue {
+            if abs(actual - pending.value) < 0.015 {
+                pendingValue = nil
+                if actual != value { value = actual }
+                return
+            }
+            guard Date() >= pending.deadline else { return }
+            pendingValue = nil
+        }
+        guard actual != value else { return }
+        value = actual
+        externalChanges.send(())
+    }
+
     func set(_ value: Float) {
         let requested = min(1, max(0, value))
         pendingRequest = requested

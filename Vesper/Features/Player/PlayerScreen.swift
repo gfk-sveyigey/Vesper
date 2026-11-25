@@ -35,9 +35,12 @@ private struct PlayerVolumeGlyph: View {
                 Image(systemName: "speaker.fill")
                     .font(.system(size: 17, weight: .medium))
                     .frame(width: 14, height: 22)
+                    .offset(x: isMuted ? 5 : 0)
 
                 ForEach(0..<3) { index in
                     let step = CGFloat(index)
+                    let isLit = level > Double(index) / 3
+                    let fadeOrder = isMuted ? 2 - index : index
                     Path { path in
                         let x = 15 + step * 4
                         let halfHeight = 3 + step * 2.5
@@ -46,7 +49,11 @@ private struct PlayerVolumeGlyph: View {
                                           control: CGPoint(x: x + 3, y: 11))
                     }
                     .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                    .opacity(isMuted ? 0 : (level > Double(index) / 3 ? 1 : 0.25))
+                    .opacity(isLit ? 1 : 0.25)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isLit)
+                    .opacity(isMuted ? 0 : 1)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.18).delay(Double(fadeOrder) * 0.035),
+                               value: isMuted)
                 }
 
                 slash.trim(from: 0, to: slashProgress)
@@ -113,10 +120,24 @@ struct PlayerScreen: View {
     }
     private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
     private var showsOtherControls: Bool { controlsVisible && !isScrubbing }
+    private var canShowSystemVolume: Bool {
+        scenePhase != .background && session.isPresented && panel == nil && !importingDanmaku
+    }
+    private var needsSystemVolumePolling: Bool {
+        // Supplement volume notifications while the visible player may lack audio focus.
+        canShowSystemVolume && (!session.isPlaying || scenePhase == .inactive)
+    }
 
     var body: some View {
         observedPlayer
             .task { await session.monitorDownloadSpeed() }
+            .task(id: needsSystemVolumePolling) {
+                guard needsSystemVolumePolling else { return }
+                while !Task.isCancelled {
+                    volume.refreshSystemVolume()
+                    do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+                }
+            }
             .task(id: hudRevision) { await dismissHUDWhenReady() }
             .task(id: autoHideRevision) { await autoHideControlsWhenReady() }
             .task(id: volumeResetRevision) { await resetVolumeWhenReady() }
@@ -162,7 +183,7 @@ struct PlayerScreen: View {
         }
         .onChange(of: volume.value) { old, new in if new > 0.001 && old != new && session.isMuted { session.unmute() } }
         .onReceive(volume.externalChanges) { _ in
-            guard scenePhase == .active, session.isPresented, panel == nil, !importingDanmaku else { return }
+            guard canShowSystemVolume else { return }
             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { showsSystemVolume = true }
             systemVolumeRevision += 1
             autoHideRevision += 1
@@ -175,7 +196,7 @@ struct PlayerScreen: View {
         .onChange(of: panel) { _, _ in revealControls() }
         .onChange(of: scenePhase) { _, phase in
             guard phase != .active else { return }
-            showsSystemVolume = false
+            if phase == .background { showsSystemVolume = false }
             if isScrubbing { finishScrubbing(commit: scrubPreviews) }
         }
     }
@@ -411,7 +432,7 @@ struct PlayerScreen: View {
             .allowsHitTesting(false)
             .glassEffect(.regular.interactive(), in: Capsule())
             .overlay(alignment: .trailing) {
-                PlayerVolumeGlyph(level: displayedVolume, isMuted: audioIsMuted)
+                PlayerVolumeGlyph(level: Double(volume.value), isMuted: audioIsMuted)
                     .frame(width: 44, height: 44)
                     .allowsHitTesting(false)
             }
