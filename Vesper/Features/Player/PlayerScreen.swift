@@ -27,6 +27,8 @@ struct PlayerScreen: View {
     @State private var autoHideRevision = 0
     @State private var volumeExpanded = false
     @State private var volumeResetRevision = 0
+    @State private var showsSystemVolume = false
+    @State private var systemVolumeRevision = 0
     @State private var volumeDragStart: Float?
     @State private var menuPresented = false
     @State private var scrubShowsControls = true
@@ -60,7 +62,7 @@ struct PlayerScreen: View {
 
     private var canAutoHide: Bool {
         controlsVisible && session.isPlaying && !session.isLoading && !session.isSeeking
-            && !isScrubbing && !importingDanmaku && !volumeExpanded && volumeDragStart == nil && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
+            && !isScrubbing && !importingDanmaku && !volumeExpanded && !showsSystemVolume && volumeDragStart == nil && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
     }
     private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
     private var showsOtherControls: Bool { controlsVisible && !isScrubbing }
@@ -71,6 +73,7 @@ struct PlayerScreen: View {
             .task(id: hudRevision) { await dismissHUDWhenReady() }
             .task(id: autoHideRevision) { await autoHideControlsWhenReady() }
             .task(id: volumeResetRevision) { await resetVolumeWhenReady() }
+            .task(id: systemVolumeRevision) { await hideSystemVolumeWhenReady() }
             .fileImporter(isPresented: $importingDanmaku, allowedContentTypes: [.xml], onCompletion: handleDanmakuImport)
     }
 
@@ -93,6 +96,7 @@ struct PlayerScreen: View {
         .onChange(of: session.currentItem?.id) { _, _ in
             isScrubbing = false
             scrubTime = 0
+            showsSystemVolume = false
             setControlsVisible(voiceOver)
         }
         .onChange(of: session.isPlaying) { _, _ in autoHideRevision += 1 }
@@ -110,10 +114,23 @@ struct PlayerScreen: View {
                     symbol: notice.kind == .intro ? "forward.fill" : "forward.end.fill")
         }
         .onChange(of: volume.value) { old, new in if new > 0.001 && old != new && session.isMuted { session.unmute() } }
-        .onChange(of: volumeDragStart) { _, _ in autoHideRevision += 1 }
+        .onReceive(volume.externalChanges) { _ in
+            guard scenePhase == .active, session.isPresented, panel == nil, !importingDanmaku else { return }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { showsSystemVolume = true }
+            systemVolumeRevision += 1
+            autoHideRevision += 1
+        }
+        .onChange(of: volumeDragStart) { _, _ in
+            autoHideRevision += 1
+            if showsSystemVolume { systemVolumeRevision += 1 }
+        }
         .onChange(of: voiceOver) { _, _ in revealControls() }
         .onChange(of: panel) { _, _ in revealControls() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active && isScrubbing { finishScrubbing(commit: scrubPreviews) } }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase != .active else { return }
+            showsSystemVolume = false
+            if isScrubbing { finishScrubbing(commit: scrubPreviews) }
+        }
     }
 
     @MainActor private func autoHideControlsWhenReady() async {
@@ -130,6 +147,14 @@ struct PlayerScreen: View {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { volumeExpanded = false; volumeDragStart = nil }
+    }
+
+    @MainActor private func hideSystemVolumeWhenReady() async {
+        guard showsSystemVolume, volumeDragStart == nil else { return }
+        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        guard !Task.isCancelled, showsSystemVolume, volumeDragStart == nil else { return }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { showsSystemVolume = false }
+        autoHideRevision += 1
     }
 
     private var presentedPlayer: some View {
@@ -177,20 +202,17 @@ struct PlayerScreen: View {
                     .accessibilityHidden(!showsOtherControls || session.errorMessage != nil || session.isLoading)
                 VStack {
                     topControls(availableWidth: max(0, geometry.size.width - safeGeometry.safeAreaInsets.leading - safeGeometry.safeAreaInsets.trailing - (geometry.size.width > geometry.size.height ? 24 : 40)), landscape: geometry.size.width > geometry.size.height)
-                        .opacity(showsOtherControls ? 1 : 0)
-                        .allowsHitTesting(showsOtherControls)
-                        .accessibilityHidden(!showsOtherControls)
                     Spacer(minLength: 0)
+                    // Keep the Menu mounted while fading the controls, so a
+                    // system menu never loses its presentation anchor mid-use.
                     bottomControls(landscape: geometry.size.width > geometry.size.height)
+                        .opacity(controlsVisible || isScrubbing ? 1 : 0)
+                        .allowsHitTesting(controlsVisible)
+                        .accessibilityHidden(!controlsVisible)
                 }
                 .padding(.horizontal, geometry.size.width > geometry.size.height ? 12 : 20)
                 .padding(.vertical, 12)
                 .padding(safeGeometry.safeAreaInsets)
-                // Keep the Menu mounted while fading the controls, so a
-                // system menu never loses its presentation anchor mid-use.
-                .opacity(controlsVisible || isScrubbing ? 1 : 0)
-                .allowsHitTesting(controlsVisible)
-                .accessibilityHidden(!controlsVisible)
                 if (session.isLoading || session.isSeeking) && !isScrubbing {
                     VStack(spacing: 12) {
                         ProgressView().controlSize(.large).tint(.white)
@@ -235,7 +257,7 @@ struct PlayerScreen: View {
         .background {
             PlayerInterfaceRefreshDriver(
                 isActive: scenePhase == .active && session.isPresented && panel == nil
-                    && (controlsVisible || menuPresented || showingNotice || regionsVisible || !hudText.isEmpty)
+                    && (controlsVisible || showsSystemVolume || menuPresented || showingNotice || regionsVisible || !hudText.isEmpty)
             )
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -279,7 +301,9 @@ struct PlayerScreen: View {
     }
 
     private func topControls(availableWidth: CGFloat, landscape: Bool) -> some View {
-        ZStack(alignment: .trailing) {
+        let showsButtons = showsOtherControls && (landscape || !(volumeExpanded || showsSystemVolume))
+        let showsVolume = showsOtherControls || showsSystemVolume
+        return ZStack(alignment: .trailing) {
             HStack(spacing: 10) {
                 glassButton("关闭", symbol: "xmark", iconSize: 19) { session.stop() }
                 HStack(spacing: 16) {
@@ -297,22 +321,19 @@ struct PlayerScreen: View {
                 .glassEffect(.regular.interactive(), in: Capsule())
                 Spacer(minLength: 0)
             }
-            .opacity(volumeExpanded && !landscape ? 0 : 1)
-            .allowsHitTesting(!volumeExpanded || landscape)
-            .accessibilityHidden(volumeExpanded && !landscape)
+            .opacity(showsButtons ? 1 : 0)
+            .allowsHitTesting(showsButtons)
+            .accessibilityHidden(!showsButtons)
             volumeControl(width: min(240, availableWidth), landscape: landscape)
+                .opacity(showsVolume ? 1 : 0)
+                .allowsHitTesting(showsVolume)
+                .accessibilityHidden(!showsVolume)
         }
         .frame(height: 44)
     }
 
     private var audioIsMuted: Bool { session.isMuted || volume.value <= 0.001 }
     private var displayedVolume: Double { audioIsMuted ? 0 : Double(volume.value) }
-    private var volumeSymbol: String {
-        if audioIsMuted { return "speaker.slash.fill" }
-        if volume.value < 0.34 { return "speaker.wave.1.fill" }
-        if volume.value < 0.67 { return "speaker.wave.2.fill" }
-        return "speaker.wave.3.fill"
-    }
     private func toggleAudioMute() {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
             if audioIsMuted {
@@ -323,7 +344,7 @@ struct PlayerScreen: View {
     }
 
     private func volumeControl(width: CGFloat, landscape: Bool) -> some View {
-        let expanded = landscape || volumeExpanded
+        let expanded = landscape || volumeExpanded || showsSystemVolume
         return ZStack(alignment: .trailing) {
             GeometryReader { geometry in
                 let trackWidth = max(0, geometry.size.width - 72)
@@ -340,12 +361,20 @@ struct PlayerScreen: View {
             .opacity(expanded ? 1 : 0)
             .clipped()
             .allowsHitTesting(false)
-            Image(systemName: volumeSymbol)
+            Image(systemName: audioIsMuted ? "speaker.slash.fill" : "speaker.wave.3.fill",
+                  variableValue: audioIsMuted ? nil : displayedVolume)
+                .symbolVariableValueMode(.color)
                 .font(.system(size: 17, weight: .medium))
                 .contentTransition(.symbolEffect(.replace))
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
                 .frame(width: 44, height: 44)
                 .allowsHitTesting(false)
             PlayerVolumeTouchSurface(expanded: expanded, tapped: { onIcon in
+                if showsSystemVolume {
+                    if onIcon { toggleAudioMute() }
+                    systemVolumeRevision += 1
+                    return
+                }
                 revealControls()
                 if !expanded { volumeExpanded = true }
                 else if onIcon { toggleAudioMute() }
@@ -373,6 +402,11 @@ struct PlayerScreen: View {
         .accessibilityValue(Text(verbatim: String(format: "%d%%", Int(displayedVolume * 100))))
         .accessibilityAddTraits(.isButton)
         .accessibilityAction {
+            if showsSystemVolume {
+                toggleAudioMute()
+                systemVolumeRevision += 1
+                return
+            }
             revealControls()
             if landscape { toggleAudioMute() } else { volumeExpanded.toggle() }
         }

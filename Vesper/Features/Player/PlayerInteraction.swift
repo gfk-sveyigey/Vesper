@@ -307,6 +307,7 @@ struct PlayerGestureSurface: UIViewRepresentable {
 @MainActor
 final class PlayerSystemVolume: ObservableObject {
     @Published private(set) var value: Float = AVAudioSession.sharedInstance().outputVolume
+    let externalChanges = PassthroughSubject<Void, Never>()
     let view = SystemVolumeView(frame: CGRect(x: 0, y: 0, width: 160, height: 40))
     private var pendingRequest: Float?
     private var observation: NSKeyValueObservation?
@@ -324,16 +325,24 @@ final class PlayerSystemVolume: ObservableObject {
                 self?.applyPendingVolume()
             }
         }
-        observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] _, change in
+        observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.old, .new]) { [weak self] _, change in
             guard let value = change.newValue else { return }
+            let didChange = change.oldValue != value
             Task { @MainActor in
                 guard let self else { return }
+                var isExternal = self.pendingRequest == nil
                 if let pending = self.pendingValue {
-                    if abs(value - pending.value) < 0.015 { self.pendingValue = nil }
-                    else if Date() < pending.deadline { return }
-                    else { self.pendingValue = nil }
+                    if abs(value - pending.value) < 0.015 {
+                        self.pendingValue = nil
+                        isExternal = false
+                    } else if Date() < pending.deadline {
+                        return
+                    } else {
+                        self.pendingValue = nil
+                    }
                 }
                 self.value = value
+                if didChange && isExternal { self.externalChanges.send(()) }
             }
         }
     }
