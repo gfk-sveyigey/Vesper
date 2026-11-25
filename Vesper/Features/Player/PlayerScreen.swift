@@ -16,6 +16,53 @@ private enum PlayerPanel: String, Identifiable {
     var id: String { rawValue }
 }
 
+private struct PlayerVolumeGlyph: View {
+    let level: Double
+    let isMuted: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var slash: Path {
+        Path { path in
+            path.move(to: CGPoint(x: 3, y: 2))
+            path.addLine(to: CGPoint(x: 24, y: 20))
+        }
+    }
+
+    var body: some View {
+        let slashProgress: CGFloat = isMuted ? 1 : 0
+        ZStack {
+            ZStack(alignment: .leading) {
+                Image(systemName: "speaker.fill")
+                    .font(.system(size: 17, weight: .medium))
+                    .frame(width: 14, height: 22)
+
+                ForEach(0..<3) { index in
+                    let step = CGFloat(index)
+                    Path { path in
+                        let x = 15 + step * 4
+                        let halfHeight = 3 + step * 2.5
+                        path.move(to: CGPoint(x: x, y: 11 - halfHeight))
+                        path.addQuadCurve(to: CGPoint(x: x, y: 11 + halfHeight),
+                                          control: CGPoint(x: x + 3, y: 11))
+                    }
+                    .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    .opacity(isMuted ? 0 : (level > Double(index) / 3 ? 1 : 0.25))
+                }
+
+                slash.trim(from: 0, to: slashProgress)
+                    .stroke(style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .blendMode(.destinationOut)
+            }
+            .compositingGroup()
+
+            slash.trim(from: 0, to: slashProgress)
+                .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+        }
+        .frame(width: 27, height: 22)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isMuted)
+    }
+}
+
 struct PlayerScreen: View {
     @ObservedObject var session: PlaybackSession
     @StateObject private var volume = PlayerSystemVolume()
@@ -334,11 +381,6 @@ struct PlayerScreen: View {
 
     private var audioIsMuted: Bool { session.isMuted || volume.value <= 0.001 }
     private var displayedVolume: Double { audioIsMuted ? 0 : Double(volume.value) }
-    private var volumeImage: Image {
-        if audioIsMuted { return Image(systemName: "speaker.slash.fill") }
-        return Image(systemName: "speaker.wave.3.fill", variableValue: displayedVolume)
-    }
-
     private func toggleAudioMute() {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
             if audioIsMuted {
@@ -369,11 +411,7 @@ struct PlayerScreen: View {
             .allowsHitTesting(false)
             .glassEffect(.regular.interactive(), in: Capsule())
             .overlay(alignment: .trailing) {
-                volumeImage
-                    .symbolVariableValueMode(.color)
-                    .font(.system(size: 17, weight: .medium))
-                    .contentTransition(.symbolEffect(.replace))
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: audioIsMuted)
+                PlayerVolumeGlyph(level: displayedVolume, isMuted: audioIsMuted)
                     .frame(width: 44, height: 44)
                     .allowsHitTesting(false)
             }
