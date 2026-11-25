@@ -21,9 +21,17 @@ class LocalizationTests(unittest.TestCase):
             for key, value in entries.items():
                 self.assertTrue(value.strip(), (locale, key))
                 self.assertEqual(sorted(PLACEHOLDER.findall(key)), sorted(PLACEHOLDER.findall(value)), (locale, key))
+    def test_app_permissions_setting_opens_system_settings_directly(self):
+        settings = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text()
+        self.assertIn('settingsLink(.permissions, title: "应用权限", symbol: "hand.raised")', settings)
+        self.assertIn('URL(string: UIApplication.openSettingsURLString)', settings)
+        self.assertNotIn('case .permissions: AppPermissionsView()', settings)
+        self.assertFalse((ROOT / 'Vesper/Features/Settings/AppPermissionsView.swift').exists())
+        project = (ROOT / 'Vesper.xcodeproj/project.pbxproj').read_text()
+        self.assertNotIn('AppPermissionsView.swift', project)
+
     def test_settings_cards(self):
         pages = {
-            'Settings/AppPermissionsView.swift': ['AppPermissionsView'],
             'Settings/AppearanceSettingsView.swift': ['AppearanceSettingsView'],
             'Settings/EmbySettingsView.swift': ['EmbySettingsView'],
             'Settings/PlaybackLicensesView.swift': ['PlaybackLicensesView'],

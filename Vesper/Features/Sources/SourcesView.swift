@@ -86,6 +86,7 @@ struct SourcesView: View {
                                                     Text(verbatim: name)
                                                 } icon: {
                                                     Image(systemName: "checkmark")
+                                                        .frame(width: 20, height: 20)
                                                         .opacity(key == EmbyRouteOptions.key(configuration.serverAddress) ? 1 : 0)
                                                         .accessibilityHidden(key != EmbyRouteOptions.key(configuration.serverAddress))
                                                 }

@@ -309,7 +309,22 @@ struct MediaView: View {
                             .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
                         }
                     case .failed(let error):
-                        if case .message(let message) = error {
+                        if library.selectedSource?.kind == .emby {
+                            VStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 32))
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityHidden(true)
+                                Text("媒体来源无效")
+                                    .font(.headline)
+                                Text("Emby登录失败，请检查来源设置。")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 220)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, CGFloat(layout[.endPadding]))
+                        } else if case .message(let message) = error {
                             ContentUnavailableView {
                                 Label("无法加载来源", systemImage: "exclamationmark.triangle")
                             } description: { Text(verbatim: message) } actions: {
@@ -410,7 +425,7 @@ struct MediaView: View {
                             groupTitle(group, source: source)
                             ScrollView(.horizontal) {
                                 LazyHStack(spacing: CGFloat(layout[.itemSpacing])) {
-                                    if group.isLoading {
+                                    if group.isLoading && group.items.isEmpty {
                                         ForEach(0..<5, id: \.self) { _ in groupPlaceholder(group) }
                                     } else {
                                         ForEach(group.items) { item in
@@ -745,6 +760,7 @@ struct MediaView: View {
         } label: {
             Label { Text(verbatim: title) } icon: {
                 menuSymbol("checkmark", visible: isSelected)
+                    .frame(width: 20, height: 20)
             }
         }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -793,7 +809,7 @@ struct MediaView: View {
                             routeMenuItem(source, address: address, title: title)
                         }
                     } label: {
-                        Label { Text("切换线路") } icon: { menuSymbol("network") }
+                        Label { Text("切换线路") } icon: { menuSymbol("arrow.left.arrow.right") }
                     }
                 }
             }

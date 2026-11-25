@@ -19,6 +19,7 @@ private enum PlayerPanel: String, Identifiable {
 struct PlayerScreen: View {
     @ObservedObject var session: PlaybackSession
     @StateObject private var volume = PlayerSystemVolume()
+    @StateObject private var airPlayAvailability = PlayerAirPlayAvailability()
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -78,12 +79,14 @@ struct PlayerScreen: View {
         .onAppear {
             PlayerOrientationPolicy.update(true, scene: session.videoView?.window?.windowScene)
             session.playerDidAppear()
+            airPlayAvailability.start()
             brightnessScreen = screen
             originalBrightness = screen?.brightness
             scrubTime = session.currentTime
             setControlsVisible(voiceOver || session.errorMessage != nil)
         }
         .onDisappear {
+            airPlayAvailability.stop()
             if isScrubbing { finishScrubbing(commit: scrubPreviews) }
             if let originalBrightness { brightnessScreen?.brightness = originalBrightness }
         }
@@ -287,7 +290,9 @@ struct PlayerScreen: View {
                     .buttonStyle(.plain)
                     .disabled(!session.isPictureInPicturePossible)
                     .accessibilityLabel("画中画")
-                    PlayerAirPlayButton().frame(width: 44, height: 44).accessibilityLabel("投屏")
+                    PlayerAirPlayButton(isAvailable: airPlayAvailability.isAvailable)
+                        .frame(width: 44, height: 44)
+                        .accessibilityLabel("投屏")
                 }
                 .glassEffect(.regular.interactive(), in: Capsule())
                 Spacer(minLength: 0)

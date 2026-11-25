@@ -423,14 +423,67 @@ struct PlayerVolumeBridge: UIViewRepresentable {
 }
 
 struct PlayerAirPlayButton: UIViewRepresentable {
+    var isAvailable: Bool
+
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
         view.prioritizesVideoDevices = true
         view.tintColor = .white
-        view.activeTintColor = .systemBlue
+        view.activeTintColor = .white
         return view
     }
-    func updateUIView(_ view: AVRoutePickerView, context: Context) { }
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {
+        view.isUserInteractionEnabled = isAvailable
+        view.alpha = isAvailable ? 1 : 0.4
+        view.accessibilityTraits = isAvailable ? .button : [.button, .notEnabled]
+    }
+}
+
+/// Tracks whether an external playback route is currently available.
+/// Route detection is enabled only while the player screen is on screen.
+@MainActor
+final class PlayerAirPlayAvailability: ObservableObject {
+    @Published private(set) var isAvailable = false
+
+    private let detector = AVRouteDetector()
+    private var notificationObserver: NSObjectProtocol?
+    private var isRunning = false
+
+    func start() {
+        guard !isRunning else {
+            refreshAvailability()
+            return
+        }
+        isRunning = true
+
+        notificationObserver = NotificationCenter.default.addObserver(
+            forName: .AVRouteDetectorMultipleRoutesDetectedDidChange,
+            object: detector,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshAvailability()
+            }
+        }
+
+        detector.isRouteDetectionEnabled = true
+        refreshAvailability()
+    }
+
+    func stop() {
+        isRunning = false
+        detector.isRouteDetectionEnabled = false
+        if let notificationObserver {
+            NotificationCenter.default.removeObserver(notificationObserver)
+            self.notificationObserver = nil
+        }
+        isAvailable = false
+    }
+
+    private func refreshAvailability() {
+        guard isRunning else { return }
+        isAvailable = detector.multipleRoutesDetected
+    }
 }
 
 /// Own a stable native menu anchor and observe its public UIKit lifecycle.

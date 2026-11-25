@@ -270,7 +270,7 @@ struct SettingsView: View {
                     Divider().padding(.leading, 52)
                     settingsLink(.appearance, title: "外观设置", symbol: "paintpalette")
                     Divider().padding(.leading, 52)
-                    settingsLink(.tabs, title: "标签设置", symbol: "rectangle.3.group")
+                    settingsLink(.tabs, title: "标签设置", symbol: "rectangle.grid.3x1")
                     Divider().padding(.leading, 52)
                     HStack {
                         SettingsLabel("语言设置", symbol: "globe")
@@ -341,7 +341,6 @@ struct SettingsView: View {
                 case .licenses: PlaybackLicensesView()
                 case .debug: DebugSettingsView()
                 case .emby: EmbySettingsView()
-                case .permissions: AppPermissionsView()
                 case .appLock: AppLockSettingsView()
                 case .cache:
                     CacheManagementView()
@@ -361,7 +360,15 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func settingsLink(_ route: SettingsRoute, title: LocalizedStringKey, symbol: String) -> some View {
-        if route == .appLock {
+        if route == .permissions {
+            Button {
+                guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                UIApplication.shared.open(url)
+            } label: {
+                settingsLinkLabel(title, symbol: symbol)
+            }
+            .buttonStyle(.plain)
+        } else if route == .appLock {
             Button {
                 if appLock.isEnabled {
                     appLock.requestAuthentication(.settingsAccess) { path.append(route) }

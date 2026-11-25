@@ -647,8 +647,6 @@
 "默认音轨语言" = "Langue audio préférée";
 "默认字幕语言" = "Langue de sous-titres préférée";
 "无对应语言时关闭字幕" = "Désactiver si la langue est indisponible";
-"照片图库" = "Photothèque";
-"请求照片访问权限" = "Autoriser l’accès aux photos";
 "前往系统设置" = "Ouvrir Réglages";
 "前往设置" = "Ouvrir Réglages";
 "本地网络" = "Réseau local";
@@ -756,13 +754,6 @@
 "从进度条上方的多功能菜单搜索或导入弹幕。支持 Bilibili XML 的滚动、顶部和底部弹幕。正偏移表示延后显示。弹幕仅用于当前视频，切换视频后清空；画中画暂不显示弹幕。" = "Recherchez ou importez depuis le menu au-dessus de la barre. Compatible XML Bilibili, défilant ou fixe. Un décalage positif retarde l’affichage. Effacés au changement de vidéo. Indisponibles en Image dans l’image.";
 
 "蜂窝网络" = "Réseau mobile";
-"使用时由系统请求" = "Demandé au besoin";
-"已允许" = "Autorisé";
-"受限访问" = "Accès limité";
-"未允许" = "Non autorisé";
-"受系统限制" = "Limité par le système";
-"尚未请求" = "Non demandé";
-"未知" = "Inconnu";
 "媒体库信息" = "Données de la bibliothèque";
 "图片" = "Images";
 "视频" = "Vidéos";
@@ -1032,7 +1023,6 @@
 "正在验证来源" = "Vérification de la source…";
 "来源验证成功" = "Source vérifiée";
 "验证失败，点击重试" = "Échec de la vérification. Touchez pour réessayer";
-"查看照片访问权限，了解本地网络访问方式，并前往系统设置管理授权。" = "Consultez les accès aux photos et au réseau local, puis gérez les autorisations dans les réglages système.";
 "选择深浅色外观、主题色和应用图标，打造喜欢的界面。" = "Choisissez l’apparence, la couleur d’accentuation et l’icône de l’app.";
 "查看运行日志、设置保留时间，导出或清空日志以便排查问题。" = "Consultez les journaux, réglez leur durée de conservation et exportez-les ou effacez-les pour le diagnostic.";
 "了解应用使用的开源组件，查看各项目的许可与声明。" = "Découvrez les composants open source de l’app, leurs licences et leurs mentions légales.";
@@ -1177,3 +1167,7 @@
 "新版图标" = "Nouvelle icône";
 "经典图标" = "Icône classique";
 "无法更换图标" = "Impossible de changer l’icône";
+
+
+"媒体来源无效" = "Source multimédia invalide";
+"Emby登录失败，请检查来源设置。" = "Échec de la connexion à Emby. Vérifiez les réglages de la source.";

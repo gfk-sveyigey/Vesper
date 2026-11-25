@@ -647,8 +647,6 @@
 "默认音轨语言" = "Preferred audio language";
 "默认字幕语言" = "Preferred subtitle language";
 "无对应语言时关闭字幕" = "Disable subtitles if unavailable";
-"照片图库" = "Photo library";
-"请求照片访问权限" = "Allow photo access";
 "前往系统设置" = "Open Settings";
 "前往设置" = "Open Settings";
 "本地网络" = "Local network";
@@ -756,13 +754,6 @@
 "从进度条上方的多功能菜单搜索或导入弹幕。支持 Bilibili XML 的滚动、顶部和底部弹幕。正偏移表示延后显示。弹幕仅用于当前视频，切换视频后清空；画中画暂不显示弹幕。" = "Find or import comments from the menu above the timeline. Supports scrolling and fixed Bilibili XML comments. Positive offsets delay display. Comments apply to this video only and are cleared when switching videos. Not available in Picture in Picture.";
 
 "蜂窝网络" = "Cellular";
-"使用时由系统请求" = "Requested when needed";
-"已允许" = "Allowed";
-"受限访问" = "Limited access";
-"未允许" = "Not allowed";
-"受系统限制" = "Restricted by the system";
-"尚未请求" = "Not requested";
-"未知" = "Unknown";
 "媒体库信息" = "Library data";
 "图片" = "Images";
 "视频" = "Videos";
@@ -1032,7 +1023,6 @@
 "正在验证来源" = "Verifying source…";
 "来源验证成功" = "Source verified";
 "验证失败，点击重试" = "Verification failed. Tap to retry";
-"查看照片访问权限，了解本地网络访问方式，并前往系统设置管理授权。" = "Review photo access and local network permissions, and manage access in system settings.";
 "选择深浅色外观、主题色和应用图标，打造喜欢的界面。" = "Choose your appearance, accent color, and app icon.";
 "查看运行日志、设置保留时间，导出或清空日志以便排查问题。" = "Review logs, set retention, and export or clear logs when troubleshooting.";
 "了解应用使用的开源组件，查看各项目的许可与声明。" = "Explore the open-source components used by the app and read their licenses and notices.";
@@ -1177,3 +1167,7 @@
 "新版图标" = "New Icon";
 "经典图标" = "Classic Icon";
 "无法更换图标" = "Unable to Change Icon";
+
+
+"媒体来源无效" = "Invalid Media Source";
+"Emby登录失败，请检查来源设置。" = "Emby sign-in failed. Check the source settings.";

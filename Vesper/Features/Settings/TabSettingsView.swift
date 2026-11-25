@@ -19,7 +19,7 @@ struct TabSettingsView: View {
     var body: some View {
         SettingsPage {
             Group {
-                SettingsIntroCard(title: "标签设置", symbol: "rectangle.3.group", description: "选择显示的标签页，调整排列顺序、默认页面和标签栏收缩方式。")
+                SettingsIntroCard(title: "标签设置", symbol: "rectangle.grid.3x1", description: "选择显示的标签页，调整排列顺序、默认页面和标签栏收缩方式。")
 
                 SettingsSection {
                     ForEach(sections.filter { $0 != .settings }) { section in
