@@ -38,7 +38,7 @@ struct AppNavigationView: View {
     @State private var isShowingClearSearchConfirmation = false
     @State private var pickedVideoAccess: IncomingFileAccess?
     @State private var videoPickerDismissed = true
-    @State private var previewVideo: IncomingVideo?
+    @State private var previewBatch: IncomingVideoBatch?
     @State private var importPresentationHost = VideoImportPresentationProbeController()
     @State private var playerPresentationDismissed = true
     @State private var playAfterPreviewDismiss: IncomingVideo?
@@ -127,7 +127,7 @@ struct AppNavigationView: View {
             handleScenePhaseChange(phase)
         }
         .task(id: incomingPresentationRequest) { await retryIncomingPresentation() }
-        .onChange(of: incomingVideos.videos.map(\.id), initial: true) { _, _ in presentNextIncomingVideo() }
+        .onChange(of: incomingVideos.batches.map(\.id), initial: true) { _, _ in presentNextIncomingVideo() }
         .onChange(of: incomingVideos.nonVideoCount, initial: true) { _, _ in presentNextIncomingVideo() }
         .onChange(of: isShowingImportNotice) { _, showing in
             if !showing { presentNextIncomingVideo() }
@@ -147,15 +147,15 @@ struct AppNavigationView: View {
                 incomingVideos.isSelectingVideo = false
             }
         }
-        .sheet(item: $previewVideo, onDismiss: incomingPreviewDismissed) { file in
-            VideoImportSheet(file: file) {
+        .sheet(item: $previewBatch, onDismiss: incomingPreviewDismissed) { batch in
+            VideoImportSheet(files: batch.files) { file in
                 playAfterPreviewDismiss = file
-                previewVideo = nil
-            } saved: { _ in
+                previewBatch = nil
+            } saved: {
                 library.registerImportedVideos(name: VesperLocalization.string("本地视频"))
             }
             .onAppear {
-                incomingVideos.acknowledgePresented(file.id)
+                incomingVideos.acknowledgePresented(batch.id)
                 FileDeliveryLog.write("视频导入面板已显示")
             }
         }
@@ -395,9 +395,9 @@ struct AppNavigationView: View {
     }
 
     private func presentNextIncomingVideo() {
-        guard scenePhase == .active, videoPickerDismissed, !incomingVideos.isSelectingVideo, previewVideo == nil, !isShowingImportNotice, playAfterPreviewDismiss == nil else { return }
+        guard scenePhase == .active, videoPickerDismissed, !incomingVideos.isSelectingVideo, previewBatch == nil, !isShowingImportNotice, playAfterPreviewDismiss == nil else { return }
         let hasNotice = incomingVideos.nonVideoCount > acknowledgedNonVideoCount
-        guard hasNotice || !incomingVideos.videos.isEmpty else { return }
+        guard hasNotice || !incomingVideos.batches.isEmpty else { return }
         // Dismiss the existing full-screen UI before presenting the preview.
         // Its decoder/session stays alive until the user chooses Direct Play.
         if playback.isPresented {
@@ -405,20 +405,20 @@ struct AppNavigationView: View {
             return
         }
         guard playerPresentationDismissed, importPresentationHost.canPresent else { return }
-        if hasNotice {
+        if let batch = incomingVideos.batches.first {
+            previewBatch = batch
+        } else if hasNotice {
             acknowledgedNonVideoCount = incomingVideos.nonVideoCount
             importNotice = VesperLocalization.string("此文件不是视频文件。")
             isShowingImportNotice = true
-        } else {
-            previewVideo = incomingVideos.videos.first
         }
     }
 
     private var incomingPresentationRequest: VideoImportPresentationRequest {
         .init(active: scenePhase == .active,
-              nextID: incomingVideos.videos.first?.id,
+              nextID: incomingVideos.batches.first?.id,
               nonVideoCount: incomingVideos.nonVideoCount,
-              previewID: previewVideo?.id,
+              previewID: previewBatch?.id,
               selecting: incomingVideos.isSelectingVideo,
               pickerDismissed: videoPickerDismissed,
               noticeVisible: isShowingImportNotice,
@@ -431,28 +431,28 @@ struct AppNavigationView: View {
     /// sheets owned by child pages, whose dismissal the root cannot observe.
     private func retryIncomingPresentation() async {
         guard scenePhase == .active else { return }
-        if let reserved = previewVideo,
-           incomingVideos.videos.contains(where: { $0.id == reserved.id }) {
+        if let reserved = previewBatch,
+           incomingVideos.batches.contains(where: { $0.id == reserved.id }) {
             // onAppear normally acknowledges immediately. If SwiftUI rejected
             // the request because another presenter won the race, release the
             // reservation and retry without removing the queued file.
             do { try await Task.sleep(for: .seconds(1)) } catch { return }
-            guard scenePhase == .active, previewVideo?.id == reserved.id,
-                  incomingVideos.videos.contains(where: { $0.id == reserved.id }) else { return }
+            guard scenePhase == .active, previewBatch?.id == reserved.id,
+                  incomingVideos.batches.contains(where: { $0.id == reserved.id }) else { return }
             FileDeliveryLog.write("导入面板尚未显示，保留文件并等待重新展示")
-            previewVideo = nil
+            previewBatch = nil
             return
         }
         // Explicit new-file/foreground events may dismiss the current player.
         // A retry alone must not immediately close Direct Play just chosen
         // from the previous sheet merely because more files remain queued.
-        guard previewVideo == nil, !isShowingImportNotice, !playback.isPresented,
+        guard previewBatch == nil, !isShowingImportNotice, !playback.isPresented,
               playAfterPreviewDismiss == nil, !incomingVideos.isSelectingVideo,
               videoPickerDismissed else { return }
         while !Task.isCancelled,
-              !incomingVideos.videos.isEmpty || incomingVideos.nonVideoCount > acknowledgedNonVideoCount {
+              !incomingVideos.batches.isEmpty || incomingVideos.nonVideoCount > acknowledgedNonVideoCount {
             presentNextIncomingVideo()
-            if previewVideo != nil || isShowingImportNotice { return }
+            if previewBatch != nil || isShowingImportNotice { return }
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
         }
     }

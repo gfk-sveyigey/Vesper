@@ -15,7 +15,7 @@ class VideoImportPresentationTests(unittest.TestCase):
         self.assertIs(configuration['LSSupportsOpeningDocumentsInPlace'], False)
         self.assertTrue(configuration['CFBundleDocumentTypes'])
 
-    def test_queue_is_consumed_only_after_display(self):
+    def test_separate_deliveries_are_published_as_one_batch_and_acknowledged_after_display(self):
         compiler = os.environ.get('SWIFTC') or shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable')
@@ -49,30 +49,31 @@ import Foundation
     @MainActor static func main() async throws {
         let receiver = IncomingVideoReceiver()
         receiver.receive(URL(fileURLWithPath: "/tmp/first.mp4"), requiresCopy: false)
+        try await Task.sleep(for: .milliseconds(100))
+        precondition(receiver.batches.isEmpty)
         receiver.receive(URL(fileURLWithPath: "/tmp/second.mp4"), requiresCopy: false)
-        for _ in 0..<100 {
-            if receiver.videos.count == 2 { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        precondition(receiver.videos.count == 2)
-        let reserved = receiver.videos.first!
-        // A reservation/rejected presentation doesn't remove either file.
-        precondition(receiver.videos.first!.id == reserved.id)
-        precondition(receiver.videos.count == 2)
-        receiver.acknowledgePresented(reserved.id)
-        precondition(receiver.videos.count == 1)
-        precondition(receiver.videos.first!.name == "second.mp4")
-        // Repeated onAppear is idempotent and must not consume the next file.
-        receiver.acknowledgePresented(reserved.id)
-        precondition(receiver.videos.count == 1)
-        receiver.acknowledgePresented(receiver.videos.first!.id)
-        precondition(receiver.videos.isEmpty)
         receiver.receive(URL(fileURLWithPath: "/tmp/not-video.txt"), requiresCopy: false)
         for _ in 0..<100 {
-            if receiver.nonVideoCount == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
+            if !receiver.batches.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(20))
         }
-        precondition(receiver.nonVideoCount == 1 && receiver.videos.isEmpty)
+        precondition(receiver.batches.count == 1)
+        let reserved = receiver.batches.first!
+        precondition(reserved.files.map(\.name) == ["first.mp4", "second.mp4"])
+        precondition(receiver.nonVideoCount == 1)
+        receiver.receive(URL(fileURLWithPath: "/tmp/third.mp4"), requiresCopy: false)
+        for _ in 0..<100 {
+            if receiver.batches.count == 2 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        precondition(receiver.batches.count == 2 && receiver.batches.first?.id == reserved.id)
+        receiver.acknowledgePresented(reserved.id)
+        // Repeated onAppear is idempotent and must not consume the next batch.
+        receiver.acknowledgePresented(reserved.id)
+        precondition(receiver.batches.count == 1)
+        precondition(receiver.batches.first?.files.map(\.name) == ["third.mp4"])
+        receiver.acknowledgePresented(receiver.batches.first!.id)
+        precondition(receiver.batches.isEmpty)
     }
 }
 '''
@@ -91,13 +92,14 @@ import Foundation
         source = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
         self.assertIn('guard scenePhase == .active, videoPickerDismissed', source)
         self.assertIn('.onChange(of: scenePhase, initial: true)', source)
-        self.assertIn('.onChange(of: incomingVideos.videos.map(\\.id), initial: true)', source)
+        self.assertIn('.onChange(of: incomingVideos.batches.map(\\.id), initial: true)', source)
         self.assertIn('.onChange(of: incomingVideos.nonVideoCount, initial: true)', source)
         self.assertIn('if phase == .active { presentNextIncomingVideo() }', source)
         self.assertIn('playerPresentationDismissed, importPresentationHost.canPresent', source)
-        self.assertIn('previewVideo = incomingVideos.videos.first', source)
+        self.assertIn('if let batch = incomingVideos.batches.first {\n            previewBatch = batch', source)
         self.assertNotIn('incomingVideos.takeNext()', source)
-        self.assertIn('incomingVideos.acknowledgePresented(file.id)', source)
+        self.assertIn('VideoImportSheet(files: batch.files)', source)
+        self.assertIn('incomingVideos.acknowledgePresented(batch.id)', source)
         self.assertIn('.task(id: incomingPresentationRequest)', source)
         self.assertIn('return root.presentedViewController == nil', source)
         self.assertNotIn('controller.children.contains { hasPresentation(in: $0) }', source)

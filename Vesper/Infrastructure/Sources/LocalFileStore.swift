@@ -4,6 +4,7 @@ struct LocalFileEntry: Identifiable, Hashable, Sendable {
     let path: String
     let name: String
     let isDirectory: Bool
+    var dateAdded: Date? = nil
     var id: String { path }
 }
 
@@ -26,14 +27,17 @@ actor LocalFileStore {
     func entries(root: URL, directory: String) throws -> [LocalFileEntry] {
         try access(root) { base in
             let folder = try checked(directory, root: base)
+            let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey,
+                                            .addedToDirectoryDateKey, .creationDateKey]
             return try FileManager.default.contentsOfDirectory(at: folder,
-                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
+                includingPropertiesForKeys: Array(keys),
                 options: [.skipsHiddenFiles]).compactMap { url in
-                    let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
+                    let values = try url.resourceValues(forKeys: keys)
                     guard values.isSymbolicLink != true,
                           values.isDirectory == true || values.isRegularFile == true else { return nil }
                     return LocalFileEntry(path: directory.isEmpty ? url.lastPathComponent : directory + "/" + url.lastPathComponent,
-                                          name: url.lastPathComponent, isDirectory: values.isDirectory == true)
+                                          name: url.lastPathComponent, isDirectory: values.isDirectory == true,
+                                          dateAdded: values.addedToDirectoryDate ?? values.creationDate)
                 }.sorted {
                     if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
                     return $0.name.localizedStandardCompare($1.name) == .orderedAscending

@@ -18,6 +18,7 @@ struct LocalFilesView<SourceMenu: View>: View {
     @EnvironmentObject private var playback: PlaybackSession
     @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
     @ObservedObject private var layout = MediaLayoutSettings.shared
+    private var deviceBrowser = DeviceMediaBrowserPreferences()
     @State private var entries: [LocalFileEntry] = []
     @State private var loading = true
     @State private var reloadGeneration = 0
@@ -50,8 +51,13 @@ struct LocalFilesView<SourceMenu: View>: View {
                     .vesperNavigationStyle(.inline)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("新建文件夹", systemImage: "folder.badge.plus", action: createFolder)
-                                .disabled(busy)
+                            Menu {
+                                Section { deviceBrowser.menuItems }
+                                Button("新建文件夹", systemImage: "folder.badge.plus", action: createFolder)
+                                    .disabled(busy)
+                            } label: {
+                                Label("布局与排序", systemImage: "ellipsis")
+                            }
                         }
                     }
             }
@@ -99,37 +105,62 @@ struct LocalFilesView<SourceMenu: View>: View {
     }
 
     private var files: some View {
-        LazyVStack(spacing: 12) {
+        let sorted = deviceBrowser.sorted(entries, name: \.name, dateAdded: \.dateAdded,
+                                          identifier: \.path, folder: \.isDirectory)
+        return LazyVStack(spacing: 12) {
             if !loading && entries.isEmpty {
                 VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
-                ForEach(entries) { entry in
-                    Group {
-                        if entry.isDirectory {
-                            NavigationLink(value: LocalDirectoryRoute(path: entry.path)) {
-                                row(entry)
-                            }
-                            .contextMenu { fileActions(entry) }
-                        } else {
-                            Button {
-                                let queue = entries.filter { !$0.isDirectory && VideoImporter.isVideoType(URL(fileURLWithPath: $0.name)) }
-                                    .map(mediaItem)
-                                playback.play(mediaItem(entry), in: source, queue: queue)
-                            } label: { row(entry) }
-                            .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
-                            .disabled(!VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)))
+            DeviceMediaCollection(displayLayout: deviceBrowser.displayLayout, items: sorted, columnSpacing: 12, rowSpacing: 16) { entry in
+                Group {
+                    if entry.isDirectory {
+                        NavigationLink(value: LocalDirectoryRoute(path: entry.path)) {
+                            row(entry)
                         }
+                        .contextMenu { fileActions(entry) }
+                    } else {
+                        Button {
+                            let queue = sorted.filter { !$0.isDirectory && isVideo($0) }.map(mediaItem)
+                            playback.play(mediaItem(entry), in: source, queue: queue)
+                        } label: { row(entry) }
+                        .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
+                        .disabled(!isVideo(entry))
                     }
-                    .buttonStyle(.plain)
-                    .disabled(busy)
                 }
+                .buttonStyle(.plain)
+                .disabled(busy)
             }
         }
         .padding(.horizontal, 20)
     }
 
+    private func isVideo(_ entry: LocalFileEntry) -> Bool {
+        VideoImporter.isVideoType(URL(fileURLWithPath: entry.name))
+    }
+
+    @ViewBuilder
     private func row(_ entry: LocalFileEntry) -> some View {
+        if deviceBrowser.displayLayout == .grid {
+            gridCard(entry)
+        } else if !entry.isDirectory && isVideo(entry) {
+            MediaLibraryListRow(source: source, item: mediaItem(entry), playback: playback)
+        } else {
+            HStack(spacing: 12) {
+                Image(systemName: entry.isDirectory ? "folder.fill" : "doc")
+                    .font(.title2)
+                    .foregroundStyle(entry.isDirectory ? Color.accentColor : Color.secondary)
+                    .frame(width: 44, height: 44)
+                    .accessibilityHidden(true)
+                Text(verbatim: entry.name)
+                    .font(.headline)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+    }
+
+    private func gridCard(_ entry: LocalFileEntry) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if entry.isDirectory {
                 RoundedRectangle(cornerRadius: 12)
@@ -148,7 +179,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                         }
                         .padding(12)
                     }
-            } else if VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
+            } else if isVideo(entry) {
                 MediaThumbnail(source: source, item: mediaItem(entry), playback: playback,
                                imageOrientation: .portrait, fixedHeight: layout.thumbnailHeight)
                     .modifier(DeviceMediaCardBackground())
@@ -162,7 +193,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                             .font(.largeTitle).foregroundStyle(.secondary)
                     }
             }
-            if !entry.isDirectory && !VideoImporter.isVideoType(URL(fileURLWithPath: entry.name)) {
+            if !entry.isDirectory && !isVideo(entry) {
                 Text(verbatim: entry.name)
                     .font(.headline).foregroundStyle(.primary)
                     .lineLimit(1).truncationMode(.tail)
@@ -188,7 +219,7 @@ struct LocalFilesView<SourceMenu: View>: View {
 
     private func mediaItem(_ entry: LocalFileEntry) -> MediaItem {
         MediaItem(id: MediaID(sourceID: source.id, localID: entry.path),
-                  title: (entry.name as NSString).deletingPathExtension, resource: nil)
+                  title: (entry.name as NSString).deletingPathExtension, resource: nil, dateAdded: entry.dateAdded)
     }
 
     private func createFolder() {

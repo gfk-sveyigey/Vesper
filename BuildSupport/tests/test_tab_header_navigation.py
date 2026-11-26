@@ -68,3 +68,13 @@ class TabHeaderNavigationTests(unittest.TestCase):
         self.assertIn('NavigationLink(value: LocalDirectoryRoute(path: entry.path))', local)
         self.assertIn('VesperNavigationHeaderLayer(isRoot: mediaPath.isEmpty)', navigation)
         self.assertNotIn('LocalFilesView(source: source, directory: entry.path', local)
+
+    def test_device_media_browsing_options_preserve_sorted_playback_order(self):
+        media = (ROOT / 'Media/MediaView.swift').read_text()
+        local = (ROOT / 'Media/LocalFilesView.swift').read_text()
+        selector = media.split('private func sourceMenuButton', 1)[1].split('private func deviceMedia', 1)[0]
+        self.assertIn('library.selectedSource?.kind == .local || library.selectedSource?.kind == .photos', selector)
+        self.assertIn('Section { deviceBrowser.menuItems }', selector)
+        self.assertIn('Section { deviceBrowser.menuItems }', local)
+        self.assertIn('queue: sorted', media)
+        self.assertIn('sorted.filter { !$0.isDirectory && isVideo($0) }', local)

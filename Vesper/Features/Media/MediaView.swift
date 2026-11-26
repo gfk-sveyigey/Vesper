@@ -148,6 +148,7 @@ struct MediaView: View {
     @EnvironmentObject private var playback: PlaybackSession
     @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
     @AppStorage("appearance.accent") private var accent = "vesper"
+    private var deviceBrowser = DeviceMediaBrowserPreferences()
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @Namespace private var artworkZoom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -285,28 +286,8 @@ struct MediaView: View {
                     case .loaded(let items):
                         if items.isEmpty {
                             VesperCenteredEmptyContent(message: "来源中暂无媒体", symbol: AppSection.media.symbol)
-                        } else {
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: CGFloat(layout[.itemSpacing])), count: 3),
-                                      spacing: CGFloat(layout[.itemVerticalPadding]) * 2) {
-                                ForEach(items) { item in
-                                    if let source = library.selectedSource {
-                                        Button {
-                                            playback.play(item, in: source, queue: items)
-                                        } label: {
-                                            MediaThumbnail(source: source, item: item, playback: playback,
-                                                           imageOrientation: .portrait,
-                                                           fixedHeight: layout.thumbnailHeight)
-                                                .modifier(DeviceMediaCardBackground(enabled: source.kind == .local || source.kind == .photos))
-                                                .contentShape(Rectangle())
-                                        }
-                                        .buttonStyle(.plain)
-                                        .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
-                                        .accessibilityLabel(Text(verbatim: item.title))
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, CGFloat(layout[.endPadding]))
-                            .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
+                        } else if let source = library.selectedSource {
+                            deviceMedia(items, source: source)
                         }
                     case .failed(let error):
                         if library.selectedSource?.kind == .emby {
@@ -768,6 +749,9 @@ struct MediaView: View {
 
     private func sourceMenuButton(localBusy: Bool, createLocalFolder: (() -> Void)?, iconSize: CGFloat) -> some View {
         Menu {
+            if library.selectedSource?.kind == .local || library.selectedSource?.kind == .photos {
+                Section { deviceBrowser.menuItems }
+            }
             if library.selectedSource?.kind == .local, !showsEmbyShortcuts, let createLocalFolder {
                 Section {
                     localImportButton(busy: localBusy)
@@ -835,6 +819,31 @@ struct MediaView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("选择媒体来源")
+    }
+
+    private func deviceMedia(_ items: [MediaItem], source: MediaSource) -> some View {
+        let sorted = deviceBrowser.sorted(items, name: \.title, dateAdded: \.dateAdded, identifier: \.id.localID)
+        return DeviceMediaCollection(displayLayout: deviceBrowser.displayLayout, items: sorted,
+                                     columnSpacing: CGFloat(layout[.itemSpacing]),
+                                     rowSpacing: CGFloat(layout[.itemVerticalPadding]) * 2) { item in
+            Button {
+                playback.play(item, in: source, queue: sorted)
+            } label: {
+                if deviceBrowser.displayLayout == .grid {
+                    MediaThumbnail(source: source, item: item, playback: playback,
+                                   imageOrientation: .portrait, fixedHeight: layout.thumbnailHeight)
+                        .modifier(DeviceMediaCardBackground())
+                        .contentShape(Rectangle())
+                } else {
+                    MediaLibraryListRow(source: source, item: item, playback: playback)
+                }
+            }
+            .buttonStyle(.plain)
+            .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
+            .accessibilityLabel(Text(verbatim: item.title))
+        }
+        .padding(.horizontal, CGFloat(layout[.endPadding]))
+        .padding(.vertical, CGFloat(layout[.itemVerticalPadding] + layout[.scrollPadding]))
     }
 }
 
@@ -1125,11 +1134,87 @@ struct EmbyPersonWorksView: View {
     }
 }
 
-private enum EmbyBrowserLayout: String, CaseIterable, Identifiable {
+enum MediaBrowserLayout: String, CaseIterable, Identifiable {
     case grid, list
     var id: String { rawValue }
     var title: LocalizedStringKey { self == .grid ? "网格显示" : "列表显示" }
     var symbol: String { self == .grid ? "square.grid.2x2" : "list.bullet" }
+}
+
+struct DeviceMediaBrowserPreferences: DynamicProperty {
+    enum SortField: String {
+        case name, added
+    }
+
+    @AppStorage("device.browser.layout") private(set) var displayLayout: MediaBrowserLayout = .grid
+    @AppStorage("device.browser.sort") private var sortField: SortField = .name
+    @AppStorage("device.browser.ascending") private var ascending = true
+
+    @ViewBuilder var menuItems: some View {
+        Picker(selection: $displayLayout) {
+            ForEach(MediaBrowserLayout.allCases) { layout in
+                Text(layout.title).tag(layout)
+            }
+        } label: {
+            Label("布局方式", systemImage: "rectangle.grid.2x2")
+        }
+        Picker(selection: $sortField) {
+            Text("名称").tag(SortField.name)
+            Text("添加日期").tag(SortField.added)
+        } label: {
+            Label("排序依据", systemImage: "line.3.horizontal.decrease")
+        }
+        Picker(selection: $ascending) {
+            Text("正序").tag(true)
+            Text("倒序").tag(false)
+        } label: {
+            Label("排序方式", systemImage: "arrow.up.arrow.down")
+        }
+    }
+
+    func sorted<Item>(_ items: [Item], name: KeyPath<Item, String>, dateAdded: KeyPath<Item, Date?>,
+                      identifier: KeyPath<Item, String>, folder: KeyPath<Item, Bool>? = nil) -> [Item] {
+        let sortField = sortField
+        let ascending = ascending
+        return items.sorted { lhs, rhs in
+            if let folder, lhs[keyPath: folder] != rhs[keyPath: folder] { return lhs[keyPath: folder] }
+            if sortField == .added {
+                switch (lhs[keyPath: dateAdded], rhs[keyPath: dateAdded]) {
+                case let (left?, right?) where left != right: return ascending ? left < right : left > right
+                case (_?, nil): return true
+                case (nil, _?): return false
+                default: break
+                }
+            }
+            let order = lhs[keyPath: name].localizedStandardCompare(rhs[keyPath: name])
+            if order == .orderedSame { return lhs[keyPath: identifier] < rhs[keyPath: identifier] }
+            return order == (ascending ? .orderedAscending : .orderedDescending)
+        }
+    }
+}
+
+struct DeviceMediaCollection<Item: Identifiable, Row: View>: View {
+    let displayLayout: MediaBrowserLayout
+    let items: [Item]
+    let columnSpacing: CGFloat
+    let rowSpacing: CGFloat
+    @ViewBuilder let row: (Item) -> Row
+
+    var body: some View {
+        if displayLayout == .grid {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: columnSpacing), count: 3),
+                      spacing: rowSpacing) {
+                ForEach(items, content: row)
+            }
+        } else {
+            LazyVStack(spacing: 0) {
+                ForEach(items) { item in
+                    row(item)
+                    if let last = items.last, item.id != last.id { Divider() }
+                }
+            }
+        }
+    }
 }
 
 private enum EmbyBrowserSort: String, CaseIterable, Identifiable {
@@ -1183,7 +1268,7 @@ private struct EmbySeriesBrowserView: View {
     @State private var errorMessage: String?
     @State private var loadGeneration = UUID()
     @State private var activeQuery: String?
-    @AppStorage("emby.browser.layout") private var displayLayout: EmbyBrowserLayout = .list
+    @AppStorage("emby.browser.layout") private var displayLayout: MediaBrowserLayout = .list
     @AppStorage("emby.browser.sort") private var sortField: EmbyBrowserSort = .added
     @AppStorage("emby.browser.ascending") private var ascending = false
 
@@ -1239,7 +1324,7 @@ private struct EmbySeriesBrowserView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Picker("布局方式", selection: $displayLayout) {
-                        ForEach(EmbyBrowserLayout.allCases) { value in
+                        ForEach(MediaBrowserLayout.allCases) { value in
                             Label(value.title, systemImage: value.symbol).tag(value)
                         }
                     }

@@ -777,6 +777,7 @@
 "弹幕 API 返回的数据无效或接口不兼容。" = "El servicio devolvió datos no válidos o una API incompatible.";
 "正在保存" = "Guardando…";
 "保存文件" = "Guardar archivo";
+"保存全部" = "Guardar todos";
 "特别篇" = "Especiales";
 "添加 Emby 来源" = "Añadir servidor Emby";
 "编辑 Emby 来源" = "Editar servidor Emby";

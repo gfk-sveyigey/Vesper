@@ -777,6 +777,7 @@
 "弹幕 API 返回的数据无效或接口不兼容。" = "The comment service returned invalid data or uses an unsupported API.";
 "正在保存" = "Saving…";
 "保存文件" = "Save file";
+"保存全部" = "Save all";
 "特别篇" = "Specials";
 "添加 Emby 来源" = "Add Emby server";
 "编辑 Emby 来源" = "Edit Emby server";

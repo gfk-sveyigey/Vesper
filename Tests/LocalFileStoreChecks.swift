@@ -19,6 +19,7 @@ struct LocalFileStoreChecks {
         let entries = try await store.entries(root: root, directory: "")
         precondition(entries.first?.name == "Folder")
         let clip = entries.first { $0.name == "clip.mov" }!
+        precondition(clip.dateAdded != nil)
         try await store.rename(root: root, entry: clip, name: "renamed.mov")
         let renamed = LocalFileEntry(path: "renamed.mov", name: "renamed.mov", isDirectory: false)
         try await store.move(root: root, entry: renamed, directory: "Folder")

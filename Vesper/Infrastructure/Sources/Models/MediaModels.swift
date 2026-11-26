@@ -26,6 +26,7 @@ struct MediaItem: Identifiable, Hashable, Codable, Sendable {
     var duration: Double? = nil
     var resumePosition: Double? = nil
     var dateCreated: Date? = nil
+    var dateAdded: Date? = nil
     var embyPresentation: EmbyPresentation? = nil
 
     var isFavorite: Bool? = nil

@@ -32,12 +32,17 @@ struct IncomingVideo: Identifiable, Sendable {
     var name: String { url.lastPathComponent }
 }
 
-/// The native scene delegate and SwiftUI use the same receiver, including
+struct IncomingVideoBatch: Identifiable, Sendable {
+    let id = UUID()
+    let files: [IncomingVideo]
+}
+
+/// The application delegate and SwiftUI use the same receiver, including
 /// delivery before the root view appears.
 @MainActor
 final class IncomingVideoReceiver: ObservableObject {
     static let shared = IncomingVideoReceiver()
-    @Published private(set) var videos: [IncomingVideo] = []
+    @Published private(set) var batches: [IncomingVideoBatch] = []
     @Published private(set) var nonVideoCount = 0
     @Published var isSelectingVideo = false
 
@@ -52,11 +57,15 @@ final class IncomingVideoReceiver: ObservableObject {
     }
     private var requests: [Request] = []
     private var isInspecting = false
+    private var inspectedVideos: [IncomingVideo] = []
+    private var inspectedNonVideoCount = 0
+    private var publishTask: Task<Void, Never>?
 
     func receive(_ url: URL, requiresCopy: Bool) {
         // Acquire sandbox access synchronously in the system's URL callback.
         let access = IncomingFileAccess(url: url)
         requests.append(Request(access: access, requiresCopy: requiresCopy))
+        publishTask?.cancel()
         log("收到文件 URL，scheme=\(url.scheme ?? "nil") extension=\(url.pathExtension) scoped=\(access.hasSecurityScope) requiresCopy=\(requiresCopy)")
         inspectNext()
     }
@@ -64,11 +73,15 @@ final class IncomingVideoReceiver: ObservableObject {
     /// Reserve by peeking; only acknowledge after the import sheet appears.
     /// A rejected/background presentation must not silently lose the file.
     func acknowledgePresented(_ id: UUID) {
-        videos.removeAll { $0.id == id }
+        batches.removeAll { $0.id == id }
     }
 
     private func inspectNext() {
-        guard !isInspecting, !requests.isEmpty else { return }
+        guard !isInspecting else { return }
+        guard !requests.isEmpty else {
+            publishWhenDeliverySettles()
+            return
+        }
         isInspecting = true
         let request = requests.removeFirst()
         Task {
@@ -90,11 +103,29 @@ final class IncomingVideoReceiver: ObservableObject {
                 log("文件不可读取，忽略")
             case .notVideo:
                 log("可读取文件中未发现视频流")
-                nonVideoCount += 1
+                inspectedNonVideoCount += 1
             case .video(let file):
                 log("视频检查通过，等待用户选择操作")
-                videos.append(file)
+                inspectedVideos.append(file)
             }
+        }
+    }
+
+    private func publishWhenDeliverySettles() {
+        guard !inspectedVideos.isEmpty || inspectedNonVideoCount > 0 else { return }
+        // Open In can deliver a single selection as several separate URL callbacks.
+        publishTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            guard !Task.isCancelled, let self else { return }
+            if !inspectedVideos.isEmpty {
+                batches.append(IncomingVideoBatch(files: inspectedVideos))
+                inspectedVideos.removeAll()
+            }
+            if inspectedNonVideoCount > 0 {
+                nonVideoCount += inspectedNonVideoCount
+                inspectedNonVideoCount = 0
+            }
+            publishTask = nil
         }
     }
 

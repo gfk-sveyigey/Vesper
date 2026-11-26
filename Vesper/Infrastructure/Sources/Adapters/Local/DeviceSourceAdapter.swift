@@ -30,7 +30,14 @@ struct DeviceSourceAdapter: SourceAdapter {
                 try Task.checkCancellation()
                 let asset = assets.object(at: index)
                 let name = PHAssetResource.assetResources(for: asset).first?.originalFilename ?? asset.localIdentifier
-                items.append(MediaItem(id: MediaID(sourceID: source.id, localID: asset.localIdentifier), title: name, resource: nil))
+                let dateAdded: Date?
+                if #available(iOS 26.0, macOS 26.0, tvOS 26.0, visionOS 26.0, *) {
+                    dateAdded = asset.addedDate
+                } else {
+                    dateAdded = nil
+                }
+                items.append(MediaItem(id: MediaID(sourceID: source.id, localID: asset.localIdentifier),
+                                       title: name, resource: nil, dateAdded: dateAdded))
             }
             return items
             #else
