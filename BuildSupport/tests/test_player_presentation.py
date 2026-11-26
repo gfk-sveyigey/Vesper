@@ -50,6 +50,7 @@ class PlayerPresentationTests(unittest.TestCase):
         self.assertIn('usesCompactProgress: Bool { isScrubbing && !scrubShowsControls }', source)
         self.assertIn('progressCapsule(height: 56.0 * 2 / 3)', bottom)
         self.assertIn('.overlay(alignment: .bottom) {\n                if usesCompactProgress {\n                    progressCapsule(height: 30)', source)
+        self.assertIn('.padding(.bottom, safeGeometry.safeAreaInsets.bottom + 12)', source)
         self.assertIn('let trackHeight: CGFloat = usesCompactProgress ? 6 : 8', source)
         self.assertIn('.scaleEffect(isScrubbing && scrubShowsControls ? 1.06 : 1)', bottom)
         self.assertIn('.opacity(controlsVisible && !usesCompactProgress ? 1 : 0)', source)

@@ -321,6 +321,7 @@ struct PlayerScreen: View {
                         .padding(.leading, safeGeometry.safeAreaInsets.leading)
                         .padding(.trailing, safeGeometry.safeAreaInsets.trailing)
                         .padding(.horizontal, geometry.size.width > geometry.size.height ? 12 : 20)
+                        .padding(.bottom, safeGeometry.safeAreaInsets.bottom + 12)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
