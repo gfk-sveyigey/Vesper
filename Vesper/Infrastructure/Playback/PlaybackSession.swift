@@ -1275,7 +1275,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         if source.kind == .photos {
             guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [item.id.localID], options: nil).firstObject else { return .init() }
             PlayerQueueDiagnostic.write("photos.metadata.begin id=\(item.id.localID) authorization=\(PHPhotoLibrary.authorizationStatus(for: .readWrite).rawValue)")
-            let bytes = await QueuePhotoMetadataRequest().load(asset)
+            let bytes = await PhotoVideoFileSizeRequest().load(asset)
             PlayerQueueDiagnostic.write("photos.metadata.end id=\(item.id.localID) duration=\(asset.duration) bytes=\(bytes ?? -1)")
             return .init(duration: asset.duration.isFinite ? asset.duration : 0, dimensions: "\(asset.pixelWidth) × \(asset.pixelHeight)", byteCount: bytes)
         }
@@ -1751,25 +1751,28 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
 /// Photos invokes callbacks off the main actor. Resume a request exactly once,
 /// including cancellation, without inheriting the session's actor isolation.
 @MainActor
-private final class QueuePhotoMetadataRequest {
+final class PhotoVideoFileSizeRequest {
     private var continuation: CheckedContinuation<Int?, Never>?
     private var requestID: PHImageRequestID?
 
-    func load(_ asset: PHAsset) async -> Int? {
+    func load(_ asset: PHAsset, deliveryMode: PHVideoRequestOptionsDeliveryMode = .fastFormat,
+              logsDiagnostics: Bool = true) async -> Int? {
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 guard !Task.isCancelled else { continuation.resume(returning: nil); return }
                 self.continuation = continuation
                 let options = PHVideoRequestOptions()
                 options.isNetworkAccessAllowed = false
-                options.deliveryMode = .fastFormat
+                options.deliveryMode = deliveryMode
                 requestID = PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { @Sendable [weak self] avAsset, _, info in
                     let bytes = (avAsset as? AVURLAsset).flatMap { try? $0.url.resourceValues(forKeys: [.fileSizeKey]).fileSize }
                     let cancelled = (info?[PHImageCancelledKey] as? Bool) == true
                     let error = (info?[PHImageErrorKey] as? NSError)?.code
                     let hasAsset = avAsset != nil
                     Task { @MainActor [weak self] in
-                        PlayerQueueDiagnostic.write("photos.metadata.callback asset=\(hasAsset) cancelled=\(cancelled) error=\(error.map(String.init) ?? "none")")
+                        if logsDiagnostics {
+                            PlayerQueueDiagnostic.write("photos.metadata.callback asset=\(hasAsset) cancelled=\(cancelled) error=\(error.map(String.init) ?? "none")")
+                        }
                         self?.finish(bytes)
                     }
                 }

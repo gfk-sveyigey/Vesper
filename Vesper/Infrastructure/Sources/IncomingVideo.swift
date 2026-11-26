@@ -7,11 +7,13 @@ final class IncomingFileAccess: Sendable {
     let url: URL
     private let scoped: Bool
     private let temporaryDirectory: URL?
+    private let sharedBatch: SharedVideoBatchAccess?
     var hasSecurityScope: Bool { scoped }
 
-    init(url: URL, temporaryDirectory: URL? = nil) {
+    init(url: URL, temporaryDirectory: URL? = nil, sharedBatch: SharedVideoBatchAccess? = nil) {
         self.url = url
         self.temporaryDirectory = temporaryDirectory
+        self.sharedBatch = sharedBatch
         scoped = url.startAccessingSecurityScopedResource()
     }
 
@@ -19,6 +21,15 @@ final class IncomingFileAccess: Sendable {
         if scoped { url.stopAccessingSecurityScopedResource() }
         if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
     }
+}
+
+/// Keep the published batch on disk until its last preview or playback releases it.
+final class SharedVideoBatchAccess: Sendable {
+    let directory: URL
+
+    init(directory: URL) { self.directory = directory }
+
+    deinit { try? FileManager.default.removeItem(at: directory) }
 }
 
 struct IncomingVideo: Identifiable, Sendable {
@@ -60,6 +71,29 @@ final class IncomingVideoReceiver: ObservableObject {
     private var inspectedVideos: [IncomingVideo] = []
     private var inspectedNonVideoCount = 0
     private var publishTask: Task<Void, Never>?
+    private var openedSharedBatches: Set<URL> = []
+
+    func receiveSharedBatches(from root: URL? = SharedVideoInbox.root) async {
+        guard let root else { return }
+        for directory in SharedVideoInbox.batches(in: root) {
+            guard openedSharedBatches.insert(directory).inserted else { continue }
+            let batch = SharedVideoBatchAccess(directory: directory)
+            let urls = SharedVideoInbox.files(in: directory)
+            log("分享扩展交付文件数=\(urls.count)")
+            var videos: [IncomingVideo] = []
+            var invalidCount = 0
+            for url in urls {
+                let access = IncomingFileAccess(url: url, sharedBatch: batch)
+                switch await VideoImporter.shared.inspect(access) {
+                case .video(let video): videos.append(video)
+                case .notVideo: invalidCount += 1
+                case .unreadable: log("分享扩展文件不可读取，忽略")
+                }
+            }
+            if !videos.isEmpty { batches.append(IncomingVideoBatch(files: videos)) }
+            if invalidCount > 0 { nonVideoCount += invalidCount }
+        }
+    }
 
     func receive(_ url: URL, requiresCopy: Bool) {
         // Acquire sandbox access synchronously in the system's URL callback.

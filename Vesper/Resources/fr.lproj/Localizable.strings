@@ -778,6 +778,9 @@
 "正在保存" = "Enregistrement…";
 "保存文件" = "Enregistrer le fichier";
 "保存全部" = "Tout enregistrer";
+"无法访问 Vesper 的共享容器，请检查签名的 App Group。" = "Le conteneur partagé de Vesper est inaccessible. Vérifiez l’App Group de la signature.";
+"请打开 Vesper 继续导入。" = "Ouvrez Vesper pour continuer l’importation.";
+"部分视频无法接收，请打开 Vesper 导入其余视频。" = "Certaines vidéos n’ont pas pu être reçues. Ouvrez Vesper pour importer les autres.";
 "特别篇" = "Épisodes spéciaux";
 "添加 Emby 来源" = "Ajouter un serveur Emby";
 "编辑 Emby 来源" = "Modifier le serveur Emby";

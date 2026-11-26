@@ -28,6 +28,7 @@ struct VesperApp: App {
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     if phase == .active {
                         FileDeliveryLog.write("SwiftUI Scene 已激活，文件接收模式=SwiftUI原生")
+                        Task { await incomingVideos.receiveSharedBatches() }
                     }
                 }
                 .tint(VesperTheme.accent(accent))

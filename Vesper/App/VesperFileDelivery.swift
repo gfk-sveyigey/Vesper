@@ -25,9 +25,9 @@ final class VesperFileDeliveryDelegate: NSObject, UIApplicationDelegate {
         open url: URL,
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
-        FileDeliveryLog.write("App 收到打开文件事件，参数=\(options.keys.map(\.rawValue).sorted())")
         let openInPlace = options[.openInPlace] as? Bool ?? false
-        return FileDeliveryRouter.receive(url, origin: "app.open", requiresCopy: !openInPlace)
+        FileDeliveryLog.write("App 收到打开文件事件，openInPlace=\(openInPlace)")
+        return FileDeliveryRouter.receive(url, origin: "app.open")
     }
 
     func application(

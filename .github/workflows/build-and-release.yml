@@ -147,6 +147,8 @@ jobs:
             echo "::error::Vesper.app was not produced"
             exit 1
           }
+          test "$(plutil -extract VesperAppGroupIdentifier raw "$APP/Info.plist")" = \
+               "$(plutil -extract VesperAppGroupIdentifier raw "$APP/PlugIns/VesperShare.appex/Info.plist")"
           python3 BuildSupport/audit_playback_isolation.py "$APP"
 
       - name: Package unsigned IPA

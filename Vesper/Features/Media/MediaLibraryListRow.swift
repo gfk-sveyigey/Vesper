@@ -75,19 +75,52 @@ struct MediaLibraryListRow: View {
                     .font(.headline)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                Text(verbatim: details)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text(verbatim: source.kind == .emby ? yearAndRating : item.subtitle ?? "")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if source.kind == .emby {
+                    Text(verbatim: details)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(verbatim: yearAndRating)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    DeviceListVideoMetadata(source: source, item: item)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight, alignment: .leading)
         .contentShape(Rectangle())
+    }
+}
+
+private struct DeviceListVideoMetadata: View {
+    let source: MediaSource
+    let item: MediaItem
+    @State private var metadata: (duration: Double, byteCount: Int?) = (0, nil)
+
+    var body: some View {
+        let duration = metadata.duration.isFinite && metadata.duration > 0 ? mediaTimeLabel(metadata.duration) : "—"
+        let size = metadata.byteCount.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) } ?? "—"
+        HStack(spacing: 6) {
+            Text(verbatim: duration)
+                .monospacedDigit()
+                .accessibilityLabel("时长")
+                .accessibilityValue(Text(verbatim: duration))
+            Text(verbatim: "·").accessibilityHidden(true)
+            Text(verbatim: size)
+                .accessibilityLabel("文件大小")
+                .accessibilityValue(Text(verbatim: size))
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .task(id: item) {
+            metadata = (0, nil)
+            let result = await MediaThumbnailLoader.shared.deviceListMetadata(item, source: source)
+            if !Task.isCancelled { metadata = result }
+        }
     }
 }
 

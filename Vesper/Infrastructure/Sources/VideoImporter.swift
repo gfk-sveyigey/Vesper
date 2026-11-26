@@ -101,6 +101,14 @@ actor VideoImporter {
         return await thumbnail(at: file.url)
     }
 
+    func probeDuration(at url: URL) async -> Double {
+        if let probe = try? AetherMediaProbe.inspect(url), probe.hasVideo,
+           probe.duration.isFinite, probe.duration > 0 { return probe.duration }
+        guard !Task.isCancelled, let probe = try? await VLCMediaProbe.inspect(url), probe.hasVideo,
+              probe.duration.isFinite, probe.duration > 0 else { return 0 }
+        return probe.duration
+    }
+
     func thumbnail(at url: URL) async -> Data? {
         guard !Task.isCancelled else { return nil }
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))

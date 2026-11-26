@@ -360,13 +360,48 @@ final class MediaThumbnailLoader {
             guard let resource = try? await PlaybackResourceResolver().resolve(item, source: source) else { return 0 }
             defer { resource.release() }
             let values = try? resource.url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-            let key = "\(source.id):\(item.id.localID):\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values?.fileSize ?? 0)" as NSString
-            if let cached = durationCache.object(forKey: key) { return cached.doubleValue }
-            let asset = AVURLAsset(url: resource.url)
-            guard let time = try? await asset.load(.duration), time.seconds.isFinite, time.seconds > 0, !Task.isCancelled else { return 0 }
-            durationCache.setObject(NSNumber(value: time.seconds), forKey: key)
-            return time.seconds
+            return await localDuration(item, url: resource.url, values: values)
         }
+    }
+
+    func deviceListMetadata(_ item: MediaItem, source: MediaSource) async -> (duration: Double, byteCount: Int?) {
+        guard item.id.sourceID == source.id, !Task.isCancelled else { return (0, nil) }
+        switch source.kind {
+        case .emby:
+            return (0, nil)
+        case .photos:
+            let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            guard status == .authorized || status == .limited,
+                  let asset = PHAsset.fetchAssets(withLocalIdentifiers: [item.id.localID], options: nil).firstObject else {
+                return (0, nil)
+            }
+            if #available(iOS 27.0, *) {
+                let resources = PHAssetResource.assetResources(for: asset)
+                let video = resources.first { $0.type == .fullSizeVideo } ?? resources.first { $0.type == .video }
+                if let bytes = video?.dataSize, bytes > 0 { return (asset.duration, bytes) }
+            }
+            let bytes = await PhotoVideoFileSizeRequest().load(asset, deliveryMode: .highQualityFormat, logsDiagnostics: false)
+            return (asset.duration, bytes)
+        case .local:
+            guard let resource = try? await PlaybackResourceResolver().resolve(item, source: source) else { return (0, nil) }
+            defer { resource.release() }
+            let values = try? resource.url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            let duration = await localDuration(item, url: resource.url, values: values, probesUnsupportedFormats: true)
+            return (duration, values?.fileSize)
+        }
+    }
+
+    private func localDuration(_ item: MediaItem, url: URL, values: URLResourceValues?,
+                               probesUnsupportedFormats: Bool = false) async -> Double {
+        let key = "\(item.id.sourceID):\(item.id.localID):\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values?.fileSize ?? 0)" as NSString
+        if let cached = durationCache.object(forKey: key) { return cached.doubleValue }
+        var duration = (try? await AVURLAsset(url: url).load(.duration))?.seconds ?? 0
+        if probesUnsupportedFormats, !duration.isFinite || duration <= 0, !Task.isCancelled {
+            duration = await VideoImporter.shared.probeDuration(at: url)
+        }
+        guard duration.isFinite, duration > 0, !Task.isCancelled else { return 0 }
+        durationCache.setObject(NSNumber(value: duration), forKey: key)
+        return duration
     }
 
     private func cachedImage(key: String, cacheOnly: Bool, generate: () async -> Data?) async -> Data? {

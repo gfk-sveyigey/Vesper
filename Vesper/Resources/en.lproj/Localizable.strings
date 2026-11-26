@@ -778,6 +778,9 @@
 "正在保存" = "Saving…";
 "保存文件" = "Save file";
 "保存全部" = "Save all";
+"无法访问 Vesper 的共享容器，请检查签名的 App Group。" = "Can't access Vesper's shared container. Check the App Group in the signature.";
+"请打开 Vesper 继续导入。" = "Open Vesper to continue importing.";
+"部分视频无法接收，请打开 Vesper 导入其余视频。" = "Some videos couldn't be received. Open Vesper to import the rest.";
 "特别篇" = "Specials";
 "添加 Emby 来源" = "Add Emby server";
 "编辑 Emby 来源" = "Edit Emby server";

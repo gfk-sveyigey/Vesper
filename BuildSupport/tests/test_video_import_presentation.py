@@ -9,11 +9,29 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 class VideoImportPresentationTests(unittest.TestCase):
-    def test_external_import_requests_a_document_copy(self):
+    def test_documents_are_visible_and_external_open_still_stages_a_copy(self):
         with (ROOT / 'Info.plist').open('rb') as file:
             configuration = plistlib.load(file)
-        self.assertIs(configuration['LSSupportsOpeningDocumentsInPlace'], False)
+        self.assertIs(configuration['LSSupportsOpeningDocumentsInPlace'], True)
+        self.assertIs(configuration['UIFileSharingEnabled'], True)
         self.assertTrue(configuration['CFBundleDocumentTypes'])
+        delivery = (ROOT / 'Vesper/App/VesperFileDelivery.swift').read_text()
+        self.assertIn('return FileDeliveryRouter.receive(url, origin: "app.open")', delivery)
+        self.assertIn('origin: String, requiresCopy: Bool = true', delivery)
+
+    def test_share_extension_is_embedded_and_uses_the_same_configurable_group(self):
+        main = plistlib.loads((ROOT / 'Info.plist').read_bytes())
+        share = plistlib.loads((ROOT / 'ShareExtension/Info.plist').read_bytes())
+        entitlements = plistlib.loads((ROOT / 'Vesper/App/VesperAppGroup.entitlements').read_bytes())
+        group = main['VesperAppGroupIdentifier']
+        self.assertEqual(group, share['VesperAppGroupIdentifier'])
+        self.assertEqual([group], entitlements['com.apple.security.application-groups'])
+        self.assertEqual(share['NSExtension']['NSExtensionPointIdentifier'], 'com.apple.share-services')
+        self.assertIn('public.movie', share['NSExtension']['NSExtensionAttributes']['NSExtensionActivationRule'])
+        project = (ROOT / 'Vesper.xcodeproj/project.pbxproj').read_text()
+        self.assertIn('productType = "com.apple.product-type.app-extension"', project)
+        self.assertIn('dstSubfolderSpec = 13;', project)
+        self.assertEqual(project.count('CODE_SIGN_ENTITLEMENTS = Vesper/App/VesperAppGroup.entitlements;'), 4)
 
     def test_separate_deliveries_are_published_as_one_batch_and_acknowledged_after_display(self):
         compiler = os.environ.get('SWIFTC') or shutil.which('swiftc')
@@ -74,6 +92,29 @@ import Foundation
         precondition(receiver.batches.first?.files.map(\.name) == ["third.mp4"])
         receiver.acknowledgePresented(receiver.batches.first!.id)
         precondition(receiver.batches.isEmpty)
+
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = UUID()
+        let staging = SharedVideoInbox.stagingDirectory(in: root, id: id)
+        for index in 0..<2 {
+            let slot = staging.appendingPathComponent(String(index))
+            try FileManager.default.createDirectory(at: slot, withIntermediateDirectories: true)
+            try Data([UInt8(index)]).write(to: slot.appendingPathComponent("same-name.mp4"))
+        }
+        await receiver.receiveSharedBatches(from: root)
+        precondition(receiver.batches.isEmpty)
+        try SharedVideoInbox.publish(staging, in: root, id: id)
+        await receiver.receiveSharedBatches(from: root)
+        await receiver.receiveSharedBatches(from: root)
+        precondition(receiver.batches.count == 1)
+        let files = receiver.batches.first!.files
+        precondition(files.map(\.name) == ["same-name.mp4", "same-name.mp4"])
+        precondition(files[0].url != files[1].url)
+        receiver.acknowledgePresented(receiver.batches.first!.id)
+        withExtendedLifetime(files) {
+            precondition(files.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) })
+        }
     }
 }
 '''
@@ -84,6 +125,7 @@ import Foundation
             (folder / 'Shims.swift').write_text(shims)
             (folder / 'Checks.swift').write_text(checks)
             subprocess.run([compiler, '-swift-version', '6', str(folder / 'IncomingVideo.swift'),
+                            str(ROOT / 'ShareExtension/SharedVideoInbox.swift'),
                             str(folder / 'Shims.swift'), str(folder / 'Checks.swift'), '-o', str(folder / 'checks')],
                            check=True, capture_output=True, text=True)
             subprocess.run([str(folder / 'checks')], check=True, capture_output=True, text=True)

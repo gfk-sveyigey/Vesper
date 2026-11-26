@@ -20,3 +20,9 @@ iOS 应用标识符：`com.aholic.vesper`。
 - 应用源码及所需资源，工程的 Bundle Identifier 同样设为 `com.aholic.vesper`，所有应用及扩展 target 的 iOS Deployment Target 设为 `26.0`。
 
 `VERSION` 当前版本为 `0.1.1`，发布前更新为所需的语义化版本。IPA 未签名，安装前需要自行签名。
+
+## 分享扩展签名
+
+- 主 App `com.aholic.vesper` 和扩展 `com.aholic.vesper.Share` 必须由同一团队签名，并签入同一个 App Group，默认是 `group.com.aholic.vesper`。不要让签名工具移除 `PlugIns/VesperShare.appex`。
+- 如果你的签名配置使用其他 Group ID，构建时覆盖 `VESPER_APP_GROUP`。重签已有 IPA 时，还需要同步修改两个包的 `Info.plist` 中的 `VesperAppGroupIdentifier`，再用与该 ID 匹配的 entitlement 签名。
+- 从「文件」或其他 App 多选视频，使用分享菜单里的 Vesper 扩展。暂存完成后打开 Vesper，选择「保存全部」；这与系统的「用 Vesper 打开」是两个入口。「文件 → 我的 iPhone → Vesper」可浏览已保存的视频。

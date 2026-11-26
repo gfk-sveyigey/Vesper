@@ -42,7 +42,8 @@
 <key>NSFaceIDUsageDescription</key><string>使用 Face ID 快速解锁 Vesper。</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 <key>UIFileSharingEnabled</key><true/>
-<key>LSSupportsOpeningDocumentsInPlace</key><false/>
+<key>LSSupportsOpeningDocumentsInPlace</key><true/>
+<key>VesperAppGroupIdentifier</key><string>$(VESPER_APP_GROUP)</string>
 <key>CFBundleDocumentTypes</key>
 <array><dict>
     <key>CFBundleTypeName</key><string>Video</string>
