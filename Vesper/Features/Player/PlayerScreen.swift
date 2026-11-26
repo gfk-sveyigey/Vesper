@@ -275,7 +275,7 @@ struct PlayerScreen: View {
                     // Keep the Menu mounted while fading the controls, so a
                     // system menu never loses its presentation anchor mid-use.
                     bottomControls(landscape: geometry.size.width > geometry.size.height)
-                        .opacity(controlsVisible || isScrubbing ? 1 : 0)
+                        .opacity(controlsVisible && !usesCompactProgress ? 1 : 0)
                         .allowsHitTesting(controlsVisible)
                         .accessibilityHidden(!controlsVisible)
                 }
@@ -314,6 +314,17 @@ struct PlayerScreen: View {
                 if let message = session.errorMessage, !isScrubbing { errorContent(message) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottom) {
+                if usesCompactProgress {
+                    progressCapsule(height: 30)
+                        .frame(height: 30)
+                        .padding(.leading, safeGeometry.safeAreaInsets.leading)
+                        .padding(.trailing, safeGeometry.safeAreaInsets.trailing)
+                        .padding(.horizontal, geometry.size.width > geometry.size.height ? 12 : 20)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             .foregroundStyle(.white).tint(.white)
             }
             .ignoresSafeArea(.container)
@@ -517,14 +528,7 @@ struct PlayerScreen: View {
             .opacity(showsOtherControls ? 1 : 0)
             .allowsHitTesting(showsOtherControls)
             .accessibilityHidden(!showsOtherControls)
-            progressRow
-                .padding(.horizontal, 12)
-                .background {
-                    Color.clear
-                        .frame(height: usesCompactProgress ? 30 : 56.0 * 2 / 3)
-                        .glassEffect(.regular, in: Capsule())
-                        .allowsHitTesting(false)
-                }
+            progressCapsule(height: 56.0 * 2 / 3)
                 .scaleEffect(isScrubbing && scrubShowsControls ? 1.06 : 1)
             bottomActions(landscape: landscape)
                 .opacity(showsOtherControls ? 1 : 0)
@@ -532,6 +536,17 @@ struct PlayerScreen: View {
                 .accessibilityHidden(!showsOtherControls)
         }
         .animation(.easeInOut(duration: 0.18), value: isScrubbing)
+    }
+
+    private func progressCapsule(height: CGFloat) -> some View {
+        progressRow
+            .padding(.horizontal, 12)
+            .background {
+                Color.clear
+                    .frame(height: height)
+                    .glassEffect(.regular, in: Capsule())
+                    .allowsHitTesting(false)
+            }
     }
 
     private var progressRow: some View {
