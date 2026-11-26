@@ -120,6 +120,7 @@ struct PlayerScreen: View {
     }
     private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
     private var showsOtherControls: Bool { controlsVisible && !isScrubbing }
+    private var usesCompactProgress: Bool { isScrubbing && !scrubShowsControls }
     private var canShowSystemVolume: Bool {
         scenePhase != .background && session.isPresented && panel == nil && !importingDanmaku
     }
@@ -520,11 +521,11 @@ struct PlayerScreen: View {
                 .padding(.horizontal, 12)
                 .background {
                     Color.clear
-                        .frame(height: 56.0 * 2 / 3)
+                        .frame(height: usesCompactProgress ? 30 : 56.0 * 2 / 3)
                         .glassEffect(.regular, in: Capsule())
                         .allowsHitTesting(false)
                 }
-                .scaleEffect(isScrubbing ? 1.06 : 1)
+                .scaleEffect(isScrubbing && scrubShowsControls ? 1.06 : 1)
             bottomActions(landscape: landscape)
                 .opacity(showsOtherControls ? 1 : 0)
                 .allowsHitTesting(showsOtherControls)
@@ -552,6 +553,7 @@ struct PlayerScreen: View {
     }
 
     private var progressBar: some View {
+        let trackHeight: CGFloat = usesCompactProgress ? 6 : 8
         let segments = progressBufferRanges.compactMap { range -> ClosedRange<CGFloat>? in
             guard range.lowerBound.isFinite, range.upperBound.isFinite else { return nil }
             let start = fraction(range.lowerBound)
@@ -560,12 +562,12 @@ struct PlayerScreen: View {
         }
         return GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.25)).frame(height: 8)
+                Capsule().fill(.white.opacity(0.25)).frame(height: trackHeight)
                 Capsule().fill(.white.opacity(0.35))
-                    .frame(height: 8)
+                    .frame(height: trackHeight)
                     .mask { PlayerBufferMask(segments: segments) }
                 Capsule().fill(.white)
-                    .frame(height: 8)
+                    .frame(height: trackHeight)
                     .frame(maxWidth: .infinity)
                     .mask(alignment: .leading) {
                         Rectangle().frame(width: geometry.size.width * fraction(isScrubbing ? scrubTime : session.currentTime))
