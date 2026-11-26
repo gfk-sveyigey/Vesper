@@ -120,7 +120,6 @@ struct PlayerScreen: View {
     }
     private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
     private var showsOtherControls: Bool { controlsVisible && !isScrubbing }
-    private var usesCompactProgress: Bool { isScrubbing && !scrubShowsControls }
     private var canShowSystemVolume: Bool {
         scenePhase != .background && session.isPresented && panel == nil && !importingDanmaku
     }
@@ -275,9 +274,9 @@ struct PlayerScreen: View {
                     // Keep the Menu mounted while fading the controls, so a
                     // system menu never loses its presentation anchor mid-use.
                     bottomControls(landscape: geometry.size.width > geometry.size.height)
-                        .opacity(controlsVisible && !usesCompactProgress ? 1 : 0)
-                        .allowsHitTesting(controlsVisible)
-                        .accessibilityHidden(!controlsVisible)
+                        .opacity(controlsVisible && scrubShowsControls ? 1 : 0)
+                        .allowsHitTesting(controlsVisible && scrubShowsControls)
+                        .accessibilityHidden(!controlsVisible || !scrubShowsControls)
                 }
                 .padding(.horizontal, geometry.size.width > geometry.size.height ? 12 : 20)
                 .padding(.vertical, 12)
@@ -314,18 +313,6 @@ struct PlayerScreen: View {
                 if let message = session.errorMessage, !isScrubbing { errorContent(message) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .bottom) {
-                if usesCompactProgress {
-                    progressCapsule(height: 30)
-                        .frame(height: 30)
-                        .padding(.leading, safeGeometry.safeAreaInsets.leading)
-                        .padding(.trailing, safeGeometry.safeAreaInsets.trailing)
-                        .padding(.horizontal, geometry.size.width > geometry.size.height ? 12 : 20)
-                        .padding(.bottom, safeGeometry.safeAreaInsets.bottom + 12)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-            }
             .foregroundStyle(.white).tint(.white)
             }
             .ignoresSafeArea(.container)
@@ -529,25 +516,21 @@ struct PlayerScreen: View {
             .opacity(showsOtherControls ? 1 : 0)
             .allowsHitTesting(showsOtherControls)
             .accessibilityHidden(!showsOtherControls)
-            progressCapsule(height: 56.0 * 2 / 3)
-                .scaleEffect(isScrubbing && scrubShowsControls ? 1.06 : 1)
+            progressRow
+                .padding(.horizontal, 12)
+                .background {
+                    Color.clear
+                        .frame(height: 56.0 * 2 / 3)
+                        .glassEffect(.regular, in: Capsule())
+                        .allowsHitTesting(false)
+                }
+                .scaleEffect(isScrubbing ? 1.06 : 1)
             bottomActions(landscape: landscape)
                 .opacity(showsOtherControls ? 1 : 0)
                 .allowsHitTesting(showsOtherControls)
                 .accessibilityHidden(!showsOtherControls)
         }
         .animation(.easeInOut(duration: 0.18), value: isScrubbing)
-    }
-
-    private func progressCapsule(height: CGFloat) -> some View {
-        progressRow
-            .padding(.horizontal, 12)
-            .background {
-                Color.clear
-                    .frame(height: height)
-                    .glassEffect(.regular, in: Capsule())
-                    .allowsHitTesting(false)
-            }
     }
 
     private var progressRow: some View {
@@ -569,7 +552,6 @@ struct PlayerScreen: View {
     }
 
     private var progressBar: some View {
-        let trackHeight: CGFloat = usesCompactProgress ? 6 : 8
         let segments = progressBufferRanges.compactMap { range -> ClosedRange<CGFloat>? in
             guard range.lowerBound.isFinite, range.upperBound.isFinite else { return nil }
             let start = fraction(range.lowerBound)
@@ -578,12 +560,12 @@ struct PlayerScreen: View {
         }
         return GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.25)).frame(height: trackHeight)
+                Capsule().fill(.white.opacity(0.25)).frame(height: 8)
                 Capsule().fill(.white.opacity(0.35))
-                    .frame(height: trackHeight)
+                    .frame(height: 8)
                     .mask { PlayerBufferMask(segments: segments) }
                 Capsule().fill(.white)
-                    .frame(height: trackHeight)
+                    .frame(height: 8)
                     .frame(maxWidth: .infinity)
                     .mask(alignment: .leading) {
                         Rectangle().frame(width: geometry.size.width * fraction(isScrubbing ? scrubTime : session.currentTime))
