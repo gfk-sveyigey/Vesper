@@ -816,7 +816,7 @@ struct MediaView: View {
         } label: {
             Group {
                 if let source = library.selectedSource, source.kind == .emby {
-                    sourceMenuIcon(source, size: 24, inMenu: false)
+                    sourceMenuIcon(source, size: 40, inMenu: false)
                 } else if let source = library.selectedSource, source.kind == .local || source.kind == .photos {
                     Image(systemName: sourceSymbol(source))
                         .font(.system(size: iconSize, weight: .medium))

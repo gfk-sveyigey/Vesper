@@ -255,9 +255,10 @@ struct AppNavigationView: View {
             }
             Tab("搜索", systemImage: "magnifyingglass", value: NavigationTab.search, role: .search) {
                 NavigationStack(path: $searchPath) {
-                    VesperRootScrollView(title: searchQuery.isEmpty ? "最近搜索" : "搜索",
-                                         usesSystemList: searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                        if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let showsRecentSearches = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    VesperRootScrollView(title: showsRecentSearches ? "最近搜索" : "搜索",
+                                         usesSystemList: showsRecentSearches) {
+                        if showsRecentSearches {
                             if recentSearches.isEmpty {
                                 VesperCenteredEmptyContent(message: "无最近搜索", symbol: "clock.arrow.circlepath")
                                     .listRowInsets(EdgeInsets())
@@ -299,23 +300,22 @@ struct AppNavigationView: View {
                                 searchPath.append(SearchMediaRoute(source: source, item: item))
                             }
                         }
+                    } actions: {
+                        if showsRecentSearches, !recentSearches.isEmpty {
+                            Button {
+                                isShowingClearSearchConfirmation = true
+                            } label: {
+                                Image(systemName: "trash")
+                                    .frame(width: 44, height: 44)
+                            }
+                            .buttonStyle(.plain)
+                            .glassEffect(.regular.interactive(), in: Circle())
+                            .accessibilityLabel("清空搜索历史")
+                        }
                     }
                     .searchable(text: $searchQuery, prompt: "搜索当前媒体来源")
                     .onSubmit(of: .search) { rememberSearch() }
                     .refreshable { searchRefreshID = UUID() }
-                    .toolbar {
-                        if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                           !recentSearches.isEmpty {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button {
-                                    isShowingClearSearchConfirmation = true
-                                } label: {
-                                    Image(systemName: "trash")
-                                }
-                                .accessibilityLabel("清空搜索历史")
-                            }
-                        }
-                    }
                     .confirmationDialog("清空全部搜索历史？", isPresented: $isShowingClearSearchConfirmation,
                                         titleVisibility: .visible) {
                         Button("清空搜索历史", role: .destructive) {

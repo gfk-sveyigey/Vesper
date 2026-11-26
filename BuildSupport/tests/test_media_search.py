@@ -19,10 +19,19 @@ class MediaSearchTests(unittest.TestCase):
     def test_recent_search_history_uses_native_list_swipe_actions(self):
         navigation = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
         root_list = (ROOT / 'Vesper/Infrastructure/Navigation/VesperImmersiveTitle.swift').read_text()
-        self.assertIn('usesSystemList: searchQuery.trimmingCharacters', navigation)
+        self.assertIn('let showsRecentSearches = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty', navigation)
+        self.assertIn('usesSystemList: showsRecentSearches', navigation)
         self.assertIn('.swipeActions(edge: .trailing, allowsFullSwipe: true)', navigation)
         self.assertIn('if usesSystemList {\n                List {', root_list)
         self.assertNotIn('RecentSearchHistoryRow', navigation)
+
+    def test_clear_search_history_belongs_to_recent_search_header(self):
+        navigation = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
+        search = navigation.split('Tab("搜索"', 1)[1].split('.modifier(VesperNavigationHeaderLayer', 1)[0]
+        actions = search.split('} actions: {', 1)[1].split('.searchable(', 1)[0]
+        self.assertIn('if showsRecentSearches, !recentSearches.isEmpty {', actions)
+        self.assertIn('.accessibilityLabel("清空搜索历史")', actions)
+        self.assertNotIn('.toolbar {', search)
 
     def test_search_loading_uses_centered_empty_content_style(self):
         navigation = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
