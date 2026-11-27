@@ -105,16 +105,24 @@ final class IncomingVideoReceiver: ObservableObject {
 
     func receive(_ url: URL, requiresCopy: Bool) {
         // Acquire sandbox access synchronously in the system's URL callback.
-        let access = IncomingFileAccess(url: url)
+        receive(IncomingFileAccess(url: url), requiresCopy: requiresCopy)
+    }
+
+    func receivePickedFiles(_ files: [IncomingFileAccess]) {
+        // The document picker already delivered copies with access retained.
+        for file in files { receive(file, requiresCopy: false) }
+    }
+
+    private func receive(_ access: IncomingFileAccess, requiresCopy: Bool) {
+        let url = access.url
         requests.append(Request(access: access, requiresCopy: requiresCopy))
         publishTask?.cancel()
         log("收到文件 URL，scheme=\(url.scheme ?? "nil") extension=\(url.pathExtension) scoped=\(access.hasSecurityScope) requiresCopy=\(requiresCopy)")
         inspectNext()
     }
 
-    /// Reserve by peeking; only acknowledge after the import sheet appears.
-    /// A rejected/background presentation must not silently lose the file.
-    func acknowledgePresented(_ id: UUID) {
+    /// Remove a batch once its preview is visible or automatic saving owns its files.
+    func acknowledgeBatch(_ id: UUID) {
         batches.removeAll { $0.id == id }
     }
 
@@ -147,7 +155,7 @@ final class IncomingVideoReceiver: ObservableObject {
                 log("可读取文件中未发现视频流")
                 inspectedNonVideoCount += 1
             case .video(let file):
-                log("视频检查通过，等待用户选择操作")
+                log("视频检查通过，加入导入队列")
                 inspectedVideos.append(file)
             }
         }

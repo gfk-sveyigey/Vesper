@@ -36,9 +36,11 @@ struct AppNavigationView: View {
     @State private var searchPath = NavigationPath()
     @State private var searchRefreshID = UUID()
     @State private var isShowingClearSearchConfirmation = false
-    @State private var pickedVideoAccess: IncomingFileAccess?
+    @State private var pickedVideos: [IncomingFileAccess] = []
     @State private var videoPickerDismissed = true
     @State private var previewBatch: IncomingVideoBatch?
+    @State private var isSavingIncomingBatch = false
+    @State private var pendingImportFailures: [String] = []
     @State private var importPresentationHost = VideoImportPresentationProbeController()
     @State private var playerPresentationDismissed = true
     @State private var playAfterPreviewDismiss: IncomingVideo?
@@ -139,8 +141,8 @@ struct AppNavigationView: View {
             videoPickerDismissed = true
             deliverPickedVideo()
         }) {
-            VideoDocumentPicker { access in
-                pickedVideoAccess = access
+            VideoDocumentPicker { files in
+                pickedVideos = files
                 incomingVideos.isSelectingVideo = false
                 deliverPickedVideo()
             } onCancel: {
@@ -148,15 +150,17 @@ struct AppNavigationView: View {
             }
         }
         .sheet(item: $previewBatch, onDismiss: incomingPreviewDismissed) { batch in
-            VideoImportSheet(files: batch.files) { file in
-                playAfterPreviewDismiss = file
-                previewBatch = nil
-            } saved: {
-                library.registerImportedVideos(name: VesperLocalization.string("本地视频"))
-            }
-            .onAppear {
-                incomingVideos.acknowledgePresented(batch.id)
-                FileDeliveryLog.write("视频导入面板已显示")
+            if let file = batch.files.first {
+                VideoImportSheet(file: file) {
+                    playAfterPreviewDismiss = file
+                    previewBatch = nil
+                } saved: {
+                    library.registerImportedVideos(name: VesperLocalization.string("本地视频"))
+                }
+                .onAppear {
+                    incomingVideos.acknowledgeBatch(batch.id)
+                    FileDeliveryLog.write("视频导入面板已显示")
+                }
             }
         }
         .alert("视频导入", isPresented: $isShowingImportNotice) {
@@ -383,34 +387,69 @@ struct AppNavigationView: View {
 
     private func deliverPickedVideo() {
         guard videoPickerDismissed else { return }
-        if let access = pickedVideoAccess {
-            pickedVideoAccess = nil
-            FileDeliveryLog.write("根页面文档选择器已关闭，交付视频")
-            withExtendedLifetime(access) {
-                FileDeliveryRouter.receive(access.url, origin: "documentPicker", requiresCopy: false)
-            }
+        if !pickedVideos.isEmpty {
+            let files = pickedVideos
+            pickedVideos = []
+            FileDeliveryLog.write("根页面文档选择器已关闭，交付文件数=\(files.count)")
+            incomingVideos.receivePickedFiles(files)
         } else {
             presentNextIncomingVideo()
         }
     }
 
     private func presentNextIncomingVideo() {
-        guard scenePhase == .active, videoPickerDismissed, !incomingVideos.isSelectingVideo, previewBatch == nil, !isShowingImportNotice, playAfterPreviewDismiss == nil else { return }
-        let hasNotice = incomingVideos.nonVideoCount > acknowledgedNonVideoCount
-        guard hasNotice || !incomingVideos.batches.isEmpty else { return }
-        // Dismiss the existing full-screen UI before presenting the preview.
-        // Its decoder/session stays alive until the user chooses Direct Play.
+        guard scenePhase == .active, videoPickerDismissed, !incomingVideos.isSelectingVideo,
+              previewBatch == nil, !isShowingImportNotice, !isSavingIncomingBatch,
+              playAfterPreviewDismiss == nil else { return }
+        let batch = incomingVideos.batches.first
+        if let batch, batch.files.count > 1 {
+            saveIncomingBatch(batch)
+            return
+        }
+
+        let hasNonVideoNotice = incomingVideos.nonVideoCount > acknowledgedNonVideoCount
+        guard batch != nil || hasNonVideoNotice || !pendingImportFailures.isEmpty else { return }
         if playback.isPresented {
-            playback.isPresented = false
+            // Only a single-video preview needs to close the full-screen UI.
+            if batch != nil { playback.isPresented = false }
             return
         }
         guard playerPresentationDismissed, importPresentationHost.canPresent else { return }
-        if let batch = incomingVideos.batches.first {
+        if !pendingImportFailures.isEmpty {
+            importNotice = pendingImportFailures.joined(separator: "\n\n")
+            pendingImportFailures.removeAll()
+            isShowingImportNotice = true
+        } else if let batch {
             previewBatch = batch
-        } else if hasNotice {
+        } else if hasNonVideoNotice {
             acknowledgedNonVideoCount = incomingVideos.nonVideoCount
             importNotice = VesperLocalization.string("此文件不是视频文件。")
             isShowingImportNotice = true
+        }
+    }
+
+    private func saveIncomingBatch(_ batch: IncomingVideoBatch) {
+        isSavingIncomingBatch = true
+        // The task retains every file's access until its copy finishes.
+        incomingVideos.acknowledgeBatch(batch.id)
+        Task {
+            var savedCount = 0
+            var failures: [String] = []
+            for file in batch.files {
+                do {
+                    _ = try await VideoImporter.shared.importVideo(file)
+                    savedCount += 1
+                } catch {
+                    failures.append("\(file.name)\n\(error.localizedDescription)")
+                    FileDeliveryLog.write("保存失败：\(error.localizedDescription)")
+                }
+            }
+            if savedCount > 0 {
+                library.registerImportedVideos(name: VesperLocalization.string("本地视频"))
+                FileDeliveryLog.write("批量保存完成，成功=\(savedCount)，总数=\(batch.files.count)")
+            }
+            pendingImportFailures.append(contentsOf: failures)
+            isSavingIncomingBatch = false
         }
     }
 
@@ -422,6 +461,8 @@ struct AppNavigationView: View {
               selecting: incomingVideos.isSelectingVideo,
               pickerDismissed: videoPickerDismissed,
               noticeVisible: isShowingImportNotice,
+              hasSaveFailure: !pendingImportFailures.isEmpty,
+              savingBatch: isSavingIncomingBatch,
               playerVisible: playback.isPresented,
               playerDismissed: playerPresentationDismissed,
               awaitingPlay: playAfterPreviewDismiss != nil)
@@ -446,13 +487,20 @@ struct AppNavigationView: View {
         // Explicit new-file/foreground events may dismiss the current player.
         // A retry alone must not immediately close Direct Play just chosen
         // from the previous sheet merely because more files remain queued.
-        guard previewBatch == nil, !isShowingImportNotice, !playback.isPresented,
+        guard previewBatch == nil, !isShowingImportNotice, !isSavingIncomingBatch,
               playAfterPreviewDismiss == nil, !incomingVideos.isSelectingVideo,
               videoPickerDismissed else { return }
+        if playback.isPresented {
+            if let batch = incomingVideos.batches.first, batch.files.count > 1 {
+                saveIncomingBatch(batch)
+            }
+            return
+        }
         while !Task.isCancelled,
-              !incomingVideos.batches.isEmpty || incomingVideos.nonVideoCount > acknowledgedNonVideoCount {
+              !incomingVideos.batches.isEmpty || !pendingImportFailures.isEmpty
+                || incomingVideos.nonVideoCount > acknowledgedNonVideoCount {
             presentNextIncomingVideo()
-            if previewBatch != nil || isShowingImportNotice { return }
+            if previewBatch != nil || isShowingImportNotice || isSavingIncomingBatch { return }
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
         }
     }
@@ -560,6 +608,8 @@ private struct VideoImportPresentationRequest: Hashable {
     let selecting: Bool
     let pickerDismissed: Bool
     let noticeVisible: Bool
+    let hasSaveFailure: Bool
+    let savingBatch: Bool
     let playerVisible: Bool
     let playerDismissed: Bool
     let awaitingPlay: Bool

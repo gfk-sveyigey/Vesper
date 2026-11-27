@@ -36,7 +36,7 @@ class VideoImportPresentationTests(unittest.TestCase):
         self.assertEqual(project.count('CODE_SIGN_ENTITLEMENTS = "$(VESPER_APP_GROUP_ENTITLEMENTS)";'), 4)
         self.assertNotIn('CODE_SIGN_ENTITLEMENTS = Vesper/App/VesperAppGroup.entitlements;', project)
 
-    def test_separate_deliveries_are_published_as_one_batch_and_acknowledged_after_display(self):
+    def test_separate_deliveries_are_published_as_one_batch_and_acknowledged_after_handling(self):
         compiler = os.environ.get('SWIFTC') or shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable')
@@ -88,12 +88,12 @@ import Foundation
             try await Task.sleep(for: .milliseconds(20))
         }
         precondition(receiver.batches.count == 2 && receiver.batches.first?.id == reserved.id)
-        receiver.acknowledgePresented(reserved.id)
+        receiver.acknowledgeBatch(reserved.id)
         // Repeated onAppear is idempotent and must not consume the next batch.
-        receiver.acknowledgePresented(reserved.id)
+        receiver.acknowledgeBatch(reserved.id)
         precondition(receiver.batches.count == 1)
         precondition(receiver.batches.first?.files.map(\.name) == ["third.mp4"])
-        receiver.acknowledgePresented(receiver.batches.first!.id)
+        receiver.acknowledgeBatch(receiver.batches.first!.id)
         precondition(receiver.batches.isEmpty)
 
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -114,7 +114,7 @@ import Foundation
         let files = receiver.batches.first!.files
         precondition(files.map(\.name) == ["same-name.mp4", "same-name.mp4"])
         precondition(files[0].url != files[1].url)
-        receiver.acknowledgePresented(receiver.batches.first!.id)
+        receiver.acknowledgeBatch(receiver.batches.first!.id)
         withExtendedLifetime(files) {
             precondition(files.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) })
         }
@@ -212,13 +212,41 @@ import Foundation
         self.assertIn('.onChange(of: incomingVideos.nonVideoCount, initial: true)', source)
         self.assertIn('if phase == .active { presentNextIncomingVideo() }', source)
         self.assertIn('playerPresentationDismissed, importPresentationHost.canPresent', source)
-        self.assertIn('if let batch = incomingVideos.batches.first {\n            previewBatch = batch', source)
         self.assertNotIn('incomingVideos.takeNext()', source)
-        self.assertIn('VideoImportSheet(files: batch.files)', source)
-        self.assertIn('incomingVideos.acknowledgePresented(batch.id)', source)
+        self.assertIn('VideoImportSheet(file: file)', source)
+        self.assertIn('incomingVideos.acknowledgeBatch(batch.id)', source)
         self.assertIn('.task(id: incomingPresentationRequest)', source)
         self.assertIn('return root.presentedViewController == nil', source)
         self.assertNotIn('controller.children.contains { hasPresentation(in: $0) }', source)
+
+    def test_multiple_videos_save_before_presentation_and_single_preview_has_one_detent(self):
+        nav = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
+        sheet = (ROOT / 'Vesper/Features/Import/VideoImportSheet.swift').read_text()
+        route = nav.split('private func presentNextIncomingVideo()', 1)[1].split('private func saveIncomingBatch', 1)[0]
+        save = nav.split('private func saveIncomingBatch', 1)[1].split('private var incomingPresentationRequest', 1)[0]
+        self.assertLess(route.index('batch.files.count > 1'), route.index('importPresentationHost.canPresent'))
+        self.assertIn('saveIncomingBatch(batch)\n            return', route)
+        self.assertIn('previewBatch = batch', route)
+        self.assertIn('for file in batch.files', save)
+        self.assertIn('try await VideoImporter.shared.importVideo(file)', save)
+        self.assertIn('pendingImportFailures.append(contentsOf: failures)', save)
+        self.assertEqual(save.count('library.registerImportedVideos('), 1)
+        self.assertIn('let file: IncomingVideo', sheet)
+        self.assertIn('.presentationDetents([.custom(VideoImportDetent.self)])', sheet)
+        self.assertIn('.presentationDragIndicator(.hidden)', sheet)
+
+    def test_document_picker_delivers_all_selected_copies_after_dismissal(self):
+        local = (ROOT / 'Vesper/Features/Media/LocalFilesView.swift').read_text()
+        nav = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
+        receiver = (ROOT / 'Vesper/Infrastructure/Sources/IncomingVideo.swift').read_text()
+        picker = local.split('struct VideoDocumentPicker:', 1)[1]
+        self.assertIn('asCopy: true', picker)
+        self.assertIn('picker.allowsMultipleSelection = true', picker)
+        self.assertIn('onPick(urls.map { IncomingFileAccess(url: $0) })', picker)
+        self.assertNotIn('urls.first', picker)
+        delivery = nav.split('private func deliverPickedVideo()', 1)[1].split('private func presentNextIncomingVideo', 1)[0]
+        self.assertLess(delivery.index('guard videoPickerDismissed'), delivery.index('receivePickedFiles(files)'))
+        self.assertIn('for file in files { receive(file, requiresCopy: false) }', receiver)
 
     def test_share_inbox_url_only_requests_reading_published_batches(self):
         extension = (ROOT / 'ShareExtension/VideoShareViewController.swift').read_text()
@@ -226,7 +254,10 @@ import Foundation
         self.assertIn('vesper://share-inbox', extension)
         stage = extension.split('private func stageVideos()', 1)[1].split('private func showMessage', 1)[0]
         self.assertLess(stage.index('SharedVideoInbox.publish'), stage.index('finish(batch)'))
-        self.assertIn('if !opened { SharedVideoInbox.discardPublishedBatch(batch) }', extension)
+        self.assertIn('if let failure {\n            SharedVideoInbox.discardPublishedBatch(batch)', extension)
+        self.assertIn('.task(id: presentation.appeared)', extension)
+        self.assertIn('override func viewDidAppear(_ animated: Bool)', extension)
+        self.assertIn('var responder: UIResponder? = view', extension)
         self.assertIn('url.host == "share-inbox", url.path.isEmpty', delivery)
         self.assertIn('Task { await IncomingVideoReceiver.shared.receiveSharedBatches() }', delivery)
 

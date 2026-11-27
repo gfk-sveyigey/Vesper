@@ -1,9 +1,18 @@
+import Combine
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+@MainActor
+private final class VideoSharePresentation: ObservableObject {
+    @Published var appeared = false
+    @Published var launchFailure: String?
+}
+
 final class VideoShareViewController: UIViewController {
     private var didFinish = false
+    private var didResolveHandoff = false
+    private let presentation = VideoSharePresentation()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -12,7 +21,7 @@ final class VideoShareViewController: UIViewController {
         let providers = extensionContext.inputItems.compactMap { $0 as? NSExtensionItem }
             .flatMap { $0.attachments ?? [] }
             .filter(SharedVideoTransfer.supports)
-        let host = UIHostingController(rootView: VideoShareView(providers: providers) { [weak self] batch in
+        let host = UIHostingController(rootView: VideoShareView(providers: providers, presentation: presentation) { [weak self] batch in
             guard let self else { return }
             if let batch {
                 openVesper(batch: batch)
@@ -27,34 +36,45 @@ final class VideoShareViewController: UIViewController {
         host.didMove(toParent: self)
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        presentation.appeared = true
+    }
+
     private func openVesper(batch: URL) {
         // Share extensions cannot call UIApplication.open directly.
         let selector = NSSelectorFromString("openURL:options:completionHandler:")
-        var responder: UIResponder? = self
+        var responder: UIResponder? = view
         while let current = responder {
             if let application = current as? UIApplication, application.responds(to: selector) {
                 let implementation: IMP? = application.method(for: selector)
                 guard let implementation, let url = NSURL(string: "vesper://share-inbox") else { break }
-                typealias Open = @convention(c) (UIApplication, Selector, NSURL, NSDictionary, @convention(block) (Bool) -> Void) -> Void
+                typealias Open = @convention(c) (AnyObject, Selector, NSURL, NSDictionary,
+                                                 (@convention(block) (Bool) -> Void)?) -> Void
                 let open = unsafeBitCast(implementation, to: Open.self)
                 open(application, selector, url, NSDictionary()) { @Sendable [weak self] opened in
-                    Task { @MainActor in self?.finishHandoff(batch: batch, opened: opened) }
+                    Task { @MainActor in self?.finishHandoff(batch: batch, failure: opened ? nil : "rejected") }
                 }
                 Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(5))
-                    self?.finishHandoff(batch: batch, opened: false)
+                    self?.finishHandoff(batch: batch, failure: "timeout")
                 }
                 return
             }
             responder = current.next
         }
-        finishHandoff(batch: batch, opened: false)
+        finishHandoff(batch: batch, failure: "no-responder")
     }
 
-    private func finishHandoff(batch: URL, opened: Bool) {
-        guard !didFinish else { return }
-        if !opened { SharedVideoInbox.discardPublishedBatch(batch) }
-        finish(cancelled: !opened)
+    private func finishHandoff(batch: URL, failure: String?) {
+        guard !didFinish, !didResolveHandoff else { return }
+        didResolveHandoff = true
+        if let failure {
+            SharedVideoInbox.discardPublishedBatch(batch)
+            presentation.launchFailure = failure
+        } else {
+            finish()
+        }
     }
 
     private func finish(cancelled: Bool = false) {
@@ -70,6 +90,7 @@ final class VideoShareViewController: UIViewController {
 
 private struct VideoShareView: View {
     let providers: [NSItemProvider]
+    @ObservedObject var presentation: VideoSharePresentation
     let finish: (URL?) -> Void
     @State private var started = false
     @State private var message: LocalizedStringKey = ""
@@ -85,11 +106,22 @@ private struct VideoShareView: View {
             .accessibilityLabel("Vesper")
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.top, 18)
-            .task { await stageVideos() }
+            .task(id: presentation.appeared) {
+                guard presentation.appeared else { return }
+                await stageVideos()
+            }
             .alert("接收视频", isPresented: $showsMessage) {
                 Button(publishedBatch == nil ? "关闭" : "继续") { finish(publishedBatch) }
             } message: {
                 Text(message)
+            }
+            .alert("无法打开 Vesper", isPresented: Binding(
+                get: { presentation.launchFailure != nil },
+                set: { if !$0 { presentation.launchFailure = nil } }
+            ), presenting: presentation.launchFailure) { _ in
+                Button("关闭") { finish(nil) }
+            } message: { reason in
+                Text(verbatim: reason)
             }
     }
 

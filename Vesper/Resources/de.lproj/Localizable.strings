@@ -777,7 +777,6 @@
 "弹幕 API 返回的数据无效或接口不兼容。" = "Der Dienst liefert ungültige Daten oder eine nicht unterstützte API.";
 "正在保存" = "Wird gespeichert…";
 "保存文件" = "Datei speichern";
-"保存全部" = "Alle speichern";
 "无法访问 Vesper 的共享容器，请检查签名的 App Group。" = "Der gemeinsame Vesper-Container ist nicht verfügbar. Prüfe die App Group der Signatur.";
 "请打开 Vesper 继续导入。" = "Öffne Vesper, um den Import fortzusetzen.";
 "分享暂存" = "Geteilte Dateien";
@@ -1178,3 +1177,4 @@
 
 "媒体来源无效" = "Ungültige Medienquelle";
 "Emby登录失败，请检查来源设置。" = "Emby-Anmeldung fehlgeschlagen. Überprüfe die Quelleneinstellungen.";
+"无法打开 Vesper" = "Vesper konnte nicht geöffnet werden";

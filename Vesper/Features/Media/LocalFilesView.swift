@@ -375,7 +375,7 @@ private struct LocalMoveView: View {
 
 /// Use the documented delegate and retain copy-mode delivery for file providers.
 struct VideoDocumentPicker: UIViewControllerRepresentable {
-    let onPick: (IncomingFileAccess) -> Void
+    let onPick: ([IncomingFileAccess]) -> Void
     let onCancel: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -384,7 +384,7 @@ struct VideoDocumentPicker: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
-        picker.allowsMultipleSelection = false
+        picker.allowsMultipleSelection = true
         picker.delegate = context.coordinator
         FileDeliveryLog.write("原生文档选择器已创建，delegate 已绑定")
         return picker
@@ -397,22 +397,21 @@ struct VideoDocumentPicker: UIViewControllerRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        var onPick: (IncomingFileAccess) -> Void
+        var onPick: ([IncomingFileAccess]) -> Void
         var onCancel: () -> Void
 
-        init(onPick: @escaping (IncomingFileAccess) -> Void, onCancel: @escaping () -> Void) {
+        init(onPick: @escaping ([IncomingFileAccess]) -> Void, onCancel: @escaping () -> Void) {
             self.onPick = onPick
             self.onCancel = onCancel
         }
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             FileDeliveryLog.write("原生文档选择回调，文件数量=\(urls.count)")
-            guard let url = urls.first else {
+            guard !urls.isEmpty else {
                 onCancel()
                 return
             }
-            FileDeliveryLog.write("原生文档选择成功，extension=\(url.pathExtension)")
-            onPick(IncomingFileAccess(url: url))
+            onPick(urls.map { IncomingFileAccess(url: $0) })
         }
 
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
