@@ -694,6 +694,11 @@
 "当前标识" = "Identidad actual";
 "启用客户端模拟" = "Personalizar identidad del cliente";
 "界面设计" = "Diseño de interfaz";
+"控制区边缘间距" = "Margen de los controles";
+"黑色渐变强度" = "Intensidad del degradado negro";
+"液态玻璃材质" = "Material de Liquid Glass";
+"标准" = "Normal";
+"通透" = "Transparente";
 "媒体页导航栏" = "Cabecera multimedia";
 "轮播图底部模糊" = "Desenfoque inferior del carrusel";
 "选择缓存类别" = "Seleccionar tipos de caché";

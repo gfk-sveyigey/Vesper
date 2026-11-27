@@ -92,6 +92,9 @@ struct PlayerScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(PlaybackPreferences.alwaysShowsMoreControlsKey) private var alwaysShowsMoreControls = false
+    @AppStorage(PlaybackDiagnostics.controlEdgeSpacingKey) private var storedControlEdgeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlGradientStrengthKey) private var storedControlGradientStrength = PlaybackDiagnostics.defaultControlGradientStrength
+    @AppStorage(PlaybackDiagnostics.controlGlassClearKey) private var controlGlassClear = false
     @State private var controlsVisible = false
     @State private var moreControlsExpanded = false
     @State private var isMoreControlsSwipe = false
@@ -136,7 +139,17 @@ struct PlayerScreen: View {
     private var showsMoreControls: Bool { alwaysShowsMoreControls || moreControlsExpanded }
     private let bottomButtonSize: CGFloat = 44
     private let bottomControlSpacing: CGFloat = 8
-    private let verticalControlPadding: CGFloat = 12
+    private var controlEdgeSpacing: CGFloat {
+        let range = PlaybackDiagnostics.controlEdgeSpacingRange
+        return CGFloat(min(max(storedControlEdgeSpacing, range.lowerBound), range.upperBound))
+    }
+    private var controlGlass: Glass { controlGlassClear ? .clear : .regular }
+    private var controlGradient: LinearGradient {
+        let range = PlaybackDiagnostics.controlGradientStrengthRange
+        let strength = Double(min(max(storedControlGradientStrength, range.lowerBound), range.upperBound)) / 100
+        return LinearGradient(colors: [.black.opacity(0.6 * strength), .clear, .clear, .black.opacity(0.75 * strength)],
+                              startPoint: .top, endPoint: .bottom)
+    }
     private var needsLoadingIndicator: Bool { (session.isLoading || session.isSeeking) && !isScrubbing }
     private var showsTransportControls: Bool {
         controlsVisible && session.errorMessage == nil && !session.isLoading
@@ -271,11 +284,12 @@ struct PlayerScreen: View {
     }
 
     private var presentedPlayer: some View {
-        // Read safe-area margins outside the edge-to-edge viewport. Video,
-        // transport and UIKit rotation now share the full-screen midpoint;
-        // only the peripheral controls are inset into the safe area.
+        // Read the status-bar and lateral insets outside the full-screen viewport.
         GeometryReader { safeGeometry in
             GeometryReader { geometry in
+            let landscape = geometry.size.width > geometry.size.height
+            let safeInsets = safeGeometry.safeAreaInsets
+            let topControlInset = controlEdgeSpacing + (landscape ? 0 : safeInsets.top)
             ZStack {
                 Color.black.ignoresSafeArea()
                 if let view = session.videoView {
@@ -301,35 +315,19 @@ struct PlayerScreen: View {
                 }, panned: handlePan)
                     .ignoresSafeArea()
                     .accessibilityHidden(true)
-                LinearGradient(colors: [.black.opacity(0.6), .clear, .clear, .black.opacity(0.75)],
-                               startPoint: .top, endPoint: .bottom)
+                controlGradient
                     .ignoresSafeArea()
                     .opacity(controlsVisible ? 1 : 0)
                     .allowsHitTesting(false)
                 // Independent placement keeps the transport centered on the
                 // actual video, regardless of header/title/progress height.
-                transportControls
+                transportControls(landscape: landscape)
                     .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                     .opacity(showsTransportControls ? 1 : 0)
                     .allowsHitTesting(showsTransportControls && !isScrubbing)
                     .accessibilityHidden(!showsTransportControls || isScrubbing)
-                VStack {
-                    let landscape = geometry.size.width > geometry.size.height
-                    let availableWidth = max(0, geometry.size.width - safeGeometry.safeAreaInsets.leading
-                                             - safeGeometry.safeAreaInsets.trailing - (landscape ? 24 : 40))
-                    topControls(availableWidth: availableWidth, landscape: landscape)
-                    Spacer(minLength: 0)
-                    // Keep the Menu mounted while fading the controls, so a
-                    // system menu never loses its presentation anchor mid-use.
-                    bottomControls(landscape: landscape, availableWidth: availableWidth,
-                                   bottomInset: safeGeometry.safeAreaInsets.bottom)
-                        .opacity(controlsVisible ? 1 : 0)
-                        .allowsHitTesting(controlsVisible)
-                        .accessibilityHidden(!controlsVisible)
-                }
-                .padding(.horizontal, geometry.size.width > geometry.size.height ? 12 : 20)
-                .padding(.vertical, verticalControlPadding)
-                .padding(safeGeometry.safeAreaInsets)
+                peripheralControls(landscape: landscape, viewportWidth: geometry.size.width,
+                                   safeInsets: safeInsets, topInset: topControlInset)
                 if needsLoadingIndicator && loadingIndicatorVisible {
                     VStack(spacing: 12) {
                         ProgressView().controlSize(.large).tint(.white)
@@ -352,8 +350,8 @@ struct PlayerScreen: View {
                         .font(.caption.monospacedDigit())
                         .lineLimit(1)
                         .padding(.horizontal, 12).padding(.vertical, 6)
-                        .glassEffect(.regular, in: Capsule())
-                        .padding(.top, safeGeometry.safeAreaInsets.top + (controlsVisible ? 62 : 8))
+                        .glassEffect(controlGlass, in: Capsule())
+                        .padding(.top, controlsVisible ? topControlInset + 50 : safeInsets.top + 8)
                         if scrubSource == .surface { scrubPreviewImage }
                         Spacer()
                     }
@@ -436,7 +434,7 @@ struct PlayerScreen: View {
                         .frame(width: 44, height: 44)
                         .accessibilityLabel("投屏")
                 }
-                .glassEffect(.regular.interactive(), in: Capsule())
+                .glassEffect(controlGlass.interactive(), in: Capsule())
                 Spacer(minLength: 0)
             }
             .opacity(showsButtons ? 1 : 0)
@@ -448,6 +446,25 @@ struct PlayerScreen: View {
                 .accessibilityHidden(!showsVolume)
         }
         .frame(height: 44)
+    }
+
+    private func peripheralControls(landscape: Bool, viewportWidth: CGFloat,
+                                    safeInsets: EdgeInsets, topInset: CGFloat) -> some View {
+        let horizontalPadding: CGFloat = landscape ? 12 : 20
+        let availableWidth = max(0, viewportWidth - safeInsets.leading - safeInsets.trailing - horizontalPadding * 2)
+        return VStack {
+            topControls(availableWidth: availableWidth, landscape: landscape)
+            Spacer(minLength: 0)
+            // Keep the Menu mounted so it never loses its presentation anchor.
+            bottomControls(landscape: landscape, availableWidth: availableWidth)
+                .opacity(controlsVisible ? 1 : 0)
+                .allowsHitTesting(controlsVisible)
+                .accessibilityHidden(!controlsVisible)
+        }
+        .padding(.leading, safeInsets.leading + horizontalPadding)
+        .padding(.trailing, safeInsets.trailing + horizontalPadding)
+        .padding(.top, topInset)
+        .padding(.bottom, controlEdgeSpacing)
     }
 
     private var audioIsMuted: Bool { session.isMuted || volume.value <= 0.001 }
@@ -480,7 +497,7 @@ struct PlayerScreen: View {
             }
             .clipShape(Capsule())
             .allowsHitTesting(false)
-            .glassEffect(.regular.interactive(), in: Capsule())
+            .glassEffect(controlGlass.interactive(), in: Capsule())
             .overlay(alignment: .trailing) {
                 PlayerVolumeGlyph(level: Double(volume.value), isMuted: audioIsMuted)
                     .frame(width: 44, height: 44)
@@ -532,23 +549,23 @@ struct PlayerScreen: View {
         }
     }
 
-    private var transportControls: some View {
-        HStack(spacing: 32) {
-            glassButton("快退", symbol: skipSymbol(backward: true), size: 60) {
+    private func transportControls(landscape: Bool) -> some View {
+        HStack(spacing: landscape ? 64 : 32) {
+            glassButton("快退", symbol: skipSymbol(backward: true), size: 60, iconSize: 27) {
                 session.seekManually(to: session.currentTime - PlayerGesturePreferences.skipInterval)
             }.disabled(!session.canSeek)
             glassButton(session.isPlaying ? "暂停" : "播放",
-                        symbol: session.isPlaying ? "pause.fill" : "play.fill", size: 88) {
+                        symbol: session.isPlaying ? "pause.fill" : "play.fill", size: 88, iconSize: 38) {
                 session.togglePlayback()
             }.disabled(!session.canControl)
-            glassButton("快进", symbol: skipSymbol(backward: false), size: 60) {
+            glassButton("快进", symbol: skipSymbol(backward: false), size: 60, iconSize: 27) {
                 session.seekManually(to: session.currentTime + PlayerGesturePreferences.skipInterval)
             }.disabled(!session.canSeek)
         }
         .fixedSize()
     }
 
-    private func bottomControls(landscape: Bool, availableWidth: CGFloat, bottomInset: CGFloat) -> some View {
+    private func bottomControls(landscape: Bool, availableWidth: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: bottomControlSpacing) {
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -567,8 +584,8 @@ struct PlayerScreen: View {
                 .padding(.horizontal, 12)
                 .background {
                     Color.clear
-                        .frame(height: 56.0 * 2 / 3)
-                        .glassEffect(.regular, in: Capsule())
+                        .frame(height: 44)
+                        .glassEffect(controlGlass, in: Capsule())
                         .allowsHitTesting(false)
                 }
                 .scaleEffect(scrubSource == .timeline ? 1.06 : 1)
@@ -588,7 +605,7 @@ struct PlayerScreen: View {
                     }
                 }
             bottomActions(landscape: landscape, availableWidth: availableWidth)
-                .offset(y: showsMoreControls ? 0 : bottomInset + verticalControlPadding)
+                .offset(y: showsMoreControls ? 0 : controlEdgeSpacing)
                 .allowsHitTesting(showsMoreControls)
                 .accessibilityHidden(!showsMoreControls)
         }
@@ -664,7 +681,7 @@ struct PlayerScreen: View {
                          makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu(), introOutroMenu()]) },
                          visibilityChanged: menuVisibilityChanged)
             .frame(width: 44, height: 44)
-            .glassEffect(.regular.interactive(), in: Circle())
+            .glassEffect(controlGlass.interactive(), in: Circle())
     }
 
     private func danmakuMenu() -> UIMenu {
@@ -761,7 +778,7 @@ struct PlayerScreen: View {
             landscapeMenu("字幕", symbol: "captions.bubble", menu: subtitleMenu)
             landscapeMenu("播放选项", symbol: "ellipsis", menu: { UIMenu(children: [danmakuMenu(), introOutroMenu()]) })
         }
-        .glassEffect(.regular.interactive(), in: Capsule())
+        .glassEffect(controlGlass.interactive(), in: Capsule())
         .accessibilityElement(children: .contain)
         .accessibilityLabel("播放选项")
         .fixedSize(horizontal: true, vertical: false)
@@ -805,7 +822,7 @@ struct PlayerScreen: View {
                     .disabled(!session.canShowMediaDetails)
                 bottomAction("显示调试信息", symbol: "ladybug") { debugInfoVisible.toggle() }
             }
-            .glassEffect(.regular.interactive(), in: Capsule())
+            .glassEffect(controlGlass.interactive(), in: Capsule())
             Spacer(minLength: spacing)
             HStack(spacing: spacing) {
                 HStack(spacing: spacing) {
@@ -814,10 +831,10 @@ struct PlayerScreen: View {
                     bottomAction("播放列表", symbol: "list.bullet") { requestPanel(.queue) }
                         .disabled(session.queue.isEmpty)
                 }
-                .glassEffect(.regular.interactive(), in: Capsule())
+                .glassEffect(controlGlass.interactive(), in: Capsule())
                 PlayerMenuButton(symbol: "gearshape", accessibilityTitle: VesperLocalization.string("更多设置"), makeMenu: moreSettingsMenu, visibilityChanged: menuVisibilityChanged)
                     .frame(width: bottomButtonSize, height: bottomButtonSize)
-                    .glassEffect(.regular.interactive(), in: Circle())
+                    .glassEffect(controlGlass.interactive(), in: Circle())
             }
         }
     }
@@ -913,7 +930,7 @@ struct PlayerScreen: View {
                 .frame(width: size, height: size).contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: Circle())
+        .glassEffect(controlGlass.interactive(), in: Circle())
         .accessibilityLabel(Text(title))
     }
 

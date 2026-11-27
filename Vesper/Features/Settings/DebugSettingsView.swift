@@ -55,6 +55,9 @@ struct DebugSettingsView: View {
     @AppStorage(EmbyUserAgentPolicy.versionKey) private var clientVersion = ""
     @AppStorage(PlaybackDiagnostics.detachHiddenVideoSurfaceKey) private var detachHiddenVideoSurface = false
     @AppStorage(PlaybackDiagnostics.throttleHiddenPausedPollingKey) private var throttleHiddenPausedPolling = false
+    @AppStorage(PlaybackDiagnostics.controlEdgeSpacingKey) private var controlEdgeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlGradientStrengthKey) private var controlGradientStrength = PlaybackDiagnostics.defaultControlGradientStrength
+    @AppStorage(PlaybackDiagnostics.controlGlassClearKey) private var controlGlassClear = false
 
     var body: some View {
         SettingsPage {
@@ -86,11 +89,32 @@ struct DebugSettingsView: View {
                 Text("一次只开启一个开关并观察 App 刷新率。前者临时移除窗口中的视频渲染视图；后者只在播放器隐藏且暂停时降低状态轮询频率。")
             }
             DebugSettingsSection(title: "界面设计") {
+                Stepper(value: $controlEdgeSpacing, in: PlaybackDiagnostics.controlEdgeSpacingRange) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("控制区边缘间距")
+                        Text("\(controlEdgeSpacing) pt")
+                            .font(.footnote).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                }
+                Stepper(value: $controlGradientStrength, in: PlaybackDiagnostics.controlGradientStrengthRange) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("黑色渐变强度")
+                        Text(Double(controlGradientStrength) / 100, format: .percent)
+                            .font(.footnote).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                }
+                SettingsPicker("液态玻璃材质", selection: $controlGlassClear) {
+                    Text("标准").tag(false)
+                    Text("通透").tag(true)
+                }
                 ForEach(Self.interfaceMetrics, id: \.self) { metric in
                     layoutStepper(metric)
                 }
                 Button("恢复默认值", systemImage: "arrow.counterclockwise") {
                     layout.reset(Self.interfaceMetrics)
+                    controlEdgeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+                    controlGradientStrength = PlaybackDiagnostics.defaultControlGradientStrength
+                    controlGlassClear = false
                 }
             }
             DebugSettingsSection(title: "媒体页导航栏") {

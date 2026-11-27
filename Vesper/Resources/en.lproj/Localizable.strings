@@ -694,6 +694,11 @@
 "当前标识" = "Current identity";
 "启用客户端模拟" = "Override client identity";
 "界面设计" = "Interface layout";
+"控制区边缘间距" = "Control Edge Spacing";
+"黑色渐变强度" = "Black Gradient Strength";
+"液态玻璃材质" = "Liquid Glass Material";
+"标准" = "Regular";
+"通透" = "Clear";
 "媒体页导航栏" = "Media page header";
 "轮播图底部模糊" = "Carousel bottom blur";
 "选择缓存类别" = "Select cache categories";

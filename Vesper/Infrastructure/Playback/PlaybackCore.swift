@@ -9,6 +9,13 @@ import VesperVLCBridge
 enum PlaybackDiagnostics {
     static let detachHiddenVideoSurfaceKey = "debug.playback.detachHiddenVideoSurface"
     static let throttleHiddenPausedPollingKey = "debug.playback.throttleHiddenPausedPolling"
+    static let controlEdgeSpacingKey = "debug.playback.controlEdgeSpacing"
+    static let defaultControlEdgeSpacing = 10
+    static let controlEdgeSpacingRange = 0...60
+    static let controlGradientStrengthKey = "debug.playback.controlGradientStrength"
+    static let defaultControlGradientStrength = 100
+    static let controlGradientStrengthRange = 0...100
+    static let controlGlassClearKey = "debug.playback.controlGlassClear"
 }
 
 /// Server fallback is supplied only for an authenticated server-backed item.

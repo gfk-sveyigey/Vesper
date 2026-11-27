@@ -694,6 +694,11 @@
 "当前标识" = "Aktuelle Kennung";
 "启用客户端模拟" = "Clientkennung überschreiben";
 "界面设计" = "Oberflächenlayout";
+"控制区边缘间距" = "Abstand der Bedienelemente zum Rand";
+"黑色渐变强度" = "Stärke des schwarzen Verlaufs";
+"液态玻璃材质" = "Liquid-Glass-Material";
+"标准" = "Standard";
+"通透" = "Klar";
 "媒体页导航栏" = "Kopfzeile der Medienseite";
 "轮播图底部模糊" = "Unschärfe unter dem Karussell";
 "选择缓存类别" = "Cache-Kategorien auswählen";

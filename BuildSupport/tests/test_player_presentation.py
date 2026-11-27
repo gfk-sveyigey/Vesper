@@ -46,7 +46,8 @@ class PlayerPresentationTests(unittest.TestCase):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
         bottom = source.split('private func bottomControls', 1)[1].split('private var progressBar', 1)[0]
         self.assertIn('progressRow', bottom)
-        self.assertIn('.glassEffect(.regular, in: Capsule())', bottom)
+        self.assertIn('.frame(height: 44)', bottom.split('.glassEffect(controlGlass, in: Capsule())', 1)[0])
+        self.assertIn('.glassEffect(controlGlass, in: Capsule())', bottom)
         self.assertIn('.scaleEffect(scrubSource == .timeline ? 1.06 : 1)', bottom)
         self.assertIn('recognizer.minimumPressDuration = 0', source)
         layer = source.split('bottomControls(landscape: landscape, availableWidth:', 1)[1].split('}', 1)[0]
@@ -81,6 +82,38 @@ class PlayerPresentationTests(unittest.TestCase):
         self.assertIn('controlsVisible && !alwaysShowsMoreControls', source)
         self.assertIn('setMoreControlsExpanded(kind == .up)', source)
         self.assertIn('if !visible { moreControlsExpanded = false }', source)
+
+    def test_player_edge_spacing_and_transport_sizes(self):
+        source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
+        settings = (ROOT / 'Vesper/Features/Settings/DebugSettingsView.swift').read_text()
+        peripheral = source.split('private func peripheralControls(', 1)[1].split('private var audioIsMuted', 1)[0]
+        transport = source.split('private func transportControls(', 1)[1].split('private func bottomControls(', 1)[0]
+        self.assertIn('Text("控制区边缘间距")', settings)
+        self.assertIn('@AppStorage(PlaybackDiagnostics.controlEdgeSpacingKey)', settings)
+        self.assertIn('@AppStorage(PlaybackDiagnostics.controlEdgeSpacingKey)', source)
+        self.assertIn('controlEdgeSpacing + (landscape ? 0 : safeInsets.top)', source)
+        self.assertIn('.padding(.top, topInset)', peripheral)
+        self.assertIn('.padding(.bottom, controlEdgeSpacing)', peripheral)
+        self.assertNotIn('safeInsets.bottom', peripheral)
+        self.assertIn('.offset(y: showsMoreControls ? 0 : controlEdgeSpacing)', source)
+        self.assertIn('HStack(spacing: landscape ? 64 : 32)', transport)
+        self.assertIn('size: 88, iconSize: 38', transport)
+        self.assertEqual(transport.count('size: 60, iconSize: 27'), 2)
+
+    def test_player_backdrop_and_glass_are_configurable(self):
+        source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
+        settings = (ROOT / 'Vesper/Features/Settings/DebugSettingsView.swift').read_text()
+        diagnostics = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
+        self.assertIn('defaultControlGradientStrength = 100', diagnostics)
+        self.assertIn('controlGradientStrengthRange = 0...100', diagnostics)
+        for text in (source, settings):
+            self.assertIn('@AppStorage(PlaybackDiagnostics.controlGradientStrengthKey)', text)
+            self.assertIn('@AppStorage(PlaybackDiagnostics.controlGlassClearKey) private var controlGlassClear = false', text)
+        self.assertIn('.black.opacity(0.6 * strength)', source)
+        self.assertIn('.black.opacity(0.75 * strength)', source)
+        self.assertIn('controlGlassClear ? .clear : .regular', source)
+        self.assertIn('.glassEffect(controlGlass.interactive(), in: Circle())', source)
+        self.assertNotIn('.glassEffect(.regular', source)
 
     def test_scrub_preview_does_not_seek_or_change_control_visibility(self):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
