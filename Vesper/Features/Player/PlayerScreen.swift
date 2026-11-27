@@ -21,7 +21,8 @@ private struct PlayerTimelinePress: UIGestureRecognizerRepresentable {
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
-        onPress(recognizer.state, context.converter.localLocation.x)
+        // Window coordinates stay stable while the progress bar scales under the finger.
+        onPress(recognizer.state, recognizer.location(in: recognizer.view?.window).x)
     }
 }
 
@@ -92,8 +93,11 @@ struct PlayerScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(PlaybackPreferences.alwaysShowsMoreControlsKey) private var alwaysShowsMoreControls = false
-    @AppStorage(PlaybackDiagnostics.controlEdgeSpacingKey) private var storedControlEdgeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-    @AppStorage(PlaybackDiagnostics.controlGradientStrengthKey) private var storedControlGradientStrength = PlaybackDiagnostics.defaultControlGradientStrength
+    @AppStorage(PlaybackDiagnostics.controlTopPortraitSpacingKey) private var topPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlTopLandscapeSpacingKey) private var topLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlBottomPortraitSpacingKey) private var bottomPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlBottomLandscapeSpacingKey) private var bottomLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlScrimOpacityKey) private var storedControlScrimOpacity = PlaybackDiagnostics.defaultControlScrimOpacity
     @AppStorage(PlaybackDiagnostics.controlGlassClearKey) private var controlGlassClear = false
     @State private var controlsVisible = false
     @State private var moreControlsExpanded = false
@@ -106,11 +110,17 @@ struct PlayerScreen: View {
     @State private var volumeDragStart: Float?
     @State private var menuPresented = false
     private enum ScrubSource { case timeline, surface }
+    private struct ScrubHandoff {
+        let id = UUID()
+        let frameMarker: Double?
+    }
     @State private var scrubSource: ScrubSource?
     @State private var scrubID: UUID?
     @State private var scrubImage: UIImage?
+    @State private var scrubHandoff: ScrubHandoff?
     @State private var scrubTime: Double = 0
     @State private var scrubStart: Double = 0
+    @State private var timelineDragOrigin: (x: CGFloat, width: CGFloat)?
     @State private var resumeAfterScrub = false
     @State private var loadingIndicatorVisible = false
     @State private var panel: PlayerPanel?
@@ -139,16 +149,20 @@ struct PlayerScreen: View {
     private var showsMoreControls: Bool { alwaysShowsMoreControls || moreControlsExpanded }
     private let bottomButtonSize: CGFloat = 44
     private let bottomControlSpacing: CGFloat = 8
-    private var controlEdgeSpacing: CGFloat {
-        let range = PlaybackDiagnostics.controlEdgeSpacingRange
-        return CGFloat(min(max(storedControlEdgeSpacing, range.lowerBound), range.upperBound))
+    private func edgeSpacing(_ stored: Int) -> CGFloat {
+        CGFloat(min(max(stored, PlaybackDiagnostics.controlEdgeSpacingRange.lowerBound),
+                    PlaybackDiagnostics.controlEdgeSpacingRange.upperBound))
+    }
+    private func topEdgeSpacing(landscape: Bool, safeTop: CGFloat) -> CGFloat {
+        edgeSpacing(landscape ? topLandscapeSpacing : topPortraitSpacing) + (landscape ? 0 : safeTop)
+    }
+    private func bottomEdgeSpacing(landscape: Bool) -> CGFloat {
+        edgeSpacing(landscape ? bottomLandscapeSpacing : bottomPortraitSpacing)
     }
     private var controlGlass: Glass { controlGlassClear ? .clear : .regular }
-    private var controlGradient: LinearGradient {
-        let range = PlaybackDiagnostics.controlGradientStrengthRange
-        let strength = Double(min(max(storedControlGradientStrength, range.lowerBound), range.upperBound)) / 100
-        return LinearGradient(colors: [.black.opacity(0.6 * strength), .clear, .clear, .black.opacity(0.75 * strength)],
-                              startPoint: .top, endPoint: .bottom)
+    private var controlScrimOpacity: Double {
+        let range = PlaybackDiagnostics.controlScrimOpacityRange
+        return Double(min(max(storedControlScrimOpacity, range.lowerBound), range.upperBound)) / 100
     }
     private var needsLoadingIndicator: Bool { (session.isLoading || session.isSeeking) && !isScrubbing }
     private var showsTransportControls: Bool {
@@ -213,6 +227,7 @@ struct PlayerScreen: View {
                 guard phase != .active else { return }
                 if phase == .background { showsSystemVolume = false }
                 finishScrubbing(commit: false)
+                clearScrubPreview()
             }
     }
 
@@ -249,6 +264,7 @@ struct PlayerScreen: View {
         .onDisappear {
             airPlayAvailability.stop()
             finishScrubbing(commit: false)
+            clearScrubPreview()
             if let originalBrightness { brightnessScreen?.brightness = originalBrightness }
         }
         .onChange(of: session.currentItem?.id) { _, _ in
@@ -289,15 +305,10 @@ struct PlayerScreen: View {
             GeometryReader { geometry in
             let landscape = geometry.size.width > geometry.size.height
             let safeInsets = safeGeometry.safeAreaInsets
-            let topControlInset = controlEdgeSpacing + (landscape ? 0 : safeInsets.top)
+            let topControlInset = topEdgeSpacing(landscape: landscape, safeTop: safeInsets.top)
             ZStack {
                 Color.black.ignoresSafeArea()
-                if let view = session.videoView {
-                    PlayerVideoSurface(videoView: view, videoSize: session.videoSize,
-                                       fillsScreen: session.fillsScreen, isActive: session.isPresented)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                }
+                videoLayers(viewportSize: geometry.size)
                 DanmakuOverlay(session: session, document: session.danmaku)
                     .id(ObjectIdentifier(session.danmaku))
                 if debugInfoVisible && !isScrubbing {
@@ -315,7 +326,7 @@ struct PlayerScreen: View {
                 }, panned: handlePan)
                     .ignoresSafeArea()
                     .accessibilityHidden(true)
-                controlGradient
+                Color.black.opacity(controlScrimOpacity)
                     .ignoresSafeArea()
                     .opacity(controlsVisible ? 1 : 0)
                     .allowsHitTesting(false)
@@ -327,7 +338,9 @@ struct PlayerScreen: View {
                     .allowsHitTesting(showsTransportControls && !isScrubbing)
                     .accessibilityHidden(!showsTransportControls || isScrubbing)
                 peripheralControls(landscape: landscape, viewportWidth: geometry.size.width,
-                                   safeInsets: safeInsets, topInset: topControlInset)
+                                   safeInsets: safeInsets,
+                                   topInset: topControlInset,
+                                   bottomInset: bottomEdgeSpacing(landscape: landscape))
                 if needsLoadingIndicator && loadingIndicatorVisible {
                     VStack(spacing: 12) {
                         ProgressView().controlSize(.large).tint(.white)
@@ -352,7 +365,6 @@ struct PlayerScreen: View {
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .glassEffect(controlGlass, in: Capsule())
                         .padding(.top, controlsVisible ? topControlInset + 50 : safeInsets.top + 8)
-                        if scrubSource == .surface { scrubPreviewImage }
                         Spacer()
                     }
                     .allowsHitTesting(false)
@@ -449,14 +461,14 @@ struct PlayerScreen: View {
     }
 
     private func peripheralControls(landscape: Bool, viewportWidth: CGFloat,
-                                    safeInsets: EdgeInsets, topInset: CGFloat) -> some View {
+                                    safeInsets: EdgeInsets, topInset: CGFloat, bottomInset: CGFloat) -> some View {
         let horizontalPadding: CGFloat = landscape ? 12 : 20
         let availableWidth = max(0, viewportWidth - safeInsets.leading - safeInsets.trailing - horizontalPadding * 2)
         return VStack {
             topControls(availableWidth: availableWidth, landscape: landscape)
             Spacer(minLength: 0)
             // Keep the Menu mounted so it never loses its presentation anchor.
-            bottomControls(landscape: landscape, availableWidth: availableWidth)
+            bottomControls(landscape: landscape, availableWidth: availableWidth, bottomInset: bottomInset)
                 .opacity(controlsVisible ? 1 : 0)
                 .allowsHitTesting(controlsVisible)
                 .accessibilityHidden(!controlsVisible)
@@ -464,7 +476,7 @@ struct PlayerScreen: View {
         .padding(.leading, safeInsets.leading + horizontalPadding)
         .padding(.trailing, safeInsets.trailing + horizontalPadding)
         .padding(.top, topInset)
-        .padding(.bottom, controlEdgeSpacing)
+        .padding(.bottom, bottomInset)
     }
 
     private var audioIsMuted: Bool { session.isMuted || volume.value <= 0.001 }
@@ -565,7 +577,7 @@ struct PlayerScreen: View {
         .fixedSize()
     }
 
-    private func bottomControls(landscape: Bool, availableWidth: CGFloat) -> some View {
+    private func bottomControls(landscape: Bool, availableWidth: CGFloat, bottomInset: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: bottomControlSpacing) {
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -592,20 +604,17 @@ struct PlayerScreen: View {
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: scrubSource)
                 .overlay(alignment: .top) {
                     if scrubSource == .timeline {
-                        VStack(spacing: 4) {
-                            scrubPreviewImage
-                            Text(timeLabel(scrubTime))
-                                .font(.caption.monospacedDigit())
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(.black.opacity(0.75), in: Capsule())
-                        }
-                        .alignmentGuide(.top) { $0[.bottom] + 8 }
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
+                        Text(timeLabel(scrubTime))
+                            .font(.caption.monospacedDigit())
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(.black.opacity(0.75), in: Capsule())
+                            .alignmentGuide(.top) { $0[.bottom] + 8 }
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
                     }
                 }
             bottomActions(landscape: landscape, availableWidth: availableWidth)
-                .offset(y: showsMoreControls ? 0 : controlEdgeSpacing)
+                .offset(y: showsMoreControls ? 0 : bottomInset)
                 .allowsHitTesting(showsMoreControls)
                 .accessibilityHidden(!showsMoreControls)
         }
@@ -654,14 +663,19 @@ struct PlayerScreen: View {
             .frame(height: 44)
             .contentShape(Rectangle())
             .gesture(PlayerTimelinePress { phase, x in
-                if phase == .began { beginScrubbing(.timeline) }
-                guard scrubSource == .timeline else { return }
                 switch phase {
-                case .began, .changed, .ended:
-                    updateScrubbing(Double(x / max(geometry.size.width, 1)) * session.duration)
-                    if phase == .ended { finishScrubbing() }
+                case .began:
+                    beginScrubbing(.timeline)
+                    if scrubSource == .timeline {
+                        timelineDragOrigin = (x, max(geometry.size.width, 1))
+                    }
+                case .changed, .ended:
+                    guard let origin = timelineDragOrigin, scrubSource == .timeline else { return }
+                    let distance = x - origin.x
+                    updateScrubbing(scrubStart + Double(distance / origin.width) * session.duration)
+                    if phase == .ended { finishScrubbing(commit: scrubTime != scrubStart) }
                 case .cancelled, .failed:
-                    finishScrubbing(commit: false)
+                    if scrubSource == .timeline { finishScrubbing(commit: false) }
                 default: break
                 }
             })
@@ -996,8 +1010,33 @@ struct PlayerScreen: View {
         }
     }
 
+    @ViewBuilder
+    private func videoLayers(viewportSize: CGSize) -> some View {
+        if let view = session.videoView {
+            PlayerVideoSurface(videoView: view, videoSize: session.videoSize,
+                               fillsScreen: session.fillsScreen, isActive: session.isPresented)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
+        if let scrubImage {
+            let rect = VideoViewportLayout.contentRect(sourceSize: session.videoSize ?? scrubImage.size,
+                viewport: CGRect(origin: .zero, size: viewportSize), fillsScreen: session.fillsScreen)
+            Image(uiImage: scrubImage)
+                .resizable()
+                .aspectRatio(contentMode: session.fillsScreen ? .fill : .fit)
+                .frame(width: rect.width, height: rect.height)
+                .background(.black)
+                .clipped()
+                .frame(width: viewportSize.width, height: viewportSize.height)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .task(id: scrubHandoff?.id) { await waitForScrubHandoff() }
+        }
+    }
+
     private func beginScrubbing(_ source: ScrubSource) {
         guard session.canSeek, !isScrubbing else { return }
+        clearScrubPreview()
         resumeAfterScrub = session.isPlaying
         scrubStart = session.currentTime
         scrubTime = scrubStart
@@ -1009,16 +1048,6 @@ struct PlayerScreen: View {
     private func updateScrubbing(_ target: Double) {
         scrubTime = min(session.duration, max(0, target))
     }
-    @ViewBuilder private var scrubPreviewImage: some View {
-        if let scrubImage {
-            Image(uiImage: scrubImage)
-                .resizable().scaledToFit()
-                .frame(width: 144, height: 81)
-                .background(.black)
-                .clipShape(.rect(cornerRadius: 6))
-                .accessibilityHidden(true)
-        }
-    }
     private func updateScrubPreview() async {
         guard let id = scrubID else { return }
         var lastTarget: Double?
@@ -1028,21 +1057,45 @@ struct PlayerScreen: View {
                 lastTarget = target
                 let image = await session.scrubPreview(at: target)
                 guard !Task.isCancelled, scrubID == id else { return }
-                if scrubTime == target { scrubImage = image }
+                if scrubTime == target, let image { scrubImage = image }
             }
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
         }
     }
-    private func resetScrubbing() {
+    private func waitForScrubHandoff() async {
+        guard let handoff = scrubHandoff else { return }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        let unreportedFrameGrace = clock.now.advanced(by: .milliseconds(150))
+        while !Task.isCancelled, scrubHandoff?.id == handoff.id, clock.now < deadline {
+            if !session.isSeeking && !session.isLoading {
+                let marker = session.renderedFrameMarker
+                if let initial = handoff.frameMarker, let marker {
+                    if marker != initial { break }
+                } else if clock.now >= unreportedFrameGrace { break }
+            }
+            do { try await Task.sleep(for: .milliseconds(25)) } catch { return }
+        }
+        if !Task.isCancelled, scrubHandoff?.id == handoff.id { clearScrubPreview() }
+    }
+    private func clearScrubPreview() {
+        scrubHandoff = nil
+        scrubImage = nil
+    }
+    private func resetScrubbing(keepPreview: Bool = false) {
         scrubID = nil
         scrubSource = nil
-        scrubImage = nil
+        timelineDragOrigin = nil
+        if !keepPreview { clearScrubPreview() }
         autoHideRevision += 1
     }
     private func finishScrubbing(commit: Bool = true) {
         guard isScrubbing else { return }
-        resetScrubbing()
-        if commit && session.canSeek {
+        let shouldSeek = commit && session.canSeek
+        let keepPreview = shouldSeek && scrubImage != nil
+        if keepPreview { scrubHandoff = ScrubHandoff(frameMarker: session.renderedFrameMarker) }
+        resetScrubbing(keepPreview: keepPreview)
+        if shouldSeek {
             session.seekManually(to: scrubTime, resume: resumeAfterScrub)
         } else if resumeAfterScrub {
             session.resumeAfterCancelledScrub()

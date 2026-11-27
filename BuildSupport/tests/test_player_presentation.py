@@ -83,34 +83,40 @@ class PlayerPresentationTests(unittest.TestCase):
         self.assertIn('setMoreControlsExpanded(kind == .up)', source)
         self.assertIn('if !visible { moreControlsExpanded = false }', source)
 
-    def test_player_edge_spacing_and_transport_sizes(self):
+    def test_player_edge_spacing_is_four_independent_values(self):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
         settings = (ROOT / 'Vesper/Features/Settings/DebugSettingsView.swift').read_text()
         peripheral = source.split('private func peripheralControls(', 1)[1].split('private var audioIsMuted', 1)[0]
-        transport = source.split('private func transportControls(', 1)[1].split('private func bottomControls(', 1)[0]
-        self.assertIn('Text("控制区边缘间距")', settings)
-        self.assertIn('@AppStorage(PlaybackDiagnostics.controlEdgeSpacingKey)', settings)
-        self.assertIn('@AppStorage(PlaybackDiagnostics.controlEdgeSpacingKey)', source)
-        self.assertIn('controlEdgeSpacing + (landscape ? 0 : safeInsets.top)', source)
+        diagnostics = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
+        keys = [
+            ('controlTopPortraitSpacingKey', '竖屏顶部间距', 'topPortraitSpacing'),
+            ('controlTopLandscapeSpacingKey', '横屏顶部间距', 'topLandscapeSpacing'),
+            ('controlBottomPortraitSpacingKey', '竖屏底部间距', 'bottomPortraitSpacing'),
+            ('controlBottomLandscapeSpacingKey', '横屏底部间距', 'bottomLandscapeSpacing'),
+        ]
+        for key, label, property_name in keys:
+            self.assertIn(key, diagnostics)
+            self.assertIn(f'@AppStorage(PlaybackDiagnostics.{key}) private var {property_name}', settings)
+            self.assertIn(f'@AppStorage(PlaybackDiagnostics.{key}) private var {property_name}', source)
+            self.assertIn(f'controlEdgeSpacingStepper("{label}"', settings)
+        self.assertIn('topLandscapeSpacing : topPortraitSpacing', source)
+        self.assertIn('bottomLandscapeSpacing : bottomPortraitSpacing', source)
         self.assertIn('.padding(.top, topInset)', peripheral)
-        self.assertIn('.padding(.bottom, controlEdgeSpacing)', peripheral)
-        self.assertNotIn('safeInsets.bottom', peripheral)
-        self.assertIn('.offset(y: showsMoreControls ? 0 : controlEdgeSpacing)', source)
-        self.assertIn('HStack(spacing: landscape ? 64 : 32)', transport)
-        self.assertIn('size: 88, iconSize: 38', transport)
-        self.assertEqual(transport.count('size: 60, iconSize: 27'), 2)
+        self.assertIn('.padding(.bottom, bottomInset)', peripheral)
+        self.assertIn('bottomControls(landscape: landscape, availableWidth: availableWidth,', peripheral)
+        self.assertNotIn('controlEdgeSpacingKey', diagnostics)
 
     def test_player_backdrop_and_glass_are_configurable(self):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
         settings = (ROOT / 'Vesper/Features/Settings/DebugSettingsView.swift').read_text()
         diagnostics = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
-        self.assertIn('defaultControlGradientStrength = 100', diagnostics)
-        self.assertIn('controlGradientStrengthRange = 0...100', diagnostics)
+        self.assertIn('defaultControlScrimOpacity = 25', diagnostics)
+        self.assertIn('controlScrimOpacityRange = 0...100', diagnostics)
         for text in (source, settings):
-            self.assertIn('@AppStorage(PlaybackDiagnostics.controlGradientStrengthKey)', text)
+            self.assertIn('@AppStorage(PlaybackDiagnostics.controlScrimOpacityKey)', text)
             self.assertIn('@AppStorage(PlaybackDiagnostics.controlGlassClearKey) private var controlGlassClear = false', text)
-        self.assertIn('.black.opacity(0.6 * strength)', source)
-        self.assertIn('.black.opacity(0.75 * strength)', source)
+        self.assertIn('Color.black.opacity(controlScrimOpacity)', source)
+        self.assertNotIn('LinearGradient', source)
         self.assertIn('controlGlassClear ? .clear : .regular', source)
         self.assertIn('.glassEffect(controlGlass.interactive(), in: Circle())', source)
         self.assertNotIn('.glassEffect(.regular', source)
@@ -120,13 +126,37 @@ class PlayerPresentationTests(unittest.TestCase):
         scrubbing = source.split('private func beginScrubbing(', 1)[1].split('private func handleTap(', 1)[0]
         preview, finish = scrubbing.split('private func finishScrubbing(', 1)
         self.assertIn('await session.scrubPreview(at: target)', preview)
-        self.assertIn('if scrubTime == target { scrubImage = image }', preview)
+        self.assertIn('if scrubTime == target, let image { scrubImage = image }', preview)
         self.assertNotIn('session.seek', preview)
         self.assertEqual(finish.count('session.seekManually('), 1)
         self.assertIn('session.resumeAfterCancelledScrub()', finish)
         self.assertNotIn('revealControls()', scrubbing)
         self.assertNotIn('setControlsVisible(', scrubbing)
         self.assertIn('Task.sleep(for: .milliseconds(250))', source)
+
+    def test_scrub_preview_covers_video_and_waits_for_the_new_picture(self):
+        source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
+        layers = source.split('private func videoLayers(', 1)[1].split('private func beginScrubbing(', 1)[0]
+        handoff = source.split('private func waitForScrubHandoff()', 1)[1].split('private func handleTap(', 1)[0]
+        self.assertLess(layers.index('PlayerVideoSurface('), layers.index('Image(uiImage: scrubImage)'))
+        self.assertIn('VideoViewportLayout.contentRect(', layers)
+        self.assertIn('aspectRatio(contentMode: session.fillsScreen ? .fill : .fit)', layers)
+        self.assertNotIn('scrubPreviewImage', source)
+        self.assertIn('shouldSeek && scrubImage != nil', handoff)
+        self.assertIn('if !session.isSeeking && !session.isLoading', handoff)
+        self.assertIn('if marker != initial { break }', handoff)
+        self.assertIn('clock.now < deadline', handoff)
+        self.assertIn('if !keepPreview { clearScrubPreview() }', handoff)
+
+    def test_timeline_drag_is_relative_to_starting_playback_position(self):
+        source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
+        gesture = source.split('.gesture(PlayerTimelinePress', 1)[1].split('.accessibilityAdjustableAction', 1)[0]
+        self.assertIn('recognizer.location(in: recognizer.view?.window).x', source)
+        self.assertIn('timelineDragOrigin = (x, max(geometry.size.width, 1))', gesture)
+        self.assertIn('let distance = x - origin.x', gesture)
+        self.assertIn('updateScrubbing(scrubStart + Double(distance / origin.width) * session.duration)', gesture)
+        self.assertIn('finishScrubbing(commit: scrubTime != scrubStart)', gesture)
+        self.assertNotIn('updateScrubbing(Double(x /', gesture)
 
     def test_precise_seek_preference_applies_to_manual_jumps(self):
         settings = (ROOT / 'Vesper/Features/Settings/PlaybackSettingsView.swift').read_text()

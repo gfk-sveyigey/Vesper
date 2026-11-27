@@ -159,6 +159,8 @@ public struct EngineExternalSubtitle: Sendable {
     var diagnosticMetrics: [EngineDiagnosticMetric] { get }
     var downloadSample: EngineDownloadSample? { get }
     var mediaInformation: MediaProbe? { get }
+    /// Changes when the video output advances; nil when the driver cannot report it.
+    var renderedFrameMarker: Double? { get }
     var nativePiPController: AVPictureInPictureController? { get }
     var restoreUI: ((@escaping (Bool) -> Void) -> Void)? { get set }
     func load(url: URL, configuration: EngineConfiguration) async throws
@@ -180,6 +182,7 @@ extension PlaybackDriver {
     public var diagnosticMetrics: [EngineDiagnosticMetric] { [] }
     public var downloadSample: EngineDownloadSample? { nil }
     public var mediaInformation: MediaProbe? { nil }
+    public var renderedFrameMarker: Double? { nil }
     public func preparePiP() {}
     public func scrubPreview(at seconds: Double) async -> UIImage? { nil }
     public func seek(to seconds: Double, fast: Bool) async throws {

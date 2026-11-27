@@ -269,7 +269,7 @@
 
 "快进快退时长" = "Intervalo de salto";
 "精准定位" = "Búsqueda precisa";
-"常显更多控制按钮" = "Mostrar siempre más controles";
+"常显更多控制按钮" = "Margen superior vertical";
 
 "恢复默认手势？" = "¿Restablecer gestos?";
 
@@ -687,15 +687,12 @@
 "允许服务器转码" = "Permitir transcodificación";
 "使用默认图标" = "Usar icono predeterminado";
 "更换 Emby 图标" = "Cambiar icono de Emby";
-"图片缓存" = "Caché de imágenes";
-"图片不使用本地缓存" = "No almacenar imágenes en caché";
 "客户端名称" = "Nombre del cliente";
 "客户端版本" = "Versión del cliente";
 "当前标识" = "Identidad actual";
 "启用客户端模拟" = "Personalizar identidad del cliente";
 "界面设计" = "Diseño de interfaz";
-"控制区边缘间距" = "Margen de los controles";
-"黑色渐变强度" = "Intensidad del degradado negro";
+"黑色遮罩强度" = "Opacidad de la capa negra";
 "液态玻璃材质" = "Material de Liquid Glass";
 "标准" = "Normal";
 "通透" = "Transparente";
@@ -746,7 +743,6 @@
 "点击来源编辑，使用右侧开关控制是否可选。地址仅显示域名，不展示路径中的访问令牌。" = "Toca un servicio para editarlo y usa el interruptor para activarlo. Solo se muestra el dominio, no los tokens de la ruta.";
 "配置仅保存在本机。搜索时发送搜索词与所选作品、剧集 ID，不会附带 Emby 凭据。" = "Los ajustes se guardan en este dispositivo. Se envían la búsqueda y los ID seleccionados, nunca las credenciales de Emby.";
 "将恢复标签的排列顺序、显示状态和默认标签页。" = "Restablece el orden, la visibilidad y la pestaña predeterminada.";
-"启用后，图片会直接从来源加载，且不会写入本地图片缓存。" = "Carga las imágenes del origen sin guardarlas en la caché local.";
 "客户端名称和版本会同时用于 User-Agent 及 Emby Authorization 请求头。留空或关闭时使用 Vesper 默认值。" = "El nombre y la versión se usan en User-Agent y Emby Authorization. Déjalos vacíos o desactiva para usar los valores de Vesper.";
 "请检查相册访问权限或本地视频文件。" = "Comprueba el permiso de fotos o el archivo de vídeo local.";
 "请在系统设置中允许 Vesper 访问本地网络，然后重新选择 Emby 来源。" = "Permite a Vesper acceder a la red local en Ajustes y vuelve a seleccionar el origen Emby.";
@@ -1041,7 +1037,7 @@
 "选择深浅色外观、主题色和应用图标，打造喜欢的界面。" = "Elige la apariencia, el color de acento y el icono de la app.";
 "查看运行日志、设置保留时间，导出或清空日志以便排查问题。" = "Revisa los registros, ajusta cuánto tiempo se guardan y expórtalos o bórralos para diagnosticar problemas.";
 "了解应用使用的开源组件，查看各项目的许可与声明。" = "Consulta los componentes de código abierto de la app, sus licencias y avisos.";
-"调试 Emby 客户端标识、图片缓存与界面布局，微调导航栏和模糊效果。" = "Ajusta la identificación del cliente Emby, la caché de imágenes, el diseño y los efectos de desenfoque.";
+"调试 Emby 客户端标识、界面布局与播放器控制区。" = "Ajusta la identificación del cliente Emby, el diseño y los controles del reproductor.";
 "查看各类缓存占用，选择类别清理或一次清理全部缓存。" = "Consulta el espacio de caché y borra categorías concretas o toda la caché a la vez.";
 "选择显示的标签页，调整排列顺序、默认页面和标签栏收缩方式。" = "Elige las pestañas visibles, su orden, la pestaña inicial y cómo se contrae la barra.";
 "连接 Trakt，设置续播进度优先级、片头片尾跳过、下一集预加载与音频字幕偏好。" = "Conecta Trakt y configura la prioridad del progreso, los saltos de intro y créditos, la precarga y los idiomas.";
@@ -1187,3 +1183,7 @@
 "媒体来源无效" = "Fuente multimedia no válida";
 "Emby登录失败，请检查来源设置。" = "No se pudo iniciar sesión en Emby. Comprueba la configuración de la fuente.";
 "无法打开 Vesper" = "No se pudo abrir Vesper";
+"竖屏顶部间距" = "Margen superior vertical";
+"横屏顶部间距" = "Margen superior horizontal";
+"竖屏底部间距" = "Margen inferior vertical";
+"横屏底部间距" = "Margen inferior horizontal";

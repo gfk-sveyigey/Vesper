@@ -243,6 +243,10 @@ internal import AetherEngine
     }
     public func play() throws { engine?.play() }
     public func pause() { engine?.pause() }
+    public var renderedFrameMarker: Double? {
+        guard let engine, engine.sourceTimeFollowsPicture, engine.sourceTime.isFinite else { return nil }
+        return engine.sourceTime
+    }
     public func seek(to seconds: Double) async throws { try await seek(to: seconds, fast: false) }
     public func seek(to seconds: Double, fast: Bool) async throws {
         guard let engine else { throw PlaybackCoreError.cancelled }

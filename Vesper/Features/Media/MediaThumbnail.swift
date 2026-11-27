@@ -34,7 +34,7 @@ struct MediaThumbnail: View {
     }
 
     private var loadKey: String {
-        "\(AppCacheStore.embyArtworkKey(for: item, source: source)):\(aspectRatio):\(imageOrientation.rawValue):\(cacheOnly):\(prefersLandscapeMovieArtwork && item.embyItemType == "Movie"):\(ImageCacheDebugSettings.ignoresLocalCache)"
+        "\(AppCacheStore.embyArtworkKey(for: item, source: source)):\(aspectRatio):\(imageOrientation.rawValue):\(cacheOnly):\(prefersLandscapeMovieArtwork && item.embyItemType == "Movie")"
     }
 
     var body: some View {
@@ -257,21 +257,17 @@ final class MediaThumbnailLoader {
 
     private func featuredLogo(for item: MediaItem, source: MediaSource, service: any MediaSourceArtworkService) async -> Data? {
         let key = "featured-logo|\(AppCacheStore.scope(for: source))|\(item.id.localID)"
-        let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
-        let (cached, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
+        let (cached, generation) = await AppCacheStore.shared.image(key: key)
         if let cached, UIImage(data: cached) != nil { return cached }
         guard let data = await service.artworkData(for: item, source: source, purpose: .logo, orientation: .landscape, allowsRemotePrimary: false, prefersLandscapeMovieArtwork: false),
               UIImage(data: data) != nil, !Task.isCancelled else { return nil }
-        if !ignoresCache {
-            await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
-        }
+        await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
         return data
     }
 
     private func textlessPoster(for item: MediaItem, source: MediaSource, service: any MediaSourceArtworkService) async -> Data? {
         let key = "featured-textless|\(AppCacheStore.embyArtworkKey(for: item, source: source))"
-        let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
-        let (cached, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
+        let (cached, generation) = await AppCacheStore.shared.image(key: key)
         if let cached, UIImage(data: cached) != nil { return cached }
         for url in await service.featuredPosterCandidates(for: item, source: source) {
             guard !Task.isCancelled else { return nil }
@@ -282,9 +278,7 @@ final class MediaThumbnailLoader {
                   (response as? HTTPURLResponse)?.statusCode == 200,
                   data.count <= 8 * 1024 * 1024, UIImage(data: data) != nil else { continue }
             guard !Task.isCancelled else { return nil }
-            if !ignoresCache {
-                await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
-            }
+            await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
             return data
         }
         return nil
@@ -300,10 +294,9 @@ final class MediaThumbnailLoader {
             let prefersLandscape = prefersLandscapeMovieArtwork && item.embyItemType == "Movie"
             let variant = prefersLandscape ? "|movie-landscape" : ""
             let key = "\(AppCacheStore.embyArtworkKey(for: item, source: source))|\(imageOrientation.rawValue)\(variant)"
-            let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
-            let (data, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
+            let (data, generation) = await AppCacheStore.shared.image(key: key)
             if let data, UIImage(data: data) != nil { return data }
-            let requestKey = "\(key)|\(generation)|\(ignoresCache)|remote:\(allowsRemotePrimary)"
+            let requestKey = "\(key)|\(generation)|remote:\(allowsRemotePrimary)"
             if let pending = pendingEmbyImages[requestKey] { return await pending.value }
             guard !cacheOnly, !Task.isCancelled else { return nil }
             let task = Task { () -> Data? in
@@ -313,9 +306,7 @@ final class MediaThumbnailLoader {
                             orientation: imageOrientation, allowsRemotePrimary: allowsRemotePrimary,
                             prefersLandscapeMovieArtwork: prefersLandscape),
                       UIImage(data: data) != nil else { return nil }
-                if !ignoresCache {
-                    await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
-                }
+                await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
                 return data
             }
             pendingEmbyImages[requestKey] = task
@@ -405,14 +396,11 @@ final class MediaThumbnailLoader {
     }
 
     private func cachedImage(key: String, cacheOnly: Bool, generate: () async -> Data?) async -> Data? {
-        let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
-        let (data, generation) = await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)
+        let (data, generation) = await AppCacheStore.shared.image(key: key)
         if let data, UIImage(data: data) != nil { return data }
         guard !cacheOnly, !Task.isCancelled,
               let data = await generate(), UIImage(data: data) != nil, !Task.isCancelled else { return nil }
-        if !ignoresCache {
-            await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
-        }
+        await AppCacheStore.shared.saveImage(data, key: key, generation: generation)
         return data
     }
 }

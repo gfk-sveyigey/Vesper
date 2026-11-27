@@ -379,10 +379,6 @@ final class SourceLibrary: ObservableObject {
         guard let source = selectedSource, source.kind == .emby else { return }
         let scope = AppCacheStore.scope(for: source)
         var previous = embyHome?.scope == scope ? embyHome : nil
-        if ImageCacheDebugSettings.ignoresLocalCache, var home = previous {
-            home.featuredArtwork = nil
-            previous = home
-        }
         isLoadingEmbyHome = true
         embyHome = fullRendering ? nil : previous
         content = embyHome == nil ? .loading : .loaded([])

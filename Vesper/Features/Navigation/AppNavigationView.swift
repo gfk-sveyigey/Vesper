@@ -17,9 +17,7 @@ struct AppNavigationView: View {
     @AppStorage("search.recent") private var recentSearchesData = "[]"
     @AppStorage("miniPlayer.enabled") private var miniPlayerEnabled = true
     @AppStorage("miniPlayer.alwaysVisible") private var miniPlayerAlwaysVisible = true
-    @AppStorage(PlaybackDiagnostics.detachHiddenVideoSurfaceKey) private var detachHiddenVideoSurface = false
     @AppStorage("navigation.tabBarCanMinimize") private var tabBarCanMinimize = true
-    @AppStorage(ImageCacheDebugSettings.ignoreLocalCacheKey) private var ignoreLocalImageCache = false
     @State private var selection: NavigationTab
     @StateObject private var library = SourceLibrary()
     @StateObject private var playback = PlaybackSession()
@@ -76,7 +74,7 @@ struct AppNavigationView: View {
         .background {
             // Retain a window-attached rendering surface while PiP is active
             // or the full-screen player is closed by an external presentation.
-            if !playback.isPresented, !detachHiddenVideoSurface, let view = playback.videoView {
+            if !playback.isPresented, let view = playback.videoView {
                 PlayerVideoSurface(videoView: view, videoSize: nil, fillsScreen: false)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -118,12 +116,6 @@ struct AppNavigationView: View {
         }
         .onChange(of: protectionScope) { _, _ in library.refreshProtectionScope() }
         .onChange(of: protectionEnabled) { _, _ in library.refreshProtectionScope() }
-        .onChange(of: ignoreLocalImageCache) { _, _ in
-            Task {
-                await AppCacheStore.shared.invalidateImageWrites()
-                library.reload()
-            }
-        }
         .onChange(of: scenePhase, initial: true) { _, phase in
             handleScenePhaseChange(phase)
         }

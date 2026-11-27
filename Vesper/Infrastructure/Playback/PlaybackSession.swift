@@ -87,9 +87,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     @Published private(set) var errorMessage: String?
     @Published private(set) var videoView: UIView?
     @Published private(set) var videoSize: CGSize?
-    @Published var isPresented = false {
-        didSet { core.isPlayerPresented = isPresented }
-    }
+    @Published var isPresented = false
     @Published private(set) var playbackRate: Float = 1
     @Published private(set) var fillsScreen = false
     private(set) var bufferedTime: TimeInterval {
@@ -464,6 +462,8 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     func scrubPreview(at time: TimeInterval) async -> UIImage? {
         await core.scrubPreview(at: time)
     }
+
+    var renderedFrameMarker: Double? { core.driver?.renderedFrameMarker }
 
     func resumeAfterCancelledScrub() {
         core.play()

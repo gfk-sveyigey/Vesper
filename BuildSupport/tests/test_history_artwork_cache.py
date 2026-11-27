@@ -19,7 +19,7 @@ class HistoryArtworkCacheTests(unittest.TestCase):
     def test_artwork_bytes_remain_in_the_disk_image_cache(self):
         thumbnail = (ROOT / "Vesper/Features/Media/MediaThumbnail.swift").read_text()
         cache = (ROOT / "Vesper/Infrastructure/Sources/Caching/AppCacheStore.swift").read_text()
-        self.assertIn('await AppCacheStore.shared.image(key: key, ignoringLocalCache: ignoresCache)', thumbnail)
+        self.assertIn('await AppCacheStore.shared.image(key: key)', thumbnail)
         self.assertIn('await AppCacheStore.shared.saveImage(data, key: key, generation: generation)', thumbnail)
         self.assertNotIn("decodedArtwork", thumbnail)
         self.assertIn("trim(category, limit: (category == .images ? 128 : 32) * 1024 * 1024)", cache)

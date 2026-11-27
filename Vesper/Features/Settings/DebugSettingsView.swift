@@ -49,19 +49,19 @@ struct DebugSettingsView: View {
     @AppStorage("debug.mediaHeader.lightTint") private var lightTint = "#FFFFFF"
     @AppStorage("debug.mediaHeader.darkTint") private var darkTint = "#000000"
     @ObservedObject private var layout = MediaLayoutSettings.shared
-    @AppStorage(ImageCacheDebugSettings.ignoreLocalCacheKey) private var ignoreLocalImageCache = false
     @AppStorage(EmbyUserAgentPolicy.enabledKey) private var enabled = false
     @AppStorage(EmbyUserAgentPolicy.nameKey) private var clientName = ""
     @AppStorage(EmbyUserAgentPolicy.versionKey) private var clientVersion = ""
-    @AppStorage(PlaybackDiagnostics.detachHiddenVideoSurfaceKey) private var detachHiddenVideoSurface = false
-    @AppStorage(PlaybackDiagnostics.throttleHiddenPausedPollingKey) private var throttleHiddenPausedPolling = false
-    @AppStorage(PlaybackDiagnostics.controlEdgeSpacingKey) private var controlEdgeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-    @AppStorage(PlaybackDiagnostics.controlGradientStrengthKey) private var controlGradientStrength = PlaybackDiagnostics.defaultControlGradientStrength
+    @AppStorage(PlaybackDiagnostics.controlTopPortraitSpacingKey) private var topPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlTopLandscapeSpacingKey) private var topLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlBottomPortraitSpacingKey) private var bottomPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlBottomLandscapeSpacingKey) private var bottomLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlScrimOpacityKey) private var controlScrimOpacity = PlaybackDiagnostics.defaultControlScrimOpacity
     @AppStorage(PlaybackDiagnostics.controlGlassClearKey) private var controlGlassClear = false
 
     var body: some View {
         SettingsPage {
-            SettingsIntroCard(title: "调试功能", symbol: "ladybug", description: "调试 Emby 客户端标识、图片缓存与界面布局，微调导航栏和模糊效果。")
+            SettingsIntroCard(title: "调试功能", symbol: "ladybug", description: "调试 Emby 客户端标识、界面布局与播放器控制区。")
             DebugSettingsSection(title: "客户端模拟") {
                 Toggle("启用客户端模拟", isOn: $enabled)
                 if enabled {
@@ -77,29 +77,15 @@ struct DebugSettingsView: View {
             } footer: {
                 Text("客户端名称和版本会同时用于 User-Agent 及 Emby Authorization 请求头。留空或关闭时使用 Vesper 默认值。")
             }
-            DebugSettingsSection(title: "图片缓存") {
-                Toggle("图片不使用本地缓存", isOn: $ignoreLocalImageCache)
-            } footer: {
-                Text("启用后，图片会直接从来源加载，且不会写入本地图片缓存。")
-            }
-            DebugSettingsSection(title: "播放刷新率排查") {
-                Toggle("隐藏播放器时卸载视频画面", isOn: $detachHiddenVideoSurface)
-                Toggle("隐藏且暂停时将状态轮询降至 1 Hz", isOn: $throttleHiddenPausedPolling)
-            } footer: {
-                Text("一次只开启一个开关并观察 App 刷新率。前者临时移除窗口中的视频渲染视图；后者只在播放器隐藏且暂停时降低状态轮询频率。")
-            }
             DebugSettingsSection(title: "界面设计") {
-                Stepper(value: $controlEdgeSpacing, in: PlaybackDiagnostics.controlEdgeSpacingRange) {
+                controlEdgeSpacingStepper("竖屏顶部间距", value: $topPortraitSpacing)
+                controlEdgeSpacingStepper("横屏顶部间距", value: $topLandscapeSpacing)
+                controlEdgeSpacingStepper("竖屏底部间距", value: $bottomPortraitSpacing)
+                controlEdgeSpacingStepper("横屏底部间距", value: $bottomLandscapeSpacing)
+                Stepper(value: $controlScrimOpacity, in: PlaybackDiagnostics.controlScrimOpacityRange) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("控制区边缘间距")
-                        Text("\(controlEdgeSpacing) pt")
-                            .font(.footnote).monospacedDigit().foregroundStyle(.secondary)
-                    }
-                }
-                Stepper(value: $controlGradientStrength, in: PlaybackDiagnostics.controlGradientStrengthRange) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("黑色渐变强度")
-                        Text(Double(controlGradientStrength) / 100, format: .percent)
+                        Text("黑色遮罩强度")
+                        Text(Double(controlScrimOpacity) / 100, format: .percent)
                             .font(.footnote).monospacedDigit().foregroundStyle(.secondary)
                     }
                 }
@@ -112,8 +98,11 @@ struct DebugSettingsView: View {
                 }
                 Button("恢复默认值", systemImage: "arrow.counterclockwise") {
                     layout.reset(Self.interfaceMetrics)
-                    controlEdgeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-                    controlGradientStrength = PlaybackDiagnostics.defaultControlGradientStrength
+                    topPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+                    topLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+                    bottomPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+                    bottomLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+                    controlScrimOpacity = PlaybackDiagnostics.defaultControlScrimOpacity
                     controlGlassClear = false
                 }
             }
@@ -170,6 +159,16 @@ struct DebugSettingsView: View {
 
     private static let interfaceMetrics = MediaLayoutSettings.Metric.allCases.filter {
         !headerMetrics.contains($0) && !carouselBlurMetrics.contains($0)
+    }
+
+    private func controlEdgeSpacingStepper(_ title: LocalizedStringKey, value: Binding<Int>) -> some View {
+        Stepper(value: value, in: PlaybackDiagnostics.controlEdgeSpacingRange) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                Text("\(value.wrappedValue) pt")
+                    .font(.footnote).monospacedDigit().foregroundStyle(.secondary)
+            }
+        }
     }
 
     private func layoutStepper(_ metric: MediaLayoutSettings.Metric) -> some View {

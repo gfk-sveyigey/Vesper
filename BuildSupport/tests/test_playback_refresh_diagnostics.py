@@ -60,23 +60,17 @@ class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
         self.assertIn('PlayerTimelineRegion { Text(verbatim: session.downloadSpeedText) }', screen)
         self.assertIn('lastNowPlayingPosition', session)
 
-    def test_video_surface_can_be_detached_independently(self):
-        navigation = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
-        settings = (ROOT / 'Vesper/Features/Settings/DebugSettingsView.swift').read_text()
-        core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
-        self.assertIn('!detachHiddenVideoSurface', navigation)
-        self.assertIn('debug.playback.detachHiddenVideoSurface', core)
-        self.assertIn('隐藏播放器时卸载视频画面', settings)
-
-    def test_hidden_paused_polling_can_be_throttled_independently(self):
-        core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
-        session = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackSession.swift').read_text()
-        settings = (ROOT / 'Vesper/Features/Settings/DebugSettingsView.swift').read_text()
-        self.assertIn('debug.playback.throttleHiddenPausedPolling', core)
-        self.assertIn('!self.isPlayerPresented && self.snapshot.phase == .paused', core)
-        self.assertIn('try await Task.sleep(for: .seconds(1))', core)
-        self.assertIn('didSet { core.isPlayerPresented = isPresented }', session)
-        self.assertIn('隐藏且暂停时将状态轮询降至 1 Hz', settings)
+    def test_removed_refresh_and_image_cache_debug_overrides_stay_removed(self):
+        sources = [
+            path.read_text()
+            for path in (ROOT / 'Vesper').rglob('*.swift')
+        ]
+        combined = "\n".join(sources)
+        self.assertNotIn('ImageCacheDebugSettings', combined)
+        self.assertNotIn('ignoringLocalCache', combined)
+        self.assertNotIn('throttleHiddenPausedPolling', combined)
+        self.assertNotIn('detachHiddenVideoSurface', combined)
+        self.assertIn('Task.sleep(for: .milliseconds(150))', combined)
 
     def test_unchanged_engine_snapshots_do_not_publish_ui_updates(self):
         core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()

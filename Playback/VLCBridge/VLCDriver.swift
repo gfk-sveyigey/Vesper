@@ -295,6 +295,9 @@ internal import SwiftVLC
     }
     public func play() throws { try player?.play() }
     public func pause() { player?.pause() }
+    public var renderedFrameMarker: Double? {
+        player?.statistics.map { Double($0.displayedPictures) }
+    }
     public func seek(to seconds: Double) async throws {
         try await seek(to: seconds, fast: false)
     }

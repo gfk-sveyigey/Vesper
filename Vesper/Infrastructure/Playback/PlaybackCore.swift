@@ -7,14 +7,15 @@ import VesperAetherBridge
 import VesperVLCBridge
 
 enum PlaybackDiagnostics {
-    static let detachHiddenVideoSurfaceKey = "debug.playback.detachHiddenVideoSurface"
-    static let throttleHiddenPausedPollingKey = "debug.playback.throttleHiddenPausedPolling"
-    static let controlEdgeSpacingKey = "debug.playback.controlEdgeSpacing"
+    static let controlTopPortraitSpacingKey = "debug.playback.controlTopPortraitSpacing"
+    static let controlTopLandscapeSpacingKey = "debug.playback.controlTopLandscapeSpacing"
+    static let controlBottomPortraitSpacingKey = "debug.playback.controlBottomPortraitSpacing"
+    static let controlBottomLandscapeSpacingKey = "debug.playback.controlBottomLandscapeSpacing"
     static let defaultControlEdgeSpacing = 10
     static let controlEdgeSpacingRange = 0...60
-    static let controlGradientStrengthKey = "debug.playback.controlGradientStrength"
-    static let defaultControlGradientStrength = 100
-    static let controlGradientStrengthRange = 0...100
+    static let controlScrimOpacityKey = "debug.playback.controlScrimOpacity"
+    static let defaultControlScrimOpacity = 25
+    static let controlScrimOpacityRange = 0...100
     static let controlGlassClearKey = "debug.playback.controlGlassClear"
 }
 
@@ -133,7 +134,6 @@ struct PlaybackTrackRestoration {
     private(set) var engineID: EngineID = .aether
     private(set) var snapshot = EngineSnapshot()
     private(set) var isTransitioning = false
-    var isPlayerPresented = false
     var onChange: (() -> Void)?
     var restoreUI: ((@escaping (Bool) -> Void) -> Void)?
     var log: ((String) -> Void)?
@@ -568,13 +568,7 @@ struct PlaybackTrackRestoration {
                     || previousAudioTarget != self.restoringAudioID || previousSubtitleTarget != self.restoringSubtitleID {
                     self.onChange?()
                 }
-                let shouldThrottleHiddenPause = UserDefaults.standard.bool(
-                    forKey: PlaybackDiagnostics.throttleHiddenPausedPollingKey
-                ) && !self.isPlayerPresented && self.snapshot.phase == .paused
-                do {
-                    if shouldThrottleHiddenPause { try await Task.sleep(for: .seconds(1)) }
-                    else { try await Task.sleep(for: .milliseconds(150)) }
-                } catch { return }
+                do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
             }
         }
     }

@@ -40,14 +40,6 @@ actor AppCacheStore {
         return (read("image|\(key)", category: .images), imageGeneration)
     }
 
-    func image(key: String, ignoringLocalCache: Bool) -> (Data?, UUID) {
-        if ignoringLocalCache { return (nil, imageGeneration) }
-        migrateIfNeeded()
-        return (read("image|\(key)", category: .images), imageGeneration)
-    }
-
-    func invalidateImageWrites() { imageGeneration = UUID() }
-
     func saveImage(_ data: Data, key: String, generation: UUID) {
         guard generation == imageGeneration else { return }
         write(data, key: "image|\(key)", category: .images)

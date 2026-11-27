@@ -127,13 +127,7 @@ private struct HistoryMediaCard: View {
     private func loadArtworkIdentity() async {
         guard source.kind == .emby else { return }
         let cacheKey = "history-artwork|\(AppCacheStore.scope(for: source))|\(entry.mediaID.localID)"
-        let ignoresCache = ImageCacheDebugSettings.ignoresLocalCache
-        let (cachedData, generation): (Data?, UUID)
-        if ignoresCache {
-            (cachedData, generation) = await AppCacheStore.shared.image(key: cacheKey, ignoringLocalCache: true)
-        } else {
-            (cachedData, generation) = await AppCacheStore.shared.imageMetadata(key: cacheKey)
-        }
+        let (cachedData, generation) = await AppCacheStore.shared.imageMetadata(key: cacheKey)
         let cached = cachedData.flatMap { try? JSONDecoder().decode(HistoryArtworkCacheEntry.self, from: $0) }
         if let cached {
             resolvedItem = cached.item
@@ -173,7 +167,7 @@ private struct HistoryMediaCard: View {
             resolvedItem = value.item
             posterItem = value.posterItem
             previewTitle = value.previewTitle
-            if !ignoresCache, let data = try? JSONEncoder().encode(value) {
+            if let data = try? JSONEncoder().encode(value) {
                 await AppCacheStore.shared.saveImageMetadata(data, key: cacheKey, generation: generation)
             }
         } catch {
