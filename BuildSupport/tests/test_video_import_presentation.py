@@ -31,7 +31,9 @@ class VideoImportPresentationTests(unittest.TestCase):
         project = (ROOT / 'Vesper.xcodeproj/project.pbxproj').read_text()
         self.assertIn('productType = "com.apple.product-type.app-extension"', project)
         self.assertIn('dstSubfolderSpec = 13;', project)
-        self.assertEqual(project.count('CODE_SIGN_ENTITLEMENTS = Vesper/App/VesperAppGroup.entitlements;'), 4)
+        self.assertEqual(project.count('VESPER_APP_GROUP = "";'), 2)
+        self.assertEqual(project.count('CODE_SIGN_ENTITLEMENTS = "$(VESPER_APP_GROUP_ENTITLEMENTS)";'), 4)
+        self.assertNotIn('CODE_SIGN_ENTITLEMENTS = Vesper/App/VesperAppGroup.entitlements;', project)
 
     def test_separate_deliveries_are_published_as_one_batch_and_acknowledged_after_display(self):
         compiler = os.environ.get('SWIFTC') or shutil.which('swiftc')
