@@ -3,17 +3,21 @@ import UIKit
 import UniformTypeIdentifiers
 
 final class VideoShareViewController: UIViewController {
+    private var didFinish = false
+
     override func viewDidLoad() {
         super.viewDidLoad()
+        preferredContentSize = CGSize(width: 0, height: 104)
         guard let extensionContext else { return }
         let providers = extensionContext.inputItems.compactMap { $0 as? NSExtensionItem }
             .flatMap { $0.attachments ?? [] }
             .filter(SharedVideoTransfer.supports)
-        let host = UIHostingController(rootView: VideoShareView(providers: providers) { [weak extensionContext] cancel in
-            if cancel {
-                extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
+        let host = UIHostingController(rootView: VideoShareView(providers: providers) { [weak self] batch in
+            guard let self else { return }
+            if let batch {
+                openVesper(batch: batch)
             } else {
-                extensionContext?.completeRequest(returningItems: nil)
+                finish(cancelled: true)
             }
         })
         addChild(host)
@@ -22,90 +26,124 @@ final class VideoShareViewController: UIViewController {
         view.addSubview(host.view)
         host.didMove(toParent: self)
     }
+
+    private func openVesper(batch: URL) {
+        // Share extensions cannot call UIApplication.open directly.
+        let selector = NSSelectorFromString("openURL:options:completionHandler:")
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let application = current as? UIApplication, application.responds(to: selector) {
+                let implementation: IMP? = application.method(for: selector)
+                guard let implementation, let url = NSURL(string: "vesper://share-inbox") else { break }
+                typealias Open = @convention(c) (UIApplication, Selector, NSURL, NSDictionary, @convention(block) (Bool) -> Void) -> Void
+                let open = unsafeBitCast(implementation, to: Open.self)
+                open(application, selector, url, NSDictionary()) { @Sendable [weak self] opened in
+                    Task { @MainActor in self?.finishHandoff(batch: batch, opened: opened) }
+                }
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(5))
+                    self?.finishHandoff(batch: batch, opened: false)
+                }
+                return
+            }
+            responder = current.next
+        }
+        finishHandoff(batch: batch, opened: false)
+    }
+
+    private func finishHandoff(batch: URL, opened: Bool) {
+        guard !didFinish else { return }
+        if !opened { SharedVideoInbox.discardPublishedBatch(batch) }
+        finish(cancelled: !opened)
+    }
+
+    private func finish(cancelled: Bool = false) {
+        guard !didFinish else { return }
+        didFinish = true
+        if cancelled {
+            extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
+        } else {
+            extensionContext?.completeRequest(returningItems: nil)
+        }
+    }
 }
 
 private struct VideoShareView: View {
     let providers: [NSItemProvider]
-    let finish: (Bool) -> Void
-    @State private var saving = false
-    @State private var processed = 0
-    @State private var result: LocalizedStringKey?
-    @State private var staged = false
+    let finish: (URL?) -> Void
+    @State private var started = false
+    @State private var message: LocalizedStringKey = ""
+    @State private var showsMessage = false
+    @State private var publishedBatch: URL?
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                if saving {
-                    ProgressView(value: Double(processed), total: Double(max(1, providers.count)))
-                        .accessibilityLabel("正在保存")
-                } else if let result {
-                    Text(result).multilineTextAlignment(.center)
-                } else if providers.isEmpty {
-                    Text("请选择支持的视频文件。")
-                } else {
-                    List(Array(providers.enumerated()), id: \.offset) { entry in
-                        Label {
-                            if let name = entry.element.suggestedName {
-                                Text(verbatim: name).lineLimit(2)
-                            } else {
-                                Text("视频")
-                            }
-                        } icon: { Image(systemName: "film") }
-                    }
-                    .listStyle(.plain)
-                }
+        Image("Icon")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 60, height: 60)
+            .clipShape(RoundedRectangle(cornerRadius: 13))
+            .accessibilityLabel("Vesper")
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.top, 18)
+            .task { await stageVideos() }
+            .alert("接收视频", isPresented: $showsMessage) {
+                Button(publishedBatch == nil ? "关闭" : "继续") { finish(publishedBatch) }
+            } message: {
+                Text(message)
             }
-            .padding(20)
-            .navigationTitle("接收视频")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(staged ? "关闭" : "取消") { finish(!staged) }
-                        .disabled(saving)
-                }
-                if !staged {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("导入视频", action: stageVideos)
-                            .disabled(saving || providers.isEmpty)
-                    }
-                }
-            }
-        }
-        .interactiveDismissDisabled(saving)
     }
 
-    private func stageVideos() {
-        guard !saving, !staged else { return }
-        guard let root = SharedVideoInbox.root else {
-            result = "无法访问 Vesper 的共享容器，请检查签名的 App Group。"
+    private func stageVideos() async {
+        guard !started else { return }
+        started = true
+        guard !providers.isEmpty else {
+            showMessage("请选择支持的视频文件。")
             return
         }
-        saving = true
-        processed = 0
+        guard let root = SharedVideoInbox.root else {
+            showMessage("无法访问 Vesper 的共享容器，请检查签名的 App Group。")
+            return
+        }
         let id = UUID()
         let staging = SharedVideoInbox.stagingDirectory(in: root, id: id)
-        Task {
-            defer { saving = false }
-            do {
-                try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
-                defer { try? FileManager.default.removeItem(at: staging) }
-                var copied = 0
-                for (index, provider) in providers.enumerated() {
-                    let slot = staging.appendingPathComponent(String(index), isDirectory: true)
-                    if await SharedVideoTransfer.copy(provider, to: slot) { copied += 1 }
-                    processed += 1
-                }
-                guard copied > 0 else {
-                    result = "无法读取此视频，请先将文件下载到本机后重试。"
-                    return
-                }
-                try SharedVideoInbox.publish(staging, in: root, id: id)
-                staged = true
-                result = copied == providers.count ? "请打开 Vesper 继续导入。" : "部分视频无法接收，请打开 Vesper 导入其余视频。"
-            } catch {
-                result = "无法读取此视频，请先将文件下载到本机后重试。"
+        var copied = 0
+        let batch: URL
+        do {
+            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: staging) }
+            guard let lease = SharedVideoBatchLease(staging) else {
+                showMessage("无法读取此视频，请先将文件下载到本机后重试。")
+                return
             }
+            defer { withExtendedLifetime(lease) {} }
+            for (index, provider) in providers.enumerated() {
+                try Task.checkCancellation()
+                let slot = staging.appendingPathComponent(String(index), isDirectory: true)
+                if await SharedVideoTransfer.copy(provider, to: slot) { copied += 1 }
+            }
+            try Task.checkCancellation()
+            guard copied > 0 else {
+                showMessage("无法读取此视频，请先将文件下载到本机后重试。")
+                return
+            }
+            batch = try SharedVideoInbox.publish(staging, in: root, id: id)
+        } catch is CancellationError {
+            return
+        } catch {
+            showMessage("无法读取此视频，请先将文件下载到本机后重试。")
+            return
         }
+        if copied == providers.count {
+            finish(batch)
+        } else {
+            publishedBatch = batch
+            showMessage("部分视频无法接收。")
+        }
+    }
+
+    private func showMessage(_ value: LocalizedStringKey) {
+        message = value
+        showsMessage = true
     }
 }
 

@@ -9,6 +9,7 @@ private extension AppCacheCategory {
         case .videos: VesperLocalization.string("视频")
         case .subtitles: VesperLocalization.string("字幕")
         case .danmaku: VesperLocalization.string("弹幕")
+        case .shareInbox: VesperLocalization.string("分享暂存")
         case .other: VesperLocalization.string("其他")
         }
     }
@@ -20,6 +21,7 @@ private extension AppCacheCategory {
         case .videos: "film"
         case .subtitles: "captions.bubble"
         case .danmaku: "text.bubble"
+        case .shareInbox: "tray.and.arrow.down"
         case .other: "archivebox"
         }
     }
@@ -90,6 +92,10 @@ struct CacheManagementView: View {
                         clearing = false
                         showsFailure = !failed.isEmpty
                     }
+                }
+            } message: {
+                if confirmation.contains(.shareInbox) {
+                    Text("清理会删除尚未保存的分享视频，正在使用的文件会保留。")
                 }
             }
             .alert("部分缓存无法清理", isPresented: $showsFailure) {

@@ -780,7 +780,10 @@
 "保存全部" = "Alle speichern";
 "无法访问 Vesper 的共享容器，请检查签名的 App Group。" = "Der gemeinsame Vesper-Container ist nicht verfügbar. Prüfe die App Group der Signatur.";
 "请打开 Vesper 继续导入。" = "Öffne Vesper, um den Import fortzusetzen.";
-"部分视频无法接收，请打开 Vesper 导入其余视频。" = "Einige Videos konnten nicht empfangen werden. Öffne Vesper, um die übrigen zu importieren.";
+"分享暂存" = "Geteilte Dateien";
+"清理会删除尚未保存的分享视频，正在使用的文件会保留。" = "Die Bereinigung löscht noch nicht gespeicherte geteilte Videos. Dateien in Verwendung bleiben erhalten.";
+"部分视频无法接收。" = "Einige Videos konnten nicht empfangen werden.";
+"继续" = "Weiter";
 "特别篇" = "Specials";
 "添加 Emby 来源" = "Emby-Server hinzufügen";
 "编辑 Emby 来源" = "Emby-Server bearbeiten";

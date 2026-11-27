@@ -335,7 +335,9 @@ C95B8B46CB1D533003BA7BA3 = { isa = PBXShellScriptBuildPhase; buildActionMask = 2
 5A4E0000000000000000000A = { isa = PBXContainerItemProxy; containerPortal = 98F54143AB4E86B28C3AFEE0; proxyType = 1; remoteGlobalIDString = 5A4E00000000000000000010; remoteInfo = VesperShare; };
 5A4E0000000000000000000B = { isa = PBXTargetDependency; target = 5A4E00000000000000000010; targetProxy = 5A4E0000000000000000000A; };
 5A4E0000000000000000000C = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (5A4E00000000000000000006,5A4E00000000000000000007,); runOnlyForDeploymentPostprocessing = 0; };
-5A4E0000000000000000000D = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (5A4E00000000000000000013,); runOnlyForDeploymentPostprocessing = 0; };
+5A4E0000000000000000000D = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (5A4E00000000000000000013,5A4E00000000000000000016,); runOnlyForDeploymentPostprocessing = 0; };
+5A4E00000000000000000015 = { isa = PBXFileReference; lastKnownFileType = image.png; path = Vesper/Resources/Assets.xcassets/VesperAppIcon.imageset/Icon.png; sourceTree = SOURCE_ROOT; };
+5A4E00000000000000000016 = { isa = PBXBuildFile; fileRef = 5A4E00000000000000000015; };
 5A4E0000000000000000000E = { isa = XCBuildConfiguration; name = Debug; buildSettings = {
  APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_STYLE = Automatic;
  CODE_SIGN_ENTITLEMENTS = "$(VESPER_APP_GROUP_ENTITLEMENTS)";

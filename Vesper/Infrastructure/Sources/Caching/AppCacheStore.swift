@@ -2,7 +2,7 @@ import Foundation
 import CryptoKit
 
 enum AppCacheCategory: String, CaseIterable, Hashable, Sendable {
-    case library, images, videos, subtitles, danmaku, other
+    case library, images, videos, subtitles, danmaku, shareInbox, other
 }
 
 actor AppCacheStore {
@@ -65,9 +65,15 @@ actor AppCacheStore {
 
     func sizes() -> [AppCacheCategory: Int64] {
         migrateIfNeeded()
-        return Dictionary(uniqueKeysWithValues: AppCacheCategory.allCases.map { category in
+        var sizes = Dictionary(uniqueKeysWithValues: AppCacheCategory.allCases.filter { $0 != .shareInbox }.map { category in
             (category, files(in: folder(category)).reduce(0) { $0 + $1.bytes })
         })
+        if let root = SharedVideoInbox.root {
+            sizes[.shareInbox] = SharedVideoInbox.temporaryDirectories(in: root).reduce(0) { total, directory in
+                total + files(in: directory).reduce(0) { $0 + $1.bytes }
+            }
+        }
+        return sizes
     }
 
     func clear(_ categories: Set<AppCacheCategory>) -> Set<AppCacheCategory> {
@@ -76,6 +82,12 @@ actor AppCacheStore {
         if categories.contains(.library) { libraryGeneration = UUID() }
         var failures = Set<AppCacheCategory>()
         for category in categories {
+            if category == .shareInbox {
+                if let root = SharedVideoInbox.root, !SharedVideoInbox.clearTemporaryBatches(in: root) {
+                    failures.insert(category)
+                }
+                continue
+            }
             do {
                 try FileManager.default.removeItem(at: folder(category))
             } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {

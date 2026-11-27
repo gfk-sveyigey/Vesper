@@ -1,4 +1,26 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
+/// Lock the directory inode so the lease survives the staging-to-batch rename.
+final class SharedVideoBatchLease: Sendable {
+    private let descriptor: Int32
+
+    init?(_ directory: URL) {
+        let descriptor = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            close(descriptor)
+            return nil
+        }
+        self.descriptor = descriptor
+    }
+
+    deinit { close(descriptor) }
+}
 
 enum SharedVideoInbox {
     static let root: URL? = {
@@ -111,8 +133,41 @@ enum SharedVideoInbox {
         root.appendingPathComponent("." + id.uuidString, isDirectory: true)
     }
 
-    static func publish(_ staging: URL, in root: URL, id: UUID) throws {
-        try FileManager.default.moveItem(at: staging, to: root.appendingPathComponent(id.uuidString, isDirectory: true))
+    static func temporaryDirectories(in root: URL) -> [URL] {
+        directories(in: root, includingHidden: true).filter {
+            let name = $0.lastPathComponent
+            return UUID(uuidString: name.hasPrefix(".") ? String(name.dropFirst()) : name) != nil
+        }
+    }
+
+    static func clearTemporaryBatches(in root: URL) -> Bool {
+        var succeeded = true
+        for directory in temporaryDirectories(in: root) {
+            guard let lease = SharedVideoBatchLease(directory) else { continue }
+            // Leave time for a newly created staging directory to acquire its lease.
+            if directory.lastPathComponent.hasPrefix(".") {
+                guard let date = (try? directory.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                      Date().timeIntervalSince(date) >= 60 else { continue }
+            }
+            withExtendedLifetime(lease) {
+                do { try FileManager.default.removeItem(at: directory) }
+                catch let error as CocoaError where error.code == .fileNoSuchFile {}
+                catch { succeeded = false }
+            }
+        }
+        return succeeded
+    }
+
+    @discardableResult
+    static func publish(_ staging: URL, in root: URL, id: UUID) throws -> URL {
+        let batch = root.appendingPathComponent(id.uuidString, isDirectory: true)
+        try FileManager.default.moveItem(at: staging, to: batch)
+        return batch
+    }
+
+    static func discardPublishedBatch(_ batch: URL) {
+        guard let lease = SharedVideoBatchLease(batch) else { return }
+        withExtendedLifetime(lease) { try? FileManager.default.removeItem(at: batch) }
     }
 
     static func batches(in root: URL) -> [URL] {
@@ -139,10 +194,10 @@ enum SharedVideoInbox {
             }
     }
 
-    private static func directories(in parent: URL) -> [URL] {
+    private static func directories(in parent: URL, includingHidden: Bool = false) -> [URL] {
         let directories = try? FileManager.default.contentsOfDirectory(at: parent,
             includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles])
+            options: includingHidden ? [] : [.skipsHiddenFiles])
         return (directories ?? []).filter { url in
             guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return false }
             return values.isDirectory == true && values.isSymbolicLink != true

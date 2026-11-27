@@ -54,6 +54,10 @@ enum FileDeliveryRouter {
     @discardableResult
     static func receive(_ url: URL, origin: String, requiresCopy: Bool = true) -> Bool {
         FileDeliveryLog.write("入口=\(origin) scheme=\(url.scheme ?? "nil") extension=\(url.pathExtension)")
+        if url.scheme?.lowercased() == "vesper", url.host == "share-inbox", url.path.isEmpty {
+            Task { await IncomingVideoReceiver.shared.receiveSharedBatches() }
+            return true
+        }
         // A control event sent from Safari tests the same external URL callbacks
         // without depending on a file provider or document-type association.
         if url.scheme?.lowercased() == "vesper-import-diagnostic", url.host == "ping" {

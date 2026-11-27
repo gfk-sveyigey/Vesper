@@ -26,4 +26,5 @@ iOS 应用标识符：`com.aholic.vesper`。
 - 未签名 IPA 不指定默认 App Group。签名时，主 App `com.aholic.vesper` 和扩展 `com.aholic.vesper.Share` 必须由同一团队签名，并签入同一个已授权的 App Group。不要让签名工具移除 `PlugIns/VesperShare.appex`。
 - 未指定 Group ID 时，Vesper 会从主 App 和扩展的嵌入式 XML 签名权限中选取字典序最前的共同组，再向 iOS 请求容器。两边使用同一规则，不会各自尝试不同的组。没有可读的共同组，或选中的容器无法访问时，可在签名前将已授权的 Group ID 写入两个包各自 `Info.plist` 的 `VesperAppGroupIdentifier`。
 - 直接用 Xcode 签名时，可设置 `VESPER_APP_GROUP` 为已授权的 Group ID，并设置 `VESPER_APP_GROUP_ENTITLEMENTS=Vesper/App/VesperAppGroup.entitlements`。
-- 从「文件」或其他 App 多选视频，使用分享菜单里的 Vesper 扩展。暂存完成后打开 Vesper，选择「保存全部」；这与系统的「用 Vesper 打开」是两个入口。「文件 → 我的 iPhone → Vesper」可浏览已保存的视频。
+- 从「文件」或其他 App 多选视频，使用分享菜单里的 Vesper 扩展。扩展自动暂存后尝试打开 Vesper，进入导入面板后选择「保存全部」。自动跳转不属于 iOS 支持的扩展 API；跳转失败时删除未被 Vesper 接手的本次暂存。
+- 「设置 → 缓存管理 → 分享暂存」会统计暂存占用，并清理未在使用的批次（包括至少一分钟前留下的中断副本）。清理不会删除「文件 → 我的 iPhone → Vesper」里已保存的视频。

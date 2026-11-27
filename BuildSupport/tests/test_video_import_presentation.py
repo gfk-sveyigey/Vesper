@@ -118,6 +118,30 @@ import Foundation
         withExtendedLifetime(files) {
             precondition(files.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) })
         }
+
+        let abandoned = SharedVideoInbox.stagingDirectory(in: root, id: UUID())
+        let fresh = SharedVideoInbox.stagingDirectory(in: root, id: UUID())
+        for directory in [abandoned, fresh] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -120)],
+                                              ofItemAtPath: abandoned.path)
+        let unclaimed = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let rejected = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: unclaimed, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: rejected, withIntermediateDirectories: true)
+        withExtendedLifetime(files) {
+            SharedVideoInbox.discardPublishedBatch(rejected)
+            SharedVideoInbox.discardPublishedBatch(root.appendingPathComponent(id.uuidString))
+            precondition(!FileManager.default.fileExists(atPath: rejected.path))
+            precondition(FileManager.default.fileExists(atPath: unclaimed.path))
+            precondition(files.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) })
+            precondition(SharedVideoInbox.clearTemporaryBatches(in: root))
+            precondition(files.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) })
+        }
+        precondition(!FileManager.default.fileExists(atPath: abandoned.path))
+        precondition(!FileManager.default.fileExists(atPath: unclaimed.path))
+        precondition(FileManager.default.fileExists(atPath: fresh.path))
     }
 }
 '''
@@ -195,6 +219,16 @@ import Foundation
         self.assertIn('.task(id: incomingPresentationRequest)', source)
         self.assertIn('return root.presentedViewController == nil', source)
         self.assertNotIn('controller.children.contains { hasPresentation(in: $0) }', source)
+
+    def test_share_inbox_url_only_requests_reading_published_batches(self):
+        extension = (ROOT / 'ShareExtension/VideoShareViewController.swift').read_text()
+        delivery = (ROOT / 'Vesper/App/VesperFileDelivery.swift').read_text()
+        self.assertIn('vesper://share-inbox', extension)
+        stage = extension.split('private func stageVideos()', 1)[1].split('private func showMessage', 1)[0]
+        self.assertLess(stage.index('SharedVideoInbox.publish'), stage.index('finish(batch)'))
+        self.assertIn('if !opened { SharedVideoInbox.discardPublishedBatch(batch) }', extension)
+        self.assertIn('url.host == "share-inbox", url.path.isEmpty', delivery)
+        self.assertIn('Task { await IncomingVideoReceiver.shared.receiveSharedBatches() }', delivery)
 
     def test_external_document_delivery_uses_swiftui_scene_routing(self):
         app = (ROOT / 'Vesper/App/VesperApp.swift').read_text()

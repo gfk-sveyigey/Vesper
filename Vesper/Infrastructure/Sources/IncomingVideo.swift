@@ -26,10 +26,17 @@ final class IncomingFileAccess: Sendable {
 /// Keep the published batch on disk until its last preview or playback releases it.
 final class SharedVideoBatchAccess: Sendable {
     let directory: URL
+    private let lease: SharedVideoBatchLease
 
-    init(directory: URL) { self.directory = directory }
+    init?(directory: URL) {
+        guard let lease = SharedVideoBatchLease(directory) else { return nil }
+        self.directory = directory
+        self.lease = lease
+    }
 
-    deinit { try? FileManager.default.removeItem(at: directory) }
+    deinit {
+        withExtendedLifetime(lease) { try? FileManager.default.removeItem(at: directory) }
+    }
 }
 
 struct IncomingVideo: Identifiable, Sendable {
@@ -76,8 +83,9 @@ final class IncomingVideoReceiver: ObservableObject {
     func receiveSharedBatches(from root: URL? = SharedVideoInbox.root) async {
         guard let root else { return }
         for directory in SharedVideoInbox.batches(in: root) {
-            guard openedSharedBatches.insert(directory).inserted else { continue }
-            let batch = SharedVideoBatchAccess(directory: directory)
+            guard !openedSharedBatches.contains(directory),
+                  let batch = SharedVideoBatchAccess(directory: directory) else { continue }
+            openedSharedBatches.insert(directory)
             let urls = SharedVideoInbox.files(in: directory)
             log("分享扩展交付文件数=\(urls.count)")
             var videos: [IncomingVideo] = []
