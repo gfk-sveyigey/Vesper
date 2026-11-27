@@ -24,6 +24,6 @@ iOS 应用标识符：`com.aholic.vesper`。
 ## 分享扩展签名
 
 - 未签名 IPA 不指定默认 App Group。签名时，主 App `com.aholic.vesper` 和扩展 `com.aholic.vesper.Share` 必须由同一团队签名，并签入同一个已授权的 App Group。不要让签名工具移除 `PlugIns/VesperShare.appex`。
-- 重签 IPA 时，签名工具还需要在签名前将同一个 Group ID 写入主 App 和扩展各自 `Info.plist` 的 `VesperAppGroupIdentifier`。只配置 entitlement 不够，运行时需要这个值来请求容器。
+- 未指定 Group ID 时，Vesper 会从主 App 和扩展的嵌入式 XML 签名权限中选取字典序最前的共同组，再向 iOS 请求容器。两边使用同一规则，不会各自尝试不同的组。没有可读的共同组，或选中的容器无法访问时，可在签名前将已授权的 Group ID 写入两个包各自 `Info.plist` 的 `VesperAppGroupIdentifier`。
 - 直接用 Xcode 签名时，可设置 `VESPER_APP_GROUP` 为已授权的 Group ID，并设置 `VESPER_APP_GROUP_ENTITLEMENTS=Vesper/App/VesperAppGroup.entitlements`。
 - 从「文件」或其他 App 多选视频，使用分享菜单里的 Vesper 扩展。暂存完成后打开 Vesper，选择「保存全部」；这与系统的「用 Vesper 打开」是两个入口。「文件 → 我的 iPhone → Vesper」可浏览已保存的视频。

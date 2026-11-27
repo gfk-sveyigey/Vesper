@@ -3,6 +3,7 @@ import os
 import plistlib
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -131,6 +132,53 @@ import Foundation
                             str(folder / 'Shims.swift'), str(folder / 'Checks.swift'), '-o', str(folder / 'checks')],
                            check=True, capture_output=True, text=True)
             subprocess.run([str(folder / 'checks')], check=True, capture_output=True, text=True)
+
+    def test_signed_app_group_detection_picks_the_same_common_group_in_both_processes(self):
+        compiler = os.environ.get('SWIFTC') or shutil.which('swiftc')
+        if not compiler:
+            self.skipTest('Swift compiler unavailable')
+
+        def executable(groups):
+            payload = plistlib.dumps({'com.apple.security.application-groups': groups})
+            blob = struct.pack('>2I', 0xfade7171, 8 + len(payload)) + payload
+            signature = struct.pack('>5I', 0xfade0cc0, 20 + len(blob), 1, 5, 20) + blob
+            header = struct.pack('<8I', 0xfeedfacf, 0x0100000c, 0, 2, 1, 16, 0, 0)
+            return header + struct.pack('<4I', 0x1d, 16, 48, len(signature)) + signature
+
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            app = executable(['group.app-only', 'group.shared'])
+            share = executable(['group.extension-only', 'group.shared'])
+            (folder / 'app').write_bytes(app)
+            (folder / 'share').write_bytes(share)
+            (folder / 'truncated').write_bytes(share[:-1])
+            checks = folder / 'Checks.swift'
+            checks.write_text(r'''
+import Foundation
+@main struct Checks {
+    static func main() throws {
+        let folder = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
+        func groups(_ name: String) throws -> Set<String> {
+            SharedVideoInbox.signedGroups(in: try Data(contentsOf: folder.appendingPathComponent(name)))
+        }
+        let app = try groups("app")
+        let share = try groups("share")
+        let truncated = try groups("truncated")
+        precondition(app == ["group.app-only", "group.shared"])
+        precondition(share == ["group.extension-only", "group.shared"])
+        precondition(truncated.isEmpty)
+        precondition(SharedVideoInbox.preferredCommonGroup(app, share) == "group.shared")
+        let multiple: Set<String> = ["group.shared", "group.app-only", "group.unrelated"]
+        precondition(SharedVideoInbox.preferredCommonGroup(app, multiple) == "group.app-only")
+        precondition(SharedVideoInbox.preferredCommonGroup(multiple, app) == "group.app-only")
+        precondition(SharedVideoInbox.preferredCommonGroup(app, ["group.unrelated"]) == nil)
+    }
+}
+''')
+            binary = folder / 'checks'
+            subprocess.run([compiler, '-swift-version', '6', str(ROOT / 'ShareExtension/SharedVideoInbox.swift'),
+                            str(checks), '-o', str(binary)], check=True)
+            subprocess.run([str(binary), str(folder)], check=True)
 
     def test_presentation_guards(self):
         source = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
