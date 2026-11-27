@@ -74,7 +74,34 @@ class TabHeaderNavigationTests(unittest.TestCase):
         local = (ROOT / 'Media/LocalFilesView.swift').read_text()
         selector = media.split('private func sourceMenuButton', 1)[1].split('private func deviceMedia', 1)[0]
         self.assertIn('library.selectedSource?.kind == .local || library.selectedSource?.kind == .photos', selector)
-        self.assertIn('Section { deviceBrowser.menuItems }', selector)
-        self.assertIn('Section { deviceBrowser.menuItems }', local)
+        self.assertIn('deviceBrowser.layoutMenuItems', selector)
+        self.assertIn('deviceBrowser.sortMenuButton', media.split('private func mediaSourceMenu', 1)[1].split('private func localImportButton', 1)[0])
+        media_actions = media.split('private func mediaSourceMenu', 1)[1].split('private func localImportButton', 1)[0]
+        self.assertIn('GlassEffectContainer(spacing: 8)', media_actions)
+        self.assertIn('.glassEffectID("media-source-origin", in: mediaSourceGlass)', media_actions)
+        self.assertIn('showsEmbyShortcuts ? "media-source-selector" : "media-source-origin"', media_actions)
+        self.assertEqual(media_actions.count('.glassEffectTransition(.matchedGeometry)'), 2)
+        self.assertIn('if showsEmbyShortcuts {', media_actions)
+        self.assertNotIn('.frame(width: isExpanded', media_actions)
+        self.assertNotIn('.opacity(isExpanded', media_actions)
+        self.assertIn('deviceBrowser.layoutMenuItems', local)
+        self.assertIn('deviceBrowser.sortMenuButton', local)
+        self.assertIn('device.browser.photos.sort', media)
+        self.assertIn('device.browser.sort', media)
+        self.assertIn('private struct DeviceMediaContextMenu', media)
+        self.assertIn('if isGrid {', media.split('private struct DeviceMediaContextMenu', 1)[1])
+        self.assertNotIn('sortMenuItems', selector)
+        self.assertIn('device.browser.photos.ascending', media)
+        self.assertIn('device.browser.ascending', media)
         self.assertIn('queue: sorted', media)
         self.assertIn('sorted.filter { !$0.isDirectory && isVideo($0) }', local)
+
+    def test_media_root_toolbar_uses_system_symbol_sizes_except_emby_icon(self):
+        media = (ROOT / 'Media/MediaView.swift').read_text()
+        source_menu = media.split('private func mediaSourceMenu', 1)[1].split('private func localImportButton', 1)[0]
+        selector = media.split('private func sourceMenuButton()', 1)[1].split('private func deviceMedia', 1)[0]
+        sort_button = media.split('var sortMenuButton:', 1)[1].split('func sorted<', 1)[0]
+        self.assertNotIn('.font(.system(size:', source_menu)
+        self.assertNotIn('.font(.system(size:', selector)
+        self.assertNotIn('.font(.system(size:', sort_button)
+        self.assertIn('sourceMenuIcon(source, size: 40, inMenu: false)', selector)

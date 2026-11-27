@@ -148,9 +148,14 @@ struct MediaView: View {
     @EnvironmentObject private var playback: PlaybackSession
     @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
     @AppStorage("appearance.accent") private var accent = "vesper"
-    private var deviceBrowser = DeviceMediaBrowserPreferences()
+    private var localDeviceBrowser = DeviceMediaBrowserPreferences(sourceKind: .local)
+    private var photosDeviceBrowser = DeviceMediaBrowserPreferences(sourceKind: .photos)
+    private var deviceBrowser: DeviceMediaBrowserPreferences {
+        library.selectedSource?.kind == .photos ? photosDeviceBrowser : localDeviceBrowser
+    }
     @ObservedObject private var layout = MediaLayoutSettings.shared
     @Namespace private var artworkZoom
+    @Namespace private var mediaSourceGlass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsEmbyShortcuts = false
     @State private var mediaScrollPosition = ScrollPosition(edge: .top)
@@ -532,13 +537,19 @@ struct MediaView: View {
         mediaScrollOffset = offset
         showPendingCarouselDestinationIfAtTop()
         if showsEmbyShortcuts, offset > 1, supportsSourceShortcuts {
-            showsEmbyShortcuts = false
+            setEmbyShortcutsExpanded(false)
         }
     }
 
     private func expandEmbyShortcuts(forTopPull pull: CGFloat) {
         guard pull >= 18, supportsSourceShortcuts, !showsEmbyShortcuts else { return }
-        showsEmbyShortcuts = true
+        setEmbyShortcutsExpanded(true)
+    }
+
+    private func setEmbyShortcutsExpanded(_ expanded: Bool) {
+        withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86)) {
+            showsEmbyShortcuts = expanded
+        }
     }
 
     private func updateMediaScrollPhase(_ phase: ScrollPhase, offset: CGFloat) {
@@ -602,41 +613,56 @@ struct MediaView: View {
     private func mediaSourceMenu(localBusy: Bool = false, createLocalFolder: (() -> Void)? = nil) -> some View {
         let source = embyHomeSource
         let isLocal = library.selectedSource?.kind == .local && createLocalFolder != nil
-        let isExpanded = (source != nil || isLocal) && showsEmbyShortcuts
-        let iconSize: CGFloat = 20
-
-        return HStack(spacing: 0) {
-            if source != nil || isLocal {
-                HStack(spacing: 0) {
-                    if let source {
-                        refreshButton(inMenu: false).frame(width: 44, height: 44)
-                        favoritesButton(source, inMenu: false).frame(width: 44, height: 44)
-                    } else if let createLocalFolder {
-                        localImportButton(busy: localBusy).frame(width: 44, height: 44)
-                        localFolderButton(busy: localBusy, action: createLocalFolder).frame(width: 44, height: 44)
+        return HStack(spacing: 8) {
+            if library.selectedSource?.kind == .local || library.selectedSource?.kind == .photos {
+                deviceBrowser.sortMenuButton
+            }
+            if let source {
+                GlassEffectContainer(spacing: 8) {
+                    HStack(spacing: 8) {
+                        if showsEmbyShortcuts {
+                            sourceShortcutButtons(source: source, localBusy: localBusy,
+                                                  createLocalFolder: nil)
+                                .glassEffect(.regular.interactive(), in: .capsule)
+                                .glassEffectID("media-source-origin", in: mediaSourceGlass)
+                                .glassEffectTransition(.matchedGeometry)
+                        }
+                        sourceMenuButton()
+                            .transaction { transaction in transaction.animation = nil }
+                            .glassEffect(.regular.interactive(), in: .circle)
+                            .glassEffectID(showsEmbyShortcuts ? "media-source-selector" : "media-source-origin",
+                                           in: mediaSourceGlass)
+                            .glassEffectTransition(.matchedGeometry)
                     }
                 }
-                .labelStyle(.iconOnly)
-                .font(.system(size: iconSize, weight: .medium))
-                .foregroundStyle(.primary)
-                .buttonStyle(.plain)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(width: isExpanded ? 88 : 0, alignment: .trailing)
-                .clipped()
-                .opacity(isExpanded ? 1 : 0)
-                .allowsHitTesting(isExpanded)
-                .accessibilityHidden(!isExpanded)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isExpanded)
-            }
-            sourceMenuButton(localBusy: localBusy, createLocalFolder: createLocalFolder, iconSize: iconSize)
-                // Keep the trailing source selector stationary; only the
-                // auxiliary controls and glass capsule should animate.
-                .transaction { transaction in
-                    transaction.animation = nil
+            } else {
+                if isLocal {
+                    sourceShortcutButtons(source: nil, localBusy: localBusy,
+                                          createLocalFolder: createLocalFolder)
+                        .glassEffect(.regular.interactive(), in: .capsule)
                 }
+                sourceMenuButton()
+                    .transaction { transaction in transaction.animation = nil }
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
         }
-        // A single native glass capsule becomes a circle at its collapsed width.
-        .glassEffect(.regular.interactive(), in: .capsule)
+    }
+
+    private func sourceShortcutButtons(source: MediaSource?, localBusy: Bool,
+                                       createLocalFolder: (() -> Void)?) -> some View {
+        HStack(spacing: 0) {
+            if let source {
+                refreshButton(inMenu: false).frame(width: 44, height: 44)
+                favoritesButton(source, inMenu: false).frame(width: 44, height: 44)
+            } else if let createLocalFolder {
+                localImportButton(busy: localBusy).frame(width: 44, height: 44)
+                localFolderButton(busy: localBusy, action: createLocalFolder).frame(width: 44, height: 44)
+            }
+        }
+        .labelStyle(.iconOnly)
+        .foregroundStyle(.primary)
+        .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func localImportButton(busy: Bool) -> some View {
@@ -747,16 +773,10 @@ struct MediaView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private func sourceMenuButton(localBusy: Bool, createLocalFolder: (() -> Void)?, iconSize: CGFloat) -> some View {
+    private func sourceMenuButton() -> some View {
         Menu {
             if library.selectedSource?.kind == .local || library.selectedSource?.kind == .photos {
-                Section { deviceBrowser.menuItems }
-            }
-            if library.selectedSource?.kind == .local, !showsEmbyShortcuts, let createLocalFolder {
-                Section {
-                    localImportButton(busy: localBusy)
-                    localFolderButton(busy: localBusy, action: createLocalFolder)
-                }
+                Section { deviceBrowser.layoutMenuItems }
             }
             if let source = embyHomeSource, !showsEmbyShortcuts {
                 Section { refreshButton() }
@@ -805,7 +825,6 @@ struct MediaView: View {
                         .clipShape(Circle())
                 } else if let source = library.selectedSource, source.kind == .local || source.kind == .photos {
                     Image(systemName: sourceSymbol(source))
-                        .font(.system(size: iconSize, weight: .medium))
                         .foregroundStyle(.primary)
                         .contentTransition(.symbolEffect(.replace))
                 } else {
@@ -839,7 +858,8 @@ struct MediaView: View {
                 }
             }
             .buttonStyle(.plain)
-            .modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
+            .modifier(DeviceMediaContextMenu(source: source, item: item, playback: playback,
+                                             isGrid: deviceBrowser.displayLayout == .grid))
             .accessibilityLabel(Text(verbatim: item.title))
         }
         .padding(.horizontal, CGFloat(layout[.endPadding]))
@@ -1146,30 +1166,74 @@ struct DeviceMediaBrowserPreferences: DynamicProperty {
         case name, added
     }
 
-    @AppStorage("device.browser.layout") private(set) var displayLayout: MediaBrowserLayout = .grid
-    @AppStorage("device.browser.sort") private var sortField: SortField = .name
-    @AppStorage("device.browser.ascending") private var ascending = true
+    let sourceKind: MediaSource.Kind
+    @AppStorage("device.browser.layout") private var localLayout: MediaBrowserLayout = .grid
+    @AppStorage("device.browser.sort") private var localSortField: SortField = .name
+    @AppStorage("device.browser.ascending") private var localAscending = true
+    @AppStorage("device.browser.photos.layout") private var photosLayout: MediaBrowserLayout = .grid
+    @AppStorage("device.browser.photos.sort") private var photosSortField: SortField = .name
+    @AppStorage("device.browser.photos.ascending") private var photosAscending = true
 
-    @ViewBuilder var menuItems: some View {
-        Picker(selection: $displayLayout) {
+    init(sourceKind: MediaSource.Kind = .local) {
+        self.sourceKind = sourceKind
+    }
+
+    var displayLayout: MediaBrowserLayout {
+        get { sourceKind == .photos ? photosLayout : localLayout }
+        nonmutating set {
+            if sourceKind == .photos { photosLayout = newValue } else { localLayout = newValue }
+        }
+    }
+
+    private var sortField: SortField {
+        get { sourceKind == .photos ? photosSortField : localSortField }
+        nonmutating set {
+            if sourceKind == .photos { photosSortField = newValue } else { localSortField = newValue }
+        }
+    }
+
+    private var ascending: Bool {
+        get { sourceKind == .photos ? photosAscending : localAscending }
+        nonmutating set {
+            if sourceKind == .photos { photosAscending = newValue } else { localAscending = newValue }
+        }
+    }
+
+    @ViewBuilder var layoutMenuItems: some View {
+        Picker(selection: Binding(get: { displayLayout }, set: { displayLayout = $0 })) {
             ForEach(MediaBrowserLayout.allCases) { layout in
                 Text(layout.title).tag(layout)
             }
         } label: {
             Label("布局方式", systemImage: "rectangle.grid.2x2")
         }
-        Picker(selection: $sortField) {
+    }
+
+    @ViewBuilder var sortMenuItems: some View {
+        Picker(selection: Binding(get: { sortField }, set: { sortField = $0 })) {
             Text("名称").tag(SortField.name)
             Text("添加日期").tag(SortField.added)
         } label: {
             Label("排序依据", systemImage: "line.3.horizontal.decrease")
         }
-        Picker(selection: $ascending) {
+        Picker(selection: Binding(get: { ascending }, set: { ascending = $0 })) {
             Text("正序").tag(true)
             Text("倒序").tag(false)
         } label: {
             Label("排序方式", systemImage: "arrow.up.arrow.down")
         }
+    }
+
+    var sortMenuButton: some View {
+        Menu { sortMenuItems } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel("排序方式")
     }
 
     func sorted<Item>(_ items: [Item], name: KeyPath<Item, String>, dateAdded: KeyPath<Item, Date?>,
@@ -1189,6 +1253,22 @@ struct DeviceMediaBrowserPreferences: DynamicProperty {
             let order = lhs[keyPath: name].localizedStandardCompare(rhs[keyPath: name])
             if order == .orderedSame { return lhs[keyPath: identifier] < rhs[keyPath: identifier] }
             return order == (ascending ? .orderedAscending : .orderedDescending)
+        }
+    }
+}
+
+private struct DeviceMediaContextMenu: ViewModifier {
+    let source: MediaSource
+    let item: MediaItem
+    let playback: PlaybackSession
+    let isGrid: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isGrid {
+            content.modifier(MediaThumbnailMenu(source: source, item: item, playback: playback) { EmptyView() })
+        } else {
+            content
         }
     }
 }

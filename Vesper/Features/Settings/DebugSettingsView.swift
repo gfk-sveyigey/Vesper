@@ -52,10 +52,10 @@ struct DebugSettingsView: View {
     @AppStorage(EmbyUserAgentPolicy.enabledKey) private var enabled = false
     @AppStorage(EmbyUserAgentPolicy.nameKey) private var clientName = ""
     @AppStorage(EmbyUserAgentPolicy.versionKey) private var clientVersion = ""
-    @AppStorage(PlaybackDiagnostics.controlTopPortraitSpacingKey) private var topPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-    @AppStorage(PlaybackDiagnostics.controlTopLandscapeSpacingKey) private var topLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-    @AppStorage(PlaybackDiagnostics.controlBottomPortraitSpacingKey) private var bottomPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-    @AppStorage(PlaybackDiagnostics.controlBottomLandscapeSpacingKey) private var bottomLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlTopPortraitSpacingKey) private var topPortraitSpacing = PlaybackDiagnostics.defaultControlTopPortraitSpacing
+    @AppStorage(PlaybackDiagnostics.controlTopLandscapeSpacingKey) private var topLandscapeSpacing = PlaybackDiagnostics.defaultControlTopLandscapeSpacing
+    @AppStorage(PlaybackDiagnostics.controlBottomPortraitSpacingKey) private var bottomPortraitSpacing = PlaybackDiagnostics.defaultControlBottomPortraitSpacing
+    @AppStorage(PlaybackDiagnostics.controlBottomLandscapeSpacingKey) private var bottomLandscapeSpacing = PlaybackDiagnostics.defaultControlBottomLandscapeSpacing
     @AppStorage(PlaybackDiagnostics.controlScrimOpacityKey) private var controlScrimOpacity = PlaybackDiagnostics.defaultControlScrimOpacity
     @AppStorage(PlaybackDiagnostics.controlGlassClearKey) private var controlGlassClear = false
 
@@ -77,7 +77,7 @@ struct DebugSettingsView: View {
             } footer: {
                 Text("客户端名称和版本会同时用于 User-Agent 及 Emby Authorization 请求头。留空或关闭时使用 Vesper 默认值。")
             }
-            DebugSettingsSection(title: "界面设计") {
+            DebugSettingsSection(title: "播放器控制区") {
                 controlEdgeSpacingStepper("竖屏顶部间距", value: $topPortraitSpacing)
                 controlEdgeSpacingStepper("横屏顶部间距", value: $topLandscapeSpacing)
                 controlEdgeSpacingStepper("竖屏底部间距", value: $bottomPortraitSpacing)
@@ -93,17 +93,37 @@ struct DebugSettingsView: View {
                     Text("标准").tag(false)
                     Text("通透").tag(true)
                 }
-                ForEach(Self.interfaceMetrics, id: \.self) { metric in
+                Button("恢复默认值", systemImage: "arrow.counterclockwise") {
+                    topPortraitSpacing = PlaybackDiagnostics.defaultControlTopPortraitSpacing
+                    topLandscapeSpacing = PlaybackDiagnostics.defaultControlTopLandscapeSpacing
+                    bottomPortraitSpacing = PlaybackDiagnostics.defaultControlBottomPortraitSpacing
+                    bottomLandscapeSpacing = PlaybackDiagnostics.defaultControlBottomLandscapeSpacing
+                    controlScrimOpacity = PlaybackDiagnostics.defaultControlScrimOpacity
+                    controlGlassClear = false
+                }
+            }
+            DebugSettingsSection(title: "媒体卡片布局") {
+                ForEach(Self.mediaCardMetrics, id: \.self) { metric in
                     layoutStepper(metric)
                 }
                 Button("恢复默认值", systemImage: "arrow.counterclockwise") {
-                    layout.reset(Self.interfaceMetrics)
-                    topPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-                    topLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-                    bottomPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-                    bottomLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-                    controlScrimOpacity = PlaybackDiagnostics.defaultControlScrimOpacity
-                    controlGlassClear = false
+                    layout.reset(Self.mediaCardMetrics)
+                }
+            }
+            DebugSettingsSection(title: "媒体列表布局") {
+                ForEach(Self.browserListMetrics, id: \.self) { metric in
+                    layoutStepper(metric)
+                }
+                Button("恢复默认值", systemImage: "arrow.counterclockwise") {
+                    layout.reset(Self.browserListMetrics)
+                }
+            }
+            DebugSettingsSection(title: "来源列表布局") {
+                ForEach(Self.sourceListMetrics, id: \.self) { metric in
+                    layoutStepper(metric)
+                }
+                Button("恢复默认值", systemImage: "arrow.counterclockwise") {
+                    layout.reset(Self.sourceListMetrics)
                 }
             }
             DebugSettingsSection(title: "媒体页导航栏") {
@@ -157,9 +177,22 @@ struct DebugSettingsView: View {
         .carouselBlurHeight, .carouselBlurFadeHeight, .carouselBlurStrength, .carouselBlurTint
     ]
 
-    private static let interfaceMetrics = MediaLayoutSettings.Metric.allCases.filter {
-        !headerMetrics.contains($0) && !carouselBlurMetrics.contains($0)
-    }
+    private static let mediaCardMetrics: [MediaLayoutSettings.Metric] = [
+        .thumbnailHeight, .groupSpacing, .titlePadding, .scrollPadding,
+        .itemWidth, .itemHeight, .itemVerticalPadding, .itemSpacing, .endPadding,
+        .episodeCardWidth, .episodeCardHeight
+    ]
+
+    private static let browserListMetrics: [MediaLayoutSettings.Metric] = [
+        .browserListTop, .browserListLeading, .browserListBottom, .browserListTrailing,
+        .browserListRowHeight, .browserListImageTop, .browserListImageLeading,
+        .browserListImageBottom, .browserListImageTrailing
+    ]
+
+    private static let sourceListMetrics: [MediaLayoutSettings.Metric] = [
+        .sourceListRowHeight, .sourceListIconTop, .sourceListIconLeading,
+        .sourceListIconBottom, .sourceListIconTrailing
+    ]
 
     private func controlEdgeSpacingStepper(_ title: LocalizedStringKey, value: Binding<Int>) -> some View {
         Stepper(value: value, in: PlaybackDiagnostics.controlEdgeSpacingRange) {

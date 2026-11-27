@@ -11,7 +11,10 @@ enum PlaybackDiagnostics {
     static let controlTopLandscapeSpacingKey = "debug.playback.controlTopLandscapeSpacing"
     static let controlBottomPortraitSpacingKey = "debug.playback.controlBottomPortraitSpacing"
     static let controlBottomLandscapeSpacingKey = "debug.playback.controlBottomLandscapeSpacing"
-    static let defaultControlEdgeSpacing = 10
+    static let defaultControlTopPortraitSpacing = 0
+    static let defaultControlTopLandscapeSpacing = 24
+    static let defaultControlBottomPortraitSpacing = 35
+    static let defaultControlBottomLandscapeSpacing = 24
     static let controlEdgeSpacingRange = 0...60
     static let controlScrimOpacityKey = "debug.playback.controlScrimOpacity"
     static let defaultControlScrimOpacity = 25

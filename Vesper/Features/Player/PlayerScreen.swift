@@ -93,10 +93,10 @@ struct PlayerScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(PlaybackPreferences.alwaysShowsMoreControlsKey) private var alwaysShowsMoreControls = false
-    @AppStorage(PlaybackDiagnostics.controlTopPortraitSpacingKey) private var topPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-    @AppStorage(PlaybackDiagnostics.controlTopLandscapeSpacingKey) private var topLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-    @AppStorage(PlaybackDiagnostics.controlBottomPortraitSpacingKey) private var bottomPortraitSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
-    @AppStorage(PlaybackDiagnostics.controlBottomLandscapeSpacingKey) private var bottomLandscapeSpacing = PlaybackDiagnostics.defaultControlEdgeSpacing
+    @AppStorage(PlaybackDiagnostics.controlTopPortraitSpacingKey) private var topPortraitSpacing = PlaybackDiagnostics.defaultControlTopPortraitSpacing
+    @AppStorage(PlaybackDiagnostics.controlTopLandscapeSpacingKey) private var topLandscapeSpacing = PlaybackDiagnostics.defaultControlTopLandscapeSpacing
+    @AppStorage(PlaybackDiagnostics.controlBottomPortraitSpacingKey) private var bottomPortraitSpacing = PlaybackDiagnostics.defaultControlBottomPortraitSpacing
+    @AppStorage(PlaybackDiagnostics.controlBottomLandscapeSpacingKey) private var bottomLandscapeSpacing = PlaybackDiagnostics.defaultControlBottomLandscapeSpacing
     @AppStorage(PlaybackDiagnostics.controlScrimOpacityKey) private var storedControlScrimOpacity = PlaybackDiagnostics.defaultControlScrimOpacity
     @AppStorage(PlaybackDiagnostics.controlGlassClearKey) private var controlGlassClear = false
     @State private var controlsVisible = false

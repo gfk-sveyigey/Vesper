@@ -1187,3 +1187,7 @@
 "横屏顶部间距" = "Marge supérieure paysage";
 "竖屏底部间距" = "Marge inférieure portrait";
 "横屏底部间距" = "Marge inférieure paysage";
+"播放器控制区" = "Commandes du lecteur";
+"媒体卡片布局" = "Disposition des cartes multimédias";
+"媒体列表布局" = "Disposition des listes multimédias";
+"来源列表布局" = "Disposition des listes de sources";

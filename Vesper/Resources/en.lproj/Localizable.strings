@@ -1187,3 +1187,7 @@
 "横屏顶部间距" = "Landscape Top Spacing";
 "竖屏底部间距" = "Portrait Bottom Spacing";
 "横屏底部间距" = "Landscape Bottom Spacing";
+"播放器控制区" = "Player Controls";
+"媒体卡片布局" = "Media Card Layout";
+"媒体列表布局" = "Media List Layout";
+"来源列表布局" = "Source List Layout";

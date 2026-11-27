@@ -18,7 +18,11 @@ struct LocalFilesView<SourceMenu: View>: View {
     @EnvironmentObject private var playback: PlaybackSession
     @EnvironmentObject private var incomingVideos: IncomingVideoReceiver
     @ObservedObject private var layout = MediaLayoutSettings.shared
-    private var deviceBrowser = DeviceMediaBrowserPreferences()
+    private var localDeviceBrowser = DeviceMediaBrowserPreferences(sourceKind: .local)
+    private var photosDeviceBrowser = DeviceMediaBrowserPreferences(sourceKind: .photos)
+    private var deviceBrowser: DeviceMediaBrowserPreferences {
+        source.kind == .photos ? photosDeviceBrowser : localDeviceBrowser
+    }
     @State private var entries: [LocalFileEntry] = []
     @State private var loading = true
     @State private var reloadGeneration = 0
@@ -50,14 +54,20 @@ struct LocalFilesView<SourceMenu: View>: View {
                     .navigationTitle(String(directory.split(separator: "/").last ?? ""))
                     .vesperNavigationStyle(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            if source.kind == .local || source.kind == .photos {
+                                deviceBrowser.sortMenuButton
+                            }
                             Menu {
-                                Section { deviceBrowser.menuItems }
+                                Section { deviceBrowser.layoutMenuItems }
                                 Button("新建文件夹", systemImage: "folder.badge.plus", action: createFolder)
                                     .disabled(busy)
                             } label: {
-                                Label("布局与排序", systemImage: "ellipsis")
+                                Image(systemName: "ellipsis")
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Circle())
                             }
+                            .accessibilityLabel("更多操作")
                         }
                     }
             }
@@ -123,7 +133,8 @@ struct LocalFilesView<SourceMenu: View>: View {
                             let queue = sorted.filter { !$0.isDirectory && isVideo($0) }.map(mediaItem)
                             playback.play(mediaItem(entry), in: source, queue: queue)
                         } label: { row(entry) }
-                        .modifier(MediaThumbnailMenu(source: source, item: mediaItem(entry), playback: playback) { fileActions(entry) })
+                        .modifier(LocalVideoContextMenu(source: source, item: mediaItem(entry), playback: playback,
+                                                       isGrid: deviceBrowser.displayLayout == .grid) { fileActions(entry) })
                         .disabled(!isVideo(entry))
                     }
                 }
@@ -302,6 +313,23 @@ struct LocalFilesView<SourceMenu: View>: View {
     private func showError(_ error: Error) {
         errorMessage = error.localizedDescription
         isShowingError = true
+    }
+}
+
+private struct LocalVideoContextMenu<Actions: View>: ViewModifier {
+    let source: MediaSource
+    let item: MediaItem
+    let playback: PlaybackSession
+    let isGrid: Bool
+    @ViewBuilder let actions: () -> Actions
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isGrid {
+            content.modifier(MediaThumbnailMenu(source: source, item: item, playback: playback, actions: actions))
+        } else {
+            content.contextMenu { actions() }
+        }
     }
 }
 

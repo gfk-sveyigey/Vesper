@@ -1187,3 +1187,7 @@
 "横屏顶部间距" = "Abstand Querformat oben";
 "竖屏底部间距" = "Abstand Hochformat unten";
 "横屏底部间距" = "Abstand Querformat unten";
+"播放器控制区" = "Player-Steuerbereich";
+"媒体卡片布局" = "Medienkartenlayout";
+"媒体列表布局" = "Medienlistenlayout";
+"来源列表布局" = "Quellenlistenlayout";
