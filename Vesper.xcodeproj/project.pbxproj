@@ -319,7 +319,7 @@ DA71D1B1D1B1D1B1D1B1D1B1 = { isa = PBXBuildFile; fileRef = DA71D1B1D1B1D1B1D1B1D
 DA71D1B1D1B1D1B1D1B1D1B2 = { isa = PBXBuildFile; fileRef = DA71D1B1D1B1D1B1D1B1D1B5; };
 DA71D1B1D1B1D1B1D1B1D1B3 = { isa = PBXBuildFile; fileRef = DA71D1B1D1B1D1B1D1B1D1B6; };
 C95B8B46CB1D533003BA7BA3 = { isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = (); inputPaths = (); outputPaths = (); alwaysOutOfDate = 1; name = "Embed Playback Dependency Closure"; shellPath = /bin/sh; shellScript = "set -e\npython3 \"$SRCROOT/BuildSupport/embed_playback_dependencies.py\"\n"; runOnlyForDeploymentPostprocessing = 0; };
-74792623DF8552153113D23B = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/superuser404notfound/FFmpegBuild"; requirement = { kind = exactVersion; version = 3.17.0; }; };
+74792623DF8552153113D23B = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/superuser404notfound/FFmpegBuild"; requirement = { kind = exactVersion; version = 3.19.2; }; };
 4E99BB5C98FF8AB52113E5EC = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/superuser404notfound/LibDovi"; requirement = { kind = exactVersion; version = 2.2.0; }; };
 5A4E00000000000000000001 = { isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = VesperShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 5A4E00000000000000000002 = { isa = PBXGroup; children = (5A4E00000000000000000003,5A4E00000000000000000004,5A4E00000000000000000011,5A4E00000000000000000012,); name = ShareExtension; sourceTree = "<group>"; };

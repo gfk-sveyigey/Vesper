@@ -1,4 +1,5 @@
 import unittest
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,6 +22,12 @@ class HeadphoneSpatialAudioTests(unittest.TestCase):
     def test_aetherengine_is_pinned_to_latest_release_tag(self):
         project = (ROOT / 'Vesper.xcodeproj/project.pbxproj').read_text()
         self.assertIn('requirement = { kind = exactVersion; version = 7.76.0; };', project)
+        # AetherEngine 7.76.0 requires FFmpegBuild >=3.19.2,<3.20.0.
+        self.assertIn('requirement = { kind = exactVersion; version = 3.19.2; };', project)
+        dependencies = json.loads((ROOT / 'Playback/Dependencies.json').read_text())
+        self.assertEqual(dependencies['AetherEngine']['version'], '7.76.0')
+        self.assertEqual(dependencies['AetherEngine']['revision'], '506d3fc1467e6653320b1071b194c8c19420866f')
+        self.assertEqual(dependencies['FFmpegBuild']['version'], '3.19.2')
 
     def test_setting_and_footer_are_localized_in_all_supported_languages(self):
         locales = ('de', 'en', 'es', 'fr', 'ja', 'ko', 'zh-Hans', 'zh-Hant')

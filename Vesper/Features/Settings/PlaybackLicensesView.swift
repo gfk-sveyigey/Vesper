@@ -8,10 +8,10 @@ struct PlaybackLicensesView: View {
 
     private let dependencies = [
         OpenSourceDependency(name: "AetherEngine", version: "7.72.0", license: "LGPL-3.0 + App Store / DRM Exception", resource: "AetherEngine-LICENSE", url: URL(string: "https://github.com/superuser404notfound/AetherEngine/tree/7.72.0")!),
-        OpenSourceDependency(name: "FFmpeg", version: "FFmpegBuild 3.17.0", license: "LGPL-2.1-or-later", resource: "FFmpeg-LICENSE", url: URL(string: "https://ffmpeg.org/legal.html")!),
-        OpenSourceDependency(name: "dav1d", version: "FFmpegBuild 3.17.0", license: "BSD-2-Clause", resource: "dav1d-LICENSE", url: URL(string: "https://code.videolan.org/videolan/dav1d/-/blob/master/COPYING")!),
-        OpenSourceDependency(name: "zimg", version: "FFmpegBuild 3.17.0", license: "WTFPL-2.0", resource: "zimg-LICENSE", url: URL(string: "https://github.com/sekrit-twc/zimg/blob/master/COPYING")!),
-        OpenSourceDependency(name: "zvbi", version: "FFmpegBuild 3.17.0", license: "GPL-2.0-or-later", resource: "zvbi-LICENSE", url: URL(string: "https://github.com/zapping-vbi/zvbi/blob/master/COPYING")!),
+        OpenSourceDependency(name: "FFmpeg", version: "FFmpegBuild 3.19.2", license: "LGPL-2.1-or-later", resource: "FFmpeg-LICENSE", url: URL(string: "https://ffmpeg.org/legal.html")!),
+        OpenSourceDependency(name: "dav1d", version: "FFmpegBuild 3.19.2", license: "BSD-2-Clause", resource: "dav1d-LICENSE", url: URL(string: "https://code.videolan.org/videolan/dav1d/-/blob/master/COPYING")!),
+        OpenSourceDependency(name: "zimg", version: "FFmpegBuild 3.19.2", license: "WTFPL-2.0", resource: "zimg-LICENSE", url: URL(string: "https://github.com/sekrit-twc/zimg/blob/master/COPYING")!),
+        OpenSourceDependency(name: "zvbi", version: "FFmpegBuild 3.19.2", license: "GPL-2.0-or-later", resource: "zvbi-LICENSE", url: URL(string: "https://github.com/zapping-vbi/zvbi/blob/master/COPYING")!),
         OpenSourceDependency(name: "LibDovi", version: "2.2.0", license: "MIT / Apache-2.0", resource: "LibDovi-LICENSE", url: URL(string: "https://github.com/superuser404notfound/LibDovi/tree/2.2.0")!),
         OpenSourceDependency(name: "SwiftVLC", version: "1.0.0", license: "MIT", resource: "SwiftVLC-LICENSE", url: URL(string: "https://github.com/harflabs/SwiftVLC/tree/v1.0.0")!),
         OpenSourceDependency(name: "libVLC", version: "4", license: "LGPL-2.1-or-later", resource: "FFmpeg-LICENSE", url: URL(string: "https://www.videolan.org/legal.html")!)
