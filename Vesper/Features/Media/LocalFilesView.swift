@@ -142,13 +142,31 @@ struct LocalFilesView<SourceMenu: View>: View {
     private func row(_ entry: LocalFileEntry) -> some View {
         if deviceBrowser.displayLayout == .grid {
             gridCard(entry)
-        } else if !entry.isDirectory && isVideo(entry) {
+        } else if entry.isDirectory {
+            MediaLibraryListRowLayout(layout: layout) { _ in
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(VesperTheme.mediaCardBackground)
+                    .overlay {
+                        Image(systemName: "folder.fill")
+                            .font(.title2)
+                            .foregroundStyle(.tint)
+                    }
+                    .mediaArtworkBorder()
+                    .accessibilityHidden(true)
+            } details: {
+                Text(verbatim: entry.name)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                LocalFolderListMetadata(source: source, entry: entry, reloadGeneration: reloadGeneration)
+            }
+        } else if isVideo(entry) {
             MediaLibraryListRow(source: source, item: mediaItem(entry), playback: playback)
         } else {
             HStack(spacing: 12) {
-                Image(systemName: entry.isDirectory ? "folder.fill" : "doc")
+                Image(systemName: "doc")
                     .font(.title2)
-                    .foregroundStyle(entry.isDirectory ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(.secondary)
                     .frame(width: 44, height: 44)
                     .accessibilityHidden(true)
                 Text(verbatim: entry.name)
@@ -284,6 +302,39 @@ struct LocalFilesView<SourceMenu: View>: View {
     private func showError(_ error: Error) {
         errorMessage = error.localizedDescription
         isShowingError = true
+    }
+}
+
+private struct LocalFolderListMetadata: View {
+    let source: MediaSource
+    let entry: LocalFileEntry
+    let reloadGeneration: Int
+    @Environment(\.locale) private var locale
+    @State private var itemCount: Int?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let itemCount {
+                let count = itemCount.formatted(.number.locale(locale))
+                let label = itemCount == 1
+                    ? VesperLocalization.string("1 个项目")
+                    : String(format: VesperLocalization.string("%@ 个项目"), count)
+                Text(verbatim: label)
+            }
+            if let date = entry.dateAdded {
+                if itemCount != nil { Text("·").accessibilityHidden(true) }
+                Text(date, format: .dateTime.year().month().day())
+                    .accessibilityLabel("添加日期")
+                    .accessibilityValue(Text(date, format: .dateTime.year().month().day()))
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .task(id: reloadGeneration) {
+            let count = try? await LocalFileStore.shared.folderItemCount(root: source.localFolderURL(), directory: entry.path)
+            if !Task.isCancelled { itemCount = count }
+        }
     }
 }
 

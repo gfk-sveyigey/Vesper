@@ -26,27 +26,9 @@ struct MediaLibraryListRow: View {
         }
     }
 
-    private var libraryListImageHeight: CGFloat {
-        max(24, CGFloat(layout[.browserListRowHeight] - layout[.browserListImageTop] - layout[.browserListImageBottom]))
-    }
-
-    private var libraryListImageWidth: CGFloat { libraryListImageHeight * 2 / 3 }
-
-    private var libraryListArtworkWidth: CGFloat {
-        libraryListImageWidth + CGFloat(layout[.browserListImageLeading]) + CGFloat(layout[.browserListImageTrailing])
-    }
-
-    private let libraryListColumnSpacing: CGFloat = 12
-    var dividerInset: CGFloat { libraryListArtworkWidth + libraryListColumnSpacing }
+    var dividerInset: CGFloat { MediaLibraryListRowGeometry(layout: layout).dividerInset }
 
     var body: some View {
-        let rowHeight = CGFloat(layout[.browserListRowHeight])
-        let imageTop = CGFloat(layout[.browserListImageTop])
-        let imageLeading = CGFloat(layout[.browserListImageLeading])
-        let imageBottom = CGFloat(layout[.browserListImageBottom])
-        let imageTrailing = CGFloat(layout[.browserListImageTrailing])
-        let imageHeight = libraryListImageHeight
-        let imageWidth = libraryListImageWidth
         let kind = VesperLocalization.string(kindKey)
         let genres = item.embyPresentation?.genres.prefix(3).joined(separator: " · ")
         let year = (source.kind == .emby ? item.subtitle : nil) ?? item.embyPresentation?.premiereDate.map {
@@ -56,41 +38,72 @@ struct MediaLibraryListRow: View {
         let details = [kind, genres].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         let yearAndRating = [year, rating.map { "★ \($0)" }].compactMap { $0 }.joined(separator: " · ")
 
-        return HStack(spacing: libraryListColumnSpacing) {
-            ZStack {
-                MediaThumbnail(source: source, item: item, playback: playback, imageOrientation: .portrait,
-                               fixedHeight: imageHeight, usesMediaCardBackdrop: source.kind == .emby)
-                    .frame(width: imageWidth, height: imageHeight)
-                    .mediaArtworkBorder()
-                    .modifier(ListArtworkTransition(transition: transition))
-                    .padding(.top, imageTop)
-                    .padding(.leading, imageLeading)
-                    .padding(.bottom, imageBottom)
-                    .padding(.trailing, imageTrailing)
-            }
-            .frame(width: libraryListArtworkWidth, height: rowHeight)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: item.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+        return MediaLibraryListRowLayout(layout: layout) { imageSize in
+            MediaThumbnail(source: source, item: item, playback: playback, imageOrientation: .portrait,
+                           fixedHeight: imageSize.height, usesMediaCardBackdrop: source.kind == .emby)
+                .frame(width: imageSize.width, height: imageSize.height)
+                .mediaArtworkBorder()
+                .modifier(ListArtworkTransition(transition: transition))
+        } details: {
+            Text(verbatim: item.title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+            if source.kind == .emby {
+                Text(verbatim: details)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
-                if source.kind == .emby {
-                    Text(verbatim: details)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Text(verbatim: yearAndRating)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                } else {
-                    DeviceListVideoMetadata(source: source, item: item)
-                }
+                Text(verbatim: yearAndRating)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            } else {
+                DeviceListVideoMetadata(source: source, item: item)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight, alignment: .leading)
+    }
+}
+
+@MainActor
+private struct MediaLibraryListRowGeometry {
+    let layout: MediaLayoutSettings
+    let columnSpacing: CGFloat = 12
+
+    var rowHeight: CGFloat { CGFloat(layout[.browserListRowHeight]) }
+    var imageTop: CGFloat { CGFloat(layout[.browserListImageTop]) }
+    var imageLeading: CGFloat { CGFloat(layout[.browserListImageLeading]) }
+    var imageBottom: CGFloat { CGFloat(layout[.browserListImageBottom]) }
+    var imageTrailing: CGFloat { CGFloat(layout[.browserListImageTrailing]) }
+    var imageHeight: CGFloat { max(24, rowHeight - imageTop - imageBottom) }
+    var imageWidth: CGFloat { imageHeight * 2 / 3 }
+    var imageSize: CGSize { CGSize(width: imageWidth, height: imageHeight) }
+    var artworkWidth: CGFloat { imageWidth + imageLeading + imageTrailing }
+    var dividerInset: CGFloat { artworkWidth + columnSpacing }
+}
+
+struct MediaLibraryListRowLayout<Artwork: View, Details: View>: View {
+    let layout: MediaLayoutSettings
+    @ViewBuilder let artwork: (CGSize) -> Artwork
+    @ViewBuilder let details: () -> Details
+
+    var body: some View {
+        let geometry = MediaLibraryListRowGeometry(layout: layout)
+        HStack(spacing: geometry.columnSpacing) {
+            ZStack {
+                artwork(geometry.imageSize)
+                    .frame(width: geometry.imageWidth, height: geometry.imageHeight)
+                    .padding(.top, geometry.imageTop)
+                    .padding(.leading, geometry.imageLeading)
+                    .padding(.bottom, geometry.imageBottom)
+                    .padding(.trailing, geometry.imageTrailing)
+            }
+            .frame(width: geometry.artworkWidth, height: geometry.rowHeight)
+
+            VStack(alignment: .leading, spacing: 4, content: details)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, minHeight: geometry.rowHeight, maxHeight: geometry.rowHeight, alignment: .leading)
         .contentShape(Rectangle())
     }
 }

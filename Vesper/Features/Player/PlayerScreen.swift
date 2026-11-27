@@ -11,6 +11,20 @@ private struct PlayerTimelineRegion<Content: View>: View {
     var body: some View { content() }
 }
 
+private struct PlayerTimelinePress: UIGestureRecognizerRepresentable {
+    let onPress: (UIGestureRecognizer.State, CGFloat) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let recognizer = UILongPressGestureRecognizer()
+        recognizer.minimumPressDuration = 0
+        return recognizer
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+        onPress(recognizer.state, context.converter.localLocation.x)
+    }
+}
+
 private enum PlayerPanel: String, Identifiable {
     case queue, gestures, danmaku, danmakuSearch, subtitles, synopsis, details, more
     var id: String { rawValue }
@@ -77,7 +91,10 @@ struct PlayerScreen: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(PlaybackPreferences.alwaysShowsMoreControlsKey) private var alwaysShowsMoreControls = false
     @State private var controlsVisible = false
+    @State private var moreControlsExpanded = false
+    @State private var isMoreControlsSwipe = false
     @State private var autoHideRevision = 0
     @State private var volumeExpanded = false
     @State private var volumeResetRevision = 0
@@ -85,13 +102,14 @@ struct PlayerScreen: View {
     @State private var systemVolumeRevision = 0
     @State private var volumeDragStart: Float?
     @State private var menuPresented = false
-    @State private var scrubShowsControls = true
-    @State private var scrubPreviews = true
+    private enum ScrubSource { case timeline, surface }
+    @State private var scrubSource: ScrubSource?
+    @State private var scrubID: UUID?
+    @State private var scrubImage: UIImage?
     @State private var scrubTime: Double = 0
     @State private var scrubStart: Double = 0
-    @State private var isScrubbing = false
     @State private var resumeAfterScrub = false
-    @State private var lastPreview = Date.distantPast
+    @State private var loadingIndicatorVisible = false
     @State private var panel: PlayerPanel?
     @State private var pendingPanel: PlayerPanel?
     @State private var pendingRotation: Bool?
@@ -114,12 +132,20 @@ struct PlayerScreen: View {
     @State private var showingNotice = false
     @State private var debugInfoVisible = false
 
+    private var isScrubbing: Bool { scrubID != nil }
+    private var showsMoreControls: Bool { alwaysShowsMoreControls || moreControlsExpanded }
+    private let bottomButtonSize: CGFloat = 44
+    private let bottomControlSpacing: CGFloat = 8
+    private let verticalControlPadding: CGFloat = 12
+    private var needsLoadingIndicator: Bool { (session.isLoading || session.isSeeking) && !isScrubbing }
+    private var showsTransportControls: Bool {
+        controlsVisible && session.errorMessage == nil && !session.isLoading
+    }
     private var canAutoHide: Bool {
         controlsVisible && session.isPlaying && !session.isLoading && !session.isSeeking
-            && !isScrubbing && !importingDanmaku && !volumeExpanded && !showsSystemVolume && volumeDragStart == nil && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
+            && !isScrubbing && !isMoreControlsSwipe && !importingDanmaku && !volumeExpanded && !showsSystemVolume && volumeDragStart == nil && !menuPresented && panel == nil && !voiceOver && session.errorMessage == nil
     }
     private var screen: UIScreen? { session.videoView?.window?.windowScene?.screen }
-    private var showsOtherControls: Bool { controlsVisible && !isScrubbing }
     private var canShowSystemVolume: Bool {
         scenePhase != .background && session.isPresented && panel == nil && !importingDanmaku
     }
@@ -142,6 +168,13 @@ struct PlayerScreen: View {
             .task(id: autoHideRevision) { await autoHideControlsWhenReady() }
             .task(id: volumeResetRevision) { await resetVolumeWhenReady() }
             .task(id: systemVolumeRevision) { await hideSystemVolumeWhenReady() }
+            .task(id: scrubID) { await updateScrubPreview() }
+            .task(id: needsLoadingIndicator) {
+                loadingIndicatorVisible = false
+                guard needsLoadingIndicator else { return }
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                if !Task.isCancelled && needsLoadingIndicator { loadingIndicatorVisible = true }
+            }
             .fileImporter(isPresented: $importingDanmaku, allowedContentTypes: [.xml], onCompletion: handleDanmakuImport)
     }
 
@@ -158,11 +191,11 @@ struct PlayerScreen: View {
         }
         .onDisappear {
             airPlayAvailability.stop()
-            if isScrubbing { finishScrubbing(commit: scrubPreviews) }
+            finishScrubbing(commit: false)
             if let originalBrightness { brightnessScreen?.brightness = originalBrightness }
         }
         .onChange(of: session.currentItem?.id) { _, _ in
-            isScrubbing = false
+            resetScrubbing()
             scrubTime = 0
             showsSystemVolume = false
             setControlsVisible(voiceOver)
@@ -170,6 +203,7 @@ struct PlayerScreen: View {
         .onChange(of: session.isPlaying) { _, _ in autoHideRevision += 1 }
         .onChange(of: session.isLoading) { _, _ in autoHideRevision += 1 }
         .onChange(of: session.isSeeking) { _, _ in autoHideRevision += 1 }
+        .onChange(of: session.currentEngine) { _, _ in resetScrubbing() }
         .onChange(of: session.errorMessage) { _, message in if message != nil { revealControls() } }
         .onChange(of: session.playbackNotice) { _, message in if message != nil { showingNotice = true; revealControls() } }
         .onChange(of: session.playbackTransitionNotice) { _, notice in
@@ -193,11 +227,12 @@ struct PlayerScreen: View {
             if showsSystemVolume { systemVolumeRevision += 1 }
         }
         .onChange(of: voiceOver) { _, _ in revealControls() }
+        .onChange(of: alwaysShowsMoreControls) { _, _ in setMoreControlsExpanded(false) }
         .onChange(of: panel) { _, _ in revealControls() }
         .onChange(of: scenePhase) { _, phase in
             guard phase != .active else { return }
             if phase == .background { showsSystemVolume = false }
-            if isScrubbing { finishScrubbing(commit: scrubPreviews) }
+            finishScrubbing(commit: false)
         }
     }
 
@@ -259,29 +294,33 @@ struct PlayerScreen: View {
                 LinearGradient(colors: [.black.opacity(0.6), .clear, .clear, .black.opacity(0.75)],
                                startPoint: .top, endPoint: .bottom)
                     .ignoresSafeArea()
-                    .opacity(showsOtherControls ? 1 : 0)
+                    .opacity(controlsVisible ? 1 : 0)
                     .allowsHitTesting(false)
                 // Independent placement keeps the transport centered on the
                 // actual video, regardless of header/title/progress height.
                 transportControls
                     .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                    .opacity(showsOtherControls && session.errorMessage == nil && !session.isLoading ? 1 : 0)
-                    .allowsHitTesting(showsOtherControls && session.errorMessage == nil && !session.isLoading)
-                    .accessibilityHidden(!showsOtherControls || session.errorMessage != nil || session.isLoading)
+                    .opacity(showsTransportControls ? 1 : 0)
+                    .allowsHitTesting(showsTransportControls && !isScrubbing)
+                    .accessibilityHidden(!showsTransportControls || isScrubbing)
                 VStack {
-                    topControls(availableWidth: max(0, geometry.size.width - safeGeometry.safeAreaInsets.leading - safeGeometry.safeAreaInsets.trailing - (geometry.size.width > geometry.size.height ? 24 : 40)), landscape: geometry.size.width > geometry.size.height)
+                    let landscape = geometry.size.width > geometry.size.height
+                    let availableWidth = max(0, geometry.size.width - safeGeometry.safeAreaInsets.leading
+                                             - safeGeometry.safeAreaInsets.trailing - (landscape ? 24 : 40))
+                    topControls(availableWidth: availableWidth, landscape: landscape)
                     Spacer(minLength: 0)
                     // Keep the Menu mounted while fading the controls, so a
                     // system menu never loses its presentation anchor mid-use.
-                    bottomControls(landscape: geometry.size.width > geometry.size.height)
-                        .opacity(controlsVisible && scrubShowsControls ? 1 : 0)
-                        .allowsHitTesting(controlsVisible && scrubShowsControls)
-                        .accessibilityHidden(!controlsVisible || !scrubShowsControls)
+                    bottomControls(landscape: landscape, availableWidth: availableWidth,
+                                   bottomInset: safeGeometry.safeAreaInsets.bottom)
+                        .opacity(controlsVisible ? 1 : 0)
+                        .allowsHitTesting(controlsVisible)
+                        .accessibilityHidden(!controlsVisible)
                 }
                 .padding(.horizontal, geometry.size.width > geometry.size.height ? 12 : 20)
-                .padding(.vertical, 12)
+                .padding(.vertical, verticalControlPadding)
                 .padding(safeGeometry.safeAreaInsets)
-                if (session.isLoading || session.isSeeking) && !isScrubbing {
+                if needsLoadingIndicator && loadingIndicatorVisible {
                     VStack(spacing: 12) {
                         ProgressView().controlSize(.large).tint(.white)
                             .accessibilityLabel("正在加载")
@@ -291,7 +330,7 @@ struct PlayerScreen: View {
                     }
                     .allowsHitTesting(false)
                 }
-                if !hudText.isEmpty && !(isScrubbing && scrubShowsControls) {
+                if !hudText.isEmpty && scrubSource != .timeline {
                     VStack {
                         HStack(spacing: 8) {
                             Image(systemName: hudSymbol)
@@ -305,6 +344,7 @@ struct PlayerScreen: View {
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .glassEffect(.regular, in: Capsule())
                         .padding(.top, safeGeometry.safeAreaInsets.top + (controlsVisible ? 62 : 8))
+                        if scrubSource == .surface { scrubPreviewImage }
                         Spacer()
                     }
                     .allowsHitTesting(false)
@@ -369,8 +409,8 @@ struct PlayerScreen: View {
     }
 
     private func topControls(availableWidth: CGFloat, landscape: Bool) -> some View {
-        let showsButtons = showsOtherControls && (landscape || !(volumeExpanded || showsSystemVolume))
-        let showsVolume = showsOtherControls || showsSystemVolume
+        let showsButtons = controlsVisible && (landscape || !(volumeExpanded || showsSystemVolume))
+        let showsVolume = controlsVisible || showsSystemVolume
         return ZStack(alignment: .trailing) {
             HStack(spacing: 10) {
                 glassButton("关闭", symbol: "xmark", iconSize: 19) { session.stop() }
@@ -485,21 +525,21 @@ struct PlayerScreen: View {
     private var transportControls: some View {
         HStack(spacing: 32) {
             glassButton("快退", symbol: skipSymbol(backward: true), size: 60) {
-                session.seek(to: session.currentTime - PlayerGesturePreferences.skipInterval)
+                session.seekManually(to: session.currentTime - PlayerGesturePreferences.skipInterval)
             }.disabled(!session.canSeek)
             glassButton(session.isPlaying ? "暂停" : "播放",
                         symbol: session.isPlaying ? "pause.fill" : "play.fill", size: 88) {
                 session.togglePlayback()
             }.disabled(!session.canControl)
             glassButton("快进", symbol: skipSymbol(backward: false), size: 60) {
-                session.seek(to: session.currentTime + PlayerGesturePreferences.skipInterval)
+                session.seekManually(to: session.currentTime + PlayerGesturePreferences.skipInterval)
             }.disabled(!session.canSeek)
         }
         .fixedSize()
     }
 
-    private func bottomControls(landscape: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func bottomControls(landscape: Bool, availableWidth: CGFloat, bottomInset: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: bottomControlSpacing) {
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     if let subtitle = session.playbackSubtitle, !subtitle.isEmpty {
@@ -513,9 +553,6 @@ struct PlayerScreen: View {
                 if landscape { expandedPlaybackOptions }
                 else { playbackOptionsMenu }
             }
-            .opacity(showsOtherControls ? 1 : 0)
-            .allowsHitTesting(showsOtherControls)
-            .accessibilityHidden(!showsOtherControls)
             progressRow
                 .padding(.horizontal, 12)
                 .background {
@@ -524,13 +561,29 @@ struct PlayerScreen: View {
                         .glassEffect(.regular, in: Capsule())
                         .allowsHitTesting(false)
                 }
-                .scaleEffect(isScrubbing ? 1.06 : 1)
-            bottomActions(landscape: landscape)
-                .opacity(showsOtherControls ? 1 : 0)
-                .allowsHitTesting(showsOtherControls)
-                .accessibilityHidden(!showsOtherControls)
+                .scaleEffect(scrubSource == .timeline ? 1.06 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: scrubSource)
+                .overlay(alignment: .top) {
+                    if scrubSource == .timeline {
+                        VStack(spacing: 4) {
+                            scrubPreviewImage
+                            Text(timeLabel(scrubTime))
+                                .font(.caption.monospacedDigit())
+                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(.black.opacity(0.75), in: Capsule())
+                        }
+                        .alignmentGuide(.top) { $0[.bottom] + 8 }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    }
+                }
+            bottomActions(landscape: landscape, availableWidth: availableWidth)
+                .offset(y: showsMoreControls ? 0 : bottomInset + verticalControlPadding)
+                .allowsHitTesting(showsMoreControls)
+                .accessibilityHidden(!showsMoreControls)
         }
-        .animation(.easeInOut(duration: 0.18), value: isScrubbing)
+        // Keep the row mounted; translate the timeline by the space the row occupied.
+        .offset(y: showsMoreControls ? 0 : bottomButtonSize + bottomControlSpacing)
     }
 
     private var progressRow: some View {
@@ -573,24 +626,25 @@ struct PlayerScreen: View {
             }
             .frame(height: 44)
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                .onChanged { value in
-                    guard session.canSeek else { return }
-                    if !isScrubbing { beginScrubbing() }
-                    updateScrubbing(scrubStart + Double(value.translation.width / max(geometry.size.width, 1)) * session.duration)
+            .gesture(PlayerTimelinePress { phase, x in
+                if phase == .began { beginScrubbing(.timeline) }
+                guard scrubSource == .timeline else { return }
+                switch phase {
+                case .began, .changed, .ended:
+                    updateScrubbing(Double(x / max(geometry.size.width, 1)) * session.duration)
+                    if phase == .ended { finishScrubbing() }
+                case .cancelled, .failed:
+                    finishScrubbing(commit: false)
+                default: break
                 }
-                .onEnded { value in
-                    guard isScrubbing else { return }
-                    updateScrubbing(scrubStart + Double(value.translation.width / max(geometry.size.width, 1)) * session.duration)
-                    finishScrubbing()
-                })
+            })
         }
         .frame(height: 44)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("播放进度")
         .accessibilityValue(timeLabel(isScrubbing ? scrubTime : session.currentTime))
         .accessibilityAdjustableAction { direction in
-            session.seek(to: session.currentTime + (direction == .increment ? PlayerGesturePreferences.skipInterval : -PlayerGesturePreferences.skipInterval))
+            session.seekManually(to: session.currentTime + (direction == .increment ? PlayerGesturePreferences.skipInterval : -PlayerGesturePreferences.skipInterval))
             revealControls()
         }
     }
@@ -733,37 +787,34 @@ struct PlayerScreen: View {
         }
     }
 
-    private func bottomActions(landscape: Bool) -> some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 12) {
-                compactAction("视频简介", symbol: "text.book.closed") { requestPanel(.synopsis) }
-                compactAction("详细信息", symbol: "info.circle") { requestPanel(.details) }
+    private func bottomActions(landscape: Bool, availableWidth: CGFloat) -> some View {
+        let spacing = max(0, min(12, (availableWidth - 6 * bottomButtonSize) / 5))
+        return HStack(spacing: 0) {
+            HStack(spacing: spacing) {
+                bottomAction("详细信息", symbol: "info.circle") { requestPanel(.details) }
                     .disabled(!session.canShowMediaDetails)
+                bottomAction("显示调试信息", symbol: "ladybug") { debugInfoVisible.toggle() }
             }
             .glassEffect(.regular.interactive(), in: Capsule())
-            PlayerActionButton(title: VesperLocalization.string("显示调试信息"), symbol: "ladybug", pointSize: 14) {
-                revealControls()
-                debugInfoVisible.toggle()
+            Spacer(minLength: spacing)
+            HStack(spacing: spacing) {
+                HStack(spacing: spacing) {
+                    bottomAction(landscape ? "竖屏" : "横屏", symbol: "rotate.right") { requestRotation(!landscape) }
+                    bottomAction(session.fillsScreen ? "完整显示" : "填满屏幕", symbol: "aspectratio") { session.toggleFill() }
+                    bottomAction("播放列表", symbol: "list.bullet") { requestPanel(.queue) }
+                        .disabled(session.queue.isEmpty)
+                }
+                .glassEffect(.regular.interactive(), in: Capsule())
+                PlayerMenuButton(symbol: "gearshape", accessibilityTitle: VesperLocalization.string("更多设置"), makeMenu: moreSettingsMenu, visibilityChanged: menuVisibilityChanged)
+                    .frame(width: bottomButtonSize, height: bottomButtonSize)
+                    .glassEffect(.regular.interactive(), in: Circle())
             }
-            .frame(width: 36, height: 36)
-            .glassEffect(.regular.interactive(), in: Circle())
-            Spacer(minLength: 0)
-            HStack(spacing: 12) {
-                compactAction(landscape ? "竖屏" : "横屏", symbol: "rotate.right") { requestRotation(!landscape) }
-                compactAction(session.fillsScreen ? "完整显示" : "填满屏幕", symbol: "aspectratio") { session.toggleFill() }
-                compactAction("播放列表", symbol: "list.bullet") { requestPanel(.queue) }
-                    .disabled(session.queue.isEmpty)
-            }
-            .glassEffect(.regular.interactive(), in: Capsule())
-            PlayerMenuButton(symbol: "gearshape", pointSize: 14, accessibilityTitle: VesperLocalization.string("更多设置"), makeMenu: moreSettingsMenu, visibilityChanged: menuVisibilityChanged)
-                .frame(width: 36, height: 36)
-                .glassEffect(.regular.interactive(), in: Circle())
         }
     }
 
-    private func compactAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
-        PlayerActionButton(title: VesperLocalization.string(title), symbol: symbol, pointSize: 14) { revealControls(); action() }
-            .frame(width: 36, height: 36)
+    private func bottomAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        PlayerActionButton(title: VesperLocalization.string(title), symbol: symbol) { revealControls(); action() }
+            .frame(width: bottomButtonSize, height: bottomButtonSize)
     }
 
     private func landscapeMenu(_ title: String, symbol: String, menu: @escaping () -> UIMenu) -> some View {
@@ -918,41 +969,64 @@ struct PlayerScreen: View {
         }
     }
 
-    private func beginScrubbing(showControls: Bool = true, previews: Bool = true) {
-        guard session.canSeek else { return }
-        scrubShowsControls = showControls
-        scrubPreviews = previews
+    private func beginScrubbing(_ source: ScrubSource) {
+        guard session.canSeek, !isScrubbing else { return }
         resumeAfterScrub = session.isPlaying
         scrubStart = session.currentTime
         scrubTime = scrubStart
-        isScrubbing = true
-        lastPreview = .distantPast
-        if scrubPreviews { session.pause() }
-        if showControls { revealControls() }
+        scrubSource = source
+        scrubID = UUID()
+        if resumeAfterScrub { session.pause() }
+        autoHideRevision += 1
     }
     private func updateScrubbing(_ target: Double) {
         scrubTime = min(session.duration, max(0, target))
-        let interval = session.currentEngine == .vlc ? 0.35 : 0.15
-        if scrubPreviews && Date().timeIntervalSince(lastPreview) >= interval {
-            lastPreview = Date()
-            session.seek(to: scrubTime, resume: false, preview: true)
+    }
+    @ViewBuilder private var scrubPreviewImage: some View {
+        if let scrubImage {
+            Image(uiImage: scrubImage)
+                .resizable().scaledToFit()
+                .frame(width: 144, height: 81)
+                .background(.black)
+                .clipShape(.rect(cornerRadius: 6))
+                .accessibilityHidden(true)
         }
     }
+    private func updateScrubPreview() async {
+        guard let id = scrubID else { return }
+        var lastTarget: Double?
+        while !Task.isCancelled && scrubID == id {
+            let target = scrubTime
+            if lastTarget != target {
+                lastTarget = target
+                let image = await session.scrubPreview(at: target)
+                guard !Task.isCancelled, scrubID == id else { return }
+                if scrubTime == target { scrubImage = image }
+            }
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+        }
+    }
+    private func resetScrubbing() {
+        scrubID = nil
+        scrubSource = nil
+        scrubImage = nil
+        autoHideRevision += 1
+    }
     private func finishScrubbing(commit: Bool = true) {
-        let target = commit ? scrubTime : scrubStart
-        isScrubbing = false
-        if commit || scrubPreviews { session.seek(to: target, resume: resumeAfterScrub) }
-        if scrubShowsControls { revealControls() }
-        else { autoHideRevision += 1 }
+        guard isScrubbing else { return }
+        resetScrubbing()
+        if commit && session.canSeek {
+            session.seekManually(to: scrubTime, resume: resumeAfterScrub)
+        } else if resumeAfterScrub {
+            session.resumeAfterCancelledScrub()
+        }
     }
 
     private func handleTap(_ region: PlayerGestureRegion, _ fingers: Int, _ double: Bool) {
         guard !menuPresented, panel == nil else { return }
         if regionsVisible { regionsVisible = false; return }
         if controlsVisible {
-            // The visible overlay only accepts its buttons and a one-finger
-            // background tap to hide. Playback/brightness/volume gestures are
-            // reserved for the unobstructed video.
+            // The visible overlay keeps playback gestures off the video surface.
             if !double && fingers == 1 { setControlsVisible(false) }
             return
         }
@@ -1009,7 +1083,7 @@ struct PlayerScreen: View {
             guard session.canSeek else { return }
             let start = session.currentTime
             let target = min(session.duration, max(0, start + PlayerGesturePreferences.skipInterval * (action == .backward ? -1 : 1)))
-            session.seek(to: target); showSeekHUD(from: start, to: target)
+            session.seekManually(to: target); showSeekHUD(from: start, to: target)
         case .brightnessUp, .brightnessDown:
             if originalBrightness == nil { brightnessScreen = screen; originalBrightness = screen?.brightness }
             let value = min(1, max(0, Double(screen?.brightness ?? 0.5) + (action == .brightnessUp ? 0.1 : -0.1)))
@@ -1048,6 +1122,13 @@ struct PlayerScreen: View {
     private func handlePan(_ region: PlayerGestureRegion, _ fingers: Int, _ kind: PlayerGestureKind,
                            _ delta: CGFloat, _ phase: UIGestureRecognizer.State) {
         if phase == .began {
+            isMoreControlsSwipe = controlsVisible && !alwaysShowsMoreControls && !regionsVisible
+                && !menuPresented && panel == nil && !isScrubbing && fingers == 1
+                && (kind == .up || kind == .down)
+            if isMoreControlsSwipe {
+                autoHideRevision += 1
+                return
+            }
             guard !regionsVisible, !controlsVisible, !menuPresented, panel == nil else { gestureAction = .none; return }
             activeRegionCount = PlayerGesturePreferences.count(for: kind, fingers: fingers)
             gestureAction = PlayerGesturePreferences.action(kind, region, fingers)
@@ -1057,9 +1138,17 @@ struct PlayerScreen: View {
                 if originalBrightness == nil { brightnessScreen = screen; originalBrightness = screen?.brightness }
                 gestureStart = Double(screen?.brightness ?? 0.5)
             case .volumeUp, .volumeDown: gestureStart = Double(volume.value)
-            case .backward, .forward: beginScrubbing(showControls: false, previews: false)
+            case .backward, .forward: beginScrubbing(.surface)
             default: break
             }
+        }
+        if isMoreControlsSwipe {
+            if [.ended, .cancelled, .failed].contains(phase) {
+                isMoreControlsSwipe = false
+                if phase == .ended && delta > 0 { setMoreControlsExpanded(kind == .up) }
+                else { autoHideRevision += 1 }
+            }
+            return
         }
         let amount = Double(delta)
         switch gestureAction {
@@ -1072,7 +1161,7 @@ struct PlayerScreen: View {
             session.unmute(); volume.set(Float(value))
             showHUD(String(format: VesperLocalization.string("音量 %d%%"), Int(value * 100)), symbol: "speaker.wave.2.fill")
         case .backward, .forward:
-            if isScrubbing {
+            if scrubSource == .surface {
                 // Half a gesture surface seeks five minutes; the destination
                 // is clamped by updateScrubbing, not by reducing sensitivity.
                 // Double-tap skip duration remains a separate preference.
@@ -1084,7 +1173,7 @@ struct PlayerScreen: View {
         }
         if [.ended, .cancelled, .failed].contains(phase) {
             if [.volumeUp, .volumeDown].contains(gestureAction) { volume.finishAdjustment(origin: "gesture") }
-            if (gestureAction == .backward || gestureAction == .forward) && isScrubbing { finishScrubbing(commit: phase == .ended) }
+            if (gestureAction == .backward || gestureAction == .forward) && scrubSource == .surface { finishScrubbing(commit: phase == .ended) }
             else if phase == .ended && ![.brightnessUp, .brightnessDown, .volumeUp, .volumeDown].contains(gestureAction) {
                 performGestureAction(gestureAction)
             }
@@ -1158,11 +1247,23 @@ struct PlayerScreen: View {
         return CGFloat(min(1, max(0, time / session.duration)))
     }
     private func revealControls() { setControlsVisible(true) }
+    private func setMoreControlsExpanded(_ expanded: Bool) {
+        autoHideRevision += 1
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.24)) {
+            moreControlsExpanded = expanded
+        }
+    }
     private func setControlsVisible(_ visible: Bool) {
         autoHideRevision += 1
         volumeResetRevision += 1
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { controlsVisible = visible }
-        if !visible { volumeDragStart = nil }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+            controlsVisible = visible
+            if !visible { moreControlsExpanded = false }
+        }
+        if !visible {
+            volumeDragStart = nil
+            isMoreControlsSwipe = false
+        }
     }
     private func rotate(landscape: Bool) {
         guard let scene = session.videoView?.window?.windowScene else { return }

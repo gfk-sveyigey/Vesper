@@ -602,6 +602,11 @@ struct PlaybackTrackRestoration {
     }
     func play() { configuration.autoplay = true; do { try driver?.play() } catch { log?(error.localizedDescription) } }
     func pause() { configuration.autoplay = false; driver?.pause() }
+    func scrubPreview(at seconds: Double) async -> UIImage? {
+        guard let driver, !isTransitioning, seconds >= timelineOffset else { return nil }
+        let image = await driver.scrubPreview(at: seconds - timelineOffset)
+        return self.driver === driver && !isTransitioning ? image : nil
+    }
     func seek(to seconds: Double, resume: Bool, fast: Bool = false, completion: @escaping (Bool) -> Void) {
         guard let driver, !isTransitioning else { completion(false); return }
         if seconds < timelineOffset {

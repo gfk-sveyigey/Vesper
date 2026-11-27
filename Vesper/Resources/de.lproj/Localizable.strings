@@ -268,6 +268,8 @@
 "三指" = "Drei Finger";
 
 "快进快退时长" = "Sprungintervall";
+"精准定位" = "Präzises Springen";
+"常显更多控制按钮" = "Weitere Steuerelemente immer anzeigen";
 
 "恢复默认手势？" = "Gesten zurücksetzen?";
 
@@ -826,6 +828,8 @@
 "网格显示" = "Raster";
 "列表显示" = "Liste";
 "添加日期" = "Hinzugefügt am";
+"1 个项目" = "1 Element";
+"%@ 个项目" = "%@ Elemente";
 "发行日期" = "Veröffentlichungsdatum";
 "年份" = "Jahr";
 "社区评分" = "Community-Bewertung";

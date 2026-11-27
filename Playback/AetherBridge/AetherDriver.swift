@@ -8,6 +8,7 @@ internal import AetherEngine
 @MainActor public final class AetherDriver: PlaybackDriver {
     public let id: EngineID = .aether
     private var engine: AetherEngine?
+    private var localPreview: FrameExtractor?
     private let surface = AetherPlayerView(frame: .zero)
     private var configuration = EngineConfiguration()
     private var lastUsableSnapshot: EngineSnapshot?
@@ -186,6 +187,7 @@ internal import AetherEngine
         ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
     }
     public func load(url: URL, configuration: EngineConfiguration) async throws {
+        localPreview = url.isFileURL ? FrameExtractor(url: url) : nil
         measuresNetworkInput = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
         downloadSessionID = UUID().uuidString
         let engine = try AetherEngine()
@@ -241,11 +243,26 @@ internal import AetherEngine
     }
     public func play() throws { engine?.play() }
     public func pause() { engine?.pause() }
-    public func seek(to seconds: Double) async throws { guard let engine else { throw PlaybackCoreError.cancelled }; await engine.seek(to: seconds, exact: true); try Task.checkCancellation() }
+    public func seek(to seconds: Double) async throws { try await seek(to: seconds, fast: false) }
+    public func seek(to seconds: Double, fast: Bool) async throws {
+        guard let engine else { throw PlaybackCoreError.cancelled }
+        await engine.seek(to: seconds, exact: !fast)
+        try Task.checkCancellation()
+    }
+    public func scrubPreview(at seconds: Double) async -> UIImage? {
+        if let localPreview {
+            let image = await localPreview.thumbnail(at: seconds)
+            return image.map { UIImage(cgImage: $0) }
+        }
+        let frame = await engine?.scrubPreviewFrame(atSeconds: seconds, refined: false, isCancelled: { Task.isCancelled })
+        return frame.map { UIImage(cgImage: $0.image) }
+    }
     public func shutdown() async {
         pip?.delegate = nil; pip?.stopPictureInPicture(); pip = nil; pipLayer = nil; pipSampleLayer = nil
         engine?.stop(finalTeardown: true)
         await engine?.releaseScrubPreviewDecoders()
+        await localPreview?.shutdown()
+        localPreview = nil
         engine = nil
         manualPiPRequested = false
     }

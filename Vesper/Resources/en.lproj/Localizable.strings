@@ -268,6 +268,8 @@
 "三指" = "Three Fingers";
 
 "快进快退时长" = "Skip Interval";
+"精准定位" = "Precise Seeking";
+"常显更多控制按钮" = "Always Show More Controls";
 
 "恢复默认手势？" = "Reset Gestures?";
 
@@ -826,6 +828,8 @@
 "网格显示" = "Grid";
 "列表显示" = "List";
 "添加日期" = "Date added";
+"1 个项目" = "1 item";
+"%@ 个项目" = "%@ items";
 "发行日期" = "Release date";
 "年份" = "Year";
 "社区评分" = "Community rating";

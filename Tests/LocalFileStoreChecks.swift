@@ -25,6 +25,12 @@ struct LocalFileStoreChecks {
         try await store.move(root: root, entry: renamed, directory: "Folder")
         let movedPayload = try Data(contentsOf: root.appendingPathComponent("Folder/renamed.mov"))
         precondition(movedPayload == payload)
+        try payload.write(to: root.appendingPathComponent("Folder/.hidden.mov"))
+        try payload.write(to: root.appendingPathComponent("Folder/Child/nested.mov"))
+        try manager.createSymbolicLink(at: root.appendingPathComponent("Folder/Link"), withDestinationURL: outside)
+        let itemCount = try await store.folderItemCount(root: root, directory: "Folder")
+        precondition(itemCount == 2)
+        try await expectFailure { _ = try await store.folderItemCount(root: root, directory: "Folder/Link") }
         try payload.write(to: root.appendingPathComponent("duplicate.mov"))
         let duplicate = LocalFileEntry(path: "duplicate.mov", name: "duplicate.mov", isDirectory: false)
         try await expectFailure { try await store.rename(root: root, entry: duplicate, name: "Folder") }

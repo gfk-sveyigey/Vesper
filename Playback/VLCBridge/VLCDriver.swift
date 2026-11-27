@@ -8,6 +8,7 @@ internal import SwiftVLC
 @MainActor public final class VLCDriver: PlaybackDriver {
     public let id: EngineID = .vlc
     private var player: Player?
+    private var localPreviewMedia: Media?
     private var hosting: UIHostingController<AnyView>?
     private let surface = UIView()
     private var pip: PiPController?
@@ -183,6 +184,7 @@ internal import SwiftVLC
         }
         installSurface(player)
         let media = try Media(url: url)
+        localPreviewMedia = url.isFileURL ? media : nil
         for subtitle in configuration.externalSubtitles {
             try media.addSlave(from: subtitle.url, type: .subtitle)
         }
@@ -301,7 +303,7 @@ internal import SwiftVLC
         let stream = player.events
         let wasPaused = !player.isPlaybackRequestedActive
         try player.seek(to: .seconds(seconds), fast: fast)
-        pendingSeekTime = seconds
+        pendingSeekTime = fast ? nil : seconds
         seekClockDeadline = Date().addingTimeInterval(8)
         // SwiftVLC 1.0.0 explicitly permits no timeChanged callback while
         // paused. This is request acceptance, not proof of a decoded frame.
@@ -328,8 +330,15 @@ internal import SwiftVLC
         }
         guard landed else { pendingSeekTime = nil; throw PlaybackCoreError.failed("SwiftVLC: 定位未完成") }
     }
+    public func scrubPreview(at seconds: Double) async -> UIImage? {
+        guard let localPreviewMedia,
+              let data = try? await localPreviewMedia.thumbnail(at: .seconds(seconds), seekMode: .fast,
+                                                               timeout: .seconds(1)) else { return nil }
+        return UIImage(data: data)
+    }
     public func shutdown() async {
         timelineEvents?.cancel(); timelineEvents = nil; pendingSeekTime = nil
+        localPreviewMedia = nil
         pip?.onRestoreUserInterface = nil; pip?.stop(); pip = nil
         let old = player
         player = nil

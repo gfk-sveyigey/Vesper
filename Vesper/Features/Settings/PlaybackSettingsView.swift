@@ -13,6 +13,9 @@ enum PlaybackPreferences {
     static var backgroundMode: String { UserDefaults.standard.string(forKey: "player.background.mode") ?? "audio" }
     static var remembersProgress: Bool { UserDefaults.standard.object(forKey: "player.rememberProgress") as? Bool ?? true }
     static var showsRemainingDuration: Bool { UserDefaults.standard.object(forKey: "player.showsRemainingDuration") as? Bool ?? false }
+    static let preciseSeekingKey = "player.preciseSeeking"
+    static var preciseSeeking: Bool { UserDefaults.standard.bool(forKey: preciseSeekingKey) }
+    static let alwaysShowsMoreControlsKey = "player.alwaysShowsMoreControls"
 }
 
 enum PlaybackEngine: String, CaseIterable, Identifiable {
@@ -39,6 +42,8 @@ struct PlaybackSettingsView: View {
     @AppStorage("player.rememberProgress") private var remembersProgress = true
     @AppStorage("player.showsRemainingDuration") private var showsRemainingDuration = false
     @AppStorage("player.gesture.skipSeconds") private var skipSeconds = 15.0
+    @AppStorage(PlaybackPreferences.preciseSeekingKey) private var preciseSeeking = false
+    @AppStorage(PlaybackPreferences.alwaysShowsMoreControlsKey) private var alwaysShowsMoreControls = false
     var body: some View {
         SettingsPage {
             Group {
@@ -73,6 +78,7 @@ struct PlaybackSettingsView: View {
                 }
                 SettingsSection {
                     Toggle("按进度续播", isOn: $remembersProgress)
+                    Toggle("精准定位", isOn: $preciseSeeking)
                     SettingsPicker("快进快退时长", selection: $skipSeconds) {
                         ForEach([5.0, 10, 15, 30], id: \.self) { seconds in
                             Text(verbatim: String(format: VesperLocalization.string("%d 秒"), Int(seconds))).tag(seconds)
@@ -89,6 +95,9 @@ struct PlaybackSettingsView: View {
                     Toggle("显示剩余时长", isOn: $showsRemainingDuration)
                 } footer: {
                     Text("关闭时显示视频总时长；开启后显示剩余时长。")
+                }
+                SettingsSection {
+                    Toggle("常显更多控制按钮", isOn: $alwaysShowsMoreControls)
                 }
             }
         }

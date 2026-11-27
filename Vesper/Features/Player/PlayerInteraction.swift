@@ -288,8 +288,13 @@ struct PlayerGestureSurface: UIViewRepresentable {
             guard let axis else { return }
             let fraction = (axis == .up || axis == .down) ? delta.y / max(bounds.height, 1) : delta.x / max(bounds.width, 1)
             let sign: CGFloat = (axis == .up || axis == .left) ? -1 : 1
-            panned?(region, fingers, axis, max(0, fraction * sign), phase)
-            if [.ended, .cancelled, .failed].contains(sender.state) { self.axis = nil }
+            let amount = max(0, fraction * sign)
+            panned?(region, fingers, axis, amount, phase)
+            if [.ended, .cancelled, .failed].contains(sender.state) {
+                // A quick swipe can cross the direction threshold only on release.
+                if phase == .began { panned?(region, fingers, axis, amount, sender.state) }
+                self.axis = nil
+            }
         }
         @objc private func pinch(_ sender: UIPinchGestureRecognizer) {
             if sender.state == .began {

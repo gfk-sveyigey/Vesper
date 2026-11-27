@@ -144,7 +144,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     private var appliedBackgroundPolicy = ""
     private var restorePiPCompletion: ((Bool) -> Void)?
     private var restoringPiP = false
-    private var pendingSeek: (time: TimeInterval, resume: Bool, preview: Bool)?
+    private var pendingSeek: (time: TimeInterval, resume: Bool, fast: Bool)?
     private var seekInFlight = false
     private var seekLanding: (time: Double, deadline: Date)?
     private var appIsInBackground = false
@@ -457,34 +457,46 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         recordPlaybackHistory()
     }
 
-    func seek(to time: TimeInterval, resume: Bool? = nil, preview: Bool = false) {
+    func seekManually(to time: TimeInterval, resume: Bool? = nil) {
+        seek(to: time, resume: resume, fast: !PlaybackPreferences.preciseSeeking)
+    }
+
+    func scrubPreview(at time: TimeInterval) async -> UIImage? {
+        await core.scrubPreview(at: time)
+    }
+
+    func resumeAfterCancelledScrub() {
+        core.play()
+        pipController?.invalidatePlaybackState()
+    }
+
+    func seek(to time: TimeInterval, resume: Bool? = nil, fast: Bool = false) {
         guard canSeek, time.isFinite else { return }
         let target = min(max(0, time), duration)
-        pendingSeek = (target, resume ?? isPlaying, preview)
+        pendingSeek = (target, resume ?? isPlaying, fast)
         seekLanding = (target, Date().addingTimeInterval(3))
         currentTime = target
         isSeeking = true
         performPendingSeek()
     }
 
-    // Coalesce scrub previews: at most one decoder seek is in flight, and the
-    // final release target always replaces any older preview waiting behind it.
+    // Keep at most one seek in flight and coalesce additional requests.
     private func performPendingSeek() {
         guard !seekInFlight, let next = pendingSeek, core.driver != nil else { return }
         pendingSeek = nil
         seekInFlight = true
         let token = generation
-        core.seek(to: next.time, resume: next.resume, fast: next.preview) { [weak self] finished in
+        core.seek(to: next.time, resume: next.resume, fast: next.fast) { [weak self] finished in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
                 self.seekInFlight = false
                 if self.pendingSeek != nil { self.performPendingSeek() }
                 else {
                     self.currentTime = finished ? next.time : max(0, self.core.snapshot.time)
-                    self.seekLanding = finished ? (next.time, Date().addingTimeInterval(2)) : nil
+                    self.seekLanding = finished && !next.fast ? (next.time, Date().addingTimeInterval(2)) : nil
                     self.isSeeking = false
                     self.updateSubtitles()
-                    if finished && !next.preview { self.embySession?.didSeek(to: next.time, paused: !self.isPlaying) }
+                    if finished { self.embySession?.didSeek(to: next.time, paused: !next.resume) }
                 }
             }
         }

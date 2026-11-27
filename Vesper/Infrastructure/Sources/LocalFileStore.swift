@@ -33,8 +33,7 @@ actor LocalFileStore {
                 includingPropertiesForKeys: Array(keys),
                 options: [.skipsHiddenFiles]).compactMap { url in
                     let values = try url.resourceValues(forKeys: keys)
-                    guard values.isSymbolicLink != true,
-                          values.isDirectory == true || values.isRegularFile == true else { return nil }
+                    guard isVisibleEntry(values) else { return nil }
                     return LocalFileEntry(path: directory.isEmpty ? url.lastPathComponent : directory + "/" + url.lastPathComponent,
                                           name: url.lastPathComponent, isDirectory: values.isDirectory == true,
                                           dateAdded: values.addedToDirectoryDate ?? values.creationDate)
@@ -43,6 +42,26 @@ actor LocalFileStore {
                     return $0.name.localizedStandardCompare($1.name) == .orderedAscending
                 }
         }
+    }
+
+    /// Count the same immediate files and folders that the browser can display.
+    func folderItemCount(root: URL, directory: String) throws -> Int {
+        try access(root) { base in
+            let folder = try checked(directory, root: base)
+            let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+            let urls = try FileManager.default.contentsOfDirectory(at: folder,
+                includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles])
+            var count = 0
+            for url in urls {
+                try Task.checkCancellation()
+                if isVisibleEntry(try url.resourceValues(forKeys: keys)) { count += 1 }
+            }
+            return count
+        }
+    }
+
+    private func isVisibleEntry(_ values: URLResourceValues) -> Bool {
+        values.isSymbolicLink != true && (values.isDirectory == true || values.isRegularFile == true)
     }
 
     /// Preserve relative paths and never follow symbolic links outside this source.

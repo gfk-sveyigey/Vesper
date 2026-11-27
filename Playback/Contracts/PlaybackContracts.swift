@@ -166,6 +166,7 @@ public struct EngineExternalSubtitle: Sendable {
     func pause()
     func seek(to seconds: Double) async throws
     func seek(to seconds: Double, fast: Bool) async throws
+    func scrubPreview(at seconds: Double) async -> UIImage?
     func shutdown() async
     func configure(_ configuration: EngineConfiguration)
     func selectAudio(_ id: String)
@@ -180,6 +181,7 @@ extension PlaybackDriver {
     public var downloadSample: EngineDownloadSample? { nil }
     public var mediaInformation: MediaProbe? { nil }
     public func preparePiP() {}
+    public func scrubPreview(at seconds: Double) async -> UIImage? { nil }
     public func seek(to seconds: Double, fast: Bool) async throws {
         try await seek(to: seconds)
     }

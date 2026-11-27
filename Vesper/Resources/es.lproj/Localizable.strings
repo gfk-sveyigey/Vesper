@@ -268,6 +268,8 @@
 "三指" = "Tres dedos";
 
 "快进快退时长" = "Intervalo de salto";
+"精准定位" = "Búsqueda precisa";
+"常显更多控制按钮" = "Mostrar siempre más controles";
 
 "恢复默认手势？" = "¿Restablecer gestos?";
 
@@ -826,6 +828,8 @@
 "网格显示" = "Cuadrícula";
 "列表显示" = "Lista";
 "添加日期" = "Fecha de incorporación";
+"1 个项目" = "1 elemento";
+"%@ 个项目" = "%@ elementos";
 "发行日期" = "Fecha de estreno";
 "年份" = "Año";
 "社区评分" = "Valoración de la comunidad";
