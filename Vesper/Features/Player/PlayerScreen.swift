@@ -179,6 +179,50 @@ struct PlayerScreen: View {
     }
 
     private var observedPlayer: some View {
+        playerWithPlaybackObservers
+            .onChange(of: volume.value) { old, new in
+                if new > 0.001 && old != new && session.isMuted { session.unmute() }
+            }
+            .onReceive(volume.externalChanges) { _ in
+                guard canShowSystemVolume else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { showsSystemVolume = true }
+                systemVolumeRevision += 1
+                autoHideRevision += 1
+            }
+            .onChange(of: volumeDragStart) { _, _ in
+                autoHideRevision += 1
+                if showsSystemVolume { systemVolumeRevision += 1 }
+            }
+            .onChange(of: voiceOver) { _, _ in revealControls() }
+            .onChange(of: alwaysShowsMoreControls) { _, _ in setMoreControlsExpanded(false) }
+            .onChange(of: panel) { _, _ in revealControls() }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase != .active else { return }
+                if phase == .background { showsSystemVolume = false }
+                finishScrubbing(commit: false)
+            }
+    }
+
+    private var playerWithPlaybackObservers: some View {
+        playerWithLifecycleObservers
+            .onChange(of: session.isPlaying) { _, _ in autoHideRevision += 1 }
+            .onChange(of: session.isLoading) { _, _ in autoHideRevision += 1 }
+            .onChange(of: session.isSeeking) { _, _ in autoHideRevision += 1 }
+            .onChange(of: session.currentEngine) { _, _ in resetScrubbing() }
+            .onChange(of: session.errorMessage) { _, message in if message != nil { revealControls() } }
+            .onChange(of: session.playbackNotice) { _, message in if message != nil { showingNotice = true; revealControls() } }
+            .onChange(of: session.playbackTransitionNotice) { _, notice in
+                guard let notice else { return }
+                showHUD(notice.message, symbol: "arrow.triangle.2.circlepath", duration: 3)
+            }
+            .onChange(of: session.automaticSkipNotice) { _, notice in
+                guard let notice else { return }
+                showHUD(VesperLocalization.string(notice.kind == .intro ? "已跳过片头" : "已跳过片尾"),
+                        symbol: notice.kind == .intro ? "forward.fill" : "forward.end.fill")
+            }
+    }
+
+    private var playerWithLifecycleObservers: some View {
         presentedPlayer
         .onAppear {
             PlayerOrientationPolicy.update(true, scene: session.videoView?.window?.windowScene)
@@ -199,40 +243,6 @@ struct PlayerScreen: View {
             scrubTime = 0
             showsSystemVolume = false
             setControlsVisible(voiceOver)
-        }
-        .onChange(of: session.isPlaying) { _, _ in autoHideRevision += 1 }
-        .onChange(of: session.isLoading) { _, _ in autoHideRevision += 1 }
-        .onChange(of: session.isSeeking) { _, _ in autoHideRevision += 1 }
-        .onChange(of: session.currentEngine) { _, _ in resetScrubbing() }
-        .onChange(of: session.errorMessage) { _, message in if message != nil { revealControls() } }
-        .onChange(of: session.playbackNotice) { _, message in if message != nil { showingNotice = true; revealControls() } }
-        .onChange(of: session.playbackTransitionNotice) { _, notice in
-            guard let notice else { return }
-            showHUD(notice.message, symbol: "arrow.triangle.2.circlepath", duration: 3)
-        }
-        .onChange(of: session.automaticSkipNotice) { _, notice in
-            guard let notice else { return }
-            showHUD(VesperLocalization.string(notice.kind == .intro ? "已跳过片头" : "已跳过片尾"),
-                    symbol: notice.kind == .intro ? "forward.fill" : "forward.end.fill")
-        }
-        .onChange(of: volume.value) { old, new in if new > 0.001 && old != new && session.isMuted { session.unmute() } }
-        .onReceive(volume.externalChanges) { _ in
-            guard canShowSystemVolume else { return }
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { showsSystemVolume = true }
-            systemVolumeRevision += 1
-            autoHideRevision += 1
-        }
-        .onChange(of: volumeDragStart) { _, _ in
-            autoHideRevision += 1
-            if showsSystemVolume { systemVolumeRevision += 1 }
-        }
-        .onChange(of: voiceOver) { _, _ in revealControls() }
-        .onChange(of: alwaysShowsMoreControls) { _, _ in setMoreControlsExpanded(false) }
-        .onChange(of: panel) { _, _ in revealControls() }
-        .onChange(of: scenePhase) { _, phase in
-            guard phase != .active else { return }
-            if phase == .background { showsSystemVolume = false }
-            finishScrubbing(commit: false)
         }
     }
 
