@@ -110,6 +110,12 @@ struct DebugSettingsView: View {
                     layout.reset(Self.mediaCardMetrics)
                 }
             }
+            DebugSettingsSection(title: "媒体页工具栏") {
+                layoutStepper(.mediaToolbarIconSize)
+                Button("恢复默认值", systemImage: "arrow.counterclockwise") {
+                    layout.reset([.mediaToolbarIconSize])
+                }
+            }
             DebugSettingsSection(title: "媒体列表布局") {
                 ForEach(Self.browserListMetrics, id: \.self) { metric in
                     layoutStepper(metric)

@@ -1191,3 +1191,8 @@
 "媒体卡片布局" = "Media Card Layout";
 "媒体列表布局" = "Media List Layout";
 "来源列表布局" = "Source List Layout";
+"媒体页工具栏" = "Media Toolbar";
+"媒体页工具栏图标字号" = "Media Toolbar Icon Size";
+
+"耳机空间音效" = "Headphone Spatial Audio";
+"将多声道音频处理为空间感耳机立体声；单声道和立体声保持不变，效果取决于当前播放引擎路径。" = "Converts multichannel audio to spatial headphone stereo. Mono and stereo are unchanged. The effect depends on the playback path used by the engine.";

@@ -165,6 +165,7 @@ internal import SwiftVLC
         let instance = try Self.playbackInstance.get()
         Self.startLoggingIfNeeded(instance: instance)
         let player = Player(instance: instance)
+        player.mixMode = configuration.headphoneSpatialAudio ? .binaural : .unset
         self.player = player
         timelineEvents?.cancel()
         pendingSeekTime = nil
@@ -284,6 +285,7 @@ internal import SwiftVLC
         self.configuration = configuration
         guard let player else { return }
         player.isMuted = configuration.muted
+        player.mixMode = configuration.headphoneSpatialAudio ? .binaural : .unset
         try? player.setPlaybackRate(PlaybackRate(configuration.rate))
         player.aspectRatio = configuration.fillsScreen && pip?.isActive != true ? .fill : .default
         player.setSubtitleScale(SubtitleScale(Float(configuration.subtitleFontSize / 22)))

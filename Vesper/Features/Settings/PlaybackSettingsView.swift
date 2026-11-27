@@ -15,6 +15,10 @@ enum PlaybackPreferences {
     static var showsRemainingDuration: Bool { UserDefaults.standard.object(forKey: "player.showsRemainingDuration") as? Bool ?? false }
     static let preciseSeekingKey = "player.preciseSeeking"
     static var preciseSeeking: Bool { UserDefaults.standard.bool(forKey: preciseSeekingKey) }
+    static let headphoneSpatialAudioKey = "player.headphoneSpatialAudio"
+    static var headphoneSpatialAudio: Bool {
+        UserDefaults.standard.object(forKey: headphoneSpatialAudioKey) as? Bool ?? true
+    }
     static let alwaysShowsMoreControlsKey = "player.alwaysShowsMoreControls"
 }
 
@@ -43,6 +47,7 @@ struct PlaybackSettingsView: View {
     @AppStorage("player.showsRemainingDuration") private var showsRemainingDuration = false
     @AppStorage("player.gesture.skipSeconds") private var skipSeconds = 15.0
     @AppStorage(PlaybackPreferences.preciseSeekingKey) private var preciseSeeking = false
+    @AppStorage(PlaybackPreferences.headphoneSpatialAudioKey) private var headphoneSpatialAudio = true
     @AppStorage(PlaybackPreferences.alwaysShowsMoreControlsKey) private var alwaysShowsMoreControls = false
     var body: some View {
         SettingsPage {
@@ -79,6 +84,7 @@ struct PlaybackSettingsView: View {
                 SettingsSection {
                     Toggle("按进度续播", isOn: $remembersProgress)
                     Toggle("精准定位", isOn: $preciseSeeking)
+                    Toggle("耳机空间音效", isOn: $headphoneSpatialAudio)
                     SettingsPicker("快进快退时长", selection: $skipSeconds) {
                         ForEach([5.0, 10, 15, 30], id: \.self) { seconds in
                             Text(verbatim: String(format: VesperLocalization.string("%d 秒"), Int(seconds))).tag(seconds)
@@ -90,6 +96,8 @@ struct PlaybackSettingsView: View {
                             Text(verbatim: String(format: "%g×", Double(rate))).tag(rate)
                         }
                     }
+                } footer: {
+                    Text("将多声道音频处理为空间感耳机立体声；单声道和立体声保持不变，效果取决于当前播放引擎路径。")
                 }
                 SettingsSection {
                     Toggle("显示剩余时长", isOn: $showsRemainingDuration)

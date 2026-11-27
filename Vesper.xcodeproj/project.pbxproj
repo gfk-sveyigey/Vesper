@@ -185,7 +185,7 @@ E6DE6C99132752C914FEF632 = { isa = XCBuildConfiguration; name = Release; buildSe
 
 09ACF4DBA3F6882F5E0D7730 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Vesper/Infrastructure/Playback/PlaybackCore.swift"; sourceTree = SOURCE_ROOT; };
 EAAD44D326D4B6E5A6D03B46 = { isa = PBXBuildFile; fileRef = 09ACF4DBA3F6882F5E0D7730;  };
-271CE95E0C1CD8DDE81F68E2 = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/superuser404notfound/AetherEngine.git"; requirement = { kind = exactVersion; version = 7.72.0; }; };
+271CE95E0C1CD8DDE81F68E2 = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/superuser404notfound/AetherEngine.git"; requirement = { kind = exactVersion; version = 7.76.0; }; };
 64DD4AD1575E80606CA7D578 = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/harflabs/SwiftVLC.git"; requirement = { kind = exactVersion; version = 1.0.0; }; };
 8A7D0B7198CC3E613CA33BE3 = { isa = PBXFileReference; explicitFileType = wrapper.framework; path = PlaybackContracts.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 4AB330210F7E7C614DDB503E = { isa = PBXFileReference; explicitFileType = wrapper.framework; path = VesperAetherBridge.framework; sourceTree = BUILT_PRODUCTS_DIR; };

@@ -1191,3 +1191,8 @@
 "媒体卡片布局" = "Disposition des cartes multimédias";
 "媒体列表布局" = "Disposition des listes multimédias";
 "来源列表布局" = "Disposition des listes de sources";
+"媒体页工具栏" = "Barre d’outils multimédia";
+"媒体页工具栏图标字号" = "Taille des icônes de la barre multimédia";
+
+"耳机空间音效" = "Audio spatial pour casque";
+"将多声道音频处理为空间感耳机立体声；单声道和立体声保持不变，效果取决于当前播放引擎路径。" = "Convertit le son multicanal en stéréo spatiale pour casque. Le mono et la stéréo restent inchangés. L’effet dépend du chemin de lecture utilisé par le moteur.";

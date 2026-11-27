@@ -203,6 +203,7 @@ internal import AetherEngine
         configure(configuration)
         var options = LoadOptions()
         options.autoplay = configuration.autoplay
+        options.audioShaping = AudioShaping(binaural: configuration.headphoneSpatialAudio)
         options.preferredDecodePath = configuration.decoder == .software ? .software : .automatic
         options.httpHeaders = configuration.requestHeaders
         // Prepare engine-owned subtitle rendering for inline and PiP playback.
@@ -222,12 +223,16 @@ internal import AetherEngine
     }
     public func configure(_ configuration: EngineConfiguration) {
         let disablingAutomaticPiP = self.configuration.automaticPiP && !configuration.automaticPiP
+        let spatialAudioChanged = self.configuration.headphoneSpatialAudio != configuration.headphoneSpatialAudio
         self.configuration = configuration
         if disablingAutomaticPiP {
             manualPiPRequested = false
             discardPiPController()
         }
         engine?.setNativeSubtitleRendering(true)
+        if spatialAudioChanged {
+            engine?.setAudioShaping(AudioShaping(binaural: configuration.headphoneSpatialAudio))
+        }
         engine?.backgroundPlaybackEnabled = configuration.backgroundEnabled
         engine?.volume = configuration.muted ? 0 : 1
         engine?.setRate(configuration.rate)

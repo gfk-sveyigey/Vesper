@@ -1191,3 +1191,8 @@
 "媒体卡片布局" = "Medienkartenlayout";
 "媒体列表布局" = "Medienlistenlayout";
 "来源列表布局" = "Quellenlistenlayout";
+"媒体页工具栏" = "Medien-Toolbar";
+"媒体页工具栏图标字号" = "Symbolgröße der Medien-Toolbar";
+
+"耳机空间音效" = "Kopfhörer-Raumklang";
+"将多声道音频处理为空间感耳机立体声；单声道和立体声保持不变，效果取决于当前播放引擎路径。" = "Mehrkanalton wird in räumliches Stereo für Kopfhörer umgewandelt. Mono und Stereo bleiben unverändert. Die Wirkung hängt vom Wiedergabepfad der Engine ab.";

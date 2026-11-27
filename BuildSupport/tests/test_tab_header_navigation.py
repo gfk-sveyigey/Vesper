@@ -99,9 +99,13 @@ class TabHeaderNavigationTests(unittest.TestCase):
     def test_media_root_toolbar_uses_system_symbol_sizes_except_emby_icon(self):
         media = (ROOT / 'Media/MediaView.swift').read_text()
         source_menu = media.split('private func mediaSourceMenu', 1)[1].split('private func localImportButton', 1)[0]
-        selector = media.split('private func sourceMenuButton()', 1)[1].split('private func deviceMedia', 1)[0]
-        sort_button = media.split('var sortMenuButton:', 1)[1].split('func sorted<', 1)[0]
-        self.assertNotIn('.font(.system(size:', source_menu)
-        self.assertNotIn('.font(.system(size:', selector)
-        self.assertNotIn('.font(.system(size:', sort_button)
+        selector = media.split('private func sourceMenuButton(iconSize:', 1)[1].split('private func deviceMedia', 1)[0]
+        sort_button = media.split('func sortMenuButton(iconSize: CGFloat)', 1)[1].split('func sorted<', 1)[0]
+        self.assertIn('font(.system(size: CGFloat(layout[.mediaToolbarIconSize])', source_menu)
+        self.assertIn('sourceMenuButton(iconSize: CGFloat(layout[.mediaToolbarIconSize]))', source_menu)
         self.assertIn('sourceMenuIcon(source, size: 40, inMenu: false)', selector)
+        self.assertIn('font(.system(size: iconSize, weight: .medium))', selector)
+        self.assertIn('font(.system(size: iconSize, weight: .medium))', sort_button)
+        settings = (ROOT / 'Settings/DebugSettingsView.swift').read_text()
+        self.assertIn('DebugSettingsSection(title: "媒体页工具栏")', settings)
+        self.assertIn('layoutStepper(.mediaToolbarIconSize)', settings)

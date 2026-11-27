@@ -124,6 +124,7 @@ extension MediaLayoutSettings.Metric {
         case .sourceListIconLeading: "来源图标左间距"
         case .sourceListIconBottom: "来源图标下间距"
         case .sourceListIconTrailing: "来源图标右间距"
+        case .mediaToolbarIconSize: "媒体页工具栏图标字号"
         case .mediaHeaderHeight: "Header 固定内容高度"
         case .mediaGlassStrength: "Header 下层毛玻璃强度"
         case .mediaGlassTint: "Header 毛玻璃颜色叠加强度"

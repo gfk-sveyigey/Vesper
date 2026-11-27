@@ -1643,6 +1643,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         value.decoder = currentDecoder == .software ? .software : .hardware
         value.position = currentTime; value.autoplay = isPlaying
         value.rate = playbackRate; value.muted = isMuted; value.fillsScreen = fillsScreen
+        value.headphoneSpatialAudio = PlaybackPreferences.headphoneSpatialAudio
         value.backgroundEnabled = PlaybackPreferences.backgroundEnabled
         value.automaticPiP = automaticallyStartsPictureInPicture
         value.subtitleFontSize = subtitleSize

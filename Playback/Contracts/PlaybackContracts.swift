@@ -109,6 +109,7 @@ public struct EngineConfiguration: Sendable {
     public var autoplay = true
     public var rate: Float = 1
     public var muted = false
+    public var headphoneSpatialAudio = true
     public var fillsScreen = false
     public var backgroundEnabled = true
     public var automaticPiP = false

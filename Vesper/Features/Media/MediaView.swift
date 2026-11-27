@@ -12,6 +12,7 @@ final class MediaLayoutSettings: ObservableObject {
         case browserListTop, browserListLeading, browserListBottom, browserListTrailing
         case browserListRowHeight, browserListImageTop, browserListImageLeading, browserListImageBottom, browserListImageTrailing
         case sourceListRowHeight, sourceListIconTop, sourceListIconLeading, sourceListIconBottom, sourceListIconTrailing
+        case mediaToolbarIconSize
 
         case mediaHeaderHeight, mediaGlassStrength, mediaGlassTint, mediaContentBlur
         case mediaGlassBorderWidth, mediaGlassBorderBlur, mediaGlassBorderOpacity
@@ -45,6 +46,7 @@ final class MediaLayoutSettings: ObservableObject {
             case .browserListImageTop, .browserListImageLeading, .browserListImageBottom, .browserListImageTrailing: 4
             case .sourceListRowHeight: 104
             case .sourceListIconTop, .sourceListIconLeading, .sourceListIconBottom, .sourceListIconTrailing: 8
+            case .mediaToolbarIconSize: 17
             case .mediaHeaderHeight: 54
             case .mediaGlassStrength: 5
             case .mediaGlassTint: 50
@@ -78,6 +80,7 @@ final class MediaLayoutSettings: ObservableObject {
             case .browserListImageTop, .browserListImageLeading, .browserListImageBottom, .browserListImageTrailing: 0...60
             case .sourceListRowHeight: 64...240
             case .sourceListIconTop, .sourceListIconLeading, .sourceListIconBottom, .sourceListIconTrailing: 0...60
+            case .mediaToolbarIconSize: 10...32
             case .episodeCardWidth, .episodeCardHeight: 120...1200
             case .mediaHeaderHeight: 30...120
             case .mediaGlassStrength, .mediaGlassTint, .mediaGlassBorderOpacity, .mediaEdgeTopStrength, .mediaEdgeTopMaxStrength, .mediaEdgeBottomStrength, .mediaEdgeTint, .carouselBlurHeight, .carouselBlurStrength, .carouselBlurTint: 0...100
@@ -615,7 +618,7 @@ struct MediaView: View {
         let isLocal = library.selectedSource?.kind == .local && createLocalFolder != nil
         return HStack(spacing: 8) {
             if library.selectedSource?.kind == .local || library.selectedSource?.kind == .photos {
-                deviceBrowser.sortMenuButton
+                deviceBrowser.sortMenuButton(iconSize: CGFloat(layout[.mediaToolbarIconSize]))
             }
             if let source {
                 GlassEffectContainer(spacing: 8) {
@@ -627,7 +630,7 @@ struct MediaView: View {
                                 .glassEffectID("media-source-origin", in: mediaSourceGlass)
                                 .glassEffectTransition(.matchedGeometry)
                         }
-                        sourceMenuButton()
+                        sourceMenuButton(iconSize: CGFloat(layout[.mediaToolbarIconSize]))
                             .transaction { transaction in transaction.animation = nil }
                             .glassEffect(.regular.interactive(), in: .circle)
                             .glassEffectID(showsEmbyShortcuts ? "media-source-selector" : "media-source-origin",
@@ -641,7 +644,7 @@ struct MediaView: View {
                                           createLocalFolder: createLocalFolder)
                         .glassEffect(.regular.interactive(), in: .capsule)
                 }
-                sourceMenuButton()
+                sourceMenuButton(iconSize: CGFloat(layout[.mediaToolbarIconSize]))
                     .transaction { transaction in transaction.animation = nil }
                     .glassEffect(.regular.interactive(), in: .circle)
             }
@@ -659,6 +662,7 @@ struct MediaView: View {
                 localFolderButton(busy: localBusy, action: createLocalFolder).frame(width: 44, height: 44)
             }
         }
+        .font(.system(size: CGFloat(layout[.mediaToolbarIconSize]), weight: .medium))
         .labelStyle(.iconOnly)
         .foregroundStyle(.primary)
         .buttonStyle(.plain)
@@ -773,7 +777,7 @@ struct MediaView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private func sourceMenuButton() -> some View {
+    private func sourceMenuButton(iconSize: CGFloat) -> some View {
         Menu {
             if library.selectedSource?.kind == .local || library.selectedSource?.kind == .photos {
                 Section { deviceBrowser.layoutMenuItems }
@@ -825,10 +829,12 @@ struct MediaView: View {
                         .clipShape(Circle())
                 } else if let source = library.selectedSource, source.kind == .local || source.kind == .photos {
                     Image(systemName: sourceSymbol(source))
+                        .font(.system(size: iconSize, weight: .medium))
                         .foregroundStyle(.primary)
                         .contentTransition(.symbolEffect(.replace))
                 } else {
                     Image(systemName: sourceSymbol(library.selectedSource))
+                        .font(.system(size: iconSize, weight: .medium))
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
@@ -1224,9 +1230,10 @@ struct DeviceMediaBrowserPreferences: DynamicProperty {
         }
     }
 
-    var sortMenuButton: some View {
+    func sortMenuButton(iconSize: CGFloat) -> some View {
         Menu { sortMenuItems } label: {
             Image(systemName: "arrow.up.arrow.down")
+                .font(.system(size: iconSize, weight: .medium))
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())
         }

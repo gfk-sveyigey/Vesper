@@ -56,7 +56,7 @@ struct LocalFilesView<SourceMenu: View>: View {
                     .toolbar {
                         ToolbarItemGroup(placement: .topBarTrailing) {
                             if source.kind == .local || source.kind == .photos {
-                                deviceBrowser.sortMenuButton
+                                deviceBrowser.sortMenuButton(iconSize: CGFloat(layout[.mediaToolbarIconSize]))
                             }
                             Menu {
                                 Section { deviceBrowser.layoutMenuItems }
