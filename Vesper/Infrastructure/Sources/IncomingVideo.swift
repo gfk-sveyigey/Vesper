@@ -53,6 +53,14 @@ struct IncomingVideo: Identifiable, Sendable {
 struct IncomingVideoBatch: Identifiable, Sendable {
     let id = UUID()
     let files: [IncomingVideo]
+    let automaticallySaves: Bool
+    let unreadableFileNames: [String]
+
+    init(files: [IncomingVideo], automaticallySaves: Bool = false, unreadableFileNames: [String] = []) {
+        self.files = files
+        self.automaticallySaves = automaticallySaves || files.count > 1
+        self.unreadableFileNames = unreadableFileNames
+    }
 }
 
 /// The application delegate and SwiftUI use the same receiver, including
@@ -88,18 +96,8 @@ final class IncomingVideoReceiver: ObservableObject {
             openedSharedBatches.insert(directory)
             let urls = SharedVideoInbox.files(in: directory)
             log("分享扩展交付文件数=\(urls.count)")
-            var videos: [IncomingVideo] = []
-            var invalidCount = 0
-            for url in urls {
-                let access = IncomingFileAccess(url: url, sharedBatch: batch)
-                switch await VideoImporter.shared.inspect(access) {
-                case .video(let video): videos.append(video)
-                case .notVideo: invalidCount += 1
-                case .unreadable: log("分享扩展文件不可读取，忽略")
-                }
-            }
-            if !videos.isEmpty { batches.append(IncomingVideoBatch(files: videos)) }
-            if invalidCount > 0 { nonVideoCount += invalidCount }
+            let files = urls.map { IncomingFileAccess(url: $0, sharedBatch: batch) }
+            await inspectDeliveredBatch(files)
         }
     }
 
@@ -109,8 +107,33 @@ final class IncomingVideoReceiver: ObservableObject {
     }
 
     func receivePickedFiles(_ files: [IncomingFileAccess]) {
-        // The document picker already delivered copies with access retained.
-        for file in files { receive(file, requiresCopy: false) }
+        guard !files.isEmpty else { return }
+        log("文件选择器交付文件数=\(files.count)")
+        // Start with the copies retained by the delegate, before the sheet closes.
+        Task { await inspectDeliveredBatch(files) }
+    }
+
+    private func inspectDeliveredBatch(_ files: [IncomingFileAccess]) async {
+        let automaticallySaves = files.count > 1
+        var videos: [IncomingVideo] = []
+        var unreadableFileNames: [String] = []
+        var invalidCount = 0
+        for access in files {
+            switch await VideoImporter.shared.inspect(access) {
+            case .video(let video):
+                videos.append(video)
+            case .notVideo:
+                invalidCount += 1
+            case .unreadable:
+                unreadableFileNames.append(access.url.lastPathComponent)
+            }
+        }
+        log("文件检查结束，视频=\(videos.count)，非视频=\(invalidCount)，不可读取=\(unreadableFileNames.count)")
+        if !videos.isEmpty || (automaticallySaves && !unreadableFileNames.isEmpty) {
+            batches.append(IncomingVideoBatch(files: videos, automaticallySaves: automaticallySaves,
+                                              unreadableFileNames: unreadableFileNames))
+        }
+        if invalidCount > 0 { nonVideoCount += invalidCount }
     }
 
     private func receive(_ access: IncomingFileAccess, requiresCopy: Bool) {

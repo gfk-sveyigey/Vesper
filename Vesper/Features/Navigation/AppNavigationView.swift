@@ -36,7 +36,6 @@ struct AppNavigationView: View {
     @State private var searchPath = NavigationPath()
     @State private var searchRefreshID = UUID()
     @State private var isShowingClearSearchConfirmation = false
-    @State private var pickedVideos: [IncomingFileAccess] = []
     @State private var videoPickerDismissed = true
     @State private var previewBatch: IncomingVideoBatch?
     @State private var isSavingIncomingBatch = false
@@ -139,12 +138,11 @@ struct AppNavigationView: View {
         }
         .sheet(isPresented: $incomingVideos.isSelectingVideo, onDismiss: {
             videoPickerDismissed = true
-            deliverPickedVideo()
+            presentNextIncomingVideo()
         }) {
             VideoDocumentPicker { files in
-                pickedVideos = files
+                incomingVideos.receivePickedFiles(files)
                 incomingVideos.isSelectingVideo = false
-                deliverPickedVideo()
             } onCancel: {
                 incomingVideos.isSelectingVideo = false
             }
@@ -385,28 +383,13 @@ struct AppNavigationView: View {
         miniPlayerEnabled && (miniPlayerAlwaysVisible || hasPlayableContent)
     }
 
-    private func deliverPickedVideo() {
-        guard videoPickerDismissed else { return }
-        if !pickedVideos.isEmpty {
-            let files = pickedVideos
-            pickedVideos = []
-            FileDeliveryLog.write("根页面文档选择器已关闭，交付文件数=\(files.count)")
-            incomingVideos.receivePickedFiles(files)
-        } else {
-            presentNextIncomingVideo()
-        }
-    }
-
     private func presentNextIncomingVideo() {
+        startNextAutomaticImport()
+
         guard scenePhase == .active, videoPickerDismissed, !incomingVideos.isSelectingVideo,
               previewBatch == nil, !isShowingImportNotice, !isSavingIncomingBatch,
               playAfterPreviewDismiss == nil else { return }
         let batch = incomingVideos.batches.first
-        if let batch, batch.files.count > 1 {
-            saveIncomingBatch(batch)
-            return
-        }
-
         let hasNonVideoNotice = incomingVideos.nonVideoCount > acknowledgedNonVideoCount
         guard batch != nil || hasNonVideoNotice || !pendingImportFailures.isEmpty else { return }
         if playback.isPresented {
@@ -428,13 +411,16 @@ struct AppNavigationView: View {
         }
     }
 
-    private func saveIncomingBatch(_ batch: IncomingVideoBatch) {
+    private func startNextAutomaticImport() {
+        guard !isSavingIncomingBatch,
+              let batch = incomingVideos.batches.first(where: \.automaticallySaves) else { return }
         isSavingIncomingBatch = true
         // The task retains every file's access until its copy finishes.
         incomingVideos.acknowledgeBatch(batch.id)
         Task {
             var savedCount = 0
-            var failures: [String] = []
+            let unreadableMessage = VesperLocalization.string("无法读取此视频，请先将文件下载到本机后重试。")
+            var failures = batch.unreadableFileNames.map { "\($0)\n\(unreadableMessage)" }
             for file in batch.files {
                 do {
                     _ = try await VideoImporter.shared.importVideo(file)
@@ -446,10 +432,11 @@ struct AppNavigationView: View {
             }
             if savedCount > 0 {
                 library.registerImportedVideos(name: VesperLocalization.string("本地视频"))
-                FileDeliveryLog.write("批量保存完成，成功=\(savedCount)，总数=\(batch.files.count)")
             }
+            FileDeliveryLog.write("批量保存完成，成功=\(savedCount)，失败=\(failures.count)")
             pendingImportFailures.append(contentsOf: failures)
             isSavingIncomingBatch = false
+            startNextAutomaticImport()
         }
     }
 
@@ -471,6 +458,7 @@ struct AppNavigationView: View {
     /// Retry only while there is an actual pending import. This also handles
     /// sheets owned by child pages, whose dismissal the root cannot observe.
     private func retryIncomingPresentation() async {
+        startNextAutomaticImport()
         guard scenePhase == .active else { return }
         if let reserved = previewBatch,
            incomingVideos.batches.contains(where: { $0.id == reserved.id }) {
@@ -490,12 +478,7 @@ struct AppNavigationView: View {
         guard previewBatch == nil, !isShowingImportNotice, !isSavingIncomingBatch,
               playAfterPreviewDismiss == nil, !incomingVideos.isSelectingVideo,
               videoPickerDismissed else { return }
-        if playback.isPresented {
-            if let batch = incomingVideos.batches.first, batch.files.count > 1 {
-                saveIncomingBatch(batch)
-            }
-            return
-        }
+        guard !playback.isPresented else { return }
         while !Task.isCancelled,
               !incomingVideos.batches.isEmpty || !pendingImportFailures.isEmpty
                 || incomingVideos.nonVideoCount > acknowledgedNonVideoCount {

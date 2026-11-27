@@ -59,6 +59,7 @@ actor VideoImporter {
     enum Inspection: Sendable { case unreadable, notVideo, video(IncomingVideo) }
     func prepare(_ access: IncomingFileAccess, requiresCopy: Bool) throws -> IncomingFileAccess { access }
     func inspect(_ access: IncomingFileAccess) async -> Inspection {
+        if access.url.lastPathComponent == "unreadable.mp4" { return .unreadable }
         if access.url.pathExtension == "txt" { return .notVideo }
         return .video(IncomingVideo(access: access, duration: 60, width: 1920, height: 1080, byteCount: 100))
     }
@@ -95,6 +96,20 @@ import Foundation
         precondition(receiver.batches.first?.files.map(\.name) == ["third.mp4"])
         receiver.acknowledgeBatch(receiver.batches.first!.id)
         precondition(receiver.batches.isEmpty)
+
+        receiver.receivePickedFiles(["readable.mp4", "unreadable.mp4", "not-video.txt"].map {
+            IncomingFileAccess(url: URL(fileURLWithPath: "/tmp/" + $0))
+        })
+        for _ in 0..<100 {
+            if !receiver.batches.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let pickedBatch = receiver.batches.first!
+        precondition(pickedBatch.automaticallySaves)
+        precondition(pickedBatch.files.map(\.name) == ["readable.mp4"])
+        precondition(pickedBatch.unreadableFileNames == ["unreadable.mp4"])
+        precondition(receiver.nonVideoCount == 2)
+        receiver.acknowledgeBatch(pickedBatch.id)
 
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -222,10 +237,13 @@ import Foundation
     def test_multiple_videos_save_before_presentation_and_single_preview_has_one_detent(self):
         nav = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
         sheet = (ROOT / 'Vesper/Features/Import/VideoImportSheet.swift').read_text()
-        route = nav.split('private func presentNextIncomingVideo()', 1)[1].split('private func saveIncomingBatch', 1)[0]
-        save = nav.split('private func saveIncomingBatch', 1)[1].split('private var incomingPresentationRequest', 1)[0]
-        self.assertLess(route.index('batch.files.count > 1'), route.index('importPresentationHost.canPresent'))
-        self.assertIn('saveIncomingBatch(batch)\n            return', route)
+        route = nav.split('private func presentNextIncomingVideo()', 1)[1].split('private func startNextAutomaticImport()', 1)[0]
+        save = nav.split('private func startNextAutomaticImport()', 1)[1].split('private var incomingPresentationRequest', 1)[0]
+        self.assertLess(route.index('startNextAutomaticImport()'), route.index('guard scenePhase'))
+        self.assertIn('incomingVideos.batches.first(where: \\.automaticallySaves)', save)
+        self.assertIn('batch.unreadableFileNames.map', save)
+        self.assertNotIn('videoPickerDismissed', save)
+        self.assertNotIn('importPresentationHost', save)
         self.assertIn('previewBatch = batch', route)
         self.assertIn('for file in batch.files', save)
         self.assertIn('try await VideoImporter.shared.importVideo(file)', save)
@@ -235,7 +253,7 @@ import Foundation
         self.assertIn('.presentationDetents([.custom(VideoImportDetent.self)])', sheet)
         self.assertIn('.presentationDragIndicator(.hidden)', sheet)
 
-    def test_document_picker_delivers_all_selected_copies_after_dismissal(self):
+    def test_document_picker_delivers_all_selected_copies_in_its_callback(self):
         local = (ROOT / 'Vesper/Features/Media/LocalFilesView.swift').read_text()
         nav = (ROOT / 'Vesper/Features/Navigation/AppNavigationView.swift').read_text()
         receiver = (ROOT / 'Vesper/Infrastructure/Sources/IncomingVideo.swift').read_text()
@@ -244,9 +262,10 @@ import Foundation
         self.assertIn('picker.allowsMultipleSelection = true', picker)
         self.assertIn('onPick(urls.map { IncomingFileAccess(url: $0) })', picker)
         self.assertNotIn('urls.first', picker)
-        delivery = nav.split('private func deliverPickedVideo()', 1)[1].split('private func presentNextIncomingVideo', 1)[0]
-        self.assertLess(delivery.index('guard videoPickerDismissed'), delivery.index('receivePickedFiles(files)'))
-        self.assertIn('for file in files { receive(file, requiresCopy: false) }', receiver)
+        delivery = nav.split('VideoDocumentPicker { files in', 1)[1].split('} onCancel:', 1)[0]
+        self.assertLess(delivery.index('receivePickedFiles(files)'), delivery.index('isSelectingVideo = false'))
+        self.assertIn('await inspectDeliveredBatch(files)', receiver)
+        self.assertIn('let automaticallySaves = files.count > 1', receiver)
 
     def test_share_inbox_url_only_requests_reading_published_batches(self):
         extension = (ROOT / 'ShareExtension/VideoShareViewController.swift').read_text()
