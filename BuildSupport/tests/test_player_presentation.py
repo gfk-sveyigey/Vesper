@@ -67,7 +67,7 @@ class PlayerPresentationTests(unittest.TestCase):
     def test_more_controls_share_button_size_and_slide_with_the_timeline(self):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
         settings = (ROOT / 'Vesper/Features/Settings/PlaybackSettingsView.swift').read_text()
-        actions = source.split('private func bottomActions(', 1)[1].split('private func landscapeMenu(', 1)[0]
+        actions = source.split('private func bottomActions(', 1)[1].split('private func playbackOptionButton(', 1)[0]
         left_group = actions.split('.glassEffect', 1)[0]
         self.assertIn('bottomAction("详细信息"', left_group)
         self.assertIn('bottomAction("显示调试信息"', left_group)
@@ -82,6 +82,27 @@ class PlayerPresentationTests(unittest.TestCase):
         self.assertIn('controlsVisible && !alwaysShowsMoreControls', source)
         self.assertIn('setMoreControlsExpanded(kind == .up)', source)
         self.assertIn('if !visible { moreControlsExpanded = false }', source)
+        swipe_animation = source.split('private func setMoreControlsExpanded(', 1)[1].split('private func setControlsVisible(', 1)[0]
+        self.assertIn('withAnimation(reduceMotion ? nil : .easeOut(duration: 0.24))', swipe_animation)
+
+    def test_playback_options_morph_into_the_menu_whenever_more_controls_are_visible(self):
+        source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
+        self.assertIn('playbackOptions(expanded: landscape && !showsMoreControls)', source)
+        options = source.split('private func playbackOptions(', 1)[1].split('private func danmakuMenu(', 1)[0]
+        self.assertIn('GlassEffectContainer', options)
+        self.assertIn('.glassEffectID("player-options-origin", in: playbackOptionsGlass)', options)
+        self.assertIn('.glassEffectID(expanded ? "player-options-menu" : "player-options-origin", in: playbackOptionsGlass)', options)
+        self.assertEqual(options.count('.glassEffectTransition(.matchedGeometry)'), 2)
+        self.assertIn('if expanded { return UIMenu(children: [danmakuMenu(), introOutroMenu()]) }', options)
+        self.assertIn('return UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu(), introOutroMenu()])', options)
+
+    def test_playback_gesture_hud_uses_the_requested_action_symbol(self):
+        source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
+        action = source.split('private func performGestureAction(', 1)[1]
+        hud = action.split('case .playback, .play, .pause:', 1)[1].split('case .mute:', 1)[0]
+        self.assertIn('action == .pause || (action == .playback && session.isPlaying)', hud)
+        self.assertIn('pauses ? "暂停" : "播放"', hud)
+        self.assertIn('pauses ? "pause.fill" : "play.fill"', hud)
 
     def test_player_edge_spacing_is_four_independent_values(self):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
@@ -186,6 +207,13 @@ class PlayerPresentationTests(unittest.TestCase):
         self.assertIn('resume: Bool? = nil, fast: Bool = false', session)
         self.assertIn('exact: !fast', aether)
         self.assertIn('player.seek(to: .seconds(seconds), fast: fast)', vlc)
+
+    def test_scrub_previews_use_higher_resolution_frames(self):
+        aether = (ROOT / 'Playback/AetherBridge/AetherDriver.swift').read_text()
+        vlc = (ROOT / 'Playback/VLCBridge/VLCDriver.swift').read_text()
+        self.assertIn('thumbnail(at: seconds, maxWidth: 720)', aether)
+        self.assertIn('refined: false, maxWidth: 720', aether)
+        self.assertIn('thumbnail(at: .seconds(seconds), width: 720, seekMode: .fast', vlc)
     def test_sources_are_tunable_transparent_rows(self):
         source = (ROOT / 'Vesper/Features/Sources/SourcesView.swift').read_text()
         media = (ROOT / 'Vesper/Features/Media/MediaView.swift').read_text()

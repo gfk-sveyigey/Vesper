@@ -21,6 +21,21 @@ class LocalizationTests(unittest.TestCase):
             for key, value in entries.items():
                 self.assertTrue(value.strip(), (locale, key))
                 self.assertEqual(sorted(PLACEHOLDER.findall(key)), sorted(PLACEHOLDER.findall(value)), (locale, key))
+    def test_more_player_controls_setting_translation(self):
+        expected = {
+            'de.lproj': 'Steuerelemente immer anzeigen',
+            'en.lproj': 'Always Show More Controls',
+            'es.lproj': 'Mostrar siempre más controles',
+            'fr.lproj': 'Toujours afficher plus de commandes',
+            'ja.lproj': 'その他のコントロールを常に表示',
+            'ko.lproj': '추가 제어 버튼 항상 표시',
+            'zh-Hans.lproj': '常显更多控制按钮',
+            'zh-Hant.lproj': '一律顯示更多控制項',
+        }
+        for locale, value in expected.items():
+            path = ROOT / 'Vesper/Resources' / locale / 'Localizable.strings'
+            pairs = {json.loads(k): json.loads(v) for k, v in ENTRY.findall(path.read_text())}
+            self.assertEqual(pairs['常显更多控制按钮'], value, locale)
     def test_app_permissions_setting_opens_system_settings_directly(self):
         settings = (ROOT / 'Vesper/Features/Settings/SettingsView.swift').read_text()
         self.assertIn('appPermissionsButton\n                    Divider()', settings)

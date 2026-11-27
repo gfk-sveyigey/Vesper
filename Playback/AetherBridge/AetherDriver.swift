@@ -260,10 +260,11 @@ internal import AetherEngine
     }
     public func scrubPreview(at seconds: Double) async -> UIImage? {
         if let localPreview {
-            let image = await localPreview.thumbnail(at: seconds)
+            let image = await localPreview.thumbnail(at: seconds, maxWidth: 720)
             return image.map { UIImage(cgImage: $0) }
         }
-        let frame = await engine?.scrubPreviewFrame(atSeconds: seconds, refined: false, isCancelled: { Task.isCancelled })
+        let frame = await engine?.scrubPreviewFrame(atSeconds: seconds, refined: false, maxWidth: 720,
+                                                    isCancelled: { Task.isCancelled })
         return frame.map { UIImage(cgImage: $0.image) }
     }
     public func shutdown() async {

@@ -92,6 +92,7 @@ struct PlayerScreen: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Namespace private var playbackOptionsGlass
     @AppStorage(PlaybackPreferences.alwaysShowsMoreControlsKey) private var alwaysShowsMoreControls = false
     @AppStorage(PlaybackDiagnostics.controlTopPortraitSpacingKey) private var topPortraitSpacing = PlaybackDiagnostics.defaultControlTopPortraitSpacing
     @AppStorage(PlaybackDiagnostics.controlTopLandscapeSpacingKey) private var topLandscapeSpacing = PlaybackDiagnostics.defaultControlTopLandscapeSpacing
@@ -589,8 +590,7 @@ struct PlayerScreen: View {
                         .lineLimit(1).truncationMode(.middle)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if landscape { expandedPlaybackOptions }
-                else { playbackOptionsMenu }
+                playbackOptions(expanded: landscape && !showsMoreControls)
             }
             progressRow
                 .padding(.horizontal, 12)
@@ -690,12 +690,31 @@ struct PlayerScreen: View {
         }
     }
 
-    private var playbackOptionsMenu: some View {
-        PlayerMenuButton(symbol: "ellipsis", accessibilityTitle: VesperLocalization.string("播放选项"),
-                         makeMenu: { UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu(), introOutroMenu()]) },
-                         visibilityChanged: menuVisibilityChanged)
-            .frame(width: 44, height: 44)
-            .glassEffect(controlGlass.interactive(), in: Circle())
+    private func playbackOptions(expanded: Bool) -> some View {
+        GlassEffectContainer(spacing: 16) {
+            HStack(spacing: 16) {
+                if expanded {
+                    HStack(spacing: 16) {
+                        playbackOptionButton("播放速度", symbol: "speedometer", menu: speedMenu)
+                        playbackOptionButton("音频", symbol: "waveform", menu: audioMenu)
+                        playbackOptionButton("字幕", symbol: "captions.bubble", menu: subtitleMenu)
+                    }
+                    .glassEffect(controlGlass.interactive(), in: Capsule())
+                    .glassEffectID("player-options-origin", in: playbackOptionsGlass)
+                    .glassEffectTransition(.matchedGeometry)
+                }
+                playbackOptionButton("播放选项", symbol: "ellipsis") {
+                    if expanded { return UIMenu(children: [danmakuMenu(), introOutroMenu()]) }
+                    return UIMenu(children: [speedMenu(), audioMenu(), subtitleMenu(), danmakuMenu(), introOutroMenu()])
+                }
+                .transaction { transaction in transaction.animation = nil }
+                .glassEffect(controlGlass.interactive(), in: Circle())
+                .glassEffectID(expanded ? "player-options-menu" : "player-options-origin", in: playbackOptionsGlass)
+                .glassEffectTransition(.matchedGeometry)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86), value: expanded)
     }
 
     private func danmakuMenu() -> UIMenu {
@@ -785,19 +804,6 @@ struct PlayerScreen: View {
         return UIMenu(title: VesperLocalization.string("音频"), image: UIImage(systemName: "waveform"), children: actions)
     }
 
-    private var expandedPlaybackOptions: some View {
-        HStack(spacing: 16) {
-            landscapeMenu("播放速度", symbol: "speedometer", menu: speedMenu)
-            landscapeMenu("音频", symbol: "waveform", menu: audioMenu)
-            landscapeMenu("字幕", symbol: "captions.bubble", menu: subtitleMenu)
-            landscapeMenu("播放选项", symbol: "ellipsis", menu: { UIMenu(children: [danmakuMenu(), introOutroMenu()]) })
-        }
-        .glassEffect(controlGlass.interactive(), in: Capsule())
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("播放选项")
-        .fixedSize(horizontal: true, vertical: false)
-    }
-
     private var diagnosticOverlay: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
             VStack(alignment: .leading, spacing: 5) {
@@ -858,7 +864,7 @@ struct PlayerScreen: View {
             .frame(width: bottomButtonSize, height: bottomButtonSize)
     }
 
-    private func landscapeMenu(_ title: String, symbol: String, menu: @escaping () -> UIMenu) -> some View {
+    private func playbackOptionButton(_ title: String, symbol: String, menu: @escaping () -> UIMenu) -> some View {
         PlayerMenuButton(symbol: symbol, accessibilityTitle: VesperLocalization.string(title), makeMenu: menu, visibilityChanged: menuVisibilityChanged)
             .frame(width: 44, height: 44)
     }
@@ -1145,13 +1151,16 @@ struct PlayerScreen: View {
 
     private func performGestureAction(_ action: PlayerGestureAction) {
         if action != .none && action != .controls && ![.backward, .forward, .brightnessUp, .brightnessDown, .volumeUp, .volumeDown, .speedUp, .speedDown].contains(action) {
-            let message: String
             switch action {
-            case .playback: message = VesperLocalization.string(session.isPlaying ? "暂停" : "播放")
-            case .mute: message = VesperLocalization.string(audioIsMuted ? "取消静音" : "静音")
-            default: message = VesperLocalization.string(action.rawValue == "controls" ? "显隐控制层" : gestureActionLabel(action))
+            case .playback, .play, .pause:
+                let pauses = action == .pause || (action == .playback && session.isPlaying)
+                showHUD(VesperLocalization.string(pauses ? "暂停" : "播放"),
+                        symbol: pauses ? "pause.fill" : "play.fill")
+            case .mute:
+                showHUD(VesperLocalization.string(audioIsMuted ? "取消静音" : "静音"), symbol: "checkmark")
+            default:
+                showHUD(VesperLocalization.string(gestureActionLabel(action)), symbol: "checkmark")
             }
-            showHUD(message, symbol: "checkmark")
         }
         switch action {
         case .none: break
@@ -1329,7 +1338,7 @@ struct PlayerScreen: View {
     private func revealControls() { setControlsVisible(true) }
     private func setMoreControlsExpanded(_ expanded: Bool) {
         autoHideRevision += 1
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.24)) {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.24)) {
             moreControlsExpanded = expanded
         }
     }

@@ -337,7 +337,7 @@ internal import SwiftVLC
     }
     public func scrubPreview(at seconds: Double) async -> UIImage? {
         guard let localPreviewMedia,
-              let data = try? await localPreviewMedia.thumbnail(at: .seconds(seconds), seekMode: .fast,
+              let data = try? await localPreviewMedia.thumbnail(at: .seconds(seconds), width: 720, seekMode: .fast,
                                                                timeout: .seconds(1)) else { return nil }
         return UIImage(data: data)
     }
