@@ -189,15 +189,33 @@ class PlayerPresentationTests(unittest.TestCase):
     def test_vlc_seek_holds_audio_until_video_output_or_timeout(self):
         driver = (ROOT / 'Playback/VLCBridge/VLCDriver.swift').read_text()
         seek = driver.split('public func seek(to seconds: Double, fast:', 1)[1].split('public func scrubPreview(', 1)[0]
-        self.assertLess(seek.index('seekAudioFrameBaseline = statistics.displayedPictures'),
+        self.assertLess(seek.index('seekAudioFrameBaseline = baseline'),
                         seek.index('try player.seek(to: .seconds(seconds), fast: fast)'))
         self.assertLess(seek.index('player.isMuted = true'), seek.index('try player.seek('))
         self.assertLess(seek.index('if !wasPaused { waitForSeekPicture(player) }'),
                         seek.index('if wasPaused || fast'))
         self.assertIn('player.isMuted = configuration.muted || seekAudioFrameBaseline != nil', driver)
         self.assertIn('player?.isMuted = configuration.muted', driver)
-        self.assertIn('$0.displayedPictures > baseline', driver)
-        self.assertIn('(hasNewPicture && player.state == .playing) || ContinuousClock.now >= deadline', driver)
+        self.assertIn('(player.statistics?.displayedPictures ?? baseline) > baseline', driver)
+        self.assertIn('seekAudioClock?.isFinite == true && self.pendingSeekTime == nil', driver)
+        self.assertIn('if hasNewPicture, inputIsReady, player.state == .playing', driver)
+        self.assertIn('pendingSeekTime = fast ? nil : seconds', seek)
+        self.assertIn('let inputIsReady = !isLocal || (clockAcknowledged && !self.isSeekRebuffering)', driver)
+        self.assertIn('let baseline = displayedPictures ?? (localPreviewMedia != nil ? 0 : nil)', seek)
+        self.assertIn('case .bufferingProgress(let fill) where self.localPreviewMedia != nil && self.seekAudioFrameBaseline != nil:', driver)
+        self.assertIn('if isSeekRebuffering, result.phase == .playing { result.phase = .loading }', driver)
+        wait = driver.split('private func waitForSeekPicture(', 1)[1].split('public var renderedFrameMarker', 1)[0]
+        timeout = wait.split('if ContinuousClock.now >= deadline {', 1)[1]
+        self.assertIn('self.resetSeekAudio()', timeout)
+        self.assertNotIn('player.pause()', timeout)
+
+    def test_vlc_local_startup_waits_for_surface_without_changing_network_buffer(self):
+        driver = (ROOT / 'Playback/VLCBridge/VLCDriver.swift').read_text()
+        load = driver.split('public func load(', 1)[1].split('private func prepareLocalPlaybackSurface(', 1)[0]
+        self.assertRegex(load, r'if url\.isFileURL \{\s*//[^\n]+\n\s*media\.addOption\(":file-caching=300"\)')
+        self.assertIn('url.isFileURL ? nil : 5_000', load)
+        self.assertLess(load.index('if url.isFileURL { try await prepareLocalPlaybackSurface() }'),
+                        load.index('try player.play(media)'))
 
     def test_timeline_drag_is_relative_to_starting_playback_position(self):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()

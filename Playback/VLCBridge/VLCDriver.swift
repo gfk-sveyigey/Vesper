@@ -17,6 +17,8 @@ internal import SwiftVLC
     private var timelineEvents: Task<Void, Never>?
     private var pendingSeekTime: Double?
     private var seekAudioFrameBaseline: UInt64?
+    private var seekAudioClock: Double?
+    private var isSeekRebuffering = false
     private var seekAudioTask: Task<Void, Never>?
     private var isOpeningMedia = false
     private var seekClockDeadline = Date.distantPast
@@ -72,6 +74,8 @@ internal import SwiftVLC
         case .error: result.phase = .failed("SwiftVLC: 播放失败")
         }
         if isOpeningMedia, player.state != .error { result.phase = .loading }
+        // SwiftVLC can keep its lifecycle state at .playing during rebuffering.
+        if isSeekRebuffering, result.phase == .playing { result.phase = .loading }
         result.time = pendingSeekTime ?? seconds(player.currentTime)
         result.duration = player.duration.map(seconds) ?? 0
         // bufferFill is a cache percentage, NOT a position in the file.
@@ -176,10 +180,25 @@ internal import SwiftVLC
         timelineEvents = Task { @MainActor [weak self, weak player] in
             for await event in events {
                 guard !Task.isCancelled, let self, let player, self.player === player else { return }
-                if case .timeChanged(let time) = event, let target = self.pendingSeekTime {
-                    // Native time, not the optimistically assigned currentTime,
-                    // acknowledges the latest seek. Ignore outgoing old-clock events.
-                    if abs(self.seconds(time) - target) < 1.5 { self.pendingSeekTime = nil }
+                switch event {
+                case .timeChanged(let time):
+                    let nativeTime = self.seconds(time)
+                    if self.localPreviewMedia != nil, self.seekAudioFrameBaseline != nil {
+                        self.seekAudioClock = nativeTime
+                    }
+                    if let target = self.pendingSeekTime, abs(nativeTime - target) < 1.5 {
+                        self.pendingSeekTime = nil
+                    }
+                case .bufferingProgress(let fill) where self.localPreviewMedia != nil && self.seekAudioFrameBaseline != nil:
+                    let isBuffering = fill < 0.999
+                    if isBuffering && !self.isSeekRebuffering {
+                        // Ignore pictures and clock updates from before the refill.
+                        self.seekAudioFrameBaseline = player.statistics?.displayedPictures
+                            ?? self.seekAudioFrameBaseline
+                        self.seekAudioClock = nil
+                    }
+                    self.isSeekRebuffering = isBuffering
+                default: break
                 }
                 if case .stateChanged(let state) = event, state == .error || state == .stopped {
                     self.pendingSeekTime = nil
@@ -204,6 +223,10 @@ internal import SwiftVLC
             }
         }
         media.addOption(":no-video-title-show")
+        if url.isFileURL {
+            // A shorter file buffer reduces the preroll needed after local seeks.
+            media.addOption(":file-caching=300")
+        }
         let networkCachingMilliseconds: Int? = url.isFileURL ? nil : 5_000
         if let networkCachingMilliseconds {
             media.addOption(":network-caching=\(networkCachingMilliseconds)")
@@ -212,6 +235,7 @@ internal import SwiftVLC
         // expose the remaining input length as duration on some demuxers.
         // Restore progress with a normal absolute seek after input readiness.
         if !configuration.autoplay || configuration.position > 0 { media.addOption(":start-paused") }
+        if url.isFileURL { try await prepareLocalPlaybackSurface() }
         try player.play(media)
         // Readiness is asynchronous. Do not report success merely on play().
         // A large network buffer must be allowed to fill before the open timeout.
@@ -256,6 +280,21 @@ internal import SwiftVLC
         }
         throw PlaybackCoreError.failed("SwiftVLC: 打开媒体超时")
     }
+    private func prepareLocalPlaybackSurface() async throws {
+        // SwiftUI mounts the published surface asynchronously. Give it a chance
+        // to install and lay out the native drawable before the decoder starts.
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(750))
+        while surface.window == nil || surface.bounds.isEmpty {
+            if ContinuousClock.now >= deadline {
+                Self.engineLogHandler?("[SwiftVLC] 本地视频起播前未等到渲染视图挂载。")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(16))
+        }
+        try Task.checkCancellation()
+        surface.layoutIfNeeded()
+    }
+
     private func installSurface(_ player: Player) {
         let binding = Binding<PiPController?>(get: { [weak self] in self?.pip }, set: { [weak self] pip in
             self?.pip = pip
@@ -323,18 +362,33 @@ internal import SwiftVLC
     private func resetSeekAudio() {
         seekAudioTask?.cancel()
         seekAudioTask = nil
-        guard seekAudioFrameBaseline != nil else { return }
+        let wasGated = seekAudioFrameBaseline != nil
         seekAudioFrameBaseline = nil
-        player?.isMuted = configuration.muted
+        seekAudioClock = nil
+        isSeekRebuffering = false
+        if wasGated { player?.isMuted = configuration.muted }
     }
 
     private func waitForSeekPicture(_ player: Player) {
-        guard let baseline = seekAudioFrameBaseline, seekAudioTask == nil else { return }
+        guard seekAudioFrameBaseline != nil, seekAudioTask == nil else { return }
         seekAudioTask = Task { @MainActor [weak self, weak player] in
-            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-            while !Task.isCancelled, let self, let player, self.player === player {
-                let hasNewPicture = player.statistics.map { $0.displayedPictures > baseline } ?? false
-                if (hasNewPicture && player.state == .playing) || ContinuousClock.now >= deadline {
+            let isLocal = self?.localPreviewMedia != nil
+            let deadline = ContinuousClock.now.advanced(by: .seconds(isLocal ? 4 : 2))
+            while !Task.isCancelled, let self, let player, self.player === player,
+                  let baseline = self.seekAudioFrameBaseline {
+                // Fast seeks can land far from the requested time. An exact seek
+                // still uses its native clock acknowledgement (pendingSeekTime).
+                let hasNewPicture = (player.statistics?.displayedPictures ?? baseline) > baseline
+                let clockAcknowledged = self.seekAudioClock?.isFinite == true && self.pendingSeekTime == nil
+                let inputIsReady = !isLocal || (clockAcknowledged && !self.isSeekRebuffering)
+                if hasNewPicture, inputIsReady, player.state == .playing {
+                    self.resetSeekAudio()
+                    return
+                }
+                if ContinuousClock.now >= deadline {
+                    if isLocal {
+                        Self.engineLogHandler?("[SwiftVLC] 本地视频跳转后等待画面超时，恢复音频。")
+                    }
                     self.resetSeekAudio()
                     return
                 }
@@ -355,10 +409,13 @@ internal import SwiftVLC
         let wasPaused = !player.isPlaybackRequestedActive
         seekAudioTask?.cancel()
         seekAudioTask = nil
+        let displayedPictures = player.statistics?.displayedPictures
         if player.hasVideoOutput || player.videoTracks.contains(where: { $0.isSelected }),
-           let statistics = player.statistics {
+           let baseline = displayedPictures ?? (localPreviewMedia != nil ? 0 : nil) {
             // libVLC can acknowledge a seek and start audio before presenting video.
-            seekAudioFrameBaseline = statistics.displayedPictures
+            seekAudioFrameBaseline = baseline
+            seekAudioClock = nil
+            isSeekRebuffering = false
             player.isMuted = true
         } else {
             resetSeekAudio()
