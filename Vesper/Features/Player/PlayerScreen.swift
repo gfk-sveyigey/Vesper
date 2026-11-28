@@ -593,26 +593,8 @@ struct PlayerScreen: View {
                 playbackOptions(expanded: landscape && !showsMoreControls)
             }
             progressRow
-                .padding(.horizontal, 12)
-                .background {
-                    Color.clear
-                        .frame(height: 44)
-                        .glassEffect(controlGlass, in: Capsule())
-                        .allowsHitTesting(false)
-                }
                 .scaleEffect(scrubSource == .timeline ? 1.06 : 1)
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: scrubSource)
-                .overlay(alignment: .top) {
-                    if scrubSource == .timeline {
-                        Text(timeLabel(scrubTime))
-                            .font(.caption.monospacedDigit())
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(.black.opacity(0.75), in: Capsule())
-                            .alignmentGuide(.top) { $0[.bottom] + 8 }
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-                }
             bottomActions(landscape: landscape, availableWidth: availableWidth)
                 .offset(y: showsMoreControls ? 0 : bottomInset)
                 .allowsHitTesting(showsMoreControls)
@@ -623,7 +605,44 @@ struct PlayerScreen: View {
     }
 
     private var progressRow: some View {
-        PlayerTimelineRegion { progressRowContent }
+        PlayerTimelineRegion {
+            GeometryReader { geometry in
+                progressRowContent
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background {
+                        Color.clear
+                            .glassEffect(controlGlass, in: Capsule())
+                            .allowsHitTesting(false)
+                    }
+                    .contentShape(Rectangle())
+                    .gesture(PlayerTimelinePress { phase, x in
+                        switch phase {
+                        case .began:
+                            beginScrubbing(.timeline)
+                            if scrubSource == .timeline {
+                                timelineDragOrigin = (x, max(geometry.size.width, 1))
+                            }
+                        case .changed, .ended:
+                            guard let origin = timelineDragOrigin, scrubSource == .timeline else { return }
+                            let distance = x - origin.x
+                            updateScrubbing(scrubStart + Double(distance / origin.width) * session.duration)
+                            if phase == .ended { finishScrubbing(commit: scrubTime != scrubStart) }
+                        case .cancelled, .failed:
+                            if scrubSource == .timeline { finishScrubbing(commit: false) }
+                        default: break
+                        }
+                    })
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("播放进度")
+            .accessibilityValue(timeLabel(isScrubbing ? scrubTime : session.currentTime))
+            .accessibilityAdjustableAction { direction in
+                session.seekManually(to: session.currentTime + (direction == .increment ? PlayerGesturePreferences.skipInterval : -PlayerGesturePreferences.skipInterval))
+                revealControls()
+            }
+        }
+        .frame(height: 44)
     }
 
     private var progressRowContent: some View {
@@ -661,33 +680,8 @@ struct PlayerScreen: View {
                     }
             }
             .frame(height: 44)
-            .contentShape(Rectangle())
-            .gesture(PlayerTimelinePress { phase, x in
-                switch phase {
-                case .began:
-                    beginScrubbing(.timeline)
-                    if scrubSource == .timeline {
-                        timelineDragOrigin = (x, max(geometry.size.width, 1))
-                    }
-                case .changed, .ended:
-                    guard let origin = timelineDragOrigin, scrubSource == .timeline else { return }
-                    let distance = x - origin.x
-                    updateScrubbing(scrubStart + Double(distance / origin.width) * session.duration)
-                    if phase == .ended { finishScrubbing(commit: scrubTime != scrubStart) }
-                case .cancelled, .failed:
-                    if scrubSource == .timeline { finishScrubbing(commit: false) }
-                default: break
-                }
-            })
         }
         .frame(height: 44)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("播放进度")
-        .accessibilityValue(timeLabel(isScrubbing ? scrubTime : session.currentTime))
-        .accessibilityAdjustableAction { direction in
-            session.seekManually(to: session.currentTime + (direction == .increment ? PlayerGesturePreferences.skipInterval : -PlayerGesturePreferences.skipInterval))
-            revealControls()
-        }
     }
 
     private func playbackOptions(expanded: Bool) -> some View {

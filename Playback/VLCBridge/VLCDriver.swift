@@ -241,11 +241,30 @@ internal import SwiftVLC
         // A large network buffer must be allowed to fill before the open timeout.
         let openTimeout = max(40.0, Double(networkCachingMilliseconds ?? 0) / 1_000 + 15)
         let deadline = ContinuousClock.now.advanced(by: .seconds(openTimeout))
+        let verifyOnlineAutoplay = !url.isFileURL && configuration.autoplay
         var didRestorePosition = false
         while ContinuousClock.now < deadline {
             try Task.checkCancellation()
             switch player.state {
             case .playing, .paused:
+                if verifyOnlineAutoplay {
+                    if configuration.position > 0, !didRestorePosition {
+                        // Wait for :start-paused to take effect before issuing the seek.
+                        // Resuming on a transient .playing event can miss that pause.
+                        if player.isPausable, player.state != .paused {
+                            try await Task.sleep(for: .milliseconds(50))
+                            continue
+                        }
+                    } else {
+                        if player.state == .playing, player.isPlaying, pendingSeekTime == nil {
+                            configure(configuration)
+                            return
+                        }
+                        if !player.isPlaying { player.resume() }
+                        try await Task.sleep(for: .milliseconds(50))
+                        continue
+                    }
+                }
                 if didRestorePosition {
                     // Native timeChanged acknowledges the absolute seek. Do not
                     // expose VLC's temporary startup pause as a user pause.
@@ -269,7 +288,8 @@ internal import SwiftVLC
                 if !configuration.autoplay { player.pause() }
                 else if configuration.position > 0 {
                     didRestorePosition = true
-                    try player.play()
+                    if verifyOnlineAutoplay { player.resume() }
+                    else { try player.play() }
                     continue
                 }
                 return

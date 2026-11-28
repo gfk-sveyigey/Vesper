@@ -27,6 +27,10 @@ class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
         self.assertIn('if player.isPlaying && pendingSeekTime == nil { return }', driver)
         self.assertIn('if isOpeningMedia, player.state != .error { result.phase = .loading }', driver)
         self.assertIn('if !isOpeningMedia, Date() >= seekClockDeadline', driver)
+        online_start = driver.split('if verifyOnlineAutoplay {', 1)[1].split('if didRestorePosition {', 1)[0]
+        self.assertIn('if player.isPausable, player.state != .paused', online_start)
+        self.assertIn('if player.state == .playing, player.isPlaying, pendingSeekTime == nil', online_start)
+        self.assertIn('if !player.isPlaying { player.resume() }', online_start)
 
     def test_subtitle_selection_survives_vlc_async_track_acknowledgement(self):
         core = (ROOT / 'Vesper/Infrastructure/Playback/PlaybackCore.swift').read_text()
@@ -56,7 +60,8 @@ class PlaybackRefreshDiagnosticsTests(unittest.TestCase):
         self.assertIn('let timeline = PlaybackTimelineState()', session)
         for field in ('currentTime', 'bufferedTime', 'bufferedRanges', 'downloadBytesPerSecond'):
             self.assertNotIn('@Published private(set) var ' + field, session)
-        self.assertIn('PlayerTimelineRegion { progressRowContent }', screen)
+        row = screen.split('private var progressRow:', 1)[1].split('private var progressRowContent:', 1)[0]
+        self.assertRegex(row, r'PlayerTimelineRegion \{\s*GeometryReader \{ geometry in\s*progressRowContent')
         self.assertIn('PlayerTimelineRegion { Text(verbatim: session.downloadSpeedText) }', screen)
         self.assertIn('lastNowPlayingPosition', session)
 

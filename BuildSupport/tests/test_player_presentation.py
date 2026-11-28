@@ -46,9 +46,12 @@ class PlayerPresentationTests(unittest.TestCase):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
         bottom = source.split('private func bottomControls', 1)[1].split('private var progressBar', 1)[0]
         self.assertIn('progressRow', bottom)
-        self.assertIn('.frame(height: 44)', bottom.split('.glassEffect(controlGlass, in: Capsule())', 1)[0])
+        self.assertIn('.frame(height: 44)', bottom)
         self.assertIn('.glassEffect(controlGlass, in: Capsule())', bottom)
         self.assertIn('.scaleEffect(scrubSource == .timeline ? 1.06 : 1)', bottom)
+        row = bottom.split('private var progressRow:', 1)[1]
+        self.assertRegex(row, r'\.contentShape\(Rectangle\(\)\)\s*\.gesture\(PlayerTimelinePress')
+        self.assertNotIn('Text(timeLabel(scrubTime))', bottom)
         self.assertIn('recognizer.minimumPressDuration = 0', source)
         layer = source.split('bottomControls(landscape: landscape, availableWidth:', 1)[1].split('}', 1)[0]
         self.assertIn('.opacity(controlsVisible ? 1 : 0)', layer)
