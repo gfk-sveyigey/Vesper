@@ -552,8 +552,8 @@ final class TraktPlaybackReporter {
         if let action = state.update(playing: playing, ended: ended) { enqueue(action, progress: progress) }
     }
 
-    func finish() {
-        if let action = state.finish(),
+    func finish(reportStop: Bool = true) {
+        if reportStop, let action = state.finish(),
            let progress = TraktScrobbleState.progress(position: position, duration: duration) {
             enqueue(action, progress: progress)
         }

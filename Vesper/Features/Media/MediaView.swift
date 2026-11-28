@@ -1208,7 +1208,7 @@ struct DeviceMediaBrowserPreferences: DynamicProperty {
     @ViewBuilder var layoutMenuItems: some View {
         Picker(selection: Binding(get: { displayLayout }, set: { displayLayout = $0 })) {
             ForEach(MediaBrowserLayout.allCases) { layout in
-                Text(layout.title).tag(layout)
+                Label(layout.title, systemImage: layout.symbol).tag(layout)
             }
         } label: {
             Label("布局方式", systemImage: "rectangle.grid.2x2")

@@ -1025,6 +1025,11 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         savedProgressRevision += 1
     }
 
+    func removeLocalPlaybackData(sourceID: UUID) {
+        if currentItem?.id.sourceID == sourceID { stop(savePlaybackRecord: false) }
+        removePlaybackData { $0.sourceID == sourceID }
+    }
+
     /// Called after a successful file deletion; directory deletion also removes
     /// descendant entries. Suppress the active item so a later stop cannot save it again.
     func removePlaybackData(sourceID: UUID, path: String, includingDescendants: Bool) {
@@ -1558,20 +1563,26 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
     }
 
     func stop() {
+        stop(savePlaybackRecord: true)
+    }
+
+    private func stop(savePlaybackRecord: Bool) {
         hasLoadedMedia = false
         playbackSubtitleTask?.cancel()
         playbackSubtitleTask = nil
         playbackSubtitle = nil
-        traktReporter.finish()
-        saveProgress()
-        recordPlaybackHistory()
+        traktReporter.finish(reportStop: savePlaybackRecord)
+        if savePlaybackRecord {
+            saveProgress()
+            recordPlaybackHistory()
+        }
         cancelNextPreparation()
         skipLookupTask?.cancel()
         skipLookupTask = nil
         request?.cancel()
         request = nil
         generation = UUID()
-        tearDownPlayer()
+        tearDownPlayer(reportStop: savePlaybackRecord)
         currentItem = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         source = nil
@@ -1590,7 +1601,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         }
     }
 
-    private func tearDownPlayer() {
+    private func tearDownPlayer(reportStop: Bool = true) {
         downloadSpeedSampler = DownloadSpeedSampler()
         downloadBytesPerSecond = nil
         pipStartTask?.cancel(); pipStartTask = nil
@@ -1615,7 +1626,7 @@ final class PlaybackSession: NSObject, ObservableObject, @preconcurrency AVPictu
         let retiringResource = resource
         Task {
             await retirement.value
-            if let ending = retiringEmbySession?.finish() { await ending.value }
+            if let ending = retiringEmbySession?.finish(reportStop: reportStop) { await ending.value }
             retiringResource?.release()
         }
         videoView?.removeFromSuperview()

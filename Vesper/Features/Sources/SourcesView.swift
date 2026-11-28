@@ -85,19 +85,16 @@ struct SourcesView: View {
                                                 Label {
                                                     Text(verbatim: name)
                                                 } icon: {
-                                                    Image(systemName: "checkmark")
-                                                        .frame(width: 20, height: 20)
-                                                        .opacity(key == EmbyRouteOptions.key(configuration.serverAddress) ? 1 : 0)
-                                                        .accessibilityHidden(key != EmbyRouteOptions.key(configuration.serverAddress))
+                                                    routeMenuIcon(isSelected: key == EmbyRouteOptions.key(configuration.serverAddress))
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                            Button("移除来源", systemImage: "trash", role: .destructive) { library.remove(source.id) }
+                            Button("移除来源", systemImage: "trash", role: .destructive) { removeSource(source.id) }
                         }
-                        .accessibilityAction(named: Text("移除来源")) { library.remove(source.id) }
+                        .accessibilityAction(named: Text("移除来源")) { removeSource(source.id) }
                         if source.id != library.visibleSources.last?.id {
                             Divider().padding(.leading, iconInset)
                         }
@@ -162,6 +159,20 @@ struct SourcesView: View {
             }
         }
         .sheet(isPresented: $showingOrder) { SourceOrderSheet() }
+    }
+
+    private static let emptyRouteMenuIcon = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20))
+        .image { _ in }
+        .withRenderingMode(.alwaysOriginal)
+
+    private func routeMenuIcon(isSelected: Bool) -> Image {
+        if isSelected { return Image(systemName: "checkmark") }
+        return Image(uiImage: Self.emptyRouteMenuIcon).renderingMode(.original)
+    }
+
+    private func removeSource(_ id: UUID) {
+        playback.removeLocalPlaybackData(sourceID: id)
+        library.remove(id)
     }
 
     private func togglePrivacyMode() {

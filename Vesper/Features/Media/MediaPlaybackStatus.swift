@@ -16,7 +16,7 @@ struct ThumbnailPlaybackProgress: View {
     var body: some View {
         Group {
             if progress > 0 && total > 0 {
-                ThumbnailProgressBadge(position: progress, total: total)
+                ThumbnailProgressBadge(position: progress, total: total, showsDuration: source.kind == .emby)
             }
         }
         .task(id: progress > 0 ? item.id : nil) {
@@ -56,25 +56,38 @@ struct MediaPlaybackStatus: View {
 struct ThumbnailProgressBadge: View {
     let position: Double
     let total: Double
+    let showsDuration: Bool
     @ScaledMetric(relativeTo: .caption2) private var progressWidth = 20.0
     private var fraction: CGFloat {
         guard total.isFinite, position.isFinite, total > 0 else { return 0 }
         return CGFloat(min(1, max(0, position / total)))
     }
-    var body: some View {
-        HStack(spacing: 5) {
-            if total > 0 {
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.35))
-                        Capsule().fill(.white)
-                            .mask(alignment: .leading) {
-                                Rectangle().frame(width: geometry.size.width * fraction)
-                            }
+    private var track: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.35))
+                Capsule().fill(.white)
+                    .mask(alignment: .leading) {
+                        Rectangle().frame(width: geometry.size.width * fraction)
                     }
-                }
-                .frame(width: progressWidth, height: 4)
             }
+        }
+        .frame(height: 4)
+    }
+
+    @ViewBuilder var body: some View {
+        if showsDuration {
+            durationBadge
+        } else {
+            track
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+        }
+    }
+
+    private var durationBadge: some View {
+        HStack(spacing: 5) {
+            track.frame(width: progressWidth)
             Text(verbatim: mediaTimeLabel(total))
                 .font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
         }

@@ -66,10 +66,10 @@ final class EmbyPlaybackSession: PlaybackTranscodingProvider {
         if started { enqueue(action: "progress") }
     }
 
-    @discardableResult func finish() -> Task<Void, Never>? {
+    @discardableResult func finish(reportStop: Bool = true) -> Task<Void, Never>? {
         guard !stopped else { return reportChain }
         stopped = true
-        if started { enqueue(action: "stopped") }
+        if started, reportStop { enqueue(action: "stopped") }
         let previous = reportChain
         let source = self.source, ids = transcodeSessionIDs.union([playSessionID])
         let repository = self.repository

@@ -238,16 +238,26 @@ final class SourceLibrary: ObservableObject {
                 ?? URLComponents(string: validated.primaryRoute)?.host ?? "Emby"
         }
         if validated.fetchAlternateAddresses == true {
-            let client: EmbyAPIClient
-            if let preparedAccount {
-                client = try EmbyAPIClient(configuration: validated, token: preparedAccount.token,
-                                           deviceID: preparedAccount.deviceID)
-            } else {
-                client = try accounts.client(for: candidate)
+            do {
+                let client: EmbyAPIClient
+                if let preparedAccount {
+                    client = try EmbyAPIClient(configuration: validated, token: preparedAccount.token,
+                                               deviceID: preparedAccount.deviceID)
+                } else {
+                    client = try accounts.client(for: candidate)
+                }
+                let routes = try await EmbyRepository.alternateRoutes(client: client, primaryRoute: validated.primaryRoute)
+                validated.mergeServerRoutes(routes)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                try Task.checkCancellation()
+                // Route discovery is optional once the primary route is verified.
+                let timestamp = ISO8601DateFormatter().string(from: Date())
+                AppLog.runtimeEntries.append("\(timestamp) [Emby] 获取服务器线路失败，使用表单中的线路保存来源。")
             }
-            let routes = try await EmbyRepository.alternateRoutes(client: client, primaryRoute: validated.primaryRoute)
-            validated.mergeServerRoutes(routes)
         }
+        try Task.checkCancellation()
         let index = id.flatMap { id in sources.firstIndex { $0.id == id && $0.kind == .emby } }
         guard id == nil || index != nil else { throw EmbyError.missingAccount }
         if (original == nil || original?.emby?.serverID == validated.serverID),
