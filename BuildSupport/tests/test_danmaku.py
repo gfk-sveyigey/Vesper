@@ -50,6 +50,14 @@ catch DanmakuImportError.tooLarge {} catch { fatalError("Wrong count error") }
 
 
 class DanmakuAPITests(unittest.TestCase):
+    def test_player_search_prefill_does_not_require_source_library_environment(self):
+        source = (ROOT / 'Vesper/Features/Player/DanmakuAPISettingsView.swift').read_text()
+        search = source.split('struct DanmakuAPISearchView:', 1)[1].split('private struct DanmakuAPIEpisodesView:', 1)[0]
+        self.assertNotIn('@EnvironmentObject', search)
+        self.assertIn('let seriesCatalog = MediaSourceServices.seriesCatalog', search)
+        self.assertIn('keyword = fallback', search)
+        self.assertIn('if keyword == fallback { keyword = query }', search)
+
     def test_api_urls_and_json(self):
         compiler = os.environ.get('SWIFTC') or shutil.which('swiftc')
         if not compiler:
