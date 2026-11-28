@@ -16,6 +16,8 @@ internal import SwiftVLC
     private var hasInstalledSurface = false
     private var timelineEvents: Task<Void, Never>?
     private var pendingSeekTime: Double?
+    private var seekAudioFrameBaseline: UInt64?
+    private var seekAudioTask: Task<Void, Never>?
     private var isOpeningMedia = false
     private var seekClockDeadline = Date.distantPast
     private var measuresNetworkInput = false
@@ -152,6 +154,7 @@ internal import SwiftVLC
         ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
     }
     public func load(url: URL, configuration: EngineConfiguration) async throws {
+        resetSeekAudio()
         isOpeningMedia = true
         defer { isOpeningMedia = false }
         measuresNetworkInput = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
@@ -180,6 +183,7 @@ internal import SwiftVLC
                 }
                 if case .stateChanged(let state) = event, state == .error || state == .stopped {
                     self.pendingSeekTime = nil
+                    self.resetSeekAudio()
                 }
             }
         }
@@ -284,7 +288,7 @@ internal import SwiftVLC
         let previous = self.configuration
         self.configuration = configuration
         guard let player else { return }
-        player.isMuted = configuration.muted
+        player.isMuted = configuration.muted || seekAudioFrameBaseline != nil
         player.mixMode = configuration.headphoneSpatialAudio ? .binaural : .unset
         try? player.setPlaybackRate(PlaybackRate(configuration.rate))
         player.aspectRatio = configuration.fillsScreen && pip?.isActive != true ? .fill : .default
@@ -295,8 +299,50 @@ internal import SwiftVLC
             installSurface(player)
         }
     }
-    public func play() throws { try player?.play() }
-    public func pause() { player?.pause() }
+    public func play() throws {
+        guard let player else { return }
+        do {
+            switch player.state {
+            case .paused, .playing, .opening, .buffering:
+                player.resume()
+            default:
+                try player.play()
+            }
+            waitForSeekPicture(player)
+        } catch {
+            resetSeekAudio()
+            throw error
+        }
+    }
+    public func pause() {
+        seekAudioTask?.cancel()
+        seekAudioTask = nil
+        player?.pause()
+    }
+
+    private func resetSeekAudio() {
+        seekAudioTask?.cancel()
+        seekAudioTask = nil
+        guard seekAudioFrameBaseline != nil else { return }
+        seekAudioFrameBaseline = nil
+        player?.isMuted = configuration.muted
+    }
+
+    private func waitForSeekPicture(_ player: Player) {
+        guard let baseline = seekAudioFrameBaseline, seekAudioTask == nil else { return }
+        seekAudioTask = Task { @MainActor [weak self, weak player] in
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while !Task.isCancelled, let self, let player, self.player === player {
+                let hasNewPicture = player.statistics.map { $0.displayedPictures > baseline } ?? false
+                if (hasNewPicture && player.state == .playing) || ContinuousClock.now >= deadline {
+                    self.resetSeekAudio()
+                    return
+                }
+                do { try await Task.sleep(for: .milliseconds(25)) } catch { return }
+            }
+        }
+    }
+
     public var renderedFrameMarker: Double? {
         player?.statistics.map { Double($0.displayedPictures) }
     }
@@ -307,7 +353,23 @@ internal import SwiftVLC
         guard let player else { throw PlaybackCoreError.cancelled }
         let stream = player.events
         let wasPaused = !player.isPlaybackRequestedActive
-        try player.seek(to: .seconds(seconds), fast: fast)
+        seekAudioTask?.cancel()
+        seekAudioTask = nil
+        if player.hasVideoOutput || player.videoTracks.contains(where: { $0.isSelected }),
+           let statistics = player.statistics {
+            // libVLC can acknowledge a seek and start audio before presenting video.
+            seekAudioFrameBaseline = statistics.displayedPictures
+            player.isMuted = true
+        } else {
+            resetSeekAudio()
+        }
+        do {
+            try player.seek(to: .seconds(seconds), fast: fast)
+        } catch {
+            resetSeekAudio()
+            throw error
+        }
+        if !wasPaused { waitForSeekPicture(player) }
         pendingSeekTime = fast ? nil : seconds
         seekClockDeadline = Date().addingTimeInterval(8)
         // SwiftVLC 1.0.0 explicitly permits no timeChanged callback while
@@ -336,12 +398,16 @@ internal import SwiftVLC
         guard landed else { pendingSeekTime = nil; throw PlaybackCoreError.failed("SwiftVLC: 定位未完成") }
     }
     public func scrubPreview(at seconds: Double) async -> UIImage? {
-        guard let localPreviewMedia,
-              let data = try? await localPreviewMedia.thumbnail(at: .seconds(seconds), width: 720, seekMode: .fast,
-                                                               timeout: .seconds(1)) else { return nil }
+        guard let localPreviewMedia, let player else { return nil }
+        let tracks = player.videoTracks
+        let sourceWidth = (tracks.first(where: { $0.isSelected }) ?? tracks.first)?.width ?? 0
+        let previewWidth = sourceWidth > 0 ? sourceWidth : 1920
+        guard let data = try? await localPreviewMedia.thumbnail(at: .seconds(seconds), width: previewWidth,
+                                                                seekMode: .fast, timeout: .seconds(1)) else { return nil }
         return UIImage(data: data)
     }
     public func shutdown() async {
+        resetSeekAudio()
         timelineEvents?.cancel(); timelineEvents = nil; pendingSeekTime = nil
         localPreviewMedia = nil
         pip?.onRestoreUserInterface = nil; pip?.stop(); pip = nil

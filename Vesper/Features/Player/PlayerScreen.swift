@@ -1074,11 +1074,12 @@ struct PlayerScreen: View {
         let deadline = clock.now.advanced(by: .seconds(2))
         let unreportedFrameGrace = clock.now.advanced(by: .milliseconds(150))
         while !Task.isCancelled, scrubHandoff?.id == handoff.id, clock.now < deadline {
-            if !session.isSeeking && !session.isLoading {
+            if !session.isSeeking {
                 let marker = session.renderedFrameMarker
                 if let initial = handoff.frameMarker, let marker {
-                    if marker != initial { break }
-                } else if clock.now >= unreportedFrameGrace { break }
+                    // VLC's picture count is live, while isLoading can lag until the next session poll.
+                    if (session.currentEngine == .vlc || !session.isLoading) && marker != initial { break }
+                } else if !session.isLoading, clock.now >= unreportedFrameGrace { break }
             }
             do { try await Task.sleep(for: .milliseconds(25)) } catch { return }
         }

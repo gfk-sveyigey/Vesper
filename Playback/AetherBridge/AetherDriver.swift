@@ -259,12 +259,15 @@ internal import AetherEngine
         try Task.checkCancellation()
     }
     public func scrubPreview(at seconds: Double) async -> UIImage? {
+        guard let engine else { return nil }
+        let sourceWidth = Int(engine.sourceVideoWidth)
+        let previewWidth = sourceWidth > 0 ? sourceWidth : 1920
         if let localPreview {
-            let image = await localPreview.thumbnail(at: seconds, maxWidth: 720)
+            let image = await localPreview.thumbnail(at: seconds, maxWidth: previewWidth)
             return image.map { UIImage(cgImage: $0) }
         }
-        let frame = await engine?.scrubPreviewFrame(atSeconds: seconds, refined: false, maxWidth: 720,
-                                                    isCancelled: { Task.isCancelled })
+        let frame = await engine.scrubPreviewFrame(atSeconds: seconds, refined: false, maxWidth: previewWidth,
+                                                   isCancelled: { Task.isCancelled })
         return frame.map { UIImage(cgImage: $0.image) }
     }
     public func shutdown() async {

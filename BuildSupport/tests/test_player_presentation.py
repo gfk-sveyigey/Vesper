@@ -181,10 +181,23 @@ class PlayerPresentationTests(unittest.TestCase):
         self.assertIn('aspectRatio(contentMode: session.fillsScreen ? .fill : .fit)', layers)
         self.assertNotIn('scrubPreviewImage', source)
         self.assertIn('shouldSeek && scrubImage != nil', handoff)
-        self.assertIn('if !session.isSeeking && !session.isLoading', handoff)
-        self.assertIn('if marker != initial { break }', handoff)
+        self.assertIn('if !session.isSeeking {', handoff)
+        self.assertIn('(session.currentEngine == .vlc || !session.isLoading) && marker != initial', handoff)
         self.assertIn('clock.now < deadline', handoff)
         self.assertIn('if !keepPreview { clearScrubPreview() }', handoff)
+
+    def test_vlc_seek_holds_audio_until_video_output_or_timeout(self):
+        driver = (ROOT / 'Playback/VLCBridge/VLCDriver.swift').read_text()
+        seek = driver.split('public func seek(to seconds: Double, fast:', 1)[1].split('public func scrubPreview(', 1)[0]
+        self.assertLess(seek.index('seekAudioFrameBaseline = statistics.displayedPictures'),
+                        seek.index('try player.seek(to: .seconds(seconds), fast: fast)'))
+        self.assertLess(seek.index('player.isMuted = true'), seek.index('try player.seek('))
+        self.assertLess(seek.index('if !wasPaused { waitForSeekPicture(player) }'),
+                        seek.index('if wasPaused || fast'))
+        self.assertIn('player.isMuted = configuration.muted || seekAudioFrameBaseline != nil', driver)
+        self.assertIn('player?.isMuted = configuration.muted', driver)
+        self.assertIn('$0.displayedPictures > baseline', driver)
+        self.assertIn('(hasNewPicture && player.state == .playing) || ContinuousClock.now >= deadline', driver)
 
     def test_timeline_drag_is_relative_to_starting_playback_position(self):
         source = (ROOT / 'Vesper/Features/Player/PlayerScreen.swift').read_text()
@@ -208,12 +221,20 @@ class PlayerPresentationTests(unittest.TestCase):
         self.assertIn('exact: !fast', aether)
         self.assertIn('player.seek(to: .seconds(seconds), fast: fast)', vlc)
 
-    def test_scrub_previews_use_higher_resolution_frames(self):
+    def test_scrub_previews_request_the_source_video_width(self):
         aether = (ROOT / 'Playback/AetherBridge/AetherDriver.swift').read_text()
         vlc = (ROOT / 'Playback/VLCBridge/VLCDriver.swift').read_text()
-        self.assertIn('thumbnail(at: seconds, maxWidth: 720)', aether)
-        self.assertIn('refined: false, maxWidth: 720', aether)
-        self.assertIn('thumbnail(at: .seconds(seconds), width: 720, seekMode: .fast', vlc)
+        aether_preview = aether.split('public func scrubPreview(', 1)[1].split('public func shutdown(', 1)[0]
+        vlc_preview = vlc.split('public func scrubPreview(', 1)[1].split('public func shutdown(', 1)[0]
+        self.assertIn('Int(engine.sourceVideoWidth)', aether_preview)
+        self.assertIn('thumbnail(at: seconds, maxWidth: previewWidth)', aether_preview)
+        self.assertIn('refined: false, maxWidth: previewWidth', aether_preview)
+        self.assertIn('(tracks.first(where: { $0.isSelected }) ?? tracks.first)?.width', vlc_preview)
+        self.assertIn('thumbnail(at: .seconds(seconds), width: previewWidth', vlc_preview)
+        self.assertIn('seekMode: .fast', vlc_preview)
+        for preview in (aether_preview, vlc_preview):
+            self.assertIn('sourceWidth > 0 ? sourceWidth : 1920', preview)
+
     def test_sources_are_tunable_transparent_rows(self):
         source = (ROOT / 'Vesper/Features/Sources/SourcesView.swift').read_text()
         media = (ROOT / 'Vesper/Features/Media/MediaView.swift').read_text()
